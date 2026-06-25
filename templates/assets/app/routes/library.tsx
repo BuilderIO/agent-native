@@ -1076,12 +1076,11 @@ function AllAssetsBrowser() {
     [allAssets, assetTab],
   );
   const visibleAssetCount = assets.length;
-  const assetCountLabel =
-    isLoading
-      ? t("library.loading")
-      : query.trim() || assetTab !== "all"
-        ? t("library.shownCount", { count: visibleAssetCount })
-        : t("library.assetCount", { count: allAssets.length });
+  const assetCountLabel = isLoading
+    ? t("library.loading")
+    : query.trim() || assetTab !== "all"
+      ? t("library.shownCount", { count: visibleAssetCount })
+      : t("library.assetCount", { count: allAssets.length });
   const standaloneSelectionText = useMemo(
     () =>
       standaloneSelection
@@ -2441,14 +2440,14 @@ export function AssetPickerSurface() {
     embedded && generateBatch.isPending
       ? t("library.generating")
       : waitingForRequestedPreset
-      ? t("library.loadingPreset")
-      : setupNeeded
-        ? t("library.setupNeeded")
-        : preparingAutoLibrary
-          ? t("library.preparing")
-          : embedded
-            ? t("library.generate")
-            : t("library.openChat");
+        ? t("library.loadingPreset")
+        : setupNeeded
+          ? t("library.setupNeeded")
+          : preparingAutoLibrary
+            ? t("library.preparing")
+            : embedded
+              ? t("library.generate")
+              : t("library.openChat");
   const generationStatus = preparingAutoLibrary
     ? waitingForLibraries
       ? t("library.checkingImageLibraries")
@@ -2822,7 +2821,9 @@ export function AssetPickerSurface() {
                   onValueChange={(value) => setAssetTab(value as AssetTab)}
                 >
                   <TabsList>
-                    <TabsTrigger value="all">{t("library.tabsAll")}</TabsTrigger>
+                    <TabsTrigger value="all">
+                      {t("library.tabsAll")}
+                    </TabsTrigger>
                     <TabsTrigger value="generated">
                       {t("library.generated")}
                     </TabsTrigger>

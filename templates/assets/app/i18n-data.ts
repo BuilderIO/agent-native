@@ -372,8 +372,7 @@ const enUS = {
     starterAssets: "Starter assets",
     connectGenerationModels: "Connect generation models.",
     tabsAll: "All",
-    tellAgentUseThis:
-      'Or tell your agent which one, for example "use this".',
+    tellAgentUseThis: 'Or tell your agent which one, for example "use this".',
     thisCandidate: "this candidate",
     upload: "Upload",
     uploadFailed: "Upload failed",

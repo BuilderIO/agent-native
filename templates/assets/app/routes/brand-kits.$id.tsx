@@ -694,7 +694,9 @@ export function BrandKitDetailRoute({
       });
       toast.success(t("library.savedToLibrary"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("library.couldNotSaveDraft"));
+      toast.error(
+        error instanceof Error ? error.message : t("library.couldNotSaveDraft"),
+      );
     } finally {
       setSavingCandidateSlotId(null);
     }
@@ -957,18 +959,18 @@ export function BrandKitDetailRoute({
           { id: toastId, description: null },
         );
       } else if (uploadedCount > 0) {
-        toast.success(
-          t("library.uploadedAssets", { count: uploadedCount }),
+        toast.success(t("library.uploadedAssets", { count: uploadedCount }), {
+          id: toastId,
+          description: null,
+        });
+      } else if (skippedCount > 0) {
+        toast.warning(
+          t("library.skippedDuplicateAssets", { count: skippedCount }),
           {
             id: toastId,
-            description: null,
+            description: t("library.alreadyInThisBrandKit"),
           },
         );
-      } else if (skippedCount > 0) {
-        toast.warning(t("library.skippedDuplicateAssets", { count: skippedCount }), {
-          id: toastId,
-          description: t("library.alreadyInThisBrandKit"),
-        });
       } else {
         toast.warning(t("library.noNewAssetsUploaded"), {
           id: toastId,
@@ -977,7 +979,8 @@ export function BrandKitDetailRoute({
       }
       await refreshLibrary();
     } catch (e) {
-      const message = e instanceof Error ? e.message : t("library.uploadFailed");
+      const message =
+        e instanceof Error ? e.message : t("library.uploadFailed");
       const indeterminate =
         /(?:\b408\b|\b504\b|timeout|timed out|network|failed to fetch|load failed)/i.test(
           message,
@@ -1062,7 +1065,8 @@ export function BrandKitDetailRoute({
       toast.error(t("library.runHasNoGeneratedAssets"));
       return;
     }
-    const prompt = run.originalPrompt || run.prompt || t("library.generatedAsset");
+    const prompt =
+      run.originalPrompt || run.prompt || t("library.generatedAsset");
     createSession.mutate(
       {
         libraryId,
@@ -1206,8 +1210,7 @@ export function BrandKitDetailRoute({
                 </Button>
               </div>
               <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                {library.description ||
-                  t("library.defaultKitDescription")}
+                {library.description || t("library.defaultKitDescription")}
               </p>
             </div>
             {headerActions}
@@ -2481,7 +2484,9 @@ function AssetSwimlaneBoard({
         },
         onError: (error) => {
           restoreAfterDeleteError(ids);
-          toast.error(error.message || t("library.couldNotDeleteSelectedAssets"));
+          toast.error(
+            error.message || t("library.couldNotDeleteSelectedAssets"),
+          );
         },
       },
     );
@@ -2562,7 +2567,9 @@ function AssetSwimlaneBoard({
     return {
       id: `upload:${upload.id}`,
       title: upload.name,
-      subtitle: isChecking ? t("library.checkingUpload") : t("library.uploading"),
+      subtitle: isChecking
+        ? t("library.checkingUpload")
+        : t("library.uploading"),
       status: isChecking ? t("library.checking") : t("library.uploading"),
       mediaType: upload.mediaType,
       busy: true,
@@ -2646,7 +2653,11 @@ function AssetSwimlaneBoard({
                 onClick={onSave}
                 disabled={busy}
               >
-                {saving ? <Spinner className="h-3.5 w-3.5" /> : t("library.save")}
+                {saving ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  t("library.save")
+                )}
               </Button>
             ) : null}
             {canMoveToReferences ? (
@@ -2929,7 +2940,9 @@ function AssetSwimlaneBoard({
       ) : (
         <SwimLane
           title={
-            scope === "references" ? t("library.references") : t("library.library")
+            scope === "references"
+              ? t("library.references")
+              : t("library.library")
           }
           eyebrow={
             scope === "references"
@@ -3056,7 +3069,11 @@ function AssetScopeToggle({
     count: number;
   }> = [
     { value: "all", label: t("library.tabsAll"), count: allCount },
-    { value: "references", label: t("library.references"), count: referenceCount },
+    {
+      value: "references",
+      label: t("library.references"),
+      count: referenceCount,
+    },
   ];
 
   return (
@@ -3192,7 +3209,9 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
-                        {copied ? t("library.copied") : t("library.copyToClipboard")}
+                        {copied
+                          ? t("library.copied")
+                          : t("library.copyToClipboard")}
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -3210,7 +3229,10 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
                 <div className="truncate text-sm font-medium">{item.title}</div>
                 <div className="mt-2 flex min-h-5 min-w-0 flex-wrap items-center gap-1.5">
                   {item.status ? (
-                    <Badge variant="secondary" className="h-5 rounded-full px-2">
+                    <Badge
+                      variant="secondary"
+                      className="h-5 rounded-full px-2"
+                    >
                       {item.status}
                     </Badge>
                   ) : null}
@@ -3805,7 +3827,11 @@ function AssetLaneTile({
                 onClick={onSave}
                 disabled={busy}
               >
-                {saving ? <Spinner className="h-3.5 w-3.5" /> : t("library.save")}
+                {saving ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  t("library.save")
+                )}
               </Button>
             ) : null}
             {canMoveToReferences ? (
@@ -4433,7 +4459,11 @@ function CandidateSaveMenu({
             className="h-8 min-w-0 px-2 text-xs"
             disabled={disabled}
           >
-            {pending ? <Spinner className="h-3.5 w-3.5" /> : t("library.saveTo")}
+            {pending ? (
+              <Spinner className="h-3.5 w-3.5" />
+            ) : (
+              t("library.saveTo")
+            )}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
@@ -4491,7 +4521,9 @@ function CreateFolderDialog({
       setTitle("");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t("library.couldNotCreateFolder"),
+        error instanceof Error
+          ? error.message
+          : t("library.couldNotCreateFolder"),
       );
     }
   }

@@ -88,7 +88,7 @@ export default function CreatePage() {
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
   }, []);
 
-    // Hydrate the saved image-model default so the picker reflects the user's
+  // Hydrate the saved image-model default so the picker reflects the user's
   // last choice across sessions.
   useEffect(() => {
     let cancelled = false;
@@ -115,8 +115,6 @@ export default function CreatePage() {
       () => {},
     );
   }, []);
-
-
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">

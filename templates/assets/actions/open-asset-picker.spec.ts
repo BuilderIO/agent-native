@@ -127,10 +127,9 @@ describe("open-asset-picker", () => {
   it("ignores unsafe tab ids instead of writing global navigation", async () => {
     getRequestRunContextMock.mockReturnValue({ browserTabId: "../design" });
 
-    await action.run(
-      { prompt: "Generate a hero image" },
-      { caller: "tool" } as any,
-    );
+    await action.run({ prompt: "Generate a hero image" }, {
+      caller: "tool",
+    } as any);
 
     expect(writeAppStateMock).not.toHaveBeenCalled();
   });

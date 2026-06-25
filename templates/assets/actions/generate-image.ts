@@ -42,10 +42,7 @@ import {
   requireGenerationSessionInLibrary,
   serializeAsset,
 } from "./_helpers.js";
-import {
-  upsertVariantSlot,
-  wasVariantSlotDismissed,
-} from "./variant-slots.js";
+import { upsertVariantSlot, wasVariantSlotDismissed } from "./variant-slots.js";
 import { readGenerationContextDefaults } from "./_generation-context.js";
 
 function resolveModelForTier(
