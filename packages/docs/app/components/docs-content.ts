@@ -259,7 +259,9 @@ function buildSearchIndexFromDocs(
     const introEndLine =
       sections.length > 0 ? sections[0].startLine - 1 : lastLineNumber;
     const introText = lines
-      .filter((line) => line.lineNumber <= introEndLine)
+      .filter(
+        (line) => line.lineNumber <= introEndLine, // i18n-ignore -- source-index field, not visible copy.
+      )
       .map((line) => line.text)
       .filter((l) => !l.startsWith("#"))
       .join(" ")
