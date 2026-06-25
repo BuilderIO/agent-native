@@ -2398,7 +2398,20 @@ export function App() {
           ) : (
             todayMeetings.map((m) => {
               const title = m.title ?? "Meeting";
-              const isLive = !!m.actualStart && !m.actualEnd;
+              const now = Date.now();
+              const scheduledStartMs = m.scheduledStart
+                ? Date.parse(m.scheduledStart)
+                : null;
+              const scheduledEndMs = m.scheduledEnd
+                ? Date.parse(m.scheduledEnd)
+                : null;
+              const isRecording = !!m.actualStart && !m.actualEnd;
+              const isInWindow =
+                scheduledStartMs !== null &&
+                scheduledEndMs !== null &&
+                now >= scheduledStartMs &&
+                now <= scheduledEndMs;
+              const isLive = isRecording || isInWindow;
               const isDone = !!m.actualEnd;
               const startLabel = m.scheduledStart
                 ? new Date(m.scheduledStart).toLocaleTimeString([], {
