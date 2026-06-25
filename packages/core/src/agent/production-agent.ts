@@ -4987,23 +4987,27 @@ export function createProductionAgentHandler(
 
         send({ type: "activity", label: "Starting agent" });
 
-        // DIAGNOSTIC-ONLY: emit the pre-startRun setup-timing breakdown now that
-        // the run row exists (startRun has inserted it), so it persists on the
-        // inline path too. Awaited and recorded BEFORE worker_started so it can
-        // never land after and clobber the true last stage on background runs.
-        await recordRunDiagnostic(
-          runId,
-          RUN_DIAG_STAGE.setupTimings,
-          setupDetail,
-        ).catch(() => {});
-
         // DIAGNOSTIC: the agent loop body actually started running. For a
         // background worker, a run that is claimed but never reaches this stage
-        // died between claiming and loop start. Best-effort, background only.
+        // died between claiming and loop start. The pre-startRun setup-timing
+        // breakdown rides along here so it persists now that the run row exists
+        // (startRun inserted it), WITHOUT adding a separate DB hop to the
+        // run-start path: on the worker it is folded into this same
+        // already-awaited worker_started write (one hop, correctly ordered, no
+        // clobber); on the inline path there is no later diag stage to overwrite,
+        // so it is fire-and-forget to keep run-start non-blocking. Best-effort.
         if (isBackgroundWorker) {
-          await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerStarted).catch(
-            () => {},
-          );
+          await recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.workerStarted,
+            setupDetail,
+          ).catch(() => {});
+        } else {
+          void recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.setupTimings,
+            setupDetail,
+          ).catch(() => {});
         }
 
         // Notify listeners that a run has started (used by agent teams)
