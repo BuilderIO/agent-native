@@ -786,7 +786,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (listSnoozeEvent.defaultPrevented) return;
 
     if (!targetEmail) {
-      toast.error("No email selected.");
+      toast.error(t("mail.toasts.noEmailSelected"));
       return;
     }
     setSnoozeOverride(null);
@@ -2039,7 +2039,7 @@ function TabSettingsPopover({
   const knownCategories: Label[] = [
     {
       id: "note-to-self",
-      name: "Note to Self",
+      name: t("mail.views.noteToSelf"),
       type: "system",
       unreadCount: 0,
     },

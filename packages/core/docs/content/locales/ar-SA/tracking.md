@@ -5,7 +5,7 @@ description: "تحليلات من جانب الخادم مع موفري خدما
 
 # تتبع التحليلات
 
-وظيفة واحدة، وجهات متعددة. اتصل بـ `track()` من أي رمز من جانب الخادم - actions والمكونات الإضافية ومسارات الخادم - ويتم إرسال الحدث إلى كل مزود تحليلات مسجل. لا توجد تبعيات SDK، ولا توجد نصوص برمجية من جانب العميل، ولا يوجد حظر. يتوفر نفس `track()` أيضًا في [browser/app code](#client) ويوجه إلى نفس مقدمي الخدمة.
+وظيفة واحدة، وجهات متعددة. اتصل بـ `track()` من أي رمز من جانب الخادم - actions والمكونات الإضافية ومسارات الخادم - ويتم إرسال الحدث إلى كل مزود تحليلات مسجل. لا توجد تبعيات SDK، ولا توجد نصوص برمجية من جانب العميل, ولا يوجد حظر. يتوفر نفس `track()` أيضًا في [browser/app code](#client) ويوجه إلى نفس مقدمي الخدمة.
 
 هذه هي تحليلات _product_ — تتدفق أحداث تطبيقك إلى PostHog/Mixpanel/Amplitude. للحصول على مقاييس جودة_الوكيل (التتبعات والتكلفة والتقييمات والملاحظات) المخزنة في قاعدة البيانات الخاصة بك، راجع [Observability](/docs/observability).
 
@@ -21,7 +21,7 @@ track(
 
 ```an-diagram title="استدعاء مسار واحد () لكل مزود" summary="يصل المتصلون بالخادم والعميل إلى نفس السجل، مما يؤدي إلى إرسال كل حدث إلى جميع مقدمي الخدمة النشطين بالتوازي."
 {
-  "html": "<div class=\"trk\"><div class=\"diagram-col\"><div class=\"diagram-node\">Server code<br><small class=\"diagram-muted\">actions &middot; plugins &middot; routes</small></div><div class=\"diagram-node\">Browser code<br><small class=\"diagram-muted\">POST /_agent-native/track</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Provider registry</span><small class=\"diagram-muted\">fan-out, fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">PostHog</div><div class=\"diagram-box\">Mixpanel</div><div class=\"diagram-box\">Amplitude</div><div class=\"diagram-box\">Webhook</div></div></div>",
+  "html": "<div class=\"trk\"><div class=\"diagram-col\"><div class=\"diagram-node\">كود الخادم<br><small class=\"diagram-muted\">actions &middot; plugins &middot; routes</small></div><div class=\"diagram-node\">كود المتصفح<br><small class=\"diagram-muted\">POST /_agent-native/track</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Provider registry</span><small class=\"diagram-muted\">تشعيب، إرسال بلا انتظار</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">PostHog</div><div class=\"diagram-box\">Mixpanel</div><div class=\"diagram-box\">Amplitude</div><div class=\"diagram-box\">Webhook</div></div></div>",
   "css": ".trk{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.trk .diagram-col{display:flex;flex-direction:column;gap:8px}.trk .diagram-arrow{font-size:22px;line-height:1}.trk .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -100,13 +100,13 @@ export default defineAction({
 
 ## التتبع من جانب العميل {#client}
 
-يعمل `track()` أيضًا من خلال رمز المتصفح/التطبيق. قم باستيراد توأم العميل من `@agent-native/core/client` وقم بتسميته بنفس الطريقة - فهو ينشر الحدث إلى مسار إطار العمل في `POST /_agent-native/track`، والذي يعيد توجيهه إلى موفري جانب الخادم المسجلين **نفسهم** (PostHog، Mixpanel، Amplitude، webhook). لا يتم شحن أي تحليلات SDK إلى المتصفح ولا يتم الكشف عن مفاتيح الموفر من جانب العميل.
+يعمل `track()` أيضًا من خلال رمز المتصفح/التطبيق. قم باستيراد توأم العميل من `@agent-native/core/client` وقم بتسميته بنفس الطريقة - فهو ينشر الحدث إلى مسار إطار العمل في `POST /_agent-native/track`، والذي يعيد توجيهه إلى موفري جانب الخادم المسجلين **نفسهم** (PostHog، Mixpanel، Amplitude, webhook). لا يتم شحن أي تحليلات SDK إلى المتصفح ولا يتم الكشف عن مفاتيح الموفر من جانب العميل.
 
-```an-api title="The client tracking route"
+```an-api title="مسار تتبع العميل"
 {
   "method": "POST",
   "path": "/_agent-native/track",
-  "summary": "Forward a browser event to the registered server-side providers",
+  "summary": "قم بإعادة توجيه حدث المتصفح إلى موفري الخدمة المسجلين",
   "auth": "Session required + same-origin/CSRF marker (set automatically by the client helper). Not an open analytics relay.",
   "params": [
     { "name": "name", "in": "body", "type": "string", "required": true, "description": "Event name. Capped at 200 characters." },
@@ -130,7 +130,7 @@ track("checkout.completed", { total: 49.99, items: 3 });
 - **أطلق النار وانسى.** لا يؤدي ذلك أبدًا إلى حظر UI، ولا يؤدي مطلقًا إلى رمي أخطاء الشبكة أو ابتلاعها.
 - **تمت المصادقة عليه، للطرف الأول فقط.** يتطلب المسار جلسة وعلامة CSRF من نفس المصدر (يتم تعيينها تلقائيًا بواسطة المساعد)، لذلك لا يمكن استخدامه كترحيل تحليلات مفتوح. يبلغ الحد الأقصى لـ `name` 200 حرف و`properties` يصل إلى 16 كيلو بايت تقريبًا؛ يتم رفض الحمولات كبيرة الحجم أو المشوهة.
 
-يختلف هذا عن القياس عن بعد للمتصفح الداخلي لإطار العمل (`trackEvent()` / مشاهدات الصفحة التلقائية - راجع [Browser defaults](#browser-defaults) أدناه)، والذي يدعم تحليلات المنتج الخاصة بـ Agent Native. استخدم `track()` لأحداث التحليلات الخاصة بتطبيقك والتي يجب أن تصل إلى مقدمي الخدمة الذين تم تكوينهم.
+يختلف هذا عن القياس عن بعد للمتصفح الداخلي لإطار العمل (`trackEvent()` / مشاهدات الصفحة التلقائية - راجع [Browser defaults](#browser-defaults) أدناه), والذي يدعم تحليلات المنتج الخاصة بـ Agent Native. استخدم `track()` لأحداث التحليلات الخاصة بتطبيقك والتي يجب أن تصل إلى مقدمي الخدمة الذين تم تكوينهم.
 
 ## متقدم: الموفرون المخصصون والداخليون {#advanced}
 

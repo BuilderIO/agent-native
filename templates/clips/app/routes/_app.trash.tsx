@@ -19,9 +19,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useRecordings, type RecordingSummary } from "@/hooks/use-library";
+import enMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: "Trash · Clips" }];
+  return [{ title: enMessages.clipsFinalRaw.trashPageTitle }];
 }
 
 function Skeleton() {

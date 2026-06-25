@@ -1,15 +1,15 @@
 ---
-title: "Instrucciones del agente de escritura y Skills"
+title: "Instrucciones del agente de escritura y Habilidades"
 description: "Cómo escribir excelentes instrucciones de agente para una aplicación o plantilla nativa de agente: AGENTS.md, skills y descripciones de herramientas."
 ---
 
-# Instrucciones del agente de escritura y Skills
+# Instrucciones del agente de escritura y Habilidades
 
 El comportamiento del agente en una aplicación nativa del agente es tan bueno como las instrucciones que usted le dé. Tres superficies contienen esa guía: `AGENTS.md` (el mapa), skills (las inmersiones profundas) y descripciones de acciones/herramientas (cómo el agente elige la herramienta adecuada). Escribe cada uno para recuperarlo rápidamente, no para escribirlo en prosa.
 
 ```an-diagram title="Tres superficies creadas + una superficie de tiempo de ejecución" summary="AGENTS.md y las descripciones de las herramientas se cargan en cada vuelta; carga de habilidades según demanda; application_state está escrito en vivo por su UI."
 {
-  "html": "<div class=\"diagram-surfaces\"><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Every turn</span><strong>AGENTS.md</strong><small class=\"diagram-muted\">the map: purpose, core rules, state keys, action + skills index</small></div><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Every turn</span><strong>Tool descriptions</strong><small class=\"diagram-muted\">drive tool selection — one precise sentence each</small></div><div class=\"diagram-card ondemand\" data-rough><span class=\"diagram-pill\">On demand</span><strong>Skills</strong><small class=\"diagram-muted\">deep how-to, loaded when the description fires</small></div><div class=\"diagram-card runtime\" data-rough><span class=\"diagram-pill ok\">Live</span><strong>application_state</strong><small class=\"diagram-muted\">written by your UI: navigation, selection, focus</small></div></div>",
+  "html": "<div class=\"diagram-surfaces\"><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Cada turno</span><strong>AGENTS.md</strong><small class=\"diagram-muted\">el mapa: propósito, reglas base, claves de estado, índice de acciones + skills</small></div><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Cada turno</span><strong>Descripciones de herramientas</strong><small class=\"diagram-muted\">guía la selección de herramientas — una frase precisa cada una</small></div><div class=\"diagram-card ondemand\" data-rough><span class=\"diagram-pill\">Bajo demanda</span><strong>Habilidades</strong><small class=\"diagram-muted\">guía profunda, cargada cuando coincide la descripción</small></div><div class=\"diagram-card runtime\" data-rough><span class=\"diagram-pill ok\">Live</span><strong>application_state</strong><small class=\"diagram-muted\">lo escribe tu UI: navegación, selección, foco</small></div></div>",
   "css": ".diagram-surfaces{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.diagram-surfaces .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
 }
 ```
@@ -22,28 +22,28 @@ El comportamiento del agente en una aplicación nativa del agente es tan bueno c
 - **Reglas básicas**: el puñado de invariantes que siempre deben cumplirse (los datos en SQL, las operaciones pasan por actions, la IA pasa por el chat del agente, los cambios de esquema son aditivos). Viñetas cortas e imperativas.
 - **Teclas de estado de la aplicación**: las teclas `navigation`/selección/enfoque que el agente lee para saber qué está mirando el usuario y su forma.
 - **Tabla de acciones**: una tabla compacta del nombre de la acción según su propósito.
-- **Índice Skills**: una lista de los skills que existen y cuándo leer cada uno.
+- **Índice Habilidades**: una lista de los skills que existen y cuándo leer cada uno.
 
 Si una sección crece más allá de una pantalla, pertenece a una habilidad. `AGENTS.md` responde "¿qué es esta aplicación y qué puedo hacer?", no "cómo hago exactamente lo difícil".
 
 ```markdown
-# Projects App
+# Aplicación de proyectos
 
 One workspace for projects, tasks, and notes. Agent and UI share the same SQL
 data and the same actions.
 
-## Core Rules
+## Reglas básicas
 
-- Data lives in SQL via Drizzle. Use actions for all writes.
+- Data lives in SQL vía Drizzle. Use actions for all writes.
 - All AI work goes through the agent chat; never call an LLM inline.
 - Schema changes are additive only.
 
-## Application State
+## Estado de la aplicación
 
 - `navigation.view`: `home` | `project`
 - `navigation.projectId`: selected project on a project page
 
-## Actions
+## Acciones
 
 | Action           | Purpose                     |
 | ---------------- | --------------------------- |
@@ -51,7 +51,7 @@ data and the same actions.
 | `create-project` | Create a project            |
 | `update-project` | Rename or archive a project |
 
-## Skills
+## Habilidades
 
 - `project-imports` — read before importing legacy CSV exports.
 - `sharing` — read before exposing a project to other users.
@@ -84,12 +84,12 @@ Escriba el `SKILL.md` como la capa sencilla que debe conocer: la regla, cómo ha
 
 ```text
 .agents/skills/project-imports/
-├── SKILL.md            # rule + happy path + do/don't
+├── SKILL.md            # regla + camino feliz + do/don't
 └── references/
-    └── csv-format.md   # full column spec, encodings, edge cases
+    └── csv-format.md   # especificaciones de columna completa, codificaciones, casos extremos
 ```
 
-Esto mantiene pequeña la superficie siempre cargada y permite escalar la profundidad sin un contexto abultado. Consulte [Skills Guide](/docs/skills-guide) para conocer el formato completo de las habilidades.
+Esto mantiene pequeña la superficie siempre cargada y permite escalar la profundidad sin un contexto abultado. Consulte [Habilidades Guide](/docs/skills-guide) para conocer el formato completo de las habilidades.
 
 ## Escribir tablas orientadas a acciones {#action-tables}
 
@@ -114,9 +114,9 @@ defineAction({
 });
 ```
 
-## Skills frente a actions {#skills-vs-actions}
+## Habilidades frente a actions {#skills-vs-actions}
 
-Skills y actions son complementarios. Una habilidad es una guía que el agente lee; un
+Habilidades y actions son complementarios. Una habilidad es una guía que el agente lee; un
 la acción es el código que el agente puede ejecutar.
 
 | Necesidad                                                                                        | Usar                                    |
@@ -151,7 +151,7 @@ Cada pieza de orientación que usted crea aterriza en una de las cuatro superfic
 | Superficie                               | Quién lo escribe                      | Cuando está cargado                                             | Qué pertenece allí                                                                             |
 | ---------------------------------------- | ------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Instrucciones `AGENTS.md`                | Tú (desarrollador)                    | Cada giro, como orientación                                     | Propósito, reglas básicas, claves de estado, índice de acción, índice skills                   |
-| Skills (`SKILL.md`)                      | Tú (desarrollador)                    | A pedido, cuando el agente decide que la habilidad es relevante | Instrucciones paso a paso para un patrón específico, listas de lo que se debe/no se debe hacer |
+| Habilidades (`SKILL.md`)                 | Tú (desarrollador)                    | A pedido, cuando el agente decide que la habilidad es relevante | Instrucciones paso a paso para un patrón específico, listas de lo que se debe/no se debe hacer |
 | Descripciones de acciones (herramientas) | Tú (desarrollador)                    | Cada turno, según la lista de herramientas                      | Qué hace la acción, qué devuelve, semántica de los parámetros                                  |
 | Contexto `application_state`             | Su código UI (en tiempo de ejecución) | Cada turno, como estado de la aplicación en vivo                | Navegación actual, selección, objeto enfocado, URL                                             |
 
@@ -163,11 +163,11 @@ Cada pieza de orientación que usted crea aterriza en una de las cuatro superfic
 ## Qué va a dónde {#what-goes-where}
 
 - **AGENTS.md**: se aplica a toda la aplicación, en cada paso: propósito, reglas básicas, claves de estado, índice de acción, índice skills.
-- **Skills**: instrucciones reutilizables para un patrón específico, cargadas bajo demanda. Se aplica a todos los que trabajan en la aplicación.
+- **Habilidades**: instrucciones reutilizables para un patrón específico, cargadas bajo demanda. Se aplica a todos los que trabajan en la aplicación.
 - **Memoria (`memory/MEMORY.md`)**: preferencias y correcciones por usuario, no orientación escrita.
 
 ## ¿Qué sigue? {#whats-next}
 
-- [Skills Guide](/docs/skills-guide): el formato de archivo de habilidades, el marco skills y el skills respaldado por la aplicación.
+- [Habilidades Guide](/docs/skills-guide): el formato de archivo de habilidades, el marco skills y el skills respaldado por la aplicación.
 - [Creating Templates](/docs/creating-templates): cómo encajan `AGENTS.md` y skills en una plantilla que se puede enviar.
 - [The four-area checklist](/docs/key-concepts#four-area-checklist): el modelo de cuatro áreas que toda característica debe satisfacer.

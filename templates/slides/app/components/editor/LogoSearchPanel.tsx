@@ -1,4 +1,8 @@
-import { agentNativePath, useActionQuery } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -21,6 +25,7 @@ export default function LogoSearchPanel({
   onOpenChange,
   onSelectLogo,
 }: LogoSearchPanelProps) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<LogoResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -111,7 +116,7 @@ export default function LogoSearchPanel({
 
   // Build variations for the selected domain
   const variations = selectedDomain
-    ? buildVariations(selectedDomain, brandfetchId)
+    ? buildVariations(selectedDomain, brandfetchId, t)
     : [];
 
   return createPortal(
@@ -137,7 +142,7 @@ export default function LogoSearchPanel({
               {selectedDomain}
             </button>
           ) : (
-            "Logo Search"
+            t("raw.logoSearchTitle")
           )}
         </h3>
         <button
@@ -162,7 +167,7 @@ export default function LogoSearchPanel({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleSearch();
                 }}
-                placeholder="Search company name (e.g. Intuit)"
+                placeholder={t("raw.searchCompanyPlaceholder")}
                 className="w-full pl-8 pr-3 py-1.5 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[#609FF8]/50"
               />
             </div>
@@ -174,7 +179,7 @@ export default function LogoSearchPanel({
               {loading ? (
                 <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                "Search"
+                t("raw.search")
               )}
             </button>
           </div>
@@ -191,7 +196,7 @@ export default function LogoSearchPanel({
         {/* IconSearch results */}
         {!selectedDomain && !loading && results.length === 0 && !error && (
           <div className="text-center py-6 text-muted-foreground text-xs">
-            Search for a company to find their logo
+            {t("raw.searchCompanyLogo")}
           </div>
         )}
 
@@ -318,6 +323,7 @@ interface VariationGroup {
 function buildVariations(
   domain: string,
   _brandfetchId: string | null,
+  t: ReturnType<typeof useT>,
 ): VariationGroup[] {
   // Brandfetch CDN works without client ID for free tier
   const bf = (path: string) => `https://cdn.brandfetch.io/${domain}/${path}`;
@@ -329,19 +335,23 @@ function buildVariations(
       label: "Logo",
       items: [
         { label: "Default", url: bf("logo.png"), bg: "rgba(255,255,255,0.03)" },
-        { label: "On dark", url: bf("theme/dark/logo.png"), bg: "#111" },
+        { label: t("raw.onDark"), url: bf("theme/dark/logo.png"), bg: "#111" },
         { label: "SVG", url: bf("logo.svg"), bg: "rgba(255,255,255,0.03)" },
       ],
     },
     {
-      label: "Symbol / Icon",
+      label: t("raw.symbolIcon"),
       items: [
         {
           label: "Symbol",
           url: bf("symbol.png"),
           bg: "rgba(255,255,255,0.03)",
         },
-        { label: "Symbol dark", url: bf("theme/dark/symbol.png"), bg: "#111" },
+        {
+          label: t("raw.symbolDark"),
+          url: bf("theme/dark/symbol.png"),
+          bg: "#111",
+        },
         { label: "Icon", url: bf("icon.png"), bg: "rgba(255,255,255,0.03)" },
       ],
     },
@@ -354,7 +364,7 @@ function buildVariations(
           bg: "rgba(255,255,255,0.03)",
         },
         {
-          label: "For dark bg",
+          label: t("raw.forDarkBg"),
           url: ld("size=400&format=png&retina=true&theme=light"),
           bg: "#111",
         },

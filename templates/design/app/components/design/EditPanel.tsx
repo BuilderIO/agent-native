@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconPointer } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -113,6 +114,7 @@ function ColorInput({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState(value);
 
   useEffect(() => {
@@ -132,7 +134,7 @@ function ColorInput({
       <div className="flex items-center gap-1.5 flex-1">
         <input
           type="color"
-          aria-label={`${label} color`}
+          aria-label={`${label} ${t("editPanel.colorInputLabel")}`}
           value={toColorInputValue(draft)}
           onChange={(e) => setNext(e.target.value)}
           className="h-6 w-6 shrink-0 cursor-pointer rounded border border-border bg-transparent p-0"
@@ -303,31 +305,32 @@ function FourSideInput({
   values: { top: string; right: string; bottom: string; left: string };
   onChange: (side: string, value: string) => void;
 }) {
+  const t = useT();
   return (
     <div className="space-y-1.5">
       <Label className="text-xs text-muted-foreground">{label}</Label>
       <div className="grid grid-cols-4 gap-1">
         <FourSideCell
           side="Top"
-          placeholder="T"
+          placeholder={t("editPanel.sidePlaceholders.top")}
           value={values.top}
           onChange={onChange}
         />
         <FourSideCell
           side="Right"
-          placeholder="R"
+          placeholder={t("editPanel.sidePlaceholders.right")}
           value={values.right}
           onChange={onChange}
         />
         <FourSideCell
           side="Bottom"
-          placeholder="B"
+          placeholder={t("editPanel.sidePlaceholders.bottom")}
           value={values.bottom}
           onChange={onChange}
         />
         <FourSideCell
           side="Left"
-          placeholder="L"
+          placeholder={t("editPanel.sidePlaceholders.left")}
           value={values.left}
           onChange={onChange}
         />
@@ -336,59 +339,56 @@ function FourSideInput({
   );
 }
 
-const FONT_FAMILIES = [
-  { value: "inherit", label: "Inherit" },
-  { value: "sans-serif", label: "Sans Serif" },
-  { value: "serif", label: "Serif" },
-  { value: "monospace", label: "Monospace" },
-  { value: "'Inter', sans-serif", label: "Inter" },
-  { value: "'Poppins', sans-serif", label: "Poppins" },
-  { value: "'Playfair Display', serif", label: "Playfair Display" },
-  { value: "'JetBrains Mono', monospace", label: "JetBrains Mono" },
-];
+const FONT_FAMILY_OPTIONS = [
+  { value: "inherit", key: "inherit" },
+  { value: "sans-serif", key: "sansSerif" },
+  { value: "serif", key: "serif" },
+  { value: "monospace", key: "monospace" },
+  { value: "'Inter', sans-serif", key: "inter" },
+  { value: "'Poppins', sans-serif", key: "poppins" },
+  { value: "'Playfair Display', serif", key: "playfairDisplay" },
+  { value: "'JetBrains Mono', monospace", key: "jetBrainsMono" },
+] as const;
 
-const FONT_WEIGHTS = [
-  { value: "100", label: "Thin" },
-  { value: "200", label: "Extra Light" },
-  { value: "300", label: "Light" },
-  { value: "400", label: "Regular" },
-  { value: "500", label: "Medium" },
-  { value: "600", label: "Semi Bold" },
-  { value: "700", label: "Bold" },
-  { value: "800", label: "Extra Bold" },
-  { value: "900", label: "Black" },
-];
+const FONT_WEIGHT_OPTIONS = [
+  { value: "100", key: "thin" },
+  { value: "200", key: "extraLight" },
+  { value: "300", key: "light" },
+  { value: "400", key: "regular" },
+  { value: "500", key: "medium" },
+  { value: "600", key: "semiBold" },
+  { value: "700", key: "bold" },
+  { value: "800", key: "extraBold" },
+  { value: "900", key: "black" },
+] as const;
 
-const TEXT_ALIGNS = [
-  { value: "left", label: "Left" },
-  { value: "center", label: "Center" },
-  { value: "right", label: "Right" },
-  { value: "justify", label: "Justify" },
-];
-
-const FLEX_DIRECTIONS = [
-  { value: "row", label: "Row" },
-  { value: "column", label: "Column" },
-  { value: "row-reverse", label: "Row Reverse" },
-  { value: "column-reverse", label: "Column Reverse" },
-];
-
+const TEXT_ALIGN_OPTIONS = [
+  { value: "left", key: "left" },
+  { value: "center", key: "center" },
+  { value: "right", key: "right" },
+  { value: "justify", key: "justify" },
+] as const;
+const FLEX_DIRECTION_OPTIONS = [
+  { value: "row", key: "row" },
+  { value: "column", key: "column" },
+  { value: "row-reverse", key: "rowReverse" },
+  { value: "column-reverse", key: "columnReverse" },
+] as const;
 const JUSTIFY_OPTIONS = [
-  { value: "flex-start", label: "Start" },
-  { value: "center", label: "Center" },
-  { value: "flex-end", label: "End" },
-  { value: "space-between", label: "Between" },
-  { value: "space-around", label: "Around" },
-  { value: "space-evenly", label: "Evenly" },
-];
-
+  { value: "flex-start", key: "start" },
+  { value: "center", key: "center" },
+  { value: "flex-end", key: "end" },
+  { value: "space-between", key: "between" },
+  { value: "space-around", key: "around" },
+  { value: "space-evenly", key: "evenly" },
+] as const;
 const ALIGN_OPTIONS = [
-  { value: "flex-start", label: "Start" },
-  { value: "center", label: "Center" },
-  { value: "flex-end", label: "End" },
-  { value: "stretch", label: "Stretch" },
-  { value: "baseline", label: "Baseline" },
-];
+  { value: "flex-start", key: "start" },
+  { value: "center", key: "center" },
+  { value: "flex-end", key: "end" },
+  { value: "stretch", key: "stretch" },
+  { value: "baseline", key: "baseline" },
+] as const;
 
 function parseNumericValue(value: string): number {
   return parseFloat(value) || 0;
@@ -402,7 +402,12 @@ function PageProperties({
   styles: Record<string, string>;
   onStyleChange: (property: string, value: string) => void;
 }) {
-  const fontFamily = FONT_FAMILIES.some(
+  const t = useT();
+  const fontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(`editPanel.fontFamilies.${option.key}`),
+  }));
+  const fontFamily = FONT_FAMILY_OPTIONS.some(
     (option) => option.value === styles.fontFamily,
   )
     ? styles.fontFamily
@@ -417,28 +422,25 @@ function PageProperties({
       <div className="rounded-lg border border-border/70 bg-accent/30 p-3 text-xs text-muted-foreground/90 leading-relaxed">
         <p className="font-medium text-foreground/85 mb-1 flex items-center gap-1.5">
           <IconPointer className="w-3.5 h-3.5" />
-          Click any element on the canvas
+          {t("editPanel.pageHelpTitle")}
         </p>
-        <p>
-          Edit typography, spacing, sizing, borders and fill for whatever you
-          select. Page defaults below.
-        </p>
+        <p>{t("editPanel.pageHelpDescription")}</p>
       </div>
 
-      <SectionTitle>Page</SectionTitle>
+      <SectionTitle>{t("editPanel.sections.page")}</SectionTitle>
       <ColorInput
-        label="Background"
+        label={t("editPanel.labels.background")}
         value={styles.backgroundColor || ""}
         onChange={(v) => onStyleChange("backgroundColor", v)}
       />
       <PropSelect
-        label="Font"
+        label={t("editPanel.labels.font")}
         value={fontFamily}
         onChange={(v) => onStyleChange("fontFamily", v)}
-        options={FONT_FAMILIES}
+        options={fontFamilyOptions}
       />
       <PropInput
-        label="Base Size"
+        label={t("editPanel.labels.baseSize")}
         value={styles.fontSize || "16px"}
         onChange={(v) => onStyleChange("fontSize", v)}
         placeholder="16px"
@@ -456,49 +458,62 @@ function TextProperties({
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
 }) {
+  const t = useT();
   const styles = element.computedStyles;
+  const fontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(`editPanel.fontFamilies.${option.key}`),
+  }));
+  const fontWeightOptions = FONT_WEIGHT_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(`editPanel.fontWeights.${option.key}`),
+  }));
+  const textAlignOptions = TEXT_ALIGN_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(`editPanel.textAligns.${option.key}`),
+  }));
 
   return (
     <div className="space-y-4">
-      <SectionTitle>Typography</SectionTitle>
+      <SectionTitle>{t("editPanel.sections.typography")}</SectionTitle>
       <PropSelect
-        label="Font"
+        label={t("editPanel.labels.font")}
         value={styles.fontFamily || "sans-serif"}
         onChange={(v) => onStyleChange("fontFamily", v)}
-        options={FONT_FAMILIES}
+        options={fontFamilyOptions}
       />
       <PropInput
-        label="Size"
+        label={t("editPanel.labels.size")}
         value={styles.fontSize || ""}
         onChange={(v) => onStyleChange("fontSize", v)}
         placeholder="16px"
         defaultUnit="px"
       />
       <PropSelect
-        label="Weight"
+        label={t("editPanel.labels.weight")}
         value={styles.fontWeight || "400"}
         onChange={(v) => onStyleChange("fontWeight", v)}
-        options={FONT_WEIGHTS}
+        options={fontWeightOptions}
       />
       <ColorInput
-        label="Color"
+        label={t("editPanel.labels.color")}
         value={styles.color || ""}
         onChange={(v) => onStyleChange("color", v)}
       />
       <PropSelect
-        label="Align"
+        label={t("editPanel.labels.align")}
         value={styles.textAlign || "left"}
         onChange={(v) => onStyleChange("textAlign", v)}
-        options={TEXT_ALIGNS}
+        options={textAlignOptions}
       />
       <PropInput
-        label="Line Height"
+        label={t("editPanel.labels.lineHeight")}
         value={styles.lineHeight || ""}
         onChange={(v) => onStyleChange("lineHeight", v)}
         placeholder="1.5"
       />
       <PropInput
-        label="Tracking"
+        label={t("editPanel.labels.tracking")}
         value={styles.letterSpacing || ""}
         onChange={(v) => onStyleChange("letterSpacing", v)}
         placeholder="0px"
@@ -516,31 +531,44 @@ function FlexProperties({
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
 }) {
+  const t = useT();
   const styles = element.computedStyles;
+  const flexDirectionOptions = FLEX_DIRECTION_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(`editPanel.flexDirections.${option.key}`),
+  }));
+  const justifyOptions = JUSTIFY_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(`editPanel.justifyOptions.${option.key}`),
+  }));
+  const alignOptions = ALIGN_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(`editPanel.alignOptions.${option.key}`),
+  }));
 
   return (
     <div className="space-y-4">
-      <SectionTitle>Flex Layout</SectionTitle>
+      <SectionTitle>{t("editPanel.sections.flexLayout")}</SectionTitle>
       <PropSelect
-        label="Direction"
+        label={t("editPanel.labels.direction")}
         value={styles.flexDirection || "row"}
         onChange={(v) => onStyleChange("flexDirection", v)}
-        options={FLEX_DIRECTIONS}
+        options={flexDirectionOptions}
       />
       <PropSelect
-        label="Justify"
+        label={t("editPanel.labels.justify")}
         value={styles.justifyContent || "flex-start"}
         onChange={(v) => onStyleChange("justifyContent", v)}
-        options={JUSTIFY_OPTIONS}
+        options={justifyOptions}
       />
       <PropSelect
-        label="Align"
+        label={t("editPanel.labels.align")}
         value={styles.alignItems || "stretch"}
         onChange={(v) => onStyleChange("alignItems", v)}
-        options={ALIGN_OPTIONS}
+        options={alignOptions}
       />
       <PropInput
-        label="Gap"
+        label={t("editPanel.labels.gap")}
         value={styles.gap || ""}
         onChange={(v) => onStyleChange("gap", v)}
         placeholder="0px"
@@ -558,6 +586,7 @@ function ElementProperties({
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
 }) {
+  const t = useT();
   const styles = element.computedStyles;
 
   const handlePaddingChange = useCallback(
@@ -576,23 +605,23 @@ function ElementProperties({
 
   return (
     <div className="space-y-4">
-      <SectionTitle>Layout</SectionTitle>
+      <SectionTitle>{t("editPanel.sections.layout")}</SectionTitle>
       <PropInput
-        label="Width"
+        label={t("editPanel.labels.width")}
         value={styles.width || ""}
         onChange={(v) => onStyleChange("width", v)}
         placeholder="auto"
         defaultUnit="px"
       />
       <PropInput
-        label="Height"
+        label={t("editPanel.labels.height")}
         value={styles.height || ""}
         onChange={(v) => onStyleChange("height", v)}
         placeholder="auto"
         defaultUnit="px"
       />
       <PropSlider
-        label="Opacity"
+        label={t("editPanel.labels.opacity")}
         value={parseNumericValue(styles.opacity || "1") * 100}
         onChange={(v) => onStyleChange("opacity", String(v / 100))}
         min={0}
@@ -603,9 +632,9 @@ function ElementProperties({
 
       <Separator />
 
-      <SectionTitle>Spacing</SectionTitle>
+      <SectionTitle>{t("editPanel.sections.spacing")}</SectionTitle>
       <FourSideInput
-        label="Padding"
+        label={t("editPanel.labels.padding")}
         values={{
           top: styles.paddingTop || "0",
           right: styles.paddingRight || "0",
@@ -615,7 +644,7 @@ function ElementProperties({
         onChange={handlePaddingChange}
       />
       <FourSideInput
-        label="Margin"
+        label={t("editPanel.labels.margin")}
         values={{
           top: styles.marginTop || "0",
           right: styles.marginRight || "0",
@@ -627,21 +656,21 @@ function ElementProperties({
 
       <Separator />
 
-      <SectionTitle>Border</SectionTitle>
+      <SectionTitle>{t("editPanel.sections.border")}</SectionTitle>
       <PropInput
-        label="Width"
+        label={t("editPanel.labels.width")}
         value={styles.borderWidth || "0"}
         onChange={(v) => onStyleChange("borderWidth", v)}
         placeholder="0px"
         defaultUnit="px"
       />
       <ColorInput
-        label="Color"
+        label={t("editPanel.labels.color")}
         value={styles.borderColor || ""}
         onChange={(v) => onStyleChange("borderColor", v)}
       />
       <PropInput
-        label="Radius"
+        label={t("editPanel.labels.radius")}
         value={styles.borderRadius || "0"}
         onChange={(v) => onStyleChange("borderRadius", v)}
         placeholder="0px"
@@ -650,9 +679,9 @@ function ElementProperties({
 
       <Separator />
 
-      <SectionTitle>Fill</SectionTitle>
+      <SectionTitle>{t("editPanel.sections.fill")}</SectionTitle>
       <ColorInput
-        label="Background"
+        label={t("editPanel.labels.background")}
         value={styles.backgroundColor || ""}
         onChange={(v) => onStyleChange("backgroundColor", v)}
       />
@@ -681,6 +710,7 @@ export function EditPanel({
   pageStyles = {},
   onStyleChange,
 }: EditPanelProps) {
+  const t = useT();
   const isTextElement = selectedElement
     ? TEXT_TAGS.has(selectedElement.tagName)
     : false;
@@ -697,7 +727,7 @@ export function EditPanel({
         <h2 className="text-xs font-semibold text-foreground">
           {selectedElement
             ? `<${selectedElement.tagName}>${selectedElement.id ? ` #${selectedElement.id}` : ""}`
-            : "Properties"}
+            : t("editPanel.properties")}
         </h2>
         {selectedElement?.classes.length ? (
           <p className="text-[10px] text-muted-foreground mt-0.5 truncate">

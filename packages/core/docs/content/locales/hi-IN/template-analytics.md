@@ -10,7 +10,7 @@ description: "एनालिटिक्स प्रश्न सादे अ
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native Templates</h1><p class='wf-muted' style='margin:0'>Adoption and engagement across the last 12 weeks.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>Weekly active users</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>New signups</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>Revenue MRR</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Weekly active users</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Revenue over time</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>Signups by source</strong><br/><small class='wf-muted'>Lower chart begins below the main charts.</small></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native टेम्पलेट</h1><p class='wf-muted' style='margin:0'>पिछले 12 सप्ताहों में अपनाना और एंगेजमेंट।</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>साप्ताहिक सक्रिय उपयोगकर्ता</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>नए साइनअप</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>MRR राजस्व</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>साप्ताहिक सक्रिय उपयोगकर्ता</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>समय के साथ राजस्व</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>स्रोत के अनुसार साइनअप</strong><br/><small class='wf-muted'>निचला चार्ट मुख्य चार्ट के नीचे शुरू होता है।</small></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ description: "एनालिटिक्स प्रश्न सादे अ
 
 ```an-diagram title="चार्ट के लिए प्रश्न" summary="एजेंट डेटा डिक्शनरी की जांच करता है, SQL लिखता है, इसे वेयरहाउस के विरुद्ध मान्य करता है, फिर एक चार्ट प्रस्तुत करता है या एक पैनल सहेजता है।"
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">Plain-English<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Writes SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Dry-run validate</div><small class=\"diagram-muted\">BigQuery / source</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Chart, table, or<br>saved panel</div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">सरल भाषा<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL लिखता है</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Dry-run वैलिडेट</div><small class=\"diagram-muted\">BigQuery / स्रोत</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">चार्ट, तालिका, या<br>saved panel</div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -162,23 +162,23 @@ GCP कंसोल → APIs और सेवाएँ → क्रेडें
 
 कोर टेबल (`templates/analytics/server/db/schema.ts` देखें):
 
-```an-schema title="Analytics data model" summary="Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
+```an-schema title="एनालिटिक्स डेटा मॉडल" summary="Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
 {
   "entities": [
     {
       "id": "dashboards",
       "name": "dashboards",
-      "note": "Explorer and SQL dashboards",
+      "note": "एक्सप्लोरर और SQL डैशबोर्ड",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "kind", "type": "text", "note": "\"explorer\" or \"sql\"" },
-        { "name": "config", "type": "text", "note": "JSON matching SqlDashboardConfig" }
+        { "name": "config", "type": "text", "note": "JSON SqlDashboardConfig से मेल खाता है" }
       ]
     },
     {
       "id": "dashboard_views",
       "name": "dashboard_views",
-      "note": "Saved filter presets per dashboard",
+      "note": "प्रति डैशबोर्ड सहेजे गए फ़िल्टर प्रीसेट",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "dashboard_id", "type": "text", "fk": "dashboards.id" }
@@ -187,12 +187,12 @@ GCP कंसोल → APIs और सेवाएँ → क्रेडें
     {
       "id": "analyses",
       "name": "analyses",
-      "note": "Re-runnable ad-hoc investigations",
+      "note": "पुन: चलाने योग्य तदर्थ जांच",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "question", "type": "text" },
-        { "name": "instructions", "type": "text", "note": "Re-run steps" },
-        { "name": "dataSources", "type": "text", "note": "Sources touched" },
+        { "name": "instructions", "type": "text", "note": "चरणों को पुनः चलाएँ" },
+        { "name": "dataSources", "type": "text", "note": "स्रोतों को छुआ गया" },
         { "name": "resultMarkdown", "type": "text" },
         { "name": "resultData", "type": "text", "nullable": true }
       ]
@@ -200,7 +200,7 @@ GCP कंसोल → APIs और सेवाएँ → क्रेडें
     {
       "id": "bigquery_cache",
       "name": "bigquery_cache",
-      "note": "Result cache keyed by SQL hash",
+      "note": "परिणाम कैश को SQL हैश द्वारा कुंजीबद्ध किया गया",
       "fields": [
         { "name": "sql_hash", "type": "text", "pk": true },
         { "name": "bytes_processed", "type": "integer" }

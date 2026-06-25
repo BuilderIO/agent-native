@@ -50,7 +50,7 @@ describe("AnimationsPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("Auto-fill"));
+    fireEvent.click(screen.getByText("Auto fill"));
 
     expect(onUpdateSlide).toHaveBeenCalledWith({
       animations: [

@@ -32,13 +32,13 @@ describe("document database layout", () => {
     expect(source).toContain("setPreviewTitleFocusDocumentId");
     expect(source).toContain("titleInputRef.current?.focus()");
     expect(source).toContain("titleInputRef.current?.select()");
-    expect(source).toContain('aria-label="New database row"');
+    expect(source).toContain('aria-label={dbText("newDatabaseRow")}');
   });
 
   it("selects the current view name when renaming a database view", () => {
     const source = readDatabaseSource();
 
-    expect(source).toContain('aria-label="View name"');
+    expect(source).toContain('aria-label={dbText("viewName")}');
     expect(source).toContain("const renameInputRef = useRef<HTMLInputElement>");
     expect(source).toContain("renameInputRef.current?.focus()");
     expect(source).toContain("renameInputRef.current?.select()");
@@ -86,7 +86,7 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain("function DatabasePropertyPickerSearch");
-    expect(source).toContain('placeholder="Search properties"');
+    expect(source).toContain('placeholder={dbText("searchProperties")}');
     expect(source).toContain("DatabasePropertyPickerSubContent");
     expect(source).toContain(
       "const groupPropertyItems = databasePropertyPickerItems",
@@ -164,14 +164,14 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     // Read-only is the headline signal; live writes flip the same badge.
-    expect(source).toContain("Read-only");
-    expect(source).toContain("Live writes on");
+    expect(source).toContain('dbText("readOnly")');
+    expect(source).toContain('dbText("liveWritesOn")');
     // The dormant diff slot is the single push-review entry point.
-    expect(source).toContain("Review diff");
+    expect(source).toContain('dbText("reviewDiff")');
     // A failed sync surfaces inline instead of silently going stale.
-    expect(source).toContain("Couldn’t sync · Retry");
+    expect(source).toContain('dbText("couldntSyncRetry")');
     // Disconnect stays available, tucked at the bottom.
-    expect(source).toContain("Disconnect source");
+    expect(source).toContain('dbText("disconnectSource")');
     // The aggregate field-mappings list is gone (mappings live in column menus).
     expect(source).not.toContain(">Field mappings<");
   });
@@ -181,8 +181,8 @@ describe("document database layout", () => {
 
     expect(source).toContain("function DatabaseOpenPagesInSetting");
     expect(source).toContain("databaseOpenPagesInDescription");
-    expect(source).toContain("Wrap all content");
-    expect(source).toContain("Open pages in");
+    expect(source).toContain('dbText("wrapAllContent")');
+    expect(source).toContain('dbText("openPagesIn")');
     expect(source).not.toContain("Row density");
     expect(source).not.toContain("DATABASE_ROW_DENSITIES");
     expect(source).not.toContain("databaseRowDensityLabel");
@@ -214,7 +214,7 @@ describe("document database layout", () => {
     expect(source).toContain(
       "if (totalCount === 0 && !constrained) return null",
     );
-    expect(source).toContain('aria-label="New database row"');
+    expect(source).toContain('aria-label={dbText("newDatabaseRow")}');
     expect(source).toContain("hover:bg-muted/35 hover:text-foreground");
   });
 
@@ -231,7 +231,7 @@ describe("document database layout", () => {
     expect(source).toContain("reorderDatabaseView(");
     expect(source).toContain("targetView.side");
     expect(source).toContain("onContextMenu={(event) => {");
-    expect(source).toContain('aria-label="Add database view"');
+    expect(source).toContain('aria-label={dbText("addDatabaseView")}');
     expect(source).toContain("group-hover/viewtabs:opacity-100");
     expect(source).not.toContain(
       "hover:bg-background/80 hover:text-foreground",

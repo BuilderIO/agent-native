@@ -14,7 +14,7 @@ converse, execute e (no desenvolvimento) edite o código. Existem três frames, 
 - **Quadro de desenvolvimento local** — um wrapper fino que carrega seu aplicativo em execução em um iframe
   e adiciona o mesmo painel de agente mais um terminal CLI integrado ao lado dele. Usado
   para desenvolvimento local de modelos neste repositório.
-- **Builder.io cloud frame** — um frame gerenciado e hospedado com colaboração,
+- **Frame cloud Builder.io** — um frame gerenciado e hospedado com colaboração,
   edição visual e execução de agentes paralelos.
 
 O código do seu aplicativo é idêntico, independentemente do quadro que o hospeda. O agente fala
@@ -22,7 +22,7 @@ ao seu aplicativo por meio do mesmo actions e estado do aplicativo em todos os c
 
 ```an-diagram title="Três frames, um tempo de execução" summary="Seu aplicativo e o painel do agente são iguais em todos os frames; apenas o invólucro em torno deles muda."
 {
-  "html": "<div class=\"diagram-frames\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Embedded panel</span><small class=\"diagram-muted\">ships in every app · dev + prod</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Local dev frame</span><small class=\"diagram-muted\">app in an iframe + panel + CLI terminal</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Builder.io cloud frame</span><small class=\"diagram-muted\">hosted: collaboration · visual edit · parallel runs</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Same runtime<br><small class=\"diagram-muted\">your app · actions · application state</small></div></div>",
+  "html": "<div class=\"diagram-frames\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Painel incorporado</span><small class=\"diagram-muted\">incluído em todo app · dev + prod</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Frame local de desenvolvimento</span><small class=\"diagram-muted\">app em iframe + painel + terminal CLI</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Frame cloud Builder.io</span><small class=\"diagram-muted\">hospedado: colaboração · edição visual · execuções paralelas</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Mesmo runtime<br><small class=\"diagram-muted\">seu app · ações · estado da aplicação</small></div></div>",
   "css": ".diagram-frames{display:flex;flex-direction:column;gap:10px;align-items:stretch}.diagram-frames .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.diagram-frames .diagram-arrow{font-size:22px;line-height:1;align-self:center}"
 }
 ```

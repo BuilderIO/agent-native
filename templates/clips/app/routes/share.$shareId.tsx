@@ -6,6 +6,7 @@ import {
   useSession,
   AgentPanel,
   getBrowserTabId,
+  useT,
 } from "@agent-native/core/client";
 import {
   getRequestUserEmail,
@@ -246,6 +247,7 @@ function AgentDiscovery({
   recording: Pick<SharePageMetaRecording, "id" | "title"> | null;
   agentContextUrl: string | null;
 }) {
+  const t = useT();
   if (!recording || !agentContextUrl) return null;
 
   const payload = {
@@ -266,7 +268,7 @@ function AgentDiscovery({
         className="sr-only"
         data-agent-context-url={agentContextUrl}
       >
-        Agent-readable clip context
+        {t("sharePage.agentReadableContext")}
       </a>
       <script
         type="application/json"
@@ -278,6 +280,7 @@ function AgentDiscovery({
 }
 
 export default function ShareRoute() {
+  const t = useT();
   const loaderData = useLoaderData<typeof loader>() as SharePageLoaderData;
   const { shareId } = useParams<{ shareId: string }>();
   const navigate = useNavigate();
@@ -394,7 +397,7 @@ export default function ShareRoute() {
     : false;
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
-    : "Untitled Clip";
+    : t("sharePage.untitledClip");
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const unlockedAgentContextUrl =
     typeof dataQ.data?.data?.agentContextUrl === "string"
@@ -483,7 +486,7 @@ export default function ShareRoute() {
     if (!needsPassword) return;
     if (password) {
       // Wrong password entered → clear and show error.
-      setPwError("Incorrect password");
+      setPwError(t("sharePage.incorrectPassword"));
       setPassword(null);
       try {
         sessionStorage.removeItem(STORAGE_KEY_PREFIX + shareId);
@@ -539,7 +542,7 @@ export default function ShareRoute() {
         <AccessPasswordPrompt
           onSubmit={onSubmitPassword}
           error={pwError}
-          title="This clip is password-protected"
+          title={t("sharePage.passwordProtected")}
         />
       </>
     );
@@ -550,8 +553,8 @@ export default function ShareRoute() {
       <>
         {agentDiscovery}
         <EndState
-          title="Link expired"
-          message="The creator set an expiry on this share link."
+          title={t("sharePage.linkExpired")}
+          message={t("sharePage.linkExpiredMessage")}
         />
       </>
     );
@@ -562,14 +565,14 @@ export default function ShareRoute() {
       <>
         {agentDiscovery}
         <EndState
-          title="Clip unavailable"
-          message="This recording isn't public, or the link is invalid. If it's your clip, sign in to check access."
+          title={t("sharePage.clipUnavailable")}
+          message={t("sharePage.clipUnavailableMessage")}
           action={
             shareId ? (
               <Button asChild size="sm">
                 <a href={buildSignInHref(`/r/${shareId}`)} className="gap-1.5">
                   <IconLogin2 className="h-4 w-4 rtl:-scale-x-100" />
-                  Sign in
+                  {t("sharePage.signIn")}
                 </a>
               </Button>
             ) : null
@@ -584,8 +587,8 @@ export default function ShareRoute() {
       <>
         {agentDiscovery}
         <EndState
-          title="Something went wrong"
-          message={dataQ.data?.data?.error ?? "Please try again."}
+          title={t("sharePage.somethingWentWrong")}
+          message={dataQ.data?.data?.error ?? t("sharePage.pleaseTryAgain")}
         />
       </>
     );
@@ -605,27 +608,27 @@ export default function ShareRoute() {
     const signInHref = buildSignInHref(`/r/${recording.id}`);
     const detail = failureDetail(rawFailureReason);
     const label = storageSetupFailure
-      ? "Connect storage to finish this clip."
+      ? t("sharePage.connectStorageFinish")
       : stuckFailure
-        ? "This clip needs attention to finish."
+        ? t("sharePage.needsAttention")
         : explicitFailure
-          ? "Something went wrong while saving this clip."
-          : "Finishing up this clip...";
+          ? t("sharePage.savingWentWrong")
+          : t("sharePage.finishingClip");
     const message = storageSetupFailure
       ? canManageStorage
         ? loomStorageSetupFailure
-          ? "The Loom source link is preserved. Connect Builder.io or S3 storage, then retry the import."
-          : "The video is preserved. Connect Builder.io or S3 storage and Clips will finish uploading it."
+          ? t("sharePage.loomPreservedManage")
+          : t("sharePage.videoPreservedManage")
         : session
-          ? "The creator needs to connect Builder.io or S3 storage before this clip can finish."
-          : "If this is your clip, sign in here to connect Builder.io or S3 storage and finish the upload."
+          ? t("sharePage.creatorNeedsStorage")
+          : t("sharePage.signInStorage")
       : stuckFailure
         ? session
-          ? "The upload has not completed yet. Open the dashboard for this clip or ask the creator to check storage."
-          : "The upload has not completed yet. If this is your clip, sign in to open the owner controls and check storage."
+          ? t("sharePage.uploadNotCompleteSession")
+          : t("sharePage.uploadNotCompleteSignIn")
         : explicitFailure
-          ? (rawFailureReason ?? "The creator may need to retry.")
-          : "Uploading and assembling the video. This page will update automatically.";
+          ? (rawFailureReason ?? t("sharePage.creatorMayRetry"))
+          : t("sharePage.uploadingAssembling");
 
     return (
       <>
@@ -645,7 +648,7 @@ export default function ShareRoute() {
           {isFailure && detail && canManageStorage ? (
             <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-start shadow-sm">
               <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Details
+                {t("sharePage.details")}
               </div>
               <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
                 {detail}
@@ -663,9 +666,9 @@ export default function ShareRoute() {
           {storageSetupFailure && canManageStorage ? (
             <div className="mb-4 w-full">
               <StorageSetupCard
-                title="Connect storage to finish saving"
-                description="Choose where Clips should store videos. After it connects, this page will check again."
-                connectedDescription="Storage connected. Checking this clip..."
+                title={t("sharePage.connectStorageFinishSaving")}
+                description={t("sharePage.chooseStorageCheck")}
+                connectedDescription={t("sharePage.storageConnectedChecking")}
                 onConfigured={() => {
                   void dataQ.refetch();
                 }}
@@ -677,19 +680,21 @@ export default function ShareRoute() {
               <Button asChild size="sm">
                 <a href={signInHref} className="gap-1.5">
                   <IconLogin2 className="h-4 w-4 rtl:-scale-x-100" />
-                  Sign in to finish
+                  {t("sharePage.signInToFinish")}
                 </a>
               </Button>
             ) : !session && !sessionLoading && !isFailure ? (
               <Button asChild variant="ghost" size="sm">
                 <a href={signInHref} className="gap-1.5">
                   <IconLogin2 className="h-4 w-4 rtl:-scale-x-100" />
-                  Sign in if this is yours
+                  {t("sharePage.signInIfYours")}
                 </a>
               </Button>
             ) : canManageStorage && isFailure ? (
               <Button asChild size="sm">
-                <a href={appPath(`/r/${recording.id}`)}>Open dashboard</a>
+                <a href={appPath(`/r/${recording.id}`)}>
+                  {t("sharePage.openDashboard")}
+                </a>
               </Button>
             ) : null}
             <Button
@@ -701,7 +706,7 @@ export default function ShareRoute() {
               size="sm"
               className="border-foreground/20 bg-muted/50 hover:bg-accent text-foreground"
             >
-              Check again
+              {t("sharePage.checkAgain")}
             </Button>
           </div>
         </div>
@@ -723,7 +728,7 @@ export default function ShareRoute() {
               variant="ghost"
               size="icon"
               onClick={() => navigate("/")}
-              aria-label="Back to home"
+              aria-label={t("sharePage.backToHome")}
             >
               <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
             </Button>
@@ -731,7 +736,7 @@ export default function ShareRoute() {
           <div className="min-w-0 flex-1">
             {showTitleSkeleton ? (
               <Skeleton
-                aria-label="Generating title"
+                aria-label={t("sharePage.generatingTitle")}
                 className="h-4 w-56 max-w-full"
               />
             ) : (
@@ -746,7 +751,9 @@ export default function ShareRoute() {
                   href={appPath(`/r/${recording.id}`)}
                   className="min-w-0 gap-1.5"
                 >
-                  <span className="truncate">Open dashboard</span>
+                  <span className="truncate">
+                    {t("sharePage.openDashboard")}
+                  </span>
                   <IconExternalLink className="h-3.5 w-3.5 shrink-0" />
                 </a>
               </Button>
@@ -757,7 +764,7 @@ export default function ShareRoute() {
                   className="gap-1.5"
                   onClick={() => fireShareCtaClick("try_clips")}
                 >
-                  Try Clips
+                  {t("sharePage.tryClips")}
                   <IconExternalLink className="h-3.5 w-3.5" />
                 </a>
               </Button>
@@ -769,7 +776,7 @@ export default function ShareRoute() {
                     variant="ghost"
                     size="sm"
                     className="h-9 w-9 shrink-0 px-0"
-                    aria-label="Clip options"
+                    aria-label={t("sharePage.clipOptions")}
                   >
                     <IconDots className="h-4 w-4" />
                   </Button>
@@ -782,7 +789,9 @@ export default function ShareRoute() {
                     disabled={downloading}
                   >
                     <IconDownload className="h-4 w-4" />
-                    {downloading ? "Downloading..." : "Download MP4"}
+                    {downloading
+                      ? t("sharePage.downloading")
+                      : t("sharePage.downloadMp4")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -804,7 +813,7 @@ export default function ShareRoute() {
               >
                 <Button size="sm" className="shrink-0 gap-1.5">
                   <IconShare3 className="h-4 w-4" />
-                  Share
+                  {t("sharePage.share")}
                 </Button>
               </ShareRecordingPopover>
             ) : null}
@@ -838,7 +847,7 @@ export default function ShareRoute() {
             <div className="min-w-0 flex-1">
               {showTitleSkeleton ? (
                 <Skeleton
-                  aria-label="Generating title"
+                  aria-label={t("sharePage.generatingTitle")}
                   className="h-5 w-72 max-w-full"
                 />
               ) : (
@@ -899,7 +908,9 @@ export default function ShareRoute() {
                   className="gap-1.5"
                 >
                   <IconDownload className="h-4 w-4" />
-                  {downloading ? "Downloading..." : "Download MP4"}
+                  {downloading
+                    ? t("sharePage.downloading")
+                    : t("sharePage.downloadMp4")}
                 </Button>
               ) : null}
             </div>
@@ -911,10 +922,10 @@ export default function ShareRoute() {
         <Tabs defaultValue="agent" className="flex h-full flex-col">
           <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
             <TabsTrigger value="agent" className="text-xs">
-              Agent
+              {t("sharePage.agent")}
             </TabsTrigger>
             <TabsTrigger value="comments" className="text-xs gap-1">
-              Comments
+              {t("sharePage.comments")}
               {comments.length > 0 ? (
                 <span className="ms-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
                   {comments.length}
@@ -922,10 +933,10 @@ export default function ShareRoute() {
               ) : null}
             </TabsTrigger>
             <TabsTrigger value="transcript" className="text-xs">
-              Transcript
+              {t("sharePage.transcript")}
             </TabsTrigger>
             <TabsTrigger value="insights" className="text-xs">
-              Insights
+              {t("sharePage.insights")}
             </TabsTrigger>
           </TabsList>
           <TabsContent
@@ -934,13 +945,13 @@ export default function ShareRoute() {
           >
             {sessionLoading ? null : session ? (
               <AgentPanel
-                emptyStateText="Ask about this clip…"
+                emptyStateText={t("recordingPage.askAboutClip")}
                 dynamicSuggestions={false}
                 suggestions={[
-                  "Summarize this clip",
-                  "Find the key moments",
-                  "List follow-up actions",
-                  "Draft questions for the author",
+                  t("recordingPage.summarizeClip"),
+                  t("recordingPage.findKeyMoments"),
+                  t("recordingPage.listFollowUpActions"),
+                  t("recordingPage.draftQuestions"),
                 ]}
                 browserTabId={getBrowserTabId()}
               />
@@ -1024,6 +1035,7 @@ function PublicAgentEmptyState({
   signupHref: string;
   onCtaClick: (cta: "signup" | "download" | "try_clips" | "signin") => void;
 }) {
+  const t = useT();
   const [platform, setPlatform] = useState<ViewerPlatform | null>(null);
 
   useEffect(() => {
@@ -1032,10 +1044,10 @@ function PublicAgentEmptyState({
 
   const downloadLabel =
     platform === "mac"
-      ? "Download for Mac"
+      ? t("sharePage.downloadForMac")
       : platform === "windows"
-        ? "Download for Windows"
-        : "Download desktop app";
+        ? t("sharePage.downloadForWindows")
+        : t("sharePage.downloadDesktopApp");
 
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
@@ -1058,16 +1070,16 @@ function PublicAgentEmptyState({
           rel="noreferrer"
           className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
         >
-          Agent-Native Clips
+          {t("sharePage.agentNativeClips")}
         </a>{" "}
-        is a free,{" "}
+        {t("sharePage.agentNativeClipsIntro")}{" "}
         <a
           href={CLIPS_SOURCE_URL}
           target="_blank"
           rel="noreferrer"
           className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
         >
-          open-source
+          {t("sharePage.openSource")}
         </a>
         ,{" "}
         <a
@@ -1076,9 +1088,9 @@ function PublicAgentEmptyState({
           rel="noreferrer"
           className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
         >
-          agent-friendly
+          {t("sharePage.agentFriendly")}
         </a>{" "}
-        Loom alternative
+        {t("sharePage.loomAlternative")}
       </p>
       <div className="mt-7 flex w-full max-w-[220px] flex-col gap-2">
         <CaptureInstallButton
@@ -1091,7 +1103,7 @@ function PublicAgentEmptyState({
         </CaptureInstallButton>
         <Button asChild variant="outline" className="w-full">
           <a href={signupHref} onClick={() => onCtaClick("signup")}>
-            Sign up
+            {t("sharePage.signUp")}
           </a>
         </Button>
       </div>
@@ -1100,12 +1112,14 @@ function PublicAgentEmptyState({
 }
 
 function PublicInsightsState() {
+  const t = useT();
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
-      <p className="text-sm font-medium text-foreground">Owner insights</p>
+      <p className="text-sm font-medium text-foreground">
+        {t("sharePage.ownerInsights")}
+      </p>
       <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
-        Views, completion, and viewer details are visible to editors of this
-        clip.
+        {t("sharePage.ownerInsightsDescription")}
       </p>
     </div>
   );
@@ -1120,6 +1134,8 @@ function EndState({
   message: string;
   action?: ReactNode;
 }) {
+  const t = useT();
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground px-6">
       <h1 className="text-2xl font-semibold mb-2">{title}</h1>
@@ -1129,7 +1145,7 @@ function EndState({
       <div className="flex flex-wrap items-center justify-center gap-2">
         {action}
         <Button asChild variant="ghost" size="sm">
-          <a href={appPath("/")}>Go home</a>
+          <a href={appPath("/")}>{t("clipsFinalRaw.goHome")}</a>
         </Button>
       </div>
     </div>

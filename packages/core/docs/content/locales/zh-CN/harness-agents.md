@@ -215,7 +215,7 @@ const run = startAgentHarnessRun({
 
 ```an-diagram title="跨回合、流程和部署恢复" summary="每一轮都会将一个不透明的resumeState分离到SQL中；下一回合将其反馈到 createSession 而不是重播聊天记录。"
 {
-  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Turn N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opaque · SQL harness session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Turn N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
+  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>第 N 轮<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">不透明 · SQL harness 会话</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>第 N+1 轮<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
   "css": ".diagram-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-resume .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -267,7 +267,7 @@ const last = await getLatestAgentHarnessSessionForThread(threadId);
 `mcpApp` 原生小部件的负载）、`approval-request`、`file-change`，
 `compaction`、`usage`、`error` 和 `done`。因为工具结果流经
 相同的翻译，动作声明的本机小部件仍然呈现 - 请参阅
-[Native Chat UI](/docs/native-chat-ui).
+[Native 聊天界面](/docs/native-chat-ui).
 
 ## 后台运行和UI {#background-runs}
 
@@ -341,7 +341,7 @@ registerAgentHarness({
 
 ## 相关文档 {#related-docs}
 
-- [Native Chat UI](/docs/native-chat-ui) — 将您自己的代理置于 UI 与 `AgentChatRuntime` 的聊天后面。
+- [Native 聊天界面](/docs/native-chat-ui) — 将您自己的代理置于 UI 与 `AgentChatRuntime` 的聊天后面。
 - [Agent Surfaces](/docs/agent-surfaces) — 选择无头、聊天、边车或完整应用。
 - [Agent-Native Code UI](/docs/code-agents-ui) — 可重用的编码工作区表面。
 - [Custom Agents & Teams](/docs/agent-teams) — 后台运行和子代理委派。

@@ -1,4 +1,4 @@
-import { useSendToAgentChat } from "@agent-native/core/client";
+import { useSendToAgentChat, useT } from "@agent-native/core/client";
 import {
   IconPlus,
   IconCheck,
@@ -52,10 +52,10 @@ type ProviderId = "apollo" | "hubspot" | "gong" | "pylon";
 interface IntegrationDef {
   id: ProviderId;
   name: string;
-  description: string;
-  keyPlaceholder: string;
+  descriptionKey: string;
+  keyPlaceholderKey: string;
   helpUrl: string;
-  helpSteps: string[];
+  helpStepKeys: string[];
   logo: React.ReactNode;
 }
 
@@ -63,14 +63,10 @@ const INTEGRATIONS: IntegrationDef[] = [
   {
     id: "apollo",
     name: "Apollo",
-    description: "Contact enrichment & company data",
-    keyPlaceholder: "Apollo API key...",
+    descriptionKey: "integrations.apolloDescription",
+    keyPlaceholderKey: "integrations.apolloKeyPlaceholder",
     helpUrl: "https://app.apollo.io/#/settings/integrations/api",
-    helpSteps: [
-      "Log in to Apollo.io",
-      "Go to Settings > Integrations > API",
-      'Click "Connect" to generate a key',
-    ],
+    helpStepKeys: ["apolloLogin", "apolloApi", "apolloConnect"],
     logo: (
       <svg
         viewBox="0 0 36 36"
@@ -100,14 +96,10 @@ const INTEGRATIONS: IntegrationDef[] = [
   {
     id: "hubspot",
     name: "HubSpot",
-    description: "CRM contacts, deals & tickets",
-    keyPlaceholder: "HubSpot private app token...",
+    descriptionKey: "integrations.hubSpotDescription",
+    keyPlaceholderKey: "integrations.hubSpotKeyPlaceholder",
     helpUrl: "https://developers.hubspot.com/docs/api/private-apps",
-    helpSteps: [
-      "Go to HubSpot > Settings > Integrations > Private Apps",
-      "Create a private app with CRM scopes",
-      "Copy the access token",
-    ],
+    helpStepKeys: ["hubSpotPrivateApps", "hubSpotCreateApp", "copyAccessToken"],
     logo: (
       <svg
         viewBox="0 0 489 512"
@@ -125,14 +117,10 @@ const INTEGRATIONS: IntegrationDef[] = [
   {
     id: "gong",
     name: "Gong",
-    description: "Recent calls & conversation intelligence",
-    keyPlaceholder: "Gong API key or access_key:secret...",
+    descriptionKey: "integrations.gongDescription",
+    keyPlaceholderKey: "integrations.gongKeyPlaceholder",
     helpUrl: "https://app.gong.io/company/api",
-    helpSteps: [
-      "Go to Gong > Company Settings > API",
-      "Generate API credentials",
-      "Copy the access key (or key:secret)",
-    ],
+    helpStepKeys: ["gongApi", "gongGenerate", "gongCopyAccessKey"],
     logo: (
       <svg
         viewBox="0 0 42 42"
@@ -150,14 +138,10 @@ const INTEGRATIONS: IntegrationDef[] = [
   {
     id: "pylon",
     name: "Pylon",
-    description: "Support issues & account data",
-    keyPlaceholder: "Pylon API token...",
+    descriptionKey: "integrations.pylonDescription",
+    keyPlaceholderKey: "integrations.pylonKeyPlaceholder",
     helpUrl: "https://docs.usepylon.com/pylon-docs/developer/api",
-    helpSteps: [
-      "Go to Pylon > Settings > API",
-      "Create an API token (requires Admin)",
-      "Copy the bearer token",
-    ],
+    helpStepKeys: ["pylonApi", "pylonCreateToken", "copyBearerToken"],
     logo: (
       <svg
         viewBox="0 0 25 26"
@@ -246,6 +230,7 @@ export function IntegrationsSidebar({
 // ─── Integration Setup ──────────────────────────────────────────────────────
 
 function IntegrationSetup() {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [configuring, setConfiguring] = useState<ProviderId | null>(null);
   const statuses = useAllIntegrations();
@@ -271,8 +256,11 @@ function IntegrationSetup() {
           className="text-[11px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
         >
           {connectedCount > 0
-            ? `Integrations (${connectedCount}/${INTEGRATIONS.length})`
-            : "Add integrations"}
+            ? t("integrations.connectedCount", {
+                connected: connectedCount,
+                total: INTEGRATIONS.length,
+              })
+            : t("integrations.addIntegrations")}
         </button>
       </div>
     );
@@ -282,13 +270,13 @@ function IntegrationSetup() {
     <div className="px-4 py-3">
       <div className="flex items-center justify-between mb-3">
         <h4 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider">
-          Integrations
+          {t("integrations.title")}
         </h4>
         <button
           onClick={() => setExpanded(false)}
           className="text-[10px] text-muted-foreground/30 hover:text-muted-foreground transition-colors"
         >
-          Collapse
+          {t("bookingLinks.collapsePreview")}
         </button>
       </div>
       <div className="space-y-1.5">
@@ -310,6 +298,7 @@ function IntegrationSetup() {
 }
 
 function AddIntegrationButton() {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
   const { send, codeRequiredDialog } = useSendToAgentChat();
@@ -336,7 +325,7 @@ function AddIntegrationButton() {
             <div className="h-7 w-7 rounded-md border border-dashed border-border/40 flex items-center justify-center shrink-0">
               <IconPlus className="h-3 w-3" />
             </div>
-            <span>Add integration</span>
+            <span>{t("integrations.addIntegration")}</span>
           </button>
         </PopoverTrigger>
         <PopoverContent
@@ -347,7 +336,7 @@ function AddIntegrationButton() {
           className="w-auto rounded-lg border-border/50 bg-card p-2.5 shadow-xl"
         >
           <p className="text-[12px] font-medium text-foreground/80 mb-1.5">
-            New integration
+            {t("integrations.newIntegration")}
           </p>
           <div className="flex gap-1.5">
             <input
@@ -358,7 +347,7 @@ function AddIntegrationButton() {
                 if (e.key === "Enter") handleSubmit();
                 if (e.key === "Escape") setOpen(false);
               }}
-              placeholder="e.g. Salesforce, Intercom..."
+              placeholder={t("integrations.newIntegrationPlaceholder")}
               className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
             />
             <button
@@ -366,7 +355,7 @@ function AddIntegrationButton() {
               disabled={!value.trim()}
               className="shrink-0 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              Go
+              {t("integrations.go")}
             </button>
           </div>
         </PopoverContent>
@@ -384,6 +373,7 @@ function IntegrationRow({
   connected: boolean;
   onConfigure: () => void;
 }) {
+  const t = useT();
   const { disconnect } = useIntegration(def.id);
 
   return (
@@ -394,7 +384,7 @@ function IntegrationRow({
       <div className="flex-1 min-w-0">
         <p className="text-[12px] font-medium text-foreground/80">{def.name}</p>
         <p className="text-[10px] text-muted-foreground/50 truncate">
-          {def.description}
+          {t(def.descriptionKey)}
         </p>
       </div>
       {connected ? (
@@ -411,7 +401,7 @@ function IntegrationRow({
                   </button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent>Settings</TooltipContent>
+              <TooltipContent>{t("navigation.settings")}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent
               side="left"
@@ -424,13 +414,13 @@ function IntegrationRow({
                 onClick={onConfigure}
                 className="text-[12px] text-foreground/70"
               >
-                Update key
+                {t("integrations.updateKey")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => disconnect.mutate()}
                 className="text-[12px] text-red-400/80"
               >
-                Disconnect
+                {t("common.disconnect")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -440,7 +430,7 @@ function IntegrationRow({
           onClick={onConfigure}
           className="shrink-0 text-[11px] text-primary/70 hover:text-primary font-medium"
         >
-          Connect
+          {t("common.connect")}
         </button>
       )}
     </div>
@@ -454,6 +444,7 @@ function IntegrationKeyEntry({
   def: IntegrationDef;
   onBack: () => void;
 }) {
+  const t = useT();
   const [apiKey, setApiKey] = useState("");
   const { connect } = useIntegration(def.id);
 
@@ -479,7 +470,7 @@ function IntegrationKeyEntry({
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder={def.keyPlaceholder}
+          placeholder={t(def.keyPlaceholderKey)}
           autoFocus
           className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
         />
@@ -492,18 +483,18 @@ function IntegrationKeyEntry({
           disabled={!apiKey.trim() || connect.isPending}
           className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
-          {connect.isPending ? "..." : "Save"}
+          {connect.isPending ? "..." : t("eventForm.save")}
         </button>
       </div>
 
       {/* Instructions always visible */}
       <div className="rounded-md bg-accent/30 px-2.5 py-2">
         <p className="text-[11px] text-muted-foreground/70 mb-1.5">
-          To get your API key:
+          {t("integrations.toGetApiKey")}
         </p>
         <ol className="text-[11px] text-muted-foreground/50 space-y-0.5 list-decimal pl-3 mb-1.5">
-          {def.helpSteps.map((step, i) => (
-            <li key={i}>{step}</li>
+          {def.helpStepKeys.map((stepKey) => (
+            <li key={stepKey}>{t(`integrations.steps.${stepKey}`)}</li>
           ))}
         </ol>
         <a
@@ -512,7 +503,7 @@ function IntegrationKeyEntry({
           rel="noopener noreferrer"
           className="text-[11px] text-primary/80 hover:text-primary hover:underline transition-colors"
         >
-          Open {def.name} Settings &rarr;
+          {t("integrations.openProviderSettings", { provider: def.name })}
         </a>
       </div>
     </div>
@@ -809,7 +800,10 @@ function GongSection({ email }: { email: string }) {
     <>
       <div className="h-px bg-border/30 mx-4" />
       <div className="px-4 py-3">
-        <SectionHeader logo={INTEGRATIONS[2].logo} label="Gong Calls" />
+        <SectionHeader
+          logo={INTEGRATIONS[2].logo}
+          label="Gong Calls" // i18n-ignore stable provider section name
+        />
 
         <div className="space-y-2">
           {calls.map((call: any) => {

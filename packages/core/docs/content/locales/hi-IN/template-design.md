@@ -10,7 +10,7 @@ description: "एक एजेंट-मूल HTML प्रोटोटाइ�
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Product launch page</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Generated HTML prototype</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Make the hero denser and the CTA clearer.</span><div style='flex:1'></div><button class='primary'>Apply revision</button></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>उत्पाद लॉन्च पेज</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>जनरेट किया गया HTML प्रोटोटाइप</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>हीरो को अधिक सघन और CTA को अधिक स्पष्ट बनाएं।</span><div style='flex:1'></div><button class='primary'>संशोधन लागू करें</button></div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ description: "एक एजेंट-मूल HTML प्रोटोटाइ�
 
 ```an-diagram title="एक कलाकृति, कोई अनुवाद नहीं" summary="एजेंट स्टैंडअलोन Alpine/Tailwind HTML उत्पन्न करता है; आईफ़्रेम, संपादन योग्य स्रोत और प्रत्येक निर्यात सभी समान फ़ाइलें पढ़ते हैं। एक लिंक्ड डिज़ाइन सिस्टम प्रत्येक पास में टोकन फीड करता है।"
 {
-  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">प्रॉम्प्ट<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">Design system</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Agent generate</span><small class=\"diagram-muted\">standalone HTML / JSX files</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">tweak knobs · Cmd+I refine</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · handoff</small></div></div>",
+  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">प्रॉम्प्ट<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">डिजाइन सिस्टम</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">एजेंट जनरेट</span><small class=\"diagram-muted\">स्वतंत्र HTML / JSX फाइलें</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">नॉब समायोजित करें · Cmd+I से परिष्कृत करें</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · हैंडऑफ</small></div></div>",
   "css": ".diagram-design{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-design .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-design .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-design .diagram-arrow{font-size:20px;line-height:1}.diagram-design .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -85,7 +85,7 @@ pnpm dev
 | `design_systems`                         | पुन: प्रयोज्य ब्रांड टोकन - `data` (रंग/टाइपोग्राफी/स्पेसिंग), `assets`, `custom_instructions`, और एक `is_default` ध्वज                          |
 | `design_shares` / `design_system_shares` | फ्रेमवर्क प्रिंसिपलों (उपयोगकर्ताओं या संगठनों) को भूमिकाओं (दर्शक, संपादक, व्यवस्थापक) से मैप करने वाली तालिकाएँ साझा करता है                   |
 
-```an-schema title="Design data model" summary="A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
+```an-schema title="डेटा मॉडल डिज़ाइन करें" summary="एक डिज़ाइन अपनी फ़ाइलों और संस्करणित स्नैपशॉट का स्वामी होता है, और वैकल्पिक रूप से एक पुन: प्रयोज्य डिज़ाइन सिस्टम को लिंक करता है। डिज़ाइन और सिस्टम दोनों स्वामित्व योग्य हैं, प्रत्येक एक फ्रेमवर्क शेयर तालिका के साथ है।"
 {
   "entities": [
     { "id": "designs", "name": "designs", "note": "A design project (ownable)", "fields": [
@@ -96,13 +96,13 @@ pnpm dev
       { "name": "data", "type": "json", "note": "starts as {}" },
       { "name": "design_system_id", "type": "id", "fk": "design_systems.id", "nullable": true }
     ] },
-    { "id": "files", "name": "design_files", "note": "Files in a design", "fields": [
+    { "id": "files", "name": "design_files", "note": "एक डिज़ाइन में फ़ाइलें", "fields": [
       { "name": "design_id", "type": "id", "fk": "designs.id" },
       { "name": "filename", "type": "text" },
       { "name": "content", "type": "text" },
       { "name": "file_type", "type": "text", "note": "defaults to html" }
     ] },
-    { "id": "versions", "name": "design_versions", "note": "History / rollback", "fields": [
+    { "id": "versions", "name": "design_versions", "note": "इतिहास/रोलबैक", "fields": [
       { "name": "design_id", "type": "id", "fk": "designs.id" },
       { "name": "snapshot", "type": "json" },
       { "name": "label", "type": "text", "nullable": true }
@@ -114,11 +114,11 @@ pnpm dev
       { "name": "custom_instructions", "type": "text", "nullable": true },
       { "name": "is_default", "type": "boolean" }
     ] },
-    { "id": "design_shares", "name": "design_shares", "note": "Framework shares table", "fields": [
+    { "id": "design_shares", "name": "design_shares", "note": "फ्रेमवर्क शेयर तालिका", "fields": [
       { "name": "design_id", "type": "id", "fk": "designs.id" },
       { "name": "role", "type": "text", "note": "viewer / editor / admin" }
     ] },
-    { "id": "system_shares", "name": "design_system_shares", "note": "Framework shares table", "fields": [
+    { "id": "system_shares", "name": "design_system_shares", "note": "फ्रेमवर्क शेयर तालिका", "fields": [
       { "name": "design_system_id", "type": "id", "fk": "design_systems.id" },
       { "name": "role", "type": "text", "note": "viewer / editor / admin" }
     ] }

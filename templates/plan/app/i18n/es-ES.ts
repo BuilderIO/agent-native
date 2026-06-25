@@ -89,6 +89,673 @@ const messages = {
     description:
       "Busca resumenes de PR fusionados, inspecciona bloques visuales y publica respuestas de codigo como diagramas, wireframes, especificaciones de API y modelos de datos.",
   },
+  editor: {
+    slash: {
+      text: {
+        title: "Texto",
+        description: "Parrafo de texto simple",
+      },
+      heading1: {
+        title: "Titulo 1",
+        description: "Titulo grande",
+      },
+      heading2: {
+        title: "Titulo 2",
+        description: "Titulo de seccion",
+      },
+      heading3: {
+        title: "Titulo 3",
+        description: "Subtitulo",
+      },
+      bulletedList: {
+        title: "Lista con vinetas",
+        description: "Lista desordenada",
+      },
+      numberedList: {
+        title: "Lista numerada",
+        description: "Lista ordenada",
+      },
+      todoList: {
+        title: "Lista de tareas",
+        description: "Elementos de checklist",
+      },
+      quote: {
+        title: "Cita",
+        description: "Cita en bloque",
+      },
+      codeBlock: {
+        title: "Bloque de codigo",
+        description: "Fragmento de codigo",
+      },
+      divider: {
+        title: "Separador",
+        description: "Regla horizontal",
+      },
+      table: {
+        title: "Tabla",
+        description: "Tabla de tres por tres",
+      },
+      image: {
+        title: "Imagen",
+        description: "Insertar una imagen",
+      },
+      structuredTable: {
+        title: "Tabla estructurada",
+      },
+    },
+  },
+  raw: {
+    sidebar: {
+      archiveChatFailed: "No se pudo archivar el chat.",
+      renameChatFailed: "No se pudo renombrar el chat.",
+    },
+    canvas: {
+      artboardCanvas: "Lienzo de mesa de trabajo de Plan",
+      zoomIn: "Acercar",
+      zoomOut: "Alejar",
+      markupSaveFailed: "No se pudo guardar el marcado. Intentalo de nuevo.",
+    },
+    document: {
+      replaceImageFailed: "No se pudo reemplazar la imagen.",
+      replacingImage: "Reemplazando imagen…",
+      imageReplaced: "Imagen reemplazada.",
+      htmlFragment: "Fragmento HTML",
+      optionalCss: "CSS opcional",
+      invalidBlockDescription:
+        "Este bloque generado no coincidio con el esquema de Plan, asi que se omitio mientras el resto del resumen siguio visible.",
+      validationDetails: "Detalles de validacion",
+    },
+    localCodebase: {
+      chooseCodebase: "Elegir base de codigo",
+      clearCodebase: "Borrar base de codigo",
+      syncCodebase: "Sincronizar base de codigo",
+      codebaseSynced: "Base de codigo sincronizada",
+      codebaseSyncFailed: "Fallo la sincronizacion de la base de codigo",
+      chooseFolderFailed: "No se pudo elegir la carpeta",
+      syncLocalFailed: "No se pudo sincronizar la base de codigo local.",
+      folderUnavailable:
+        "El acceso a carpetas no esta disponible en este navegador.",
+      filesSynced: "{{count}} archivos sincronizados",
+      lastSynced: "Ultima sincronizacion {{date}}",
+      codebaseUnlinked: "Base de codigo desvinculada",
+    },
+    content: {
+      addSummary: "Agrega un resumen breve del plan",
+      changeStatistics: "Estadisticas de cambios",
+      untitledPlan: "Plan sin titulo",
+      saveFailed: "No se pudo guardar",
+    },
+    imageViewer: {
+      actualSize: "Tamano real",
+      closePreview: "Cerrar vista previa de imagen",
+      copyImage: "Copiar imagen",
+      downloadImage: "Descargar imagen",
+      download: "Descargar",
+      editDetails: "Editar detalles",
+      fitToScreen: "Ajustar a pantalla",
+      imageOptions: "Opciones de imagen",
+      more: "Mas",
+      openOriginal: "Abrir original",
+      replaceImage: "Reemplazar imagen",
+      viewFullSize: "Ver a tamano completo",
+      uploadingImage: "Subiendo imagen…",
+      image: "Imagen",
+    },
+    imageActions: {
+      copiedUrl: "URL de imagen copiada.",
+      copyFailed: "No se pudo copiar la imagen.",
+      imageCopied: "Imagen copiada.",
+      downloadStarted: "Descarga de imagen iniciada.",
+      openedNewTab: "Imagen abierta en una nueva pestana.",
+    },
+    markdown: {
+      copySectionLink: "Copiar enlace a esta seccion",
+    },
+    toc: {
+      planSections: "Secciones del plan",
+    },
+    visual: {
+      clearDesignSelection: "Borrar seleccion de diseno",
+      designElement: "Elemento de diseno",
+      visualReviewMode: "Modo de revision visual",
+      prototype: "Prototipo",
+      design: "Diseno",
+      wireframes: "Wireframes",
+    },
+    blocks: {
+      describeChange: "Describe un cambio…",
+      describeChangeTo: "Describe un cambio en {{label}}",
+    },
+    pages: {
+      planActions: "Acciones del plan",
+    },
+  },
+  plansPage: {
+    comments: {
+      addPlaceholder: "Añade un comentario...",
+      agent: "Agente",
+      agentAction: "Acción del agente",
+      cancelComment: "Cancelar comentario",
+      closeComment: "Cerrar comentario",
+      closeComments: "Cerrar comentarios",
+      comment: "Comentario",
+      comments: "Comentarios",
+      deleteComment: "Eliminar comentario",
+      deleteCommentDescription: "Esto eliminará el comentario del plan.",
+      deleteCommentTitle: "¿Eliminar comentario?",
+      deleteThread: "Eliminar hilo",
+      deleteThreadDescription: "Eliminar descripción del hilo",
+      deleteThreadDescription_many:
+        "Esto eliminará el comentario y las respuestas {{count}} del plan.",
+      deleteThreadDescription_one:
+        "Esto eliminará el comentario y la respuesta {{count}} del plan.",
+      deleteThreadDescription_other:
+        "Esto eliminará el comentario y las respuestas {{count}} del plan.",
+      deleteThreadTitle: "¿Eliminar hilo?",
+      editFirstComment: "Editar primer comentario",
+      editPlaceholder: "Editar comentario...",
+      expectedResolver: "Resolución esperada",
+      human: "Humano",
+      humanReview: "Revisión humana",
+      markResolved: "Marcar como resuelto",
+      noOpen:
+        "Sin comentarios abiertos. Haga clic en Comentar y luego haga clic para colocar uno.",
+      noResolved: "No hay comentarios resueltos.",
+      commentUpdated: "Comentario actualizado",
+      replyAdded: "Respuesta agregada",
+      commentDeleted: "Comentario eliminado",
+      commentResolved: "Comentario resuelto",
+      commentReopened: "Comentario reabierto",
+      mentionMember: "Mencionar miembro de la organización",
+      searchingPeople: "Buscando personas...",
+      noMatchingMembers: "No hay miembros de la organización coincidentes.",
+      open: "Abierto",
+      options: "Opciones de comentarios",
+      reopenThread: "Reabrir hilo",
+      replyPlaceholder: "Responder",
+      resolved: "Resuelto",
+      saveFailed: "No se pudo guardar. Intentar otra vez.",
+      saving: "Ahorro",
+      sendFailed: "No se pudo enviar. Intentar otra vez.",
+      sendReply: "Enviar respuesta",
+      signInDescription:
+        "Crea una cuenta gratuita para dejar comentarios sobre este plan.",
+      signInTitle: "Inicia sesión para comentar",
+      toAgent: "al agente",
+    },
+    common: {
+      cancel: "Cancelar",
+      delete: "Borrar",
+      deleting: "Eliminando...",
+      save: "Ahorrar",
+    },
+    create: {
+      advanced: "Avanzado",
+      agentMissing:
+        "Conecte el agente para ejecutarlo: agregue una clave API o use Builder.",
+      assessment: {
+        ui: "Estados o flujos de UI detectados automáticamente; el agente hará un plan primero con estructura alámbrica.",
+        visual:
+          "Auto le pedirá al agente un plan técnico completo con diagramas y detalles de implementación.",
+      },
+      autoWithLabel: "Automático: {{label}}",
+      describeFirst: "Describe el plan primero.",
+      description:
+        "Describe el plan que deseas o pega un plan Codex/Claude existente. El agente del Plan generará los esquemas y revisará la estructura.",
+      importDetected:
+        "Parece un plan existente. El agente lo conservará y agregará una estructura de revisión visual.",
+      kindOptions: {
+        auto: {
+          description: "Automático: elija la ruta de planificación correcta",
+          label: "Auto",
+        },
+        questions: {
+          description: "Preguntas visuales: ingesta explícita",
+          label: "Preguntas visuales",
+        },
+        ui: {
+          description:
+            "Flujo de interfaz de usuario: estructuras alámbricas y estados",
+          label: "flujo de interfaz de usuario",
+        },
+        visual: {
+          description: "Visual general: diagramas y notas.",
+          label: "visuales generales",
+        },
+      },
+      placeholder:
+        "Solicite al agente un flujo de interfaz de usuario, un mapa de implementación, notas de revisión...",
+      planningHelp:
+        "Los planes pegados se detectan y envían al agente con contexto de importación. Auto mantiene el flujo normal del plan; Elija Preguntas visuales cuando desee realizar la ingesta primero.",
+      planningStyle: "Estilo de planificación del agente",
+      presets: {
+        checkout: "Flujo de pago",
+        imported: "Plano importado",
+        settings: "Rediseño de configuraciones",
+      },
+      presetPrompts: {
+        checkout:
+          "Planifica un flujo de revisión de pago con wireframes de escritorio y móvil, estados clave vacío/cargando/error, indicaciones de comentarios y notas de implementación.",
+        settings:
+          "Crea un plan de flujo de interfaz para rediseñar la configuración, incluyendo estados de navegación, interacciones de riesgo, anotaciones de revisión y notas de entrega de código.",
+        imported:
+          "# Plan de implementación\n\nPega aquí el plan existente de Codex o Claude Code y conviértelo en un documento de revisión visual.",
+      },
+      sent: "Enviado al agente del Plan",
+      source: "Fuente",
+      sourceHelp: "Sólo procedencia. Ayuda a explicar dónde comenzó el plan.",
+      sourceOptions: {
+        "claude-code": "Claude Code",
+        codex: "Codex",
+        cursor: "Cursor",
+        imported: "Importado",
+        manual: "Manual",
+        pi: "Pi",
+      },
+      title: "Pídale al agente que cree un plan",
+    },
+    deletePlan: {
+      deletePermanently: "Eliminar permanentemente",
+      description:
+        "{{title}} ya no estará disponible en las vistas normales del plan.",
+      fallbackTitle: "Este plan alojado",
+      hardOptionDescription:
+        "Elimine filas y referencias alojadas. Esto no se puede deshacer.",
+      hardTitle: "¿Eliminar permanentemente este {{noun}}?",
+      moveToDeleted: "Mover a Eliminado",
+      permanentDescription:
+        "Esto elimina el {{noun}} alojado, los comentarios, los recursos compartidos, la actividad, las versiones, los informes y los registros de activos de Plan SQL. Los archivos locales y las reglas del ciclo de vida del proveedor de carga externo están separados.",
+      permanentWarning: "La eliminación permanente no se puede deshacer.",
+      softDescription:
+        "La eliminación temporal mueve {{noun}} a la pestaña Eliminado. Los enlaces directos, el uso compartido público, los comentarios y las lecturas de agentes dejan de funcionar hasta que los restaure.",
+      softOptionDescription:
+        "Ocultarlo ahora, detener el acceso público y mantener la restauración disponible.",
+      softTitle: "¿Eliminar este {{noun}}?",
+      typePrefix: "Tipo",
+      typeSuffix: "para confirmar",
+    },
+    wireframe: {
+      emptyDiagram: "El contenido del diagrama está vacío.",
+      usageFree: "1% usado · 198k libres",
+      contextXray: "Radiografía de contexto",
+      contextXrayPopover: "Ventana emergente de Context X-Ray",
+      pinnedZero: "Fijados 0",
+      evictedZero: "Expulsados 0",
+      userMessage: "Mensaje del usuario",
+      toolResult: "Resultado de la herramienta",
+      pinEvict: "Fijar / expulsar",
+      tokenMap: "Mapa de tokens",
+      selectedTokens: "Seleccionados 2.0k",
+      chatMessages: "Mensajes de chat",
+      thinkingStatus: "Estado de pensamiento",
+      appShell: "Shell de la app",
+      chatThread: "Hilo de chat",
+      agentSidebar: "Barra lateral del agente",
+      xray: "Radiografía",
+    },
+    empty: {
+      description:
+        "Cree un plan pulido con bloques de documentos, diagramas, estructuras alámbricas y comentarios editables antes de que comience la implementación.",
+      installPrefix: "O instalar la habilidad y usar",
+      installSuffix: "de su agente de codificación:",
+      newPlan: "Nuevo Plan",
+      title: "Comience con un plan visual",
+    },
+    history: {
+      back: "volver a la historia",
+      description:
+        "Explore las versiones guardadas del plan y restaure una instantánea anterior.",
+      noPreview: "Esta instantánea no tiene contenido previsualizable.",
+      noVersions: "Aún no hay versiones guardadas",
+      noVersionsDescription:
+        "Las versiones se guardan automáticamente antes de futuras ediciones del plan.",
+      previewTitle: "Vista previa de la versión del plan",
+      restore: "Restaurar",
+      restoreConfirmDescription:
+        "Esto reemplaza el plan actual con la instantánea de {{date}}. Su versión actual se guarda primero en el historial, por lo que puede deshacer esto.",
+      restoreConfirmTitle: "¿Restaurar esta versión?",
+      restoreFailed: "No se pudo restaurar la versión del plan.",
+      restoreSuccess: "Versión del plano restaurada.",
+      restoreThisVersion: "Restaurar esta versión",
+      restoring: "Restaurando...",
+      savedFirst: "Su versión actual se guarda primero en el historial.",
+      snapshotUnavailable: "Instantánea no disponible",
+      surface: {
+        blocks: "Bloques",
+        blocks_many: "bloques {{count}}",
+        blocks_one: "bloque {{count}}",
+        blocks_other: "bloques {{count}}",
+        canvas: "Lienzo",
+        prototype: "Prototipo",
+        sections: "Secciones",
+        sections_many: "{{count}} secciones",
+        sections_one: "Sección {{count}}",
+        sections_other: "{{count}} secciones",
+      },
+      title: "Historia del plan",
+      untitled: "Plano sin título",
+      versionActions: "Acciones de versión",
+    },
+    loadError: {
+      acceptInvite: "Aceptar invitación",
+      acceptingInvite: "Aceptar invitación",
+      accessRequestSent:
+        "Solicitud de acceso enviada. Podrás abrir este enlace una vez que un propietario te conceda acceso.",
+      continueWithGoogle: "Continuar con Google",
+      createAccount: "Crear una cuenta",
+      createAccountFailed: "No se pudo crear la cuenta.",
+      didNotLoadTitle: "El plan no se cargó",
+      domainMessage:
+        "Su correo electrónico @{{domain}} puede unirse a {{orgName}}. Únase para abrir este plan.",
+      email: "Correo electrónico",
+      emailSignInFailed: "No se pudo iniciar sesión con el correo electrónico.",
+      genericMessage: "Este plan no se pudo cargar desde la sesión actual.",
+      haveAccount: "tengo una cuenta",
+      inviteMessage:
+        "Ya tienes una invitación a {{orgName}}. Acéptalo para abrir este plan.",
+      joinMessage: "Puedes unirte a {{orgName}} para abrir este plan.",
+      joinOrg: "Únete a {{orgName}}",
+      joinedOrg: "Se unió a {{orgName}}. Plan de apertura...",
+      joiningOrg: "Unirse a la organización",
+      maybeOtherOrgBody:
+        "Este plan puede pertenecer a otra organización o es posible que esta cuenta no tenga acceso.",
+      noAccessBody:
+        "Este plan existe, pero esta cuenta no tiene acceso para verlo.",
+      notFoundBody:
+        "Este plan no existe o pertenece a otra organización y necesitas acceso.",
+      notFoundTitle: "Plano no encontrado",
+      orgBody:
+        "Este plan pertenece a {{orgName}}. Debes ser miembro de {{orgName}} para verlo.",
+      orgTitle: "Únase a {{orgName}} para ver este plan",
+      password: "Contraseña",
+      privateBody:
+        "Este plan es privado. Inicie sesión con una cuenta que tenga acceso.",
+      requestAccess: "Solicitar acceso",
+      requestAccessTitle: "Solicitar acceso a este plan",
+      requestSent: "Solicitud enviada",
+      retry: "Rever",
+      retryHelp:
+        "Vuelva a intentar la carga o inicie sesión con otra cuenta si se trata de un enlace de plan privado.",
+      signIn: "Iniciar sesión",
+      signInTitle: "Inicia sesión para ver este plan",
+      signInWithEmail: "Iniciar sesión con correo electrónico",
+      signedInAs: "Iniciado sesión como",
+      switchAccount: "Cambiar de cuenta",
+      verifyEmail:
+        "Revise su correo electrónico para verificar la cuenta y luego vuelva a abrir este enlace.",
+    },
+    localMode: {
+      badge: "modo local",
+      description:
+        "Sus datos nunca se guardan en nuestro backend ni los vemos. Esta página solo procesa y edita sus archivos MDX locales.",
+      openDocs: "Abrir documentos.",
+      privacyDetails: "Detalles de privacidad del modo local",
+      title: "Modo local 100% privado",
+    },
+    localPlanLoadError: {
+      message: 'No se pudo leer la carpeta del plan local "{{slug}}".',
+      title: "Plan local no encontrado",
+    },
+    loggedOut: {
+      copied: "copiado",
+      copy: "Copiar",
+      copyInstallCommand: "Copiar comando de instalación",
+      description:
+        "Instale las habilidades del plan en su agente de codificación, luego use el comando de barra diagonal para crear su primer plan de revisión.",
+      installCopied: "Comando de instalación copiado",
+      installCopyFailed: "No se pudo copiar el comando de instalación",
+      title: "Empezar con /visual-plan",
+      viewDocs: "Ver los documentos",
+    },
+    nouns: {
+      plan: "plan",
+      recap: "resumen",
+    },
+    overview: {
+      allAuthors: "Todos los autores",
+      archive: "Archivo",
+      createdBy: "Creado por",
+      delete: "Borrar...",
+      deletePermanently: "Eliminar permanentemente",
+      deletedAt: "{{date}} eliminado",
+      deletedBadge: "Eliminado",
+      documentCount: "Recuento de documentos",
+      documentCount_many: "{{count}} documentos",
+      documentCount_one: "{{count}} documento",
+      documentCount_other: "{{count}} documentos",
+      empty: {
+        noArchived: "No hay planos archivados.",
+        noDeleted: "No hay planes eliminados.",
+        noMatch: "Ningún plan coincide.",
+        noPlans: "No hay planes aquí todavía.",
+      },
+      me: "A mí",
+      newPlan: "Nuevo Plan",
+      planActions: "Planificar acciones",
+      recapBadge: "Resumen",
+      restore: "Restaurar",
+      searchPlaceholder: "Planes de búsqueda...",
+      signInToCreate: "Inicia sesión para crear",
+      tabs: {
+        all: "Todo",
+        archived: "Archivado",
+        deleted: "Eliminado",
+        plans: "Planes",
+        recaps: "Resúmenes",
+      },
+      title: "Planes",
+      unarchive: "Desarchivar",
+    },
+    reader: {
+      appView: "Vista de aplicación",
+      archiveFailed: "No se pudo archivar el plan.",
+      autoSyncChanges: "Cambios de sincronización automática",
+      backToPlans: "Volver a los planes",
+      changeLocalFolder: "Cambiar carpeta local",
+      cleanWireframes: "Estructuras alámbricas limpias",
+      clickCanvasNote: "Haga clic en el lienzo para colocar una nota.",
+      clickToComment:
+        "Haga clic en {{noun}} o seleccione el texto para comentar",
+      clientHtmlWorkingPlan: "plan de trabajo",
+      copyFeedback: "Copiar comentarios",
+      saveLocalPlanToRepo: "Guardar plan local en el repositorio",
+      chooseRepoFolder:
+        "Elige una carpeta relativa al repositorio para estos archivos MDX.",
+      repoFolder: "Carpeta del repositorio",
+      replaceExistingFolder: "Reemplazar carpeta existente",
+      copyForAgent: "Copia para su agente",
+      copyForAgentDescription: "Copia un mensaje que puedes pegar en el chat.",
+      copyHtml: "Copiar HTML",
+      copyLink: "Copiar enlace",
+      copyLocalPath: "Copiar ruta local",
+      copyMarkdown: "Copiar rebajas",
+      darkMode: "modo oscuro",
+      desktopSyncUnavailable:
+        "La sincronización de archivos locales de escritorio no está disponible.",
+      downloadHtml: "Descargar HTML",
+      downloadMarkdown: "Descargar rebajas",
+      downloadSourceZip: "Descargar código fuente (.zip)",
+      dragCanvasCallout: "Arrastre sobre el lienzo para dibujar una leyenda",
+      enableLocalSyncFailed:
+        "No se pudo habilitar la sincronización de archivos locales.",
+      enterRepoFolder: "Ingrese una ruta de carpeta relativa al repositorio.",
+      export: "Exportar",
+      exportUnavailable: "La exportación del plan no estaba disponible.",
+      feedbackCopied: "Instrucciones de comentarios copiadas",
+      fullPlan: "plan completo",
+      fullScreen: "Pantalla completa",
+      hideComments: "Ocultar comentarios",
+      importLocalEdits: "Importar ediciones locales",
+      importedLocalSource: "Archivos fuente locales importados",
+      lightMode: "Modo de luz",
+      linkLocalFolder: "Vincular carpeta local",
+      linksDisabled:
+        "Los enlaces están deshabilitados durante la revisión, por lo que el documento permanece ahí.",
+      localFiles: "Archivos locales",
+      localFilesNoHosted:
+        "No se escribe ni se comparte la base de datos alojada.",
+      localPathCopied: "Ruta local copiada",
+      localPlanAlreadySaved:
+        "El plan local ya está guardado en el repositorio.",
+      localSourceFilesUnavailable:
+        "Los archivos fuente del plan local aún no estaban disponibles.",
+      localSourceUnavailable:
+        "La fuente del plan local aún no estaba disponible.",
+      noSourceFiles: "No se encontraron archivos fuente del plan.",
+      openDocs: "Documentos abiertos",
+      openFullPlan: "Abrir plan completo",
+      openPrototypeWindow: "Abrir ventana de prototipo",
+      openingFile: "Abrir archivo en su editor",
+      pinComment: "Fijar un comentario",
+      planHtmlCopied: "Plan HTML copiado",
+      planLinkCopied: "Enlace del plan copiado",
+      planMarkdownCopied: "Plan de rebajas copiado",
+      planMovedToDeleted: "El plan se movió a Eliminado.",
+      planPermanentlyDeleted: "Plan eliminado permanentemente.",
+      planRestored: "Plano restaurado.",
+      planSourceDownloaded: "Fuente del plan descargada",
+      recapLinkCopied: "Enlace de resumen copiado",
+      recapMovedToDeleted: "Resumen movido a Eliminado.",
+      recapPermanentlyDeleted: "Resumen eliminado permanentemente.",
+      recapRestored: "Resumen restaurado.",
+      reviewMarkupTools: "Revisar herramientas de marcado",
+      runtimeCloseCodePreview: "Cerrar vista previa del código",
+      runtimeComment: "Comentario",
+      runtimeCommentAuthor: "Autor del comentario",
+      runtimeCommentBy: "{{countLabel}} por {{names}}: {{message}}",
+      runtimeCommentCount_one: "{{count}} comentario",
+      runtimeCommentCount_other: "{{count}} comentarios",
+      runtimeCommentTitle: "{{countLabel}}: {{message}}",
+      runtimeOpen: "Abierto",
+      runtimePlanComment: "Comentario del plano",
+      saveAnswersFailed:
+        "No se pudieron guardar las respuestas: se enviaron únicamente al chat del agente.",
+      saveSourceToFolder: "Guardar fuente en la carpeta...",
+      saveToRepo: "Guardar en repositorio...",
+      savedLocalFiles: "Archivos locales {{count}} guardados en {{path}}",
+      sendFeedback: "Enviar comentarios",
+      sendToAgent: "Enviar al agente",
+      sendToInlineAgent: "Enviar al agente en línea",
+      sendToInlineAgentDescription:
+        "Publica comentarios abiertos en el agente del lado de la aplicación.",
+      sending: "Envío",
+      sentAnswers: "Envió respuestas al agente.",
+      sentComments: "Comentarios enviados al agente.",
+      sentCommentsWithScreenshots:
+        "Envió comentarios y capturas de pantalla enfocadas al agente.",
+      showAllComments: "Mostrar todos los comentarios",
+      showComments: "Mostrar comentarios",
+      sketchyWireframes: "Estructuras alámbricas incompletas",
+      sourceFilesUnavailable:
+        "Los archivos fuente del plan aún no estaban disponibles.",
+      stopCommenting: "dejar de comentar",
+      syncLocalFailed:
+        "No se pudo sincronizar el plan con los archivos locales.",
+      syncToLocalFolder: "Sincronizar con la carpeta local",
+      syncedLocalFiles: "Archivos locales {{count}} sincronizados",
+      toggleAgentSidebar: "Alternar barra lateral del agente",
+      toggleSideChat: "Alternar chat lateral",
+      unarchiveFailed: "No se pudo desarchivar el plan.",
+      visualPromptCopied: "Mensaje de admisión visual copiado",
+      runtimeCommentCount_many: "{{count}} comentarios",
+    },
+    report: {
+      description: "Cuéntanos por qué se debe revisar este {{noun}} público.",
+      details: "Detalles",
+      detailsPlaceholder: "Añade una breve nota para los moderadores.",
+      reason: "Razón",
+      reasons: {
+        harassment: "Acoso",
+        hate: "Contenido odioso",
+        illegal: "Actividad ilegal",
+        other: "Otra cosa",
+        privacy: "Preocupación por la privacidad",
+        "self-harm": "autolesiones",
+        sexual: "Contenido sexual",
+        spam: "Spam o engañoso",
+        violence: "Violencia o amenazas",
+      },
+      report: "Denunciar {{noun}}",
+      reportAria: "Denunciar {{noun}}",
+      submit: "Enviar informe",
+    },
+    share: {
+      accessNote:
+        "Cualquiera con acceso de edición puede cambiar el {{noun}}. Para ver un {{noun}} público no se necesita una cuenta, pero para comentarlo se requiere una cuenta nativa del agente.",
+      checking: "De cheques",
+      copyFailed: "No se pudo copiar el enlace",
+      createAccountToPublish:
+        "Crea una cuenta gratuita para publicar este {{noun}}",
+      createShareableLink: "Crear enlace para compartir",
+      creatingLink: "Creando enlace",
+      description:
+        "Privado por defecto. Invite a personas, comparta con su organización o establezca Público para que cualquier persona con enlace pueda revisarlo.",
+      finishAccount:
+        "Termina de crear tu cuenta, luego regresa y generaremos el enlace.",
+      generalAccess: "Acceso general {{noun}}",
+      hostedCopy:
+        "Este {{noun}} local tiene una copia alojada para compartir. Abra el {{noun}} alojado para gestionar el acceso.",
+      linkCopied: "Enlace para compartir copiado",
+      linkLabel: "enlace {{noun}}",
+      openHostedPlan: "Plan alojado abierto",
+      peopleAccess: "Personas con acceso {{noun}}",
+      publishDescription:
+        "Cree una cuenta gratuita para publicar este {{noun}} en un enlace que se pueda compartir. Puede seguir editando localmente con su agente de codificación hasta que lo haga.",
+      share: "Compartir {{noun}}",
+      shareAria: "Compartir {{noun}}",
+      shareThis: "Comparte este {{noun}}",
+      signedInRetry: "He iniciado sesión - reinténtalo",
+      updateLink: "Enlace de actualización",
+      updating: "Actualizando",
+      visibility: {
+        org: {
+          description:
+            "Cualquier persona de su organización que tenga el enlace puede ver",
+          label: "Organización",
+        },
+        private: {
+          description: "Sólo las personas invitadas pueden abrir este {{noun}}",
+          label: "Privado",
+        },
+        public: {
+          description: "Cualquier persona con el enlace puede ver",
+          label: "Público",
+        },
+      },
+    },
+    skeleton: {
+      loadingPlan: "plan de carga",
+      loadingRecap: "Cargando resumen",
+    },
+    skillDemos: {
+      "visual-plan": {
+        description:
+          "Revise la forma de implementación antes de que el código cambie.",
+        label: "plano visual",
+        videoAriaLabel: "Vídeo de demostración de habilidades del Plan Visual",
+      },
+      "visual-recap": {
+        description:
+          "Convierta un PR o una diferencia en un resumen de reseñas que se pueda compartir.",
+        label: "Resumen visual",
+        videoAriaLabel:
+          "Vídeo de demostración de habilidades de resumen visual",
+      },
+    },
+    status: {
+      labels: {
+        approved: "Aprobado",
+        archived: "Archivado",
+        complete: "Completo",
+        draft: "Borrador",
+        in_progress: "En curso",
+        review: "En revisión",
+      },
+      setPlanStatus: "Establecer estado del plan",
+      setStatus: "Establecer estado",
+      updateFailed: "No se pudo actualizar el estado del plan.",
+    },
+  },
   guest: {
     banner:
       "You're browsing as a guest. Iniciar sesión to create plans, leave comments, and keep your work.",

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -59,55 +60,56 @@ export function shouldPromptGuests(
 }
 
 function actionText(
+  t: ReturnType<typeof useT>,
   action: GuestNotificationAction,
   options: { showRecurrenceScope: boolean; canNotifyGuests: boolean },
 ) {
   if (options.showRecurrenceScope) {
     if (action === "cancellation") {
       return {
-        title: "Cancel recurring event?",
+        title: t("eventForm.cancelRecurringEventQuestion"),
         description: options.canNotifyGuests
-          ? "Choose how much of the series to cancel and whether to notify guests."
-          : "Choose how much of the series to cancel.",
-        sendLabel: "Send cancellation",
-        skipLabel: "Don't notify",
-        confirmLabel: "Cancel event",
-        textarea: "Add a cancellation note",
-        placeholder: "Why the event is being cancelled...",
+          ? t("eventForm.cancelRecurringNotifyDescription")
+          : t("eventForm.cancelRecurringDescription"),
+        sendLabel: t("deleteEvent.sendCancellation"),
+        skipLabel: t("deleteEvent.dontNotify"),
+        confirmLabel: t("eventForm.cancelEvent"),
+        textarea: t("deleteEvent.cancellationNote"),
+        placeholder: t("deleteEvent.cancellationPlaceholder"),
       };
     }
 
     return {
-      title: "Update recurring event?",
+      title: t("eventForm.updateRecurringEventQuestion"),
       description: options.canNotifyGuests
-        ? "Choose how much of the series to update and whether to notify guests."
-        : "Choose how much of the series to update.",
-      sendLabel: "Send update",
-      skipLabel: "Don't notify",
-      confirmLabel: "Update event",
-      textarea: "Add an update note",
-      placeholder: "What changed or what guests should know...",
+        ? t("eventForm.updateRecurringNotifyDescription")
+        : t("eventForm.updateRecurringDescription"),
+      sendLabel: t("eventForm.sendUpdate"),
+      skipLabel: t("deleteEvent.dontNotify"),
+      confirmLabel: t("eventForm.updateEvent"),
+      textarea: t("eventForm.addUpdateNote"),
+      placeholder: t("eventForm.updateNotePlaceholder"),
     };
   }
 
   return action === "cancellation"
     ? {
-        title: "Notify guests?",
-        description: "Send a cancellation to guests with an optional note.",
-        sendLabel: "Send cancellation",
-        skipLabel: "Don't notify",
-        confirmLabel: "Cancel event",
-        textarea: "Add a cancellation note",
-        placeholder: "Why the event is being cancelled...",
+        title: t("eventForm.notifyGuestsQuestion"),
+        description: t("eventForm.sendCancellationDescription"),
+        sendLabel: t("deleteEvent.sendCancellation"),
+        skipLabel: t("deleteEvent.dontNotify"),
+        confirmLabel: t("eventForm.cancelEvent"),
+        textarea: t("deleteEvent.cancellationNote"),
+        placeholder: t("deleteEvent.cancellationPlaceholder"),
       }
     : {
-        title: "Notify guests?",
-        description: "Send an update to guests with an optional note.",
-        sendLabel: "Send update",
-        skipLabel: "Don't notify",
-        confirmLabel: "Update event",
-        textarea: "Add an update note",
-        placeholder: "What changed or what guests should know...",
+        title: t("eventForm.notifyGuestsQuestion"),
+        description: t("eventForm.sendUpdateDescription"),
+        sendLabel: t("eventForm.sendUpdate"),
+        skipLabel: t("deleteEvent.dontNotify"),
+        confirmLabel: t("eventForm.updateEvent"),
+        textarea: t("eventForm.addUpdateNote"),
+        placeholder: t("eventForm.updateNotePlaceholder"),
       };
 }
 
@@ -120,6 +122,7 @@ function GuestNotificationDialog({
   onCancel: () => void;
   onConfirm: (choice: GuestNotificationOptions) => void;
 }) {
+  const t = useT();
   const [message, setMessage] = useState("");
   const [scope, setScope] = useState<UpdateEventScope>("single");
   const guestCount = request
@@ -129,11 +132,11 @@ function GuestNotificationDialog({
   const canNotifyGuests = guestCount > 0;
   const copy = useMemo(
     () =>
-      actionText(request?.action ?? "update", {
+      actionText(t, request?.action ?? "update", {
         showRecurrenceScope,
         canNotifyGuests,
       }),
-    [canNotifyGuests, request?.action, showRecurrenceScope],
+    [canNotifyGuests, request?.action, showRecurrenceScope, t],
   );
 
   useEffect(() => {
@@ -163,7 +166,7 @@ function GuestNotificationDialog({
         <div className="space-y-4">
           {showRecurrenceScope && (
             <div className="space-y-2">
-              <Label>Apply changes to</Label>
+              <Label>{t("eventForm.applyChangesTo")}</Label>
               <RadioGroup
                 value={scope}
                 onValueChange={(value) => setScope(value as UpdateEventScope)}
@@ -174,11 +177,15 @@ function GuestNotificationDialog({
                     id="guest-update-scope-single"
                     value="single"
                   />
-                  <Label htmlFor="guest-update-scope-single">This event</Label>
+                  <Label htmlFor="guest-update-scope-single">
+                    {t("eventForm.thisEvent")}
+                  </Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <RadioGroupItem id="guest-update-scope-all" value="all" />
-                  <Label htmlFor="guest-update-scope-all">All events</Label>
+                  <Label htmlFor="guest-update-scope-all">
+                    {t("eventForm.allEvents")}
+                  </Label>
                 </div>
               </RadioGroup>
             </div>
@@ -198,7 +205,7 @@ function GuestNotificationDialog({
                 autoFocus={!showRecurrenceScope}
               />
               <p className="text-xs text-muted-foreground">
-                {guestCount} {guestCount === 1 ? "guest" : "guests"}
+                {t("deleteEvent.guest", { count: guestCount })}
               </p>
             </div>
           )}
@@ -206,7 +213,7 @@ function GuestNotificationDialog({
 
         <DialogFooter className="gap-2 sm:gap-0">
           <Button type="button" variant="ghost" onClick={onCancel}>
-            Cancel
+            {t("eventForm.cancel")}
           </Button>
           {canNotifyGuests ? (
             <>

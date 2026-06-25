@@ -2,6 +2,7 @@ import {
   callAction,
   useSendToAgentChat,
   useChangeVersions,
+  useT,
 } from "@agent-native/core/client";
 import { IconFlask, IconClock, IconSearch } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
@@ -49,6 +50,7 @@ function formatRelativeDate(iso: string): string {
 }
 
 export default function AnalysesList() {
+  const t = useT();
   const analysesSync = useChangeVersions(["analyses", "action"]);
   const { data: analyses, isLoading } = useQuery({
     queryKey: ["analyses-list", analysesSync],
@@ -75,14 +77,14 @@ export default function AnalysesList() {
       <div className="space-y-6">
         <div className="flex items-center gap-3">
           <p className="text-sm text-muted-foreground flex-1">
-            Ad-hoc analyses that can be re-run anytime for fresh results
+            {t("analyses.description")}
           </p>
           {analyses && analyses.length > 0 && (
             <div className="relative">
               <IconSearch className="absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60 pointer-events-none" />
               <input
                 type="search"
-                placeholder="Search analyses…"
+                placeholder={t("analyses.searchPlaceholder")}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="h-8 rounded-md border border-input bg-background ps-8 pe-3 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring"
@@ -104,25 +106,26 @@ export default function AnalysesList() {
                 <IconFlask className="h-7 w-7 text-primary" />
               </div>
               <h3 className="text-lg font-semibold mb-2">
-                {searchQuery ? "No results" : "No analyses yet"}
+                {searchQuery
+                  ? t("analyses.noResults")
+                  : t("analyses.noAnalysesYet")}
               </h3>
               <p className="text-sm text-muted-foreground max-w-sm mb-4">
                 {searchQuery
-                  ? `No analyses match "${searchQuery}".`
-                  : "Ask the AI assistant to run an analysis with your configured data sources, and it will save the results here with the evidence it queried."}
+                  ? t("analyses.noResultsForQuery", { query: searchQuery })
+                  : t("analyses.emptyDescription")}
               </p>
               {!searchQuery && (
                 <button
                   onClick={() =>
                     send({
-                      message:
-                        "Run an ad-hoc analysis using my configured data sources and summarize the key findings",
+                      message: t("analyses.examplePrompt"),
                       submit: false,
                     })
                   }
                   className="text-sm text-primary hover:underline"
                 >
-                  Try an example prompt
+                  {t("analyses.tryExamplePrompt")}
                 </button>
               )}
             </CardContent>

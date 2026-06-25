@@ -24,7 +24,6 @@ function localeOptionLabel(locale: DocsLocale) {
 }
 
 function preferenceLabel(preference: string) {
-  if (preference === "system") return "System";
   if (preference in DOCS_LOCALE_METADATA) {
     return localeOptionLabel(preference as DocsLocale);
   }

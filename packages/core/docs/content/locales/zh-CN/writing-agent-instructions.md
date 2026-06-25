@@ -1,15 +1,15 @@
 ---
-title: "撰写代理说明和Skills"
+title: "撰写代理说明和技能"
 description: "如何为代理原生应用或模板编写出色的代理指令：AGENTS.md、skills 和工具说明。"
 ---
 
-# 撰写代理说明和Skills
+# 撰写代理说明和技能
 
 代理在代理本机应用程序中的行为仅与您给出的说明一样好。三个表面承载该指导：`AGENTS.md`（地图）、skills（深入研究）和操作/工具描述（代理如何选择正确的工具）。写下每一篇都是为了快速检索，而不是为了散文。
 
 ```an-diagram title="三个创作表面 + 一个运行时表面" summary="AGENTS.md 和工具描述每回合都会加载；按需加载技能； application_state 由您的 UI 实时编写。"
 {
-  "html": "<div class=\"diagram-surfaces\"><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Every turn</span><strong>AGENTS.md</strong><small class=\"diagram-muted\">the map: purpose, core rules, state keys, action + skills index</small></div><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Every turn</span><strong>Tool descriptions</strong><small class=\"diagram-muted\">drive tool selection — one precise sentence each</small></div><div class=\"diagram-card ondemand\" data-rough><span class=\"diagram-pill\">On demand</span><strong>Skills</strong><small class=\"diagram-muted\">deep how-to, loaded when the description fires</small></div><div class=\"diagram-card runtime\" data-rough><span class=\"diagram-pill ok\">Live</span><strong>application_state</strong><small class=\"diagram-muted\">written by your UI: navigation, selection, focus</small></div></div>",
+  "html": "<div class=\"diagram-surfaces\"><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">每一轮</span><strong>AGENTS.md</strong><small class=\"diagram-muted\">地图：用途、核心规则、状态键、action + skills 索引</small></div><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">每一轮</span><strong>工具描述</strong><small class=\"diagram-muted\">驱动工具选择 — 每个工具一句精确说明</small></div><div class=\"diagram-card ondemand\" data-rough><span class=\"diagram-pill\">按需</span><strong>技能</strong><small class=\"diagram-muted\">深度指南，在描述匹配时加载</small></div><div class=\"diagram-card runtime\" data-rough><span class=\"diagram-pill ok\">Live</span><strong>application_state</strong><small class=\"diagram-muted\">由你的 UI 写入：导航、选择、焦点</small></div></div>",
   "css": ".diagram-surfaces{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.diagram-surfaces .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
 }
 ```
@@ -22,28 +22,28 @@ description: "如何为代理原生应用或模板编写出色的代理指令：
 - **核心规则** - 必须始终保持的少数不变量（SQL 中的数据，操作通过 actions，AI 通过代理聊天，模式更改是附加的）。简短、命令式的项目符号。
 - **应用程序状态键** — 代理读取 `navigation`/选择/焦点键以了解用户正在查看的内容及其形状。
 - **操作表** — 操作名称与目的的紧凑表。
-- **Skills 索引** — 存在的 skills 列表以及何时读取每个 skills。
+- **技能 索引** — 存在的 skills 列表以及何时读取每个 skills。
 
 如果一个部分超出了屏幕，那么它就属于一项技能。 `AGENTS.md` 回答“这个应用程序是什么以及我能做什么”，而不是“我到底如何做困难的事情。”
 
 ```markdown
-# Projects App
+# 项目应用程序
 
 One workspace for projects, tasks, and notes. Agent and UI share the same SQL
 data and the same actions.
 
-## Core Rules
+## 核心规则
 
-- Data lives in SQL via Drizzle. Use actions for all writes.
+- Data lives in 通过 Drizzle 使用 SQL. Use actions for all writes.
 - All AI work goes through the agent chat; never call an LLM inline.
 - Schema changes are additive only.
 
-## Application State
+## 应用状态
 
 - `navigation.view`: `home` | `project`
 - `navigation.projectId`: selected project on a project page
 
-## Actions
+## 行动
 
 | Action           | Purpose                     |
 | ---------------- | --------------------------- |
@@ -51,7 +51,7 @@ data and the same actions.
 | `create-project` | Create a project            |
 | `update-project` | Rename or archive a project |
 
-## Skills
+## 技能
 
 - `project-imports` — read before importing legacy CSV exports.
 - `sharing` — read before exposing a project to other users.
@@ -84,12 +84,12 @@ description: >-
 
 ```text
 .agents/skills/project-imports/
-├── SKILL.md            # rule + happy path + do/don't
+├── SKILL.md            # 规则 + 快乐路径 + do/don't
 └── references/
-    └── csv-format.md   # full column spec, encodings, edge cases
+    └── csv-format.md   # 全列规范、编码、边缘情况
 ```
 
-这使始终加载的表面保持较小，并允许深度缩放而不会使上下文膨胀。完整技能格式请参见 [Skills Guide](/docs/skills-guide)。
+这使始终加载的表面保持较小，并允许深度缩放而不会使上下文膨胀。完整技能格式请参见 [技能 Guide](/docs/skills-guide)。
 
 ## 编写面向行动的表格 {#action-tables}
 
@@ -114,9 +114,9 @@ defineAction({
 });
 ```
 
-## Skills vs actions {#skills-vs-actions}
+## 技能 vs actions {#skills-vs-actions}
 
-Skills 和 actions 是互补的。技能是代理阅读的指南；一个
+技能 和 actions 是互补的。技能是代理阅读的指南；一个
 action 是代理可以运行的代码。
 
 | 需要                                       | 使用             |
@@ -151,7 +151,7 @@ action 是代理可以运行的代码。
 | 表面                      | 谁写的                 | 加载时                       | 那里属于什么                                    |
 | ------------------------- | ---------------------- | ---------------------------- | ----------------------------------------------- |
 | `AGENTS.md`说明           | 您（开发者）           | 每个回合，作为方向           | 目的、核心规则、状态键、动作索引、skills索引    |
-| Skills (`SKILL.md`)       | 您（开发者）           | 当客服人员认为技能相关时按需 | 特定模式的分步操作方法，列出了该做/不该做的事情 |
+| 技能 (`SKILL.md`)         | 您（开发者）           | 当客服人员认为技能相关时按需 | 特定模式的分步操作方法，列出了该做/不该做的事情 |
 | 操作描述（工具）          | 您（开发者）           | 每回合，如工具列表           | 操作的作用、返回内容、参数语义                  |
 | `application_state`上下文 | 您的 UI 代码（运行时） | 每回合，作为实时应用状态     | 当前导航、选择、聚焦对象、URL                   |
 
@@ -163,11 +163,11 @@ action 是代理可以运行的代码。
 ## 什么去哪里 {#what-goes-where}
 
 - **AGENTS.md** — 适用于整个应用程序，每回合：目的、核心规则、状态键、操作索引、skills 索引。
-- **Skills** — 针对特定模式的可重用操作方法，按需加载。适用于在该应用中工作的每个人。
+- **技能** — 针对特定模式的可重用操作方法，按需加载。适用于在该应用中工作的每个人。
 - **内存 (`memory/MEMORY.md`)** — 每个用户的偏好和更正，而非编写的指导。
 
 ## 下一步是什么 {#whats-next}
 
-- [Skills Guide](/docs/skills-guide) — 技能文件格式、框架 skills 和应用程序支持的 skills。
+- [技能 Guide](/docs/skills-guide) — 技能文件格式、框架 skills 和应用程序支持的 skills。
 - [Creating Templates](/docs/creating-templates) — `AGENTS.md` 和 skills 如何融入可交付模板。
 - [The four-area checklist](/docs/key-concepts#four-area-checklist) - 每个特征都必须满足的四区域模型。

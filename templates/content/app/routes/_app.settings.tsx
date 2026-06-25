@@ -9,11 +9,12 @@ import { Link } from "react-router";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
-  return [{ title: "Settings - Content" }];
+  return [{ title: messagesByLocale["en-US"].settings.metaTitle }];
 }
 
 export default function SettingsRoute() {

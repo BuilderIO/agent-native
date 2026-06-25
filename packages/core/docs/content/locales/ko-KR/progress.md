@@ -113,7 +113,7 @@ core-routes 플러그인에 의해 `/_agent-native/runs/*`에 마운트되었습
 | `GET`    | `/_agent-native/runs/:id`         |
 | `DELETE` | `/_agent-native/runs/:id`         |
 
-```an-api title="List active runs" method="GET" path="/_agent-native/runs"
+```an-api title="활성 실행 나열" method="GET" path="/_agent-native/runs"
 {
   "method": "GET",
   "path": "/_agent-native/runs",
@@ -182,7 +182,7 @@ event: run.progress.updated
 condition: "status is failed"
 mode: agentic
 ---
-Notify me that run {{runId}} has failed.
+알림 me that run {{runId}} has failed.
 ```
 
 ## 작동 방식 {#internals}

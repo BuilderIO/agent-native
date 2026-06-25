@@ -10,7 +10,7 @@ description: "用简单的英语提出分析问题，获取图表和仪表板。
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native Templates</h1><p class='wf-muted' style='margin:0'>Adoption and engagement across the last 12 weeks.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>Weekly active users</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>New signups</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>Revenue MRR</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Weekly active users</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Revenue over time</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>Signups by source</strong><br/><small class='wf-muted'>Lower chart begins below the main charts.</small></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native 模板</h1><p class='wf-muted' style='margin:0'>过去 12 周的采用率和参与度。</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>每周活跃用户</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>新增注册</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>MRR 收入</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>每周活跃用户</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>收入趋势</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>按来源划分的注册</strong><br/><small class='wf-muted'>下方图表位于主图表下方。</small></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ description: "用简单的英语提出分析问题，获取图表和仪表板。
 
 ```an-diagram title="问题到图表" summary="代理查阅数据字典，写入 SQL，根据仓库对其进行验证，然后渲染图表或保存面板。"
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">Plain-English<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Writes SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Dry-run validate</div><small class=\"diagram-muted\">BigQuery / source</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Chart, table, or<br>saved panel</div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">简明语言<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>写入 SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Dry-run 校验</div><small class=\"diagram-muted\">BigQuery / 来源</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">图表、表格或<br>saved panel</div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -162,23 +162,23 @@ GCP 控制台 → API 和服务 → 凭证 → OAuth 客户端 ID，并首选
 
 核心表（参见`templates/analytics/server/db/schema.ts`）：
 
-```an-schema title="Analytics data model" summary="Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
+```an-schema title="分析数据模型" summary="Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
 {
   "entities": [
     {
       "id": "dashboards",
       "name": "dashboards",
-      "note": "Explorer and SQL dashboards",
+      "note": "资源管理器和 SQL 仪表板",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "kind", "type": "text", "note": "\"explorer\" or \"sql\"" },
-        { "name": "config", "type": "text", "note": "JSON matching SqlDashboardConfig" }
+        { "name": "config", "type": "text", "note": "JSON 匹配 SqlDashboardConfig" }
       ]
     },
     {
       "id": "dashboard_views",
       "name": "dashboard_views",
-      "note": "Saved filter presets per dashboard",
+      "note": "每个仪表板保存的过滤器预设",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "dashboard_id", "type": "text", "fk": "dashboards.id" }
@@ -187,12 +187,12 @@ GCP 控制台 → API 和服务 → 凭证 → OAuth 客户端 ID，并首选
     {
       "id": "analyses",
       "name": "analyses",
-      "note": "Re-runnable ad-hoc investigations",
+      "note": "可重新运行的临时调查",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "question", "type": "text" },
-        { "name": "instructions", "type": "text", "note": "Re-run steps" },
-        { "name": "dataSources", "type": "text", "note": "Sources touched" },
+        { "name": "instructions", "type": "text", "note": "重新运行步骤" },
+        { "name": "dataSources", "type": "text", "note": "接触的来源" },
         { "name": "resultMarkdown", "type": "text" },
         { "name": "resultData", "type": "text", "nullable": true }
       ]
@@ -200,7 +200,7 @@ GCP 控制台 → API 和服务 → 凭证 → OAuth 客户端 ID，并首选
     {
       "id": "bigquery_cache",
       "name": "bigquery_cache",
-      "note": "Result cache keyed by SQL hash",
+      "note": "结果缓存由 SQL 哈希键控",
       "fields": [
         { "name": "sql_hash", "type": "text", "pk": true },
         { "name": "bytes_processed", "type": "integer" }

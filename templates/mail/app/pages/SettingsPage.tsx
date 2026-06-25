@@ -99,6 +99,7 @@ function AliasEditRow({
   onCancel: () => void;
   isPending?: boolean;
 }) {
+  const t = useT();
   const [name, setName] = useState(alias?.name ?? "");
   const [emailsText, setEmailsText] = useState(alias?.emails.join("\n") ?? "");
 
@@ -115,19 +116,19 @@ function AliasEditRow({
     <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-4 space-y-3">
       <div>
         <label className="block text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
-          Alias name
+          {t("settings.aliasName")}
         </label>
         <Input
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Design team"
+          placeholder={t("settings.aliasNamePlaceholder")}
           className="px-3 py-1.5 text-[13px] placeholder:text-muted-foreground/40"
         />
       </div>
       <div>
         <label className="block text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
-          Recipients (one email per line)
+          {t("settings.recipientsOnePerLine")}
         </label>
         <Textarea
           value={emailsText}
@@ -144,10 +145,10 @@ function AliasEditRow({
           size="sm"
         >
           {isPending && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
-          Save
+          {t("settings.save")}
         </Button>
         <Button variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
+          {t("settings.cancel")}
         </Button>
       </div>
     </div>
@@ -167,6 +168,7 @@ function AliasRow({
   onEdit: () => void;
   onCancelEdit: () => void;
 }) {
+  const t = useT();
   const updateAlias = useUpdateAlias();
   const deleteAlias = useDeleteAlias();
   const rowRef = useRef<HTMLDivElement>(null);
@@ -220,7 +222,12 @@ function AliasRow({
             </span>
             <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-300">
               {alias.emails.length}{" "}
-              {alias.emails.length === 1 ? "person" : "people"}
+              {t(
+                alias.emails.length === 1
+                  ? "settings.personSingular"
+                  : "settings.peoplePlural",
+                { count: alias.emails.length },
+              )}
             </span>
           </div>
           <p className="text-[12px] text-muted-foreground truncate">
@@ -239,7 +246,7 @@ function AliasRow({
                 <IconPencil className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Edit alias</TooltipContent>
+            <TooltipContent>{t("settings.editAlias")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -257,7 +264,7 @@ function AliasRow({
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Delete alias</TooltipContent>
+            <TooltipContent>{t("settings.deleteAlias")}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -265,15 +272,15 @@ function AliasRow({
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete alias</AlertDialogTitle>
+            <AlertDialogTitle>{t("settings.deleteAlias")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Delete alias "{alias.name}"? This cannot be undone.
+              {t("settings.deleteAliasDescription", { name: alias.name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("settings.cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDelete}>
-              Delete
+              {t("settings.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -285,6 +292,7 @@ function AliasRow({
 // ─── Aliases Section ──────────────────────────────────────────────────────────
 
 function AliasesSection() {
+  const t = useT();
   const { data: aliases = [], isLoading } = useAliases();
   const createAlias = useCreateAlias();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -322,9 +330,11 @@ function AliasesSection() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-[16px] font-semibold text-foreground">Aliases</h2>
+          <h2 className="text-[16px] font-semibold text-foreground">
+            {t("settings.aliases")}
+          </h2>
           <p className="text-[13px] text-muted-foreground mt-0.5">
-            Address groups you can use when composing emails.
+            {t("settings.aliasesDescription")}
           </p>
         </div>
         <Button
@@ -335,7 +345,7 @@ function AliasesSection() {
           }}
         >
           <IconPlus className="h-3.5 w-3.5" />
-          New alias
+          {t("settings.newAlias")}
         </Button>
       </div>
 
@@ -371,7 +381,7 @@ function AliasesSection() {
           <div className="rounded-lg border border-border/20 bg-card/50 py-12 text-center">
             <IconUsers className="h-8 w-8 text-muted-foreground/20 mx-auto mb-3" />
             <p className="text-[13px] text-muted-foreground/50">
-              No aliases yet. Create one to get started.
+              {t("settings.noAliases")}
             </p>
           </div>
         )}
@@ -409,11 +419,11 @@ function ActionBadge({ action }: { action: AutomationAction }) {
 // ─── Action Builder ───────────────────────────────────────────────────────────
 
 const ACTION_TYPES = [
-  { value: "label", label: "Apply label" },
-  { value: "archive", label: "Archive" },
-  { value: "mark_read", label: "Mark as read" },
-  { value: "star", label: "Star" },
-  { value: "trash", label: "Trash" },
+  { value: "label", labelKey: "settings.applyLabel" },
+  { value: "archive", labelKey: "settings.archive" },
+  { value: "mark_read", labelKey: "settings.markRead" },
+  { value: "star", labelKey: "settings.star" },
+  { value: "trash", labelKey: "settings.trash" },
 ] as const;
 
 function ActionBuilder({
@@ -423,6 +433,7 @@ function ActionBuilder({
   actions: AutomationAction[];
   onChange: (actions: AutomationAction[]) => void;
 }) {
+  const t = useT();
   const addAction = () => {
     onChange([...actions, { type: "label", labelName: "" }]);
   };
@@ -456,9 +467,9 @@ function ActionBuilder({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {ACTION_TYPES.map((t) => (
-                <SelectItem key={t.value} value={t.value}>
-                  {t.label}
+              {ACTION_TYPES.map((actionType) => (
+                <SelectItem key={actionType.value} value={actionType.value}>
+                  {t(actionType.labelKey)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -470,7 +481,7 @@ function ActionBuilder({
               onChange={(e) =>
                 updateAction(idx, { type: "label", labelName: e.target.value })
               }
-              placeholder="Label name"
+              placeholder={t("settings.labelName")}
               className="flex-1 h-8 px-2 text-[13px] placeholder:text-muted-foreground/40"
             />
           )}
@@ -487,7 +498,7 @@ function ActionBuilder({
         onClick={addAction}
         className="text-[12px] text-indigo-400 hover:text-indigo-300"
       >
-        + Add action
+        {t("settings.addAction")}
       </button>
     </div>
   );
@@ -510,6 +521,7 @@ function AutomationEditRow({
   onCancel: () => void;
   isPending?: boolean;
 }) {
+  const t = useT();
   const [name, setName] = useState(rule?.name ?? "");
   const [condition, setCondition] = useState(rule?.condition ?? "");
   const [actions, setActions] = useState<AutomationAction[]>(
@@ -530,33 +542,31 @@ function AutomationEditRow({
     <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-4 space-y-3">
       <div>
         <label className="block text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
-          Rule name
+          {t("settings.ruleName")}
         </label>
         <Input
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Auto-label newsletters"
+          placeholder={t("settings.ruleNamePlaceholder")}
           className="px-3 py-1.5 text-[13px] placeholder:text-muted-foreground/40"
         />
       </div>
       <div>
         <label className="block text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
-          Condition (natural language)
+          {t("settings.conditionNaturalLanguage")}
         </label>
         <Textarea
           value={condition}
           onChange={(e) => setCondition(e.target.value)}
-          placeholder={
-            'e.g. "from a newsletter or marketing mailing list"\n"from alice@example.com"\n"subject contains invoice or receipt"'
-          }
+          placeholder={t("settings.conditionPlaceholder")}
           rows={3}
           className="px-3 py-1.5 text-[13px] placeholder:text-muted-foreground/40 resize-none"
         />
       </div>
       <div>
         <label className="block text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
-          Actions
+          {t("settings.actions")}
         </label>
         <ActionBuilder actions={actions} onChange={setActions} />
       </div>
@@ -572,10 +582,10 @@ function AutomationEditRow({
           size="sm"
         >
           {isPending && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
-          Save
+          {t("settings.save")}
         </Button>
         <Button variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
+          {t("settings.cancel")}
         </Button>
       </div>
     </div>
@@ -595,6 +605,7 @@ function AutomationRow({
   onEdit: () => void;
   onCancelEdit: () => void;
 }) {
+  const t = useT();
   const updateAutomation = useUpdateAutomation();
   const deleteAutomation = useDeleteAutomation();
   const rowRef = useRef<HTMLDivElement>(null);
@@ -682,7 +693,7 @@ function AutomationRow({
               <IconPencil className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Edit rule</TooltipContent>
+          <TooltipContent>{t("settings.editRule")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -700,7 +711,7 @@ function AutomationRow({
               )}
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Delete rule</TooltipContent>
+          <TooltipContent>{t("settings.deleteRule")}</TooltipContent>
         </Tooltip>
       </div>
     </div>
@@ -725,6 +736,7 @@ interface FrameworkTrigger {
 }
 
 function TriggersSubsection() {
+  const t = useT();
   const { data: triggers = [], isLoading } = useQuery<FrameworkTrigger[]>({
     queryKey: ["framework-triggers-mail"],
     queryFn: async () => {
@@ -755,11 +767,10 @@ function TriggersSubsection() {
       <div className="rounded-lg border border-border/20 bg-card/50 py-8 text-center">
         <IconPlayerPlay className="h-6 w-6 text-muted-foreground/20 mx-auto mb-2" />
         <p className="text-[12px] text-muted-foreground/50">
-          No event-triggered automations for mail yet.
+          {t("settings.noEventAutomations")}
         </p>
         <p className="text-[11px] text-muted-foreground/30 max-w-xs mx-auto mt-1">
-          Ask the agent to create an automation like "when I receive an email
-          from my boss, star it and notify me."
+          {t("settings.eventAutomationsPrompt")}
         </p>
       </div>
     );
@@ -767,27 +778,27 @@ function TriggersSubsection() {
 
   return (
     <div className="space-y-2">
-      {triggers.map((t) => {
+      {triggers.map((trigger) => {
         const StatusIcon =
-          t.lastStatus === "success"
+          trigger.lastStatus === "success"
             ? IconCircleCheck
-            : t.lastStatus === "error"
+            : trigger.lastStatus === "error"
               ? IconCircleX
-              : t.lastStatus === "running"
+              : trigger.lastStatus === "running"
                 ? IconLoader2
                 : IconClock;
         const statusColor =
-          t.lastStatus === "success"
+          trigger.lastStatus === "success"
             ? "text-green-400"
-            : t.lastStatus === "error"
+            : trigger.lastStatus === "error"
               ? "text-red-400"
-              : t.lastStatus === "running"
+              : trigger.lastStatus === "running"
                 ? "text-yellow-400 animate-spin"
                 : "text-muted-foreground/40";
 
         return (
           <div
-            key={t.id}
+            key={trigger.id}
             className="flex items-start gap-3 rounded-lg border border-border/30 bg-card px-4 py-3"
           >
             <div className="pt-0.5">
@@ -798,43 +809,45 @@ function TriggersSubsection() {
                 <span
                   className={cn(
                     "text-[13px] font-semibold",
-                    t.enabled ? "text-foreground" : "text-muted-foreground/50",
+                    trigger.enabled
+                      ? "text-foreground"
+                      : "text-muted-foreground/50",
                   )}
                 >
-                  {t.name}
+                  {trigger.name}
                 </span>
-                {!t.enabled && (
+                {!trigger.enabled && (
                   <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/50">
-                    disabled
+                    {t("settings.disabled")}
                   </span>
                 )}
               </div>
-              {t.event && (
+              {trigger.event && (
                 <p className="text-[11px] text-muted-foreground/60 mb-0.5">
-                  on{" "}
+                  {t("settings.on")}{" "}
                   <code className="rounded bg-muted px-1 py-0.5 text-[10px]">
-                    {t.event}
+                    {trigger.event}
                   </code>
-                  {t.condition && (
+                  {trigger.condition && (
                     <span>
                       {" "}
-                      when <em>"{t.condition}"</em>
+                      {t("settings.when")} <em>"{trigger.condition}"</em>
                     </span>
                   )}
                 </p>
               )}
               <p className="text-[12px] text-muted-foreground line-clamp-2">
-                {t.body}
+                {trigger.body}
               </p>
-              {t.lastRun && (
+              {trigger.lastRun && (
                 <p className="text-[10px] text-muted-foreground/40 mt-1">
-                  Last run:{" "}
-                  {new Date(t.lastRun).toLocaleString(undefined, {
+                  {t("settings.lastRun")}{" "}
+                  {new Date(trigger.lastRun).toLocaleString(undefined, {
                     dateStyle: "short",
                     timeStyle: "short",
                   })}
-                  {t.lastError && (
-                    <span className="text-red-400"> — {t.lastError}</span>
+                  {trigger.lastError && (
+                    <span className="text-red-400"> — {trigger.lastError}</span>
                   )}
                 </p>
               )}
@@ -849,6 +862,7 @@ function TriggersSubsection() {
 // ─── Automations Section ─────────────────────────────────────────────────────
 
 function AutomationsSection() {
+  const t = useT();
   const { data: rules = [], isLoading } = useAutomations();
   const createAutomation = useCreateAutomation();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -927,10 +941,10 @@ function AutomationsSection() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-[16px] font-semibold text-foreground">
-            Automations
+            {t("settings.automations")}
           </h2>
           <p className="text-[13px] text-muted-foreground mt-0.5">
-            Rules that automatically process new inbox emails using AI.
+            {t("settings.automationsDescription")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -945,7 +959,7 @@ function AutomationsSection() {
             <SelectContent>
               {modelOptions.length === 0 ? (
                 <SelectItem value="loading" disabled className="text-xs">
-                  Loading models
+                  {t("settings.loadingModels")}
                 </SelectItem>
               ) : (
                 modelOptions.map((m) => (
@@ -965,7 +979,7 @@ function AutomationsSection() {
           }}
         >
           <IconPlus className="h-3.5 w-3.5" />
-          New rule
+          {t("settings.newRule")}
         </Button>
       </div>
 
@@ -1001,12 +1015,10 @@ function AutomationsSection() {
           <div className="rounded-lg border border-border/20 bg-card/50 py-12 text-center">
             <IconBolt className="h-8 w-8 text-muted-foreground/20 mx-auto mb-3" />
             <p className="text-[13px] text-muted-foreground/50 mb-1">
-              No automation rules yet.
+              {t("settings.noAutomationRules")}
             </p>
             <p className="text-[12px] text-muted-foreground/30 max-w-sm mx-auto">
-              Create rules to auto-label emails, archive newsletters, star
-              important messages, and more. You can also ask the AI agent to set
-              these up for you.
+              {t("settings.noAutomationRulesDescription")}
             </p>
           </div>
         )}
@@ -1030,11 +1042,10 @@ function AutomationsSection() {
       <div className="max-w-2xl mt-10">
         <div className="mb-4">
           <h3 className="text-[14px] font-semibold text-foreground">
-            Event Triggers
+            {t("settings.eventTriggers")}
           </h3>
           <p className="text-[12px] text-muted-foreground mt-0.5">
-            Automations that fire when mail events occur (e.g. new email
-            received). Managed by the agent.
+            {t("settings.eventTriggersDescription")}
           </p>
         </div>
         <TriggersSubsection />
@@ -1046,6 +1057,7 @@ function AutomationsSection() {
 // ─── Drafting Section ────────────────────────────────────────────────────────
 
 function DraftingSection() {
+  const t = useT();
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const queryClient = useQueryClient();
@@ -1058,16 +1070,16 @@ function DraftingSection() {
         prev ? { ...prev, signature: result.signature } : prev,
       );
       if (result.imported) {
-        toast(`Imported signature from ${result.account}.`);
+        toast(t("settings.importedSignature", { account: result.account }));
       } else {
-        toast(`No Gmail signature found for ${result.account}.`);
+        toast(t("settings.noGmailSignature", { account: result.account }));
       }
     },
     onError: (error) =>
       toast.error(
         error instanceof Error
           ? error.message
-          : "Failed to import Gmail signature.",
+          : t("settings.importSignatureFailed"),
       ),
   });
 
@@ -1089,12 +1101,12 @@ function DraftingSection() {
         writingStyle: writingStyle.trim(),
       },
       {
-        onSuccess: () => toast("Drafting settings saved."),
+        onSuccess: () => toast(t("settings.draftingSettingsSaved")),
         onError: (error) =>
           toast.error(
             error instanceof Error
               ? error.message
-              : "Failed to save drafting settings.",
+              : t("settings.draftingSettingsSaveFailed"),
           ),
       },
     );
@@ -1103,9 +1115,11 @@ function DraftingSection() {
   return (
     <div className="flex-1 overflow-y-auto p-4 sm:p-8">
       <div className="mb-6">
-        <h2 className="text-[16px] font-semibold text-foreground">Drafting</h2>
+        <h2 className="text-[16px] font-semibold text-foreground">
+          {t("settings.drafting")}
+        </h2>
         <p className="mt-0.5 text-[13px] text-muted-foreground">
-          Preferences used when composing and generating email drafts.
+          {t("settings.draftingDescription")}
         </p>
       </div>
 
@@ -1120,7 +1134,7 @@ function DraftingSection() {
             <div className="rounded-lg border border-border/20 bg-card/50 p-4">
               <div className="mb-1.5 flex items-center justify-between gap-3">
                 <label className="block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                  Signature
+                  {t("settings.signature")}
                 </label>
                 <Button
                   type="button"
@@ -1133,7 +1147,7 @@ function DraftingSection() {
                   {importSignature.isPending && (
                     <IconLoader2 className="h-3 w-3 animate-spin" />
                   )}
-                  Import from Gmail
+                  {t("settings.importFromGmail")}
                 </Button>
               </div>
               <Textarea
@@ -1144,19 +1158,18 @@ function DraftingSection() {
                 className="resize-none px-3 py-2 text-[13px] placeholder:text-muted-foreground/40"
               />
               <p className="mt-2 text-[12px] text-muted-foreground">
-                Added to new drafts before quoted reply history. Markdown links
-                and images are supported.
+                {t("settings.signatureHelp")}
               </p>
             </div>
 
             <div className="rounded-lg border border-border/20 bg-card/50 p-4">
               <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                Writing style
+                {t("settings.writingStyle")}
               </label>
               <Textarea
                 value={writingStyle}
                 onChange={(event) => setWritingStyle(event.target.value)}
-                placeholder="Short, specific, warm. Avoid formal filler."
+                placeholder={t("settings.writingStylePlaceholder")}
                 rows={4}
                 className="resize-none px-3 py-2 text-[13px] placeholder:text-muted-foreground/40"
               />
@@ -1171,7 +1184,7 @@ function DraftingSection() {
                 {updateSettings.isPending && (
                   <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
                 )}
-                Save drafting settings
+                {t("settings.saveDraftingSettings")}
               </Button>
               {isDirty && (
                 <Button
@@ -1182,7 +1195,7 @@ function DraftingSection() {
                     setWritingStyle(savedWritingStyle);
                   }}
                 >
-                  Reset
+                  {t("settings.reset")}
                 </Button>
               )}
             </div>
@@ -1224,6 +1237,7 @@ function TrackingRow({
 }
 
 function TrackingSection() {
+  const t = useT();
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
 
@@ -1238,10 +1252,11 @@ function TrackingSection() {
   return (
     <div className="flex-1 p-4 sm:p-8 overflow-y-auto">
       <div className="mb-6">
-        <h2 className="text-[16px] font-semibold text-foreground">Tracking</h2>
+        <h2 className="text-[16px] font-semibold text-foreground">
+          {t("settings.tracking")}
+        </h2>
         <p className="text-[13px] text-muted-foreground mt-0.5">
-          Know when recipients open your sent emails and click links. Stats
-          appear under each sent message.
+          {t("settings.trackingDescription")}
         </p>
       </div>
 
@@ -1254,14 +1269,14 @@ function TrackingSection() {
         ) : (
           <>
             <TrackingRow
-              title="Track email opens"
-              description="Inject a 1×1 pixel into outgoing emails so you can see when recipients open them."
+              title={t("settings.trackEmailOpens")}
+              description={t("settings.trackEmailOpensDescription")}
               checked={tracking.opens}
               onCheckedChange={(v) => update({ opens: v })}
             />
             <TrackingRow
-              title="Track link clicks"
-              description="Rewrite external links in outgoing emails to count when recipients click them."
+              title={t("settings.trackLinkClicks")}
+              description={t("settings.trackLinkClicksDescription")}
               checked={tracking.clicks}
               onCheckedChange={(v) => update({ clicks: v })}
             />
@@ -1282,6 +1297,7 @@ type SlackStatus = {
 };
 
 function SlackIntakeSection() {
+  const t = useT();
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery<SlackStatus>({
     queryKey: ["integration-status", "slack"],
@@ -1289,7 +1305,7 @@ function SlackIntakeSection() {
       const res = await fetch(
         agentNativePath("/_agent-native/integrations/slack/status"),
       );
-      if (!res.ok) throw new Error("Failed to load Slack status");
+      if (!res.ok) throw new Error(t("settings.slackLoadFailed"));
       return res.json();
     },
     retry: false,
@@ -1303,7 +1319,7 @@ function SlackIntakeSection() {
         ),
         { method: "POST" },
       );
-      if (!res.ok) throw new Error("Failed to update Slack intake");
+      if (!res.ok) throw new Error(t("settings.slackUpdateFailed"));
       return res.json();
     },
     onSuccess: () =>
@@ -1312,17 +1328,17 @@ function SlackIntakeSection() {
       }),
   });
   const slackStatusDescription = data?.configured
-    ? "Slack credentials are configured."
-    : "Add SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET to enable Slack intake.";
+    ? t("settings.slackConfigured")
+    : t("settings.slackNeedsCredentials");
 
   return (
     <div className="flex-1 overflow-y-auto p-4 sm:p-8">
       <div className="mb-6">
         <h2 className="text-[16px] font-semibold text-foreground">
-          Slack Intake
+          {t("settings.slackIntake")}
         </h2>
         <p className="mt-0.5 text-[13px] text-muted-foreground">
-          Let organization members queue email drafts from Slack.
+          {t("settings.slackDescription")}
         </p>
       </div>
 
@@ -1343,7 +1359,9 @@ function SlackIntakeSection() {
                     <IconCircleX className="h-4 w-4 text-red-400" />
                   )}
                   <span className="text-[13px] font-semibold text-foreground">
-                    {data?.enabled ? "Enabled" : "Disabled"}
+                    {data?.enabled
+                      ? t("settings.enabled")
+                      : t("settings.disabled")}
                   </span>
                 </div>
                 <p className="mt-0.5 text-[12px] text-muted-foreground">
@@ -1361,20 +1379,19 @@ function SlackIntakeSection() {
                 {toggle.isPending && (
                   <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
                 )}
-                {data?.enabled ? "Disable" : "Enable"}
+                {data?.enabled ? t("settings.disable") : t("settings.enable")}
               </Button>
             </div>
             {data?.configured && data?.webhookUrl && (
               <div>
                 <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                  Slack POST endpoint
+                  {t("settings.slackPostEndpoint")}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <IconInfoCircle className="h-3.5 w-3.5" />
                     </TooltipTrigger>
                     <TooltipContent>
-                      Use in Slack Event Subscriptions. Browser GET may show Not
-                      Found.
+                      {t("settings.slackPostEndpointHelp")}
                     </TooltipContent>
                   </Tooltip>
                 </label>
@@ -1555,7 +1572,7 @@ export function SettingsPage() {
         {activeSection === "slack" && <SlackIntakeSection />}
         {activeSection === "team" && (
           <div className="flex-1 overflow-y-auto">
-            <TeamPage createOrgDescription="Set up a team to share email automations and settings with your colleagues." />
+            <TeamPage createOrgDescription={t("settings.teamDescription")} />
           </div>
         )}
       </div>

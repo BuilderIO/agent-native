@@ -19,7 +19,7 @@ agent-native add channel discord  | codex
 
 ```an-diagram title="إضافة مطبوعات وصفة؛ يقوم وكيل الترميز الخاص بك بتطبيقه" summary="agent-native يُصدر مخطط Markdown إلى stdout (التشخيص إلى stderr)؛ تقوم بتوصيله إلى Claude Code أو Codex، والذي يقوم بتحرير الريبو المباشر الخاص بك بالسياق الكامل."
 {
-  "html": "<div class=\"diagram-bp\"><div class=\"diagram-node\" data-rough>agent-native إضافة<br><small class=\"diagram-muted\">&lt;عطوف&gt; &lt;الاسم|URL&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>مخطط تخفيض السعر<br><small class=\"diagram-muted\">stdout · ملفات للمس · قواعد · التحقق</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>وكيل الترميز<br><small class=\"diagram-muted\">كلود · المخطوطة</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">يقوم بتحرير الريبو المباشر الخاص بك</div></div>",
+  "html": "<div class=\"diagram-bp\"><div class=\"diagram-node\" data-rough>agent-native إضافة<br><small class=\"diagram-muted\">&lt;عطوف&gt; &lt;الاسم|URL&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>مخطط Markdown<br><small class=\"diagram-muted\">stdout · ملفات للمس · قواعد · التحقق</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>وكيل الترميز<br><small class=\"diagram-muted\">كلود · المخطوطة</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">يقوم بتحرير الريبو المباشر الخاص بك</div></div>",
   "css": ".diagram-bp{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bp .diagram-arrow{font-size:22px;line-height:1}.diagram-bp .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -28,7 +28,7 @@ agent-native add channel discord  | codex
 
 ```bash
 agent-native add <kind> <name>            # print a curated blueprint
-agent-native add <kind> <https://docs…>   # research-and-integrate from a URL
+agent-native add <kind> <https://docs…>   # البحث والتكامل من URL
 agent-native add --list                   # list available kinds and blueprints
 ```
 

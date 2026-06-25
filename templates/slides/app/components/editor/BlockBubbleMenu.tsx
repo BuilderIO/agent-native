@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconBold,
   IconItalic,
@@ -51,6 +52,7 @@ const COLORS = [
  * SlideEditor — it never mutates anything outside the editing element.
  */
 export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
+  const t = useT();
   const [pos, setPos] = useState<Position | null>(null);
   const [showColors, setShowColors] = useState(false);
   const [showLinkInput, setShowLinkInput] = useState(false);
@@ -245,7 +247,7 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
                 setShowLinkInput(false);
               }
             }}
-            placeholder="Paste URL"
+            placeholder={t("raw.pasteUrl")}
             className="px-2 py-1 text-xs bg-muted rounded text-foreground outline-none border border-border focus:border-ring w-40"
             autoFocus
           />
@@ -273,7 +275,7 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
                 <IconX className="w-3.5 h-3.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Remove link</TooltipContent>
+            <TooltipContent>{t("raw.removeLink")}</TooltipContent>
           </Tooltip>
         </div>
       )}

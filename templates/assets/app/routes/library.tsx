@@ -17,7 +17,7 @@ import {
 import {
   createEmbeddedAppBridge,
   type EmbeddedAppBridge,
-} from "@agent-native/core/embedding/bridge";
+} from "@agent-native/core/embedding";
 import {
   IconArrowUpRight,
   IconCheck,
@@ -724,6 +724,7 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
 }
 
 function AssetOverlayImage({ asset }: { asset: Asset }) {
+  const t = useT();
   const sources = assetOverlaySources(asset);
   const sourcesKey = sources.join("\n");
   const [sourceIndex, setSourceIndex] = useState(0);
@@ -736,7 +737,7 @@ function AssetOverlayImage({ asset }: { asset: Asset }) {
   if (!source) {
     return (
       <div className="flex aspect-square w-full items-center justify-center rounded-lg bg-muted text-sm text-muted-foreground">
-        Preview unavailable
+        {t("brandKitDetail.previewUnavailable")}
       </div>
     );
   }
@@ -2204,7 +2205,11 @@ export function AssetPickerSurface() {
       }
       void notifyMcpHost(payload).then((ok) => {
         if (ok) {
-          toast.success(`Selected ${selectedAssetLabel(payload)}`);
+          toast.success(
+            t("assetPicker.selectedAsset", {
+              title: selectedAssetLabel(payload),
+            }),
+          );
         } else {
           toast.error(t("library.selectedAssetSendFailed"));
         }
@@ -2602,7 +2607,7 @@ export function AssetPickerSurface() {
                 <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">
                   <Select value={aspectRatio} onValueChange={setAspectRatio}>
                     <SelectTrigger
-                      aria-label="Aspect ratio"
+                      aria-label={t("brandKitDetail.aspectRatio")}
                       className={`${PICKER_INLINE_SELECT_CLASS} shrink-0`}
                     >
                       <span>{aspectRatio}</span>
@@ -2622,7 +2627,7 @@ export function AssetPickerSurface() {
                     onValueChange={(value) => setCount(normalizeCount(value))}
                   >
                     <SelectTrigger
-                      aria-label="Candidate count"
+                      aria-label={t("assetPicker.candidateCount")}
                       className={`${PICKER_INLINE_SELECT_CLASS} shrink-0`}
                     >
                       <span>{count}x</span>
@@ -2643,14 +2648,16 @@ export function AssetPickerSurface() {
                       onValueChange={(value) => setPresetId(value)}
                     >
                       <SelectTrigger
-                        aria-label="Preset"
+                        aria-label={t("brandKitDetail.preset")}
                         className={`${PICKER_INLINE_SELECT_CLASS} max-w-[7.5rem] sm:max-w-[10rem]`}
                       >
-                        <SelectValue placeholder="Preset" />
+                        <SelectValue placeholder={t("brandKitDetail.preset")} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectGroup>
-                          <SelectItem value="none">No preset</SelectItem>
+                          <SelectItem value="none">
+                            {t("brandKitDetail.noPreset")}
+                          </SelectItem>
                           {generationPresets.map((preset) => (
                             <SelectItem key={preset.id} value={preset.id}>
                               {preset.title}

@@ -21,7 +21,7 @@ Se você estiver avaliando agente nativo para um CRM, rastreador de projeto, cai
 
 ```an-diagram title="Associação e isolamento da organização" summary="Os usuários ingressam em organizações como owner/admin/member. Cada linha proprietária carrega o org_id do locatário que a possui e nenhuma linha vaza através do limite."
 {
-  "html": "<div class=\"mt-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Org A</span><small class=\"diagram-muted\">members: alice (owner), bob (member)</small><div class=\"diagram-box\">rows where org_id = A</div></div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Org B</span><small class=\"diagram-muted\">members: carol (owner)</small><div class=\"diagram-box\">rows where org_id = B</div></div></div><div class=\"mt-wall\" aria-hidden=\"true\"><span class=\"diagram-pill warn\">no cross-org reads</span></div>",
+  "html": "<div class=\"mt-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Org. A</span><small class=\"diagram-muted\">members: alice (owner), bob (member)</small><div class=\"diagram-box\">rows where org_id = A</div></div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Org. B</span><small class=\"diagram-muted\">members: carol (owner)</small><div class=\"diagram-box\">rows where org_id = B</div></div></div><div class=\"mt-wall\" aria-hidden=\"true\"><span class=\"diagram-pill warn\">no cross-org reads</span></div>",
   "css": ".mt-grid{display:flex;gap:16px;flex-wrap:wrap}.mt-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;flex:1;min-width:200px}.mt-wall{display:flex;justify-content:center;margin-top:12px}"
 }
 ```

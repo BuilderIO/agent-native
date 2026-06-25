@@ -27,6 +27,39 @@ async function main() {
   for (const dir of catalogDirs) {
     errors.push(...(await checkCatalogDir(dir)));
   }
+  errors.push(...(await checkCatalogScriptContamination(catalogDirs)));
+  errors.push(...(await checkCatalogKeyCoverage(catalogDirs)));
+
+  const catalogEnglishValueResult =
+    await checkCatalogEnglishValueDebt(catalogDirs);
+  if (process.env.UPDATE_I18N_CATALOG_VALUE_BASELINE === "1") {
+    writeFileSync(
+      catalogEnglishValueBaselinePath,
+      [
+        "# Existing non-English catalog values that still exactly match English.",
+        "# Keep this file sorted. Remove entries as catalogs get translated.",
+        "# Format: relative/catalog/locale|key|English source string",
+        ...catalogEnglishValueResult.issueIds,
+        "",
+      ].join("\n"),
+    );
+    console.log(
+      `[guard:i18n-catalogs] updated ${path.relative(
+        rootDir,
+        catalogEnglishValueBaselinePath,
+      )} with ${catalogEnglishValueResult.issueIds.length} entries`,
+    );
+  } else {
+    errors.push(...catalogEnglishValueResult.errors);
+    errors.push(
+      ...checkStaleBaselineEntries(
+        readCatalogEnglishValueBaseline(),
+        catalogEnglishValueResult.issueIds,
+        catalogEnglishValueBaselinePath,
+      ),
+    );
+  }
+
   const rawLiteralResult = checkRawVisibleLiterals();
   if (process.env.UPDATE_I18N_RAW_LITERAL_BASELINE === "1") {
     writeFileSync(
@@ -47,7 +80,44 @@ async function main() {
     );
   } else {
     errors.push(...rawLiteralResult.errors);
+    errors.push(
+      ...checkStaleBaselineEntries(
+        readRawLiteralBaseline(),
+        rawLiteralResult.issueIds,
+        rawLiteralBaselinePath,
+      ),
+    );
   }
+
+  const localizedDocsResult = checkLocalizedDocsEmbeddedStrings();
+  if (process.env.UPDATE_I18N_DOCS_BASELINE === "1") {
+    writeFileSync(
+      localizedDocsBaselinePath,
+      [
+        "# Existing localized docs strings that still match English source.",
+        "# Keep this file sorted. Remove entries as translated docs improve.",
+        "# Format: relative/localized/path.md|English source string",
+        ...localizedDocsResult.issueIds,
+        "",
+      ].join("\n"),
+    );
+    console.log(
+      `[guard:i18n-catalogs] updated ${path.relative(
+        rootDir,
+        localizedDocsBaselinePath,
+      )} with ${localizedDocsResult.issueIds.length} entries`,
+    );
+  } else {
+    errors.push(...localizedDocsResult.errors);
+    errors.push(
+      ...checkStaleBaselineEntries(
+        readLocalizedDocsBaseline(),
+        localizedDocsResult.issueIds,
+        localizedDocsBaselinePath,
+      ),
+    );
+  }
+  errors.push(...checkLocalizedDocsProtectedIdentifiers());
 
   if (errors.length > 0) {
     console.error(`[guard:i18n-catalogs] ${errors.length} issue(s):`);
@@ -60,6 +130,107 @@ async function main() {
       catalogDirs.length === 1 ? "y" : "ies"
     }`,
   );
+}
+
+async function checkCatalogKeyCoverage(catalogDirs: string[]) {
+  const errors: string[] = [];
+  for (const dir of catalogDirs) {
+    const sourceCatalog = path.join(dir, `${DEFAULT_LOCALE}.ts`);
+    if (!existsSync(sourceCatalog)) continue;
+
+    const source = await loadFlatCatalog(sourceCatalog);
+    if (source.errors.length > 0) continue;
+    const sourceKeys = source.flat;
+    const sourceRoot = path.dirname(dir);
+
+    for (const file of collectSourceFiles(sourceRoot)) {
+      const rel = path.relative(rootDir, file);
+      if (
+        rel.includes("/i18n/") ||
+        rawLiteralFileIgnore.some((part) => rel.includes(part))
+      ) {
+        continue;
+      }
+      const text = readFileSync(file, "utf8");
+      if (!text.includes("useT") && !text.includes("t(")) continue;
+      const lines = text.split(/\r?\n/);
+
+      for (const match of text.matchAll(/\bt\(\s*(["'`])([^"'`]+)\1/g)) {
+        const key = match[2];
+        if (key?.includes("${")) continue;
+        if (!key || hasCatalogKey(sourceKeys, key)) continue;
+        const line = lineNumberAt(text, match.index ?? 0);
+        const lineText = lines[line - 1] ?? "";
+        if (lineText.includes("i18n-key-ignore")) continue;
+        errors.push(
+          `${rel}:${line}: i18n key "${key}" is missing from ${path.relative(
+            rootDir,
+            sourceCatalog,
+          )}; add the English fallback string or // i18n-key-ignore for a deliberate dynamic/stable key`,
+        );
+      }
+    }
+  }
+  return errors;
+}
+
+function hasCatalogKey(flat: FlatCatalog, key: string) {
+  return (
+    flat.has(key) ||
+    flat.has(`${key}_zero`) ||
+    flat.has(`${key}_one`) ||
+    flat.has(`${key}_two`) ||
+    flat.has(`${key}_few`) ||
+    flat.has(`${key}_many`) ||
+    flat.has(`${key}_other`)
+  );
+}
+
+async function checkCatalogEnglishValueDebt(catalogDirs: string[]) {
+  const errors: string[] = [];
+  const issueIds = new Set<string>();
+  const baseline = readCatalogEnglishValueBaseline();
+  const noTranslateTerms = readNoTranslateTerms();
+
+  for (const dir of catalogDirs) {
+    const relDir = path.relative(rootDir, dir);
+    const sourceCatalog = path.join(dir, `${DEFAULT_LOCALE}.ts`);
+    if (!existsSync(sourceCatalog)) continue;
+
+    const source = await loadFlatCatalog(sourceCatalog);
+    if (source.errors.length > 0) continue;
+
+    for (const file of safeReadDir(dir).sort()) {
+      if (!file.endsWith(".ts") || file === "index.ts") continue;
+      const locale = file.replace(/\.ts$/, "");
+      if (locale === DEFAULT_LOCALE || !supportedLocaleSet.has(locale)) {
+        continue;
+      }
+      const target = await loadFlatCatalog(path.join(dir, file));
+      if (target.errors.length > 0) continue;
+
+      for (const [key, sourceValue] of source.flat) {
+        const targetValue = target.flat.get(key);
+        if (targetValue !== sourceValue) continue;
+        if (noTranslateTerms.has(sourceValue)) continue;
+        if (!isLikelyVisibleLiteral(sourceValue)) continue;
+        const id = `${relDir}/${locale}|${key}|${sourceValue}`;
+        issueIds.add(id);
+        if (baseline.has(id)) continue;
+        errors.push(
+          `${relDir}/${locale}: ${key} still exactly matches English "${sourceValue}" — translate it, add the source string to ${path.relative(
+            rootDir,
+            noTranslateTermsPath,
+          )}, or update ${path.relative(
+            rootDir,
+            catalogEnglishValueBaselinePath,
+          )}`,
+        );
+      }
+    }
+  }
+
+  return { errors, issueIds: [...issueIds].sort() };
 }
 
 function findCatalogDirs(): string[] {
@@ -119,6 +290,9 @@ async function checkCatalogDir(dir: string): Promise<string[]> {
   }
 
   const source = await loadFlatCatalog(localeFiles.get(DEFAULT_LOCALE)!);
+  for (const file of localeFiles.values()) {
+    errors.push(...checkDuplicateTopLevelCatalogKeys(file));
+  }
   errors.push(...source.errors.map((error) => `${relDir}: ${error}`));
   if (source.errors.length > 0) return errors;
 
@@ -140,6 +314,54 @@ async function checkCatalogDir(dir: string): Promise<string[]> {
   }
 
   return errors;
+}
+
+async function checkCatalogScriptContamination(
+  catalogDirs: string[],
+): Promise<string[]> {
+  const errors: string[] = [];
+  for (const dir of catalogDirs) {
+    const relDir = path.relative(rootDir, dir);
+    for (const file of safeReadDir(dir).sort()) {
+      if (!file.endsWith(".ts") || file === "index.ts") continue;
+      const locale = file.replace(/\.ts$/, "");
+      if (locale === DEFAULT_LOCALE || !supportedLocaleSet.has(locale)) {
+        continue;
+      }
+
+      const target = await loadFlatCatalog(path.join(dir, file));
+      if (target.errors.length > 0) continue;
+      for (const [key, value] of target.flat) {
+        const scripts = disallowedScriptsForLocale(locale as LocaleCode, value);
+        if (scripts.length === 0) continue;
+        errors.push(
+          `${relDir}/${locale}: ${key} contains ${scripts.join(
+            ", ",
+          )} text; fix the locale translation or add a stable no-translate term only when this is intentional`,
+        );
+      }
+    }
+  }
+  return errors;
+}
+
+function disallowedScriptsForLocale(locale: LocaleCode, value: string) {
+  const scripts: string[] = [];
+  if (
+    !["zh-CN", "ja-JP", "ko-KR"].includes(locale) &&
+    /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(
+      value,
+    )
+  ) {
+    scripts.push("CJK-script");
+  }
+  if (locale !== "ar-SA" && /\p{Script=Arabic}/u.test(value)) {
+    scripts.push("Arabic-script");
+  }
+  if (locale !== "hi-IN" && /\p{Script=Devanagari}/u.test(value)) {
+    scripts.push("Devanagari-script");
+  }
+  return scripts;
 }
 
 async function loadFlatCatalog(file: string): Promise<{
@@ -187,6 +409,134 @@ function flattenCatalog(
       errors.push(`${nextPath.join(".")} must be a string or object`);
     }
   }
+}
+
+function checkDuplicateTopLevelCatalogKeys(file: string) {
+  const rel = path.relative(rootDir, file);
+  const text = readFileSync(file, "utf8");
+  const start = findCatalogObjectStart(text);
+  if (start < 0) return [];
+
+  const errors: string[] = [];
+  const seen = new Map<string, number>();
+  let depth = 1;
+  let index = start;
+  let line = lineNumberAt(text, start);
+  let atPropertyStart = true;
+  let inString: string | null = null;
+  let escaped = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  const readIdentifier = (from: number) => {
+    const match = text.slice(from).match(/^[$A-Z_a-z][$\w]*/);
+    return match?.[0] ?? null;
+  };
+
+  while (index < text.length && depth > 0) {
+    const ch = text[index]!;
+    const next = text[index + 1];
+    if (ch === "\n") line += 1;
+
+    if (inLineComment) {
+      if (ch === "\n") inLineComment = false;
+      index += 1;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        index += 2;
+        continue;
+      }
+      index += 1;
+      continue;
+    }
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === inString) {
+        inString = null;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (ch === "/" && next === "/") {
+      inLineComment = true;
+      index += 2;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      index += 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      inString = ch;
+      index += 1;
+      continue;
+    }
+    if (ch === "{") {
+      depth += 1;
+      atPropertyStart = true;
+      index += 1;
+      continue;
+    }
+    if (ch === "}") {
+      depth -= 1;
+      atPropertyStart = false;
+      index += 1;
+      continue;
+    }
+    if (depth === 1 && ch === ",") {
+      atPropertyStart = true;
+      index += 1;
+      continue;
+    }
+
+    if (depth === 1 && atPropertyStart) {
+      if (/\s/.test(ch)) {
+        index += 1;
+        continue;
+      }
+      const key = readIdentifier(index);
+      if (key) {
+        let afterKey = index + key.length;
+        while (/\s/.test(text[afterKey] ?? "")) afterKey += 1;
+        if (text[afterKey] === ":") {
+          const previousLine = seen.get(key);
+          if (previousLine) {
+            errors.push(
+              `${rel}:${line}: duplicate top-level i18n catalog key "${key}" also defined on line ${previousLine}; duplicate keys overwrite earlier translations`,
+            );
+          } else {
+            seen.set(key, line);
+          }
+        }
+        atPropertyStart = false;
+        index = afterKey + 1;
+        continue;
+      }
+      atPropertyStart = false;
+    }
+    index += 1;
+  }
+
+  return errors;
+}
+
+function findCatalogObjectStart(text: string) {
+  for (const pattern of [
+    /const\s+(?:messages|enUS|catalog|docsMessages)\s*=\s*\{/g,
+    /export\s+default\s+\{/g,
+  ]) {
+    const match = pattern.exec(text);
+    if (match) return match.index + match[0].length;
+  }
+  return -1;
 }
 
 function pluralParts(key: string): { base: string; suffix: string } | null {
@@ -264,7 +614,10 @@ function compareCatalogs(args: {
       }
     }
     for (const suffix of targetSuffixes) {
-      if (!pluralCategories.has(suffix)) {
+      if (
+        !pluralCategories.has(suffix) &&
+        !args.sourceShape.plurals.get(base)?.has(suffix)
+      ) {
         errors.push(
           `${args.relDir}/${args.locale}: extra plural category ${base}_${suffix}`,
         );
@@ -383,6 +736,24 @@ const rawLiteralBaselinePath = path.join(
   "i18n-raw-literal-baseline.txt",
 );
 
+const catalogEnglishValueBaselinePath = path.join(
+  rootDir,
+  "scripts",
+  "i18n-catalog-english-value-baseline.txt",
+);
+
+const localizedDocsBaselinePath = path.join(
+  rootDir,
+  "scripts",
+  "i18n-localized-docs-baseline.txt",
+);
+
+const noTranslateTermsPath = path.join(
+  rootDir,
+  "scripts",
+  "i18n-no-translate-terms.txt",
+);
+
 const rawLiteralFileIgnore = [
   ".test.",
   ".spec.",
@@ -436,23 +807,58 @@ const rawLiteralAllowPatterns = [
   /^[A-Z0-9_./:@#?&=%+ -]+$/,
   /^[a-z0-9_./:@#?&=%+ -]+$/,
   /^\d+$/,
+  /^(?:GET|POST|PUT|PATCH|DELETE)\s+\/[^\s]+$/,
+  /^\/[_a-zA-Z0-9./:$*?-]+$/,
+  /^[$A-Z_a-z][$\w]*\(\)$/,
+  /^(?=.*[a-z])(?=.*[A-Z])[$A-Z_a-z][$\w]*$/,
   /^[A-Z][a-zA-Z]+(?:\.[a-zA-Z]+)+$/,
   /^https?:\/\//,
-  /^\/[_a-zA-Z0-9./:$-]+$/,
   /^#[a-zA-Z0-9_-]+$/,
-  /^[A-Z][a-z]+(?: [A-Z][a-z]+){0,2}$/,
 ];
 const codeLikeRawLiteralPattern =
   /[{}();=<>]|\b(?:const|let|return|useState|useRef|useMemo|ReactNode|Record|Map|Set|Promise|queryClient|undefined|null|true|false)\b/;
 
 function readRawLiteralBaseline() {
-  if (!existsSync(rawLiteralBaselinePath)) return new Set<string>();
+  return readLineBaseline(rawLiteralBaselinePath);
+}
+
+function readCatalogEnglishValueBaseline() {
+  return readLineBaseline(catalogEnglishValueBaselinePath);
+}
+
+function readLocalizedDocsBaseline() {
+  return readLineBaseline(localizedDocsBaselinePath);
+}
+
+function readNoTranslateTerms() {
+  return readLineBaseline(noTranslateTermsPath);
+}
+
+function readLineBaseline(file: string) {
+  if (!existsSync(file)) return new Set<string>();
   return new Set(
-    readFileSync(rawLiteralBaselinePath, "utf8")
+    readFileSync(file, "utf8")
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter((line) => line && !line.startsWith("#")),
   );
+}
+
+function checkStaleBaselineEntries(
+  baseline: Set<string>,
+  currentIssueIds: string[],
+  file: string,
+) {
+  const current = new Set(currentIssueIds);
+  return [...baseline]
+    .filter((entry) => !current.has(entry))
+    .map(
+      (entry) =>
+        `${path.relative(
+          rootDir,
+          file,
+        )}: stale baseline entry no longer matches current i18n debt "${entry}" — remove it or run the matching UPDATE_I18N_*_BASELINE command`,
+    );
 }
 
 function checkRawVisibleLiterals(): { errors: string[]; issueIds: string[] } {
@@ -480,6 +886,14 @@ function checkRawVisibleLiterals(): { errors: string[]; issueIds: string[] } {
 
 function collectSourceFiles(entry: string): string[] {
   if (!existsSync(entry)) return [];
+  const basename = path.basename(entry);
+  if (
+    basename === "node_modules" ||
+    basename === "dist" ||
+    basename === ".cache"
+  ) {
+    return [];
+  }
   const stat = readdirOrFile(entry);
   if (stat.type === "file") return isSourceFile(entry) ? [entry] : [];
   const out: string[] = [];
@@ -579,6 +993,230 @@ function isLikelyVisibleLiteral(value: string): boolean {
   if (value.includes("{") || value.includes("}")) return false;
   if (codeLikeRawLiteralPattern.test(value)) return false;
   return !rawLiteralAllowPatterns.some((pattern) => pattern.test(value));
+}
+
+const localizedDocsDir = path.join(
+  rootDir,
+  "packages",
+  "core",
+  "docs",
+  "content",
+  "locales",
+);
+const sourceDocsDir = path.join(rootDir, "packages", "core", "docs", "content");
+const localizedDocsStringProperties = [
+  "body",
+  "label",
+  "note",
+  "summary",
+  "title",
+];
+
+const protectedLocalizedDocsIdentifiers = [
+  "AgentComposerFrame",
+  "PromptComposer",
+  "TiptapComposer",
+  "buildPromptComposerSubmission",
+  "encodeComposerDraft",
+  "message/send",
+];
+
+const corruptedLocalizedDocsIdentifierPatterns = [
+  /Prompt(?!Composer)[\p{L}]+r/u,
+  /Agent(?!ComposerFrame)[\p{L}]+rFrame/u,
+  /Tiptap(?!Composer)[\p{L}]+r/u,
+  /buildPrompt(?!ComposerSubmission)[\p{L}]+rSubmission/u,
+  /encode(?!ComposerDraft)[\p{L}]+Draft/u,
+  /Nachricht\/send/u,
+];
+
+function checkLocalizedDocsEmbeddedStrings(): {
+  errors: string[];
+  issueIds: string[];
+} {
+  const errors: string[] = [];
+  const issueIds = new Set<string>();
+  const baseline = readLocalizedDocsBaseline();
+  const noTranslateTerms = readNoTranslateTerms();
+  if (!existsSync(localizedDocsDir)) return { errors, issueIds: [] };
+
+  for (const locale of safeReadDir(localizedDocsDir).sort()) {
+    if (!supportedLocaleSet.has(locale)) continue;
+    const localeDir = path.join(localizedDocsDir, locale);
+    for (const file of collectMarkdownFiles(localeDir)) {
+      const relWithinLocale = path.relative(localeDir, file);
+      const sourceFile = path.join(sourceDocsDir, relWithinLocale);
+      if (!existsSync(sourceFile)) continue;
+      const localizedText = readFileSync(file, "utf8");
+      if (localizedText.includes("i18n-docs-ignore")) continue;
+
+      const sourceStrings = extractEmbeddedDocsStrings(
+        readFileSync(sourceFile, "utf8"),
+      );
+      if (sourceStrings.length === 0) continue;
+
+      const rel = path.relative(rootDir, file);
+      for (const source of sourceStrings) {
+        if (noTranslateTerms.has(source)) continue;
+        if (!containsSourcePhrase(localizedText, source)) continue;
+        const id = `${rel}|${source}`;
+        issueIds.add(id);
+        if (baseline.has(id)) continue;
+        errors.push(
+          `${rel}: embedded docs string still matches English source "${source}" — translate it, add <!-- i18n-docs-ignore -->, or update ${path.relative(
+            rootDir,
+            localizedDocsBaselinePath,
+          )}`,
+        );
+      }
+    }
+  }
+  return { errors, issueIds: [...issueIds].sort() };
+}
+
+function checkLocalizedDocsProtectedIdentifiers(): string[] {
+  const errors: string[] = [];
+  if (!existsSync(localizedDocsDir)) return errors;
+
+  for (const locale of safeReadDir(localizedDocsDir).sort()) {
+    if (!supportedLocaleSet.has(locale)) continue;
+    const localeDir = path.join(localizedDocsDir, locale);
+    for (const file of collectMarkdownFiles(localeDir)) {
+      const relWithinLocale = path.relative(localeDir, file);
+      const sourceFile = path.join(sourceDocsDir, relWithinLocale);
+      if (!existsSync(sourceFile)) continue;
+
+      const sourceText = readFileSync(sourceFile, "utf8");
+      const localizedText = readFileSync(file, "utf8");
+      const rel = path.relative(rootDir, file);
+
+      for (const identifier of protectedLocalizedDocsIdentifiers) {
+        if (!sourceText.includes(identifier)) continue;
+        if (localizedText.includes(identifier)) continue;
+        errors.push(
+          `${rel}: protected docs identifier "${identifier}" is missing; code/API identifiers must not be translated`,
+        );
+      }
+
+      for (const pattern of corruptedLocalizedDocsIdentifierPatterns) {
+        const match = localizedText.match(pattern);
+        if (!match) continue;
+        errors.push(
+          `${rel}: likely translated/corrupted code identifier "${match[0]}" must be restored to the English API identifier`,
+        );
+      }
+    }
+  }
+
+  return errors;
+}
+
+function containsSourcePhrase(text: string, source: string) {
+  if (!text.includes(source)) return false;
+  if (!/^[\w -]+$/.test(source)) return true;
+  const escaped = escapeRegExp(source).replace(/\s+/g, "\\s+");
+  return new RegExp(
+    `(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`,
+    "u",
+  ).test(text);
+}
+
+function collectMarkdownFiles(entry: string): string[] {
+  if (!existsSync(entry)) return [];
+  const stat = readdirOrFile(entry);
+  if (stat.type === "file") return entry.endsWith(".md") ? [entry] : [];
+  const out: string[] = [];
+  for (const child of safeReadDir(entry)) {
+    out.push(...collectMarkdownFiles(path.join(entry, child)));
+  }
+  return out;
+}
+
+function extractEmbeddedDocsStrings(text: string): string[] {
+  if (text.includes("i18n-docs-ignore")) return [];
+  const strings = new Set<string>();
+  const fencePattern = /^```([^\n]*)\n([\s\S]*?)^```/gm;
+  for (const match of text.matchAll(fencePattern)) {
+    const fenceInfo = match[1] ?? "";
+    const body = match[2] ?? "";
+    const isAgentNativeBlock = fenceInfo.startsWith("an-");
+
+    if (isAgentNativeBlock) {
+      for (const attr of ["title", "summary"]) {
+        const attrPattern = new RegExp(`\\b${attr}="([^"]+)"`, "g");
+        for (const attrMatch of fenceInfo.matchAll(attrPattern)) {
+          addLikelyTranslatableDocsString(strings, attrMatch[1] ?? "");
+        }
+      }
+
+      const propertyPattern = new RegExp(
+        `"(${localizedDocsStringProperties.join(
+          "|",
+        )})"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`,
+        "g",
+      );
+      for (const propMatch of body.matchAll(propertyPattern)) {
+        addLikelyTranslatableDocsString(
+          strings,
+          unescapeJsonString(propMatch[2] ?? ""),
+        );
+      }
+
+      const htmlPattern = /"html"\s*:\s*"((?:\\.|[^"\\])*)"/g;
+      for (const htmlMatch of body.matchAll(htmlPattern)) {
+        for (const htmlString of extractVisibleHtmlStrings(
+          unescapeJsonString(htmlMatch[1] ?? ""),
+        )) {
+          addLikelyTranslatableDocsString(strings, htmlString);
+        }
+      }
+    }
+
+    for (const line of body.split(/\r?\n/)) {
+      const comment = line.match(/#\s+(.+)$/)?.[1];
+      if (comment) addLikelyTranslatableDocsString(strings, comment);
+    }
+  }
+  return [...strings].sort();
+}
+
+function addLikelyTranslatableDocsString(out: Set<string>, value: string) {
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  if (!isLikelyVisibleLiteral(trimmed)) return;
+  out.add(trimmed);
+}
+
+function extractVisibleHtmlStrings(html: string): string[] {
+  const withoutCode = html
+    .replace(/<code\b[^>]*>[\s\S]*?<\/code>/gi, " ")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ");
+  const withBreaks = withoutCode
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(?:div|p|li|span|small|strong|h[1-6])>/gi, "\n");
+  const text = decodeHtmlEntities(withBreaks.replace(/<[^>]+>/g, " "));
+  return text
+    .split(/\n+/)
+    .map((part) => part.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&rarr;/g, "->")
+    .replace(/&darr;/g, "v")
+    .replace(/&middot;/g, "·")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function unescapeJsonString(value: string): string {
+  return value
+    .replace(/\\"/g, '"')
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\\\/g, "\\");
 }
 
 void main();

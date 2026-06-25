@@ -20,7 +20,7 @@ description: "تحدث إلى وكيلك من Slack أو البريد الإلك
 
 ```an-diagram title="العديد من القنوات، وكيل واحد" summary="تنضم كل منصة إلى نفس حلقة الوكيل ونفس سجل سلاسل الرسائل SQL - لذلك تواصل رسالة مباشرة Slack وبريد إلكتروني نفس المحادثة."
 {
-  "html": "<div class=\"msg-fanin\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">Telegram</div><div class=\"diagram-node\">WhatsApp</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">One agent loop</span><small class=\"diagram-muted\">same memory · same tools</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>One SQL thread history<br><small class=\"diagram-muted\">web chat + external messages share it</small></div></div>",
+  "html": "<div class=\"msg-fanin\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">Telegram</div><div class=\"diagram-node\">WhatsApp</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">حلقة وكيل واحدة</span><small class=\"diagram-muted\">نفس الذاكرة · نفس الأدوات</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>سجل محادثة SQL واحد<br><small class=\"diagram-muted\">web chat + external messages share it</small></div></div>",
   "css": ".msg-fanin{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.msg-fanin .diagram-col{display:flex;flex-direction:column;gap:8px}.msg-fanin .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -169,7 +169,7 @@ https://your-clips.example.com/api/slack/unfurl
 - **CC الوكيل** لإحضاره إلى سلسلة رسائل. عندما يتم إرسال نسخة إلى الوكيل، فسوف يقوم بالرد على الكل حتى يرى سلسلة المحادثات بأكملها الرد.
 - **الترابط يعمل فقط** — يستخدم الوكيل رؤوس `Message-ID` / `In-Reply-To` / `References` القياسية، لذا تظل الردود في سلسلة الرسائل الصحيحة في أي عميل بريد إلكتروني.
 - **الهوية هي البريد الإلكتروني للمرسل.** إذا أرسل `alice@acme.com` بريدًا إلكترونيًا إلى الوكيل، فهذه _هي_ هويتها - لا يوجد رابط أو تدفق اشتراك.
-- **الردود المنسّقة** — يتم عرض تخفيض السعر في استجابة الوكيل على هيئة HTML في البريد الإلكتروني.
+- **الردود المنسّقة** — يتم عرض Markdown في استجابة الوكيل على هيئة HTML في البريد الإلكتروني.
 - **المجالات المسموح بها** — تقييد من يمكنه إرسال بريد إلكتروني إلى الوكيل عن طريق تعيين `allowedDomains` في تكوين التكامل؛ يتم إسقاط الرسائل من النطاقات الأخرى.
 - **حد السعر** — 20 رسالة واردة في الساعة لكل مرسل.
 
@@ -233,7 +233,7 @@ https://your-clips.example.com/api/slack/unfurl
 
 ```an-diagram title="دورة حياة خطاف الويب الوارد" summary="يقوم خطاف الويب فقط بالتحقق من الرقم 200 وإدراجه في قائمة الانتظار وإرجاعه. يؤدي تنفيذ وظيفة جديدة إلى استنزاف قائمة الانتظار وتشغيل حلقة الوكيل، مع إعادة المحاولة لمدة 60 ثانية كشبكة أمان."
 {
-  "html": "<div class=\"msg-flow\"><div class=\"msg-row\"><div class=\"diagram-node\">Platform<br><small class=\"diagram-muted\">Slack · email · etc.</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><strong>/webhook</strong><br><small class=\"diagram-muted\">verify signature + parse</small><br><span class=\"diagram-pill\">INSERT pending task</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">return 200</div></div><div class=\"msg-fire\"><span class=\"diagram-muted\">fire-and-forget</span> <span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</span></div><div class=\"msg-row\"><div class=\"diagram-box\" data-rough><strong>/process-task</strong><br><small class=\"diagram-muted\">fresh execution · own timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">claim</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">agent loop</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">adapter.sendResponse</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">completed</div></div><div class=\"diagram-panel msg-retry\" data-rough><span class=\"diagram-pill warn\">every 60s</span> <span class=\"diagram-muted\">retry job sweeps stuck tasks (pending &gt;90s · processing &gt;5min) and re-fires /process-task &mdash; capped at 3 attempts, then <strong>failed</strong></span></div></div>",
+  "html": "<div class=\"msg-flow\"><div class=\"msg-row\"><div class=\"diagram-node\">Platform<br><small class=\"diagram-muted\">Slack · البريد · إلخ</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><strong>/webhook</strong><br><small class=\"diagram-muted\">verify signature + parse</small><br><span class=\"diagram-pill\">INSERT مهمة معلقة</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">return 200</div></div><div class=\"msg-fire\"><span class=\"diagram-muted\">fire-and-forget</span> <span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</span></div><div class=\"msg-row\"><div class=\"diagram-box\" data-rough><strong>/process-task</strong><br><small class=\"diagram-muted\">تنفيذ جديد · مهلة خاصة</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">claim</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">agent loop</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">adapter.sendResponse</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">completed</div></div><div class=\"diagram-panel msg-retry\" data-rough><span class=\"diagram-pill warn\">every 60s</span> <span class=\"diagram-muted\">retry job sweeps stuck tasks (pending &gt;90s · processing &gt;5min) and re-fires /process-task &mdash; capped at 3 attempts, then <strong>failed</strong></span></div></div>",
   "css": ".msg-flow{display:flex;flex-direction:column;gap:12px}.msg-flow .msg-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.msg-flow .msg-fire{display:flex;align-items:center;gap:8px;padding-inline-start:12px}.msg-flow .msg-retry{display:flex;align-items:center;gap:8px;flex-wrap:wrap}"
 }
 ```
@@ -244,7 +244,7 @@ https://your-clips.example.com/api/slack/unfurl
 {
   "method": "POST",
   "path": "/_agent-native/integrations/slack/webhook",
-  "summary": "Slack Events API inbound webhook",
+  "summary": "Slack الأحداث API خطاف الويب الوارد",
   "description": "Receives Slack events (DMs and channel `app_mention`s). Verifies the request signature, parses the payload into an `IncomingMessage`, inserts a `pending` row into `integration_pending_tasks`, fires the fresh-execution processor, and returns **200 immediately** — well inside Slack's 3-second SLA. The same route shape exists per platform under `/_agent-native/integrations/<platform>/webhook`.",
   "auth": "HMAC-SHA256 of the raw body using `SLACK_SIGNING_SECRET`, checked against the `X-Slack-Signature` header. In production also gated by `SLACK_ALLOWED_TEAM_IDS` / `SLACK_ALLOWED_API_APP_IDS`.",
   "params": [
@@ -322,7 +322,7 @@ POST /_agent-native/integrations/telegram/setup
 
 يتم تعيين كل محادثة خارجية لسلسلة محادثات مستمرة في قاعدة بيانات الوكيل الأصلية:
 
-- **Slack DM** → موضوع واحد لكل مستخدم Slack.
+- **رسالة Slack مباشرة** → موضوع واحد لكل مستخدم Slack.
 - **@إشارة قناة Slack** → موضوع واحد لكل قناة.
 - **دردشة تيليجرام** → موضوع واحد لكل دردشة تيليجرام.
 - **محادثة WhatsApp** → موضوع واحد لكل رقم WhatsApp.

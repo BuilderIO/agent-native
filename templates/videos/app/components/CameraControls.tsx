@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconArrowLeftRight,
   IconArrowsUpDown,
@@ -87,6 +88,7 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
   onSeek,
   durationInFrames = 240,
 }) => {
+  const t = useT();
   const [localState, setLocalState] = useState<CameraState>(DEFAULT_CAMERA);
   const [isOnKeyframe, setIsOnKeyframe] = useState(false);
   const [keyframeCount, setKeyframeCount] = useState(0);
@@ -279,9 +281,11 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
       {/* Keyframe status message */}
       {!isOnKeyframe && (
         <div className="text-center py-6 px-4 bg-muted/30 rounded-lg border border-dashed border-border">
-          <p className="text-xs text-muted-foreground">No keyframe selected</p>
+          <p className="text-xs text-muted-foreground">
+            {t("raw.camera.noKeyframeSelected")}
+          </p>
           <p className="text-xs text-muted-foreground/60 mt-1">
-            Use the camera toolbar above the video to create keyframes
+            {t("raw.camera.createKeyframesHelp")}
           </p>
         </div>
       )}
@@ -303,7 +307,7 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <IconArrowLeftRight className="w-3 h-3" />
-                Pan X
+                {t("raw.camera.panX")}
               </Label>
               <input
                 type="number"
@@ -322,7 +326,7 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <IconArrowsUpDown className="w-3 h-3" />
-                Pan Y
+                {t("raw.camera.panY")}
               </Label>
               <input
                 type="number"
@@ -341,7 +345,7 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <IconRotateClockwise2 className="w-3 h-3" />
-                Tilt X
+                {t("raw.camera.tiltX")}
               </Label>
               <input
                 type="number"
@@ -363,7 +367,7 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
                   className="w-3 h-3"
                   style={{ transform: "rotate(90deg)" }}
                 />
-                Tilt Y
+                {t("raw.camera.tiltY")}
               </Label>
               <input
                 type="number"
@@ -429,7 +433,7 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
             onDuplicate={handleDuplicateKeyframe}
             onReset={handleResetToDefaults}
             onRemove={removeKeyframe}
-            resetTooltip="Reset camera to default view for this keyframe"
+            resetTooltip={t("raw.camera.resetToDefaultView")}
           />
         </div>
       )}

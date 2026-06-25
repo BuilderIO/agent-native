@@ -10,7 +10,7 @@ Um cliente de e-mail baseado em agente. Conecte sua conta Gmail e o agente poder
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Inbox 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='Search'></span><span data-icon='edit' aria-label='Compose'></span><span data-icon='bell' aria-label='Notify'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Priya Mehta</strong><span><strong>Q3 launch</strong> — final assets ready for review</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Acme Billing</strong><span>Your monthly invoice is ready</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Marcus Tang</span><span>Onboarding flow research findings</span><span>Yesterday</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR ready for review</span><span>Yesterday</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Issue ENG-1287 assigned to you</span><span>May 2</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>Weekly payments summary</span><span>Apr 29</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>New booking confirmed</span><span>Apr 28</span></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Caixa de entrada 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='Pesquisar'></span><span data-icon='edit' aria-label='Escrever'></span><span data-icon='bell' aria-label='Notificar'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Priscila Mehta</strong><span><strong>Lançamento do T3</strong> — assets finais prontos para revisão</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Cobrança Acme</strong><span>Sua fatura mensal está pronta</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Marcos Tang</span><span>Fluxo de integração research findings</span><span>Ontem</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR pronto para revisão</span><span>Ontem</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Issue ENG-1287 atribuída a você</span><span>2 de mai.</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>Resumo semanal de pagamentos</span><span>29 de abr.</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>Nova reserva confirmada</span><span>28 de abr.</span></div></div></div>"
 }
 ```
 
@@ -156,13 +156,13 @@ Quando uma conta do Google está conectada, o e-mail fica em Gmail — o aplicat
 
 Os e-mails que passam pelo API têm o formato `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`.
 
-```an-schema title="Mail SQL tables" summary="Email itself lives in Gmail. The SQL tables hold what Gmail doesn't: queued drafts, send-tracking events, and OAuth tokens. Settings and ephemeral state live in the settings and application_state stores."
+```an-schema title="Enviar tabelas SQL" summary="O próprio e-mail reside em Gmail. As tabelas SQL contêm o que Gmail não contém: rascunhos em fila, eventos de rastreamento de envio e tokens OAuth. As configurações e o estado efêmero residem nas configurações e nos armazenamentos application_state."
 {
   "entities": [
     {
       "id": "queued_email_drafts",
       "name": "queued_email_drafts",
-      "note": "Teammate/Slack-requested drafts awaiting owner review",
+      "note": "Rascunhos solicitados por colegas/Slack aguardando revisão do proprietário",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "assignedTo", "type": "string", "note": "org member who reviews/sends" },
@@ -174,7 +174,7 @@ Os e-mails que passam pelo API têm o formato `{ id, threadId, from, to, cc, sub
     {
       "id": "email_tracking",
       "name": "email_tracking",
-      "note": "Open-pixel events for sent messages",
+      "note": "Eventos de pixel aberto para mensagens enviadas",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "messageId", "type": "string" },
@@ -184,7 +184,7 @@ Os e-mails que passam pelo API têm o formato `{ id, threadId, from, to, cc, sub
     {
       "id": "email_link_tracking",
       "name": "email_link_tracking",
-      "note": "Link-click events for sent messages",
+      "note": "Eventos de clique em link para mensagens enviadas",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "messageId", "type": "string", "fk": "email_tracking.messageId" },
@@ -195,7 +195,7 @@ Os e-mails que passam pelo API têm o formato `{ id, threadId, from, to, cc, sub
     {
       "id": "oauth_tokens",
       "name": "oauth_tokens",
-      "note": "Framework table — one row per connected Google account",
+      "note": "Tabela de estrutura — uma linha por conta Google conectada",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "provider", "type": "string", "note": "\"google\"" },

@@ -9,6 +9,7 @@ import {
   setAgentChatContextItem,
   useAgentEngineConfigured,
   useActionQuery,
+  useT,
   useSession,
   track,
   emailToColor,
@@ -279,28 +280,27 @@ function GoogleLogoIcon({ className }: { className?: string }) {
   );
 }
 
-const SOURCE_OPTIONS: Array<{ value: PlanSource; label: string }> = [
-  { value: "codex", label: "Codex" },
-  { value: "claude-code", label: "Claude Code" },
-  { value: "cursor", label: "Cursor" },
-  { value: "pi", label: "Pi" },
-  { value: "manual", label: "Manual" },
-  { value: "imported", label: "Imported" },
+const SOURCE_OPTIONS: Array<{ value: PlanSource }> = [
+  { value: "codex" },
+  { value: "claude-code" },
+  { value: "cursor" },
+  { value: "pi" },
+  { value: "manual" },
+  { value: "imported" },
 ];
 
 const REPORT_REASON_OPTIONS: Array<{
   value: PlanReportReason;
-  label: string;
 }> = [
-  { value: "spam", label: "Spam or deceptive" },
-  { value: "harassment", label: "Harassment" },
-  { value: "hate", label: "Hateful content" },
-  { value: "sexual", label: "Sexual content" },
-  { value: "violence", label: "Violence or threats" },
-  { value: "self-harm", label: "Self-harm" },
-  { value: "privacy", label: "Privacy concern" },
-  { value: "illegal", label: "Illegal activity" },
-  { value: "other", label: "Something else" },
+  { value: "spam" },
+  { value: "harassment" },
+  { value: "hate" },
+  { value: "sexual" },
+  { value: "violence" },
+  { value: "self-harm" },
+  { value: "privacy" },
+  { value: "illegal" },
+  { value: "other" },
 ];
 
 const PLAN_READER_VIEW_EVENT = "plans-reader-view-change";
@@ -338,21 +338,21 @@ const PREFERRED_EDITOR_VALUES: PreferredEditor[] = [
 ];
 
 const EDITOR_OPTIONS: Array<{ value: PreferredEditor; label: string }> = [
-  { value: "vscode", label: "VS Code" },
-  { value: "cursor", label: "Cursor" },
-  { value: "finder", label: "Finder" },
-  { value: "terminal", label: "Terminal" },
-  { value: "ghostty", label: "Ghostty" },
-  { value: "xcode", label: "Xcode" },
+  { value: "vscode", label: "VS Code" }, // i18n-ignore stable app name
+  { value: "cursor", label: "Cursor" }, // i18n-ignore stable app name
+  { value: "finder", label: "Finder" }, // i18n-ignore stable app name
+  { value: "terminal", label: "Terminal" }, // i18n-ignore stable app name
+  { value: "ghostty", label: "Ghostty" }, // i18n-ignore stable app name
+  { value: "xcode", label: "Xcode" }, // i18n-ignore stable app name
 ];
 
 const EDITOR_ICON_HTML: Record<PreferredEditor, string> = {
-  vscode: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-brand-vscode" aria-hidden="true"><path d="M16 3v18l4 -2.5v-13l-4 -2.5"></path><path d="M9.165 13.903l-4.165 3.597l-2 -1l4.333 -4.5m1.735 -1.802l6.932 -7.198v5l-4.795 4.141"></path><path d="M16 16.5l-11 -10l-2 1l13 13.5"></path></svg>`,
-  cursor: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-cube" aria-hidden="true"><path d="M21 16.008v-8.018a1.98 1.98 0 0 0 -1 -1.717l-7 -4.008a2.016 2.016 0 0 0 -2 0l-7 4.008c-.619 .355 -1 1.01 -1 1.718v8.018c0 .709 .381 1.363 1 1.717l7 4.008a2.016 2.016 0 0 0 2 0l7 -4.008c.619 -.355 1 -1.01 1 -1.718"></path><path d="M12 22v-10"></path><path d="M12 12l8.73 -5.04"></path><path d="M3.27 6.96l8.73 5.04"></path></svg>`,
-  finder: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-brand-finder" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1l0 -14"></path><path d="M7 8v1"></path><path d="M17 8v1"></path><path d="M12.5 4c-.654 1.486 -1.26 3.443 -1.5 9h2.5c-.19 2.867 .094 5.024 .5 7"></path><path d="M7 15.5c3.667 2 6.333 2 10 0"></path></svg>`,
-  terminal: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-terminal-2" aria-hidden="true"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg>`,
-  ghostty: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-ghost-3" aria-hidden="true"><path d="M5 11a7 7 0 0 1 14 0v7a1.78 1.78 0 0 1 -3.1 1.4a1.65 1.65 0 0 0 -2.6 0a1.65 1.65 0 0 1 -2.6 0a1.65 1.65 0 0 0 -2.6 0a1.78 1.78 0 0 1 -3.1 -1.4v-7"></path><path d="M10 10h.01"></path><path d="M14 10h.01"></path></svg>`,
-  xcode: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-hammer" aria-hidden="true"><path d="M11.414 10l-7.383 7.418a2.091 2.091 0 0 0 0 2.967a2.11 2.11 0 0 0 2.976 0l7.407 -7.385"></path><path d="M18.121 15.293l2.586 -2.586a1 1 0 0 0 0 -1.414l-7.586 -7.586a1 1 0 0 0 -1.414 0l-2.586 2.586a1 1 0 0 0 0 1.414l7.586 7.586a1 1 0 0 0 1.414 0"></path></svg>`,
+  vscode: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-brand-vscode" aria-hidden="true"><path d="M16 3v18l4 -2.5v-13l-4 -2.5"></path><path d="M9.165 13.903l-4.165 3.597l-2 -1l4.333 -4.5m1.735 -1.802l6.932 -7.198v5l-4.795 4.141"></path><path d="M16 16.5l-11 -10l-2 1l13 13.5"></path></svg>`, // i18n-ignore inline SVG icon markup
+  cursor: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-cube" aria-hidden="true"><path d="M21 16.008v-8.018a1.98 1.98 0 0 0 -1 -1.717l-7 -4.008a2.016 2.016 0 0 0 -2 0l-7 4.008c-.619 .355 -1 1.01 -1 1.718v8.018c0 .709 .381 1.363 1 1.717l7 4.008a2.016 2.016 0 0 0 2 0l7 -4.008c.619 -.355 1 -1.01 1 -1.718"></path><path d="M12 22v-10"></path><path d="M12 12l8.73 -5.04"></path><path d="M3.27 6.96l8.73 5.04"></path></svg>`, // i18n-ignore inline SVG icon markup
+  finder: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-brand-finder" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1l0 -14"></path><path d="M7 8v1"></path><path d="M17 8v1"></path><path d="M12.5 4c-.654 1.486 -1.26 3.443 -1.5 9h2.5c-.19 2.867 .094 5.024 .5 7"></path><path d="M7 15.5c3.667 2 6.333 2 10 0"></path></svg>`, // i18n-ignore inline SVG icon markup
+  terminal: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-terminal-2" aria-hidden="true"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg>`, // i18n-ignore inline SVG icon markup
+  ghostty: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-ghost-3" aria-hidden="true"><path d="M5 11a7 7 0 0 1 14 0v7a1.78 1.78 0 0 1 -3.1 1.4a1.65 1.65 0 0 0 -2.6 0a1.65 1.65 0 0 1 -2.6 0a1.65 1.65 0 0 0 -2.6 0a1.78 1.78 0 0 1 -3.1 -1.4v-7"></path><path d="M10 10h.01"></path><path d="M14 10h.01"></path></svg>`, // i18n-ignore inline SVG icon markup
+  xcode: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-hammer" aria-hidden="true"><path d="M11.414 10l-7.383 7.418a2.091 2.091 0 0 0 0 2.967a2.11 2.11 0 0 0 2.976 0l7.407 -7.385"></path><path d="M18.121 15.293l2.586 -2.586a1 1 0 0 0 0 -1.414l-7.586 -7.586a1 1 0 0 0 -1.414 0l-2.586 2.586a1 1 0 0 0 0 1.414l7.586 7.586a1 1 0 0 0 1.414 0"></path></svg>`, // i18n-ignore inline SVG icon markup
 };
 
 function readPreferredEditor(): PreferredEditor {
@@ -656,8 +656,8 @@ export function resolvePlanOrgAccessPrompt(input: {
       organizationName: orgName,
       invitationId: pendingInvitation.id,
       invitedBy: pendingInvitation.invitedBy,
-      buttonLabel: "Accept invite",
-      message: `You already have an invite to ${orgName}. Accept it to open this plan.`,
+      buttonLabel: "",
+      message: "",
     };
   }
 
@@ -671,10 +671,8 @@ export function resolvePlanOrgAccessPrompt(input: {
       organizationId: orgId,
       organizationName: orgName,
       domain,
-      buttonLabel: `Join ${orgName}`,
-      message: domain
-        ? `Your @${domain} email can join ${orgName}. Join it to open this plan.`
-        : `You can join ${orgName} to open this plan.`,
+      buttonLabel: "",
+      message: "",
     };
   }
 
@@ -827,7 +825,7 @@ async function fetchLocalPlanBridgeBundle(
   const slug = payload.slug || fallbackSlug || "local-plan";
   const kind = payload.kind === "recap" ? "recap" : "plan";
   const title = content.title || payload.title || slug;
-  const brief = content.brief || payload.brief || "Local files preview.";
+  const brief = content.brief || payload.brief || "";
   const url = localPlanRouteUrl(slug);
   const bundle: LocalPlanBundle = {
     plan: {
@@ -985,8 +983,10 @@ function commentDescendantCount(
   return count;
 }
 
-function deleteCommentLabel(replyCount: number) {
-  return replyCount > 0 ? "Delete thread" : "Delete comment";
+function deleteCommentLabel(replyCount: number, t: ReturnType<typeof useT>) {
+  return replyCount > 0
+    ? t("plansPage.comments.deleteThread")
+    : t("plansPage.comments.deleteComment");
 }
 
 export function shouldKeepCommentPopoverOpenForTarget(
@@ -1057,9 +1057,9 @@ function commentAuthorName(
   if (explicitName) return explicitName;
   const email = normalizeCommentEmail(source.authorEmail);
   if (email) return emailToName(email);
-  if (source.createdBy === "agent") return "Agent";
-  if (source.createdBy === "import") return "Imported";
-  return "Reviewer";
+  if (source.createdBy === "agent") return "Agent"; // i18n-key-ignore stable actor id fallback
+  if (source.createdBy === "import") return "Imported"; // i18n-key-ignore stable import actor fallback
+  return "Reviewer"; // i18n-key-ignore stable anonymous reviewer fallback
 }
 
 function commentAuthorInitials(name: string) {
@@ -2699,15 +2699,6 @@ const APPROVAL_STATUSES: PlanStatus[] = [
   "complete",
 ];
 
-const STATUS_LABELS: Record<PlanStatus, string> = {
-  draft: "Draft",
-  review: "In review",
-  approved: "Approved",
-  in_progress: "In progress",
-  complete: "Complete",
-  archived: "Archived",
-};
-
 function statusBadgeClasses(status: PlanStatus): string {
   if (status === "approved") {
     return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
@@ -2739,6 +2730,7 @@ function PlanStatusControl({
   status: PlanStatus;
   canEdit: boolean;
 }) {
+  const t = useT();
   const qc = useQueryClient();
   const updateStatus = useUpdatePlanStatus();
 
@@ -2773,12 +2765,12 @@ function PlanStatusControl({
               qc.setQueryData(ACTIVE_PLANS_QUERY_KEY, prevActiveList);
             if (prevAllList !== undefined)
               qc.setQueryData(ALL_PLANS_QUERY_KEY, prevAllList);
-            toast.error("Failed to update plan status.");
+            toast.error(t("plansPage.status.updateFailed"));
           },
         },
       );
     },
-    [planId, qc, status, updateStatus],
+    [planId, qc, status, t, updateStatus],
   );
 
   const badgeClassName = cn(
@@ -2791,7 +2783,7 @@ function PlanStatusControl({
       {status === "approved" && (
         <IconCircleCheck className="size-3.5 shrink-0" />
       )}
-      {STATUS_LABELS[status] ?? statusLabel(status)}
+      {t(`plansPage.status.labels.${status}`)}
       {canEdit && <IconChevronDown className="size-3 shrink-0 opacity-60" />}
     </>
   );
@@ -2805,14 +2797,14 @@ function PlanStatusControl({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label="Set plan status"
+          aria-label={t("plansPage.status.setPlanStatus")}
           className={badgeClassName}
         >
           {badgeInner}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44 rounded-xl">
-        <DropdownMenuLabel>Set status</DropdownMenuLabel>
+        <DropdownMenuLabel>{t("plansPage.status.setStatus")}</DropdownMenuLabel>
         <DropdownMenuGroup>
           {APPROVAL_STATUSES.map((s) => (
             <DropdownMenuItem
@@ -2825,7 +2817,7 @@ function PlanStatusControl({
               ) : (
                 <span className="size-4" />
               )}
-              {STATUS_LABELS[s]}
+              {t(`plansPage.status.labels.${s}`)}
             </DropdownMenuItem>
           ))}
         </DropdownMenuGroup>
@@ -2835,6 +2827,7 @@ function PlanStatusControl({
 }
 
 function LocalModeBadge() {
+  const t = useT();
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -2843,22 +2836,23 @@ function LocalModeBadge() {
           target="_blank"
           rel="noreferrer"
           className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2.5 text-xs font-medium text-emerald-700 outline-none transition-colors hover:bg-emerald-500/15 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:text-emerald-300"
-          aria-label="Local mode privacy details"
+          aria-label={t("plansPage.localMode.privacyDetails")}
         >
           <span className="size-1.5 rounded-full bg-emerald-500" />
-          <span>Local mode</span>
+          <span>{t("plansPage.localMode.badge")}</span>
           <IconHelpCircle className="size-3.5 opacity-75" />
         </a>
       </TooltipTrigger>
       <TooltipContent align="end" side="bottom" className="max-w-xs p-3">
         <div className="grid gap-1.5">
-          <p className="font-medium leading-5">100% private local mode</p>
+          <p className="font-medium leading-5">
+            {t("plansPage.localMode.title")}
+          </p>
           <p className="text-xs leading-5 text-muted-foreground">
-            Your data is never saved to our backend or seen by us. This page
-            only renders and edits your local MDX files.
+            {t("plansPage.localMode.description")}
           </p>
           <p className="text-xs font-medium leading-5 text-foreground">
-            Open docs.
+            {t("plansPage.localMode.openDocs")}
           </p>
         </div>
       </TooltipContent>
@@ -2871,6 +2865,7 @@ export function canEditPlanContentRole(role?: PlanAccessRole | null) {
 }
 
 export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
+  const t = useT();
   const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -3470,13 +3465,15 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             if (prevAll !== undefined)
               queryClient.setQueryData(ALL_PLANS_QUERY_KEY, prevAll);
             toast.error(
-              archive ? "Failed to archive plan." : "Failed to unarchive plan.",
+              archive
+                ? t("plansPage.reader.archiveFailed")
+                : t("plansPage.reader.unarchiveFailed"),
             );
           },
         },
       );
     },
-    [queryClient, updatePlan],
+    [queryClient, t, updatePlan],
   );
 
   const updatePlanListCaches = useCallback(
@@ -3519,7 +3516,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
               ),
           );
           toast.success(
-            `${target.kind === "recap" ? "Recap" : "Plan"} moved to Deleted.`,
+            target.kind === "recap"
+              ? t("plansPage.reader.recapMovedToDeleted")
+              : t("plansPage.reader.planMovedToDeleted"),
           );
           if (selectedId === target.id) navigate("/plans");
         } else if (result.mode === "restore") {
@@ -3531,7 +3530,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             ),
           );
           toast.success(
-            `${target.kind === "recap" ? "Recap" : "Plan"} restored.`,
+            target.kind === "recap"
+              ? t("plansPage.reader.recapRestored")
+              : t("plansPage.reader.planRestored"),
           );
         } else {
           updatePlanListCaches((items) =>
@@ -3541,7 +3542,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             queryKey: planBundleQueryKey(target.id),
           });
           toast.success(
-            `${target.kind === "recap" ? "Recap" : "Plan"} permanently deleted.`,
+            target.kind === "recap"
+              ? t("plansPage.reader.recapPermanentlyDeleted")
+              : t("plansPage.reader.planPermanentlyDeleted"),
           );
           if (selectedId === target.id) navigate("/plans");
         }
@@ -3556,6 +3559,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       navigate,
       queryClient,
       selectedId,
+      t,
       updatePlanListCaches,
     ],
   );
@@ -3586,14 +3590,12 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         },
         {
           onError: () => {
-            toast.error(
-              "Could not save answers — they were sent to the agent chat only.",
-            );
+            toast.error(t("plansPage.reader.saveAnswersFailed"));
           },
         },
       );
     },
-    [collabUser?.email, collabUser?.name],
+    [collabUser?.email, collabUser?.name, t],
   );
 
   const exportPlan = useExportPlan(localPlanMode ? undefined : selectedId);
@@ -3685,7 +3687,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         size="sm"
         onClick={() => openSignIn()}
       >
-        Sign in
+        {t("plansPage.loadError.signIn")}
       </Button>
     ) : null,
   );
@@ -3741,8 +3743,14 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
 
   const documentHtml = useMemo(() => {
     if (!bundle) return "";
-    return bundle.html || bundle.plan.html || buildClientPlanHtml(bundle);
-  }, [bundle]);
+    return (
+      bundle.html ||
+      bundle.plan.html ||
+      buildClientPlanHtml(bundle, {
+        workingPlan: t("plansPage.reader.clientHtmlWorkingPlan"),
+      })
+    );
+  }, [bundle, t]);
 
   const annotatedDocumentHtml = useMemo(() => {
     if (!bundle) return "";
@@ -3753,6 +3761,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       false,
       defaults.planTheme,
       defaults.preferredEditor,
+      {
+        closeCodePreview: t("plansPage.reader.runtimeCloseCodePreview"),
+      },
       commentAvatarUrls,
       currentCommentAuthor,
     );
@@ -3761,6 +3772,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     commentAvatarUrls,
     currentCommentAuthor,
     documentHtml,
+    t,
     visiblePlanComments,
   ]);
 
@@ -4132,7 +4144,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           /^file:\/\//i.test(data.href)
         ) {
           window.location.href = data.href;
-          toast.info("Opening file in your editor");
+          toast.info(t("plansPage.reader.openingFile"));
         }
       }
       if (data?.type === "agent-native-plan-editor-preference") {
@@ -4145,7 +4157,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         window.localStorage.setItem(PREFERRED_EDITOR_STORAGE_KEY, editor);
       }
       if (data?.type === "agent-native-plan-link-blocked") {
-        toast.info("Links are disabled in review so the document stays put.");
+        toast.info(t("plansPage.reader.linksDisabled"));
       }
       if (data?.type === "agent-native-plan-doc-state" && data.state) {
         documentStateRef.current = data.state;
@@ -4160,7 +4172,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         typeof data.summary === "string"
       ) {
         void navigator.clipboard.writeText(data.summary).then(() => {
-          toast.success("Visual intake prompt copied");
+          toast.success(t("plansPage.reader.visualPromptCopied"));
         });
       }
       if (
@@ -4174,7 +4186,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           message: buildQuestionFormRevisionMessage(data.summary),
         });
         persistQuestionFormAnswers(data.summary, bundle?.plan.id);
-        toast.success("Sent answers to the agent");
+        toast.success(t("plansPage.reader.sentAnswers"));
       }
     };
     window.addEventListener("message", onMessage);
@@ -4196,12 +4208,16 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const copyPlanLink = async () => {
     if (!planShareUrl) return;
     await navigator.clipboard.writeText(planShareUrl);
-    toast.success(isRecap ? "Recap link copied" : "Plan link copied");
+    toast.success(
+      isRecap
+        ? t("plansPage.reader.recapLinkCopied")
+        : t("plansPage.reader.planLinkCopied"),
+    );
   };
 
   const copyLocalPlanFolder = async () => {
     await navigator.clipboard.writeText(localPlanDisplayFolder);
-    toast.success("Local path copied");
+    toast.success(t("plansPage.reader.localPathCopied"));
   };
 
   const openPromoteLocalPlanDialog = () => {
@@ -4217,7 +4233,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     if (!localPlanSlug || localPlanBridgeUrl) return;
     const targetPath = promoteLocalPlanTargetPath.trim();
     if (!targetPath) {
-      toast.error("Enter a repo-relative folder path.");
+      toast.error(t("plansPage.reader.enterRepoFolder"));
       return;
     }
 
@@ -4230,10 +4246,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     setPromoteLocalPlanOpen(false);
     toast.success(
       result.alreadyPromoted
-        ? "Local plan is already saved in the repo"
-        : `Saved ${result.localFiles?.files.length ?? 0} local files to ${
-            result.targetPath ?? targetPath
-          }`,
+        ? t("plansPage.reader.localPlanAlreadySaved")
+        : t("plansPage.reader.savedLocalFiles", {
+            count: result.localFiles?.files.length ?? 0,
+            path: result.targetPath ?? targetPath,
+          }),
     );
     navigate(localPlanRoutePath(result.slug, result.repoPath ?? targetPath));
   };
@@ -4263,7 +4280,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     if (localPlanMode) {
       const localBundle = bundle as LocalPlanBundle | undefined;
       if (!localBundle) {
-        throw new Error("Local plan source was not available yet.");
+        throw new Error(t("plansPage.reader.localSourceUnavailable"));
       }
       const mdx =
         localBundle.mdx ??
@@ -4271,7 +4288,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           ? { "plan.mdx": localBundle.plan.markdown }
           : undefined);
       if (!mdx?.["plan.mdx"]) {
-        throw new Error("Local plan source files were not available yet.");
+        throw new Error(t("plansPage.reader.localSourceFilesUnavailable"));
       }
       return {
         markdown: localBundle.plan.markdown ?? mdx["plan.mdx"],
@@ -4293,7 +4310,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const result = await exportPlan.refetch();
     const data = result.data ?? exportPlan.data;
     if (!data) {
-      throw new Error("Plan export was not available yet.");
+      throw new Error(t("plansPage.reader.exportUnavailable"));
     }
     return data;
   }, [
@@ -4311,7 +4328,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       const plan = bundle?.plan;
       const planFiles = getDesktopPlanFiles();
       if (!plan || !planFiles) {
-        throw new Error("Desktop local file sync is not available.");
+        throw new Error(t("plansPage.reader.desktopSyncUnavailable"));
       }
 
       setDesktopPlanSyncing(true);
@@ -4339,7 +4356,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
 
         const data = await readPlanExport();
         if (!data.mdx || !data.mdx["plan.mdx"]) {
-          throw new Error("Plan source files were not available yet.");
+          throw new Error(t("plansPage.reader.sourceFilesUnavailable"));
         }
         const written = await planFiles.writePlan({
           planId: plan.id,
@@ -4357,7 +4374,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         }
         desktopAutoSyncedVersionRef.current[plan.id] = plan.updatedAt;
         if (!options.quiet) {
-          toast.success(`Synced ${written.files?.length ?? 0} local files`);
+          toast.success(
+            t("plansPage.reader.syncedLocalFiles", {
+              count: written.files?.length ?? 0,
+            }),
+          );
         }
         return written.folder;
       } finally {
@@ -4371,14 +4392,14 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const plan = bundle?.plan;
     const planFiles = getDesktopPlanFiles();
     if (!plan || !planFiles) {
-      throw new Error("Desktop local file sync is not available.");
+      throw new Error(t("plansPage.reader.desktopSyncUnavailable"));
     }
 
     setDesktopPlanImporting(true);
     try {
       const result = await planFiles.readPlan({ planId: plan.id });
       if (result.ok === false) throw new Error(result.error);
-      if (!result.mdx) throw new Error("No Plan source files were found.");
+      if (!result.mdx) throw new Error(t("plansPage.reader.noSourceFiles"));
       const synced = await syncLocalControlResources({
         folderName: result.folder.name,
         files: result.controlResources,
@@ -4393,7 +4414,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         currentFocus: "desktop local files sync",
       });
       setDesktopPlanFolder(result.folder);
-      toast.success("Imported local source files");
+      toast.success(t("plansPage.reader.importedLocalSource"));
       const updatedAt = imported.plan?.updatedAt;
       if (updatedAt) {
         desktopAutoSyncedVersionRef.current[plan.id] = updatedAt;
@@ -4416,7 +4437,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             toast.error(
               error instanceof Error
                 ? error.message
-                : "Could not enable local file sync.",
+                : t("plansPage.reader.enableLocalSyncFailed"),
             );
           },
         );
@@ -4440,7 +4461,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Could not sync plan to local files.",
+          : t("plansPage.reader.syncLocalFailed"),
       );
     });
   }, [
@@ -4453,13 +4474,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const copyPlanHtml = async () => {
     const data = await readPlanExport();
     await navigator.clipboard.writeText(data.html);
-    toast.success("Plan HTML copied");
+    toast.success(t("plansPage.reader.planHtmlCopied"));
   };
 
   const copyPlanMarkdown = async () => {
     const data = await readPlanExport();
     await navigator.clipboard.writeText(data.markdown);
-    toast.success("Plan Markdown copied");
+    toast.success(t("plansPage.reader.planMarkdownCopied"));
   };
 
   const downloadPlanHtml = async () => {
@@ -4480,7 +4501,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const data = await readPlanExport();
     const files = data.mdx;
     if (!files || Object.keys(files).length === 0) {
-      throw new Error("Plan source files were not available yet.");
+      throw new Error(t("plansPage.reader.sourceFilesUnavailable"));
     }
     const { default: JSZip } = await import("jszip");
     const zip = new JSZip();
@@ -4495,7 +4516,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     }
     const blob = await zip.generateAsync({ type: "blob" });
     downloadBlob(planExportFilename(bundle?.plan.title, "zip"), blob);
-    toast.success("Plan source downloaded");
+    toast.success(t("plansPage.reader.planSourceDownloaded"));
   };
 
   const runPlanExportAction = (action: () => Promise<void>) => {
@@ -4504,7 +4525,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         toast.error(
           error instanceof Error
             ? error.message
-            : "Plan export was not available.",
+            : t("plansPage.reader.exportUnavailable"),
         );
       });
     });
@@ -5099,8 +5120,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       });
       toast.success(
         capture.images.length > 0
-          ? "Sent comments and focused screenshots to the agent"
-          : "Sent comments to the agent",
+          ? t("plansPage.reader.sentCommentsWithScreenshots")
+          : t("plansPage.reader.sentComments"),
       );
     } finally {
       setSendingFeedback(false);
@@ -5119,7 +5140,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         "\n",
       ),
     );
-    toast.success("Feedback instructions copied");
+    toast.success(t("plansPage.reader.feedbackCopied"));
   };
 
   // Route comment writes to the DB (hosted) or comments.json (local); both
@@ -5291,7 +5312,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     )
       .then(() => {
         setActiveAnnotation(null);
-        toast.success("Comment updated");
+        toast.success(t("plansPage.comments.commentUpdated"));
       })
       .catch(() => {
         // The mutation hook surfaces the failure toast; just clear pending.
@@ -5366,7 +5387,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       if (selectedPlanQueryKey) {
         queryClient.setQueryData(selectedPlanQueryKey, updated);
       }
-      toast.success("Reply added");
+      toast.success(t("plansPage.comments.replyAdded"));
     } catch {
       // Roll back the optimistic reply on error.
       queryClient.setQueryData(
@@ -5433,7 +5454,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     )
       .then(() => {
         toast.success(
-          status === "resolved" ? "Comment resolved" : "Comment reopened",
+          status === "resolved"
+            ? t("plansPage.comments.commentResolved")
+            : t("plansPage.comments.commentReopened"),
         );
       })
       .catch(() => {
@@ -5484,7 +5507,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     setDeleteCommentRequest(null);
     try {
       await removeCommentById(commentId);
-      toast.success("Comment deleted");
+      toast.success(t("plansPage.comments.commentDeleted"));
     } catch (error) {
       if (prevBundle !== undefined) {
         queryClient.setQueryData(selectedPlanQueryKey, prevBundle);
@@ -5617,12 +5640,14 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                               window.location.href = appPath("/plans");
                             }
                           }}
-                          aria-label="Back to plans"
+                          aria-label={t("plansPage.reader.backToPlans")}
                         >
                           <IconArrowLeft className="size-4" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Back to plans</TooltipContent>
+                      <TooltipContent>
+                        {t("plansPage.reader.backToPlans")}
+                      </TooltipContent>
                     </Tooltip>
                   </div>
                 )}
@@ -5685,8 +5710,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         }
                         aria-label={
                           prototypeOnly
-                            ? "Open full plan"
-                            : "Open prototype window"
+                            ? t("plansPage.reader.openFullPlan")
+                            : t("plansPage.reader.openPrototypeWindow")
                         }
                       >
                         <IconExternalLink className="size-4" />
@@ -5694,8 +5719,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     </TooltipTrigger>
                     <TooltipContent>
                       {prototypeOnly
-                        ? "Open full plan"
-                        : "Open prototype window"}
+                        ? t("plansPage.reader.openFullPlan")
+                        : t("plansPage.reader.openPrototypeWindow")}
                     </TooltipContent>
                   </Tooltip>
                 )}
@@ -5709,7 +5734,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         className="pointer-events-auto gap-1.5"
                         disabled={sendingFeedback}
                       >
-                        {sendingFeedback ? "Sending" : "Send to agent"}
+                        {sendingFeedback
+                          ? t("plansPage.reader.sending")
+                          : t("plansPage.reader.sendToAgent")}
                         <span className="flex size-4 items-center justify-center rounded-full bg-background/20 text-[10px] font-medium">
                           {bundle.summary.openCommentCount}
                         </span>
@@ -5720,7 +5747,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       align="end"
                       className="w-64 rounded-xl"
                     >
-                      <DropdownMenuLabel>Send feedback</DropdownMenuLabel>
+                      <DropdownMenuLabel>
+                        {t("plansPage.reader.sendFeedback")}
+                      </DropdownMenuLabel>
                       <DropdownMenuGroup>
                         <DropdownMenuItem
                           onClick={() =>
@@ -5732,9 +5761,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         >
                           <IconClipboardText className="mt-0.5 size-4" />
                           <span className="grid gap-0.5">
-                            <span>Copy for your agent</span>
+                            <span>{t("plansPage.reader.copyForAgent")}</span>
                             <span className="text-xs font-normal leading-4 text-muted-foreground">
-                              Copies a prompt you can paste into chat.
+                              {t("plansPage.reader.copyForAgentDescription")}
                             </span>
                           </span>
                         </DropdownMenuItem>
@@ -5749,9 +5778,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         >
                           <IconSend className="mt-0.5 size-4" />
                           <span className="grid gap-0.5">
-                            <span>Send to inline agent</span>
+                            <span>
+                              {t("plansPage.reader.sendToInlineAgent")}
+                            </span>
                             <span className="text-xs font-normal leading-4 text-muted-foreground">
-                              Posts open comments into the app side agent.
+                              {t(
+                                "plansPage.reader.sendToInlineAgentDescription",
+                              )}
                             </span>
                           </span>
                         </DropdownMenuItem>
@@ -5773,7 +5806,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       variant="ghost"
                       size="icon"
                       className="pointer-events-auto size-8"
-                      aria-label="Plan actions"
+                      data-plan-actions-trigger
+                      aria-label={t("plansPage.overview.planActions")}
                     >
                       <IconDotsVertical className="size-4" />
                     </Button>
@@ -5782,7 +5816,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     {localPlanMode && (
                       <>
                         <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
-                          Local files
+                          {t("plansPage.reader.localFiles")}
                         </DropdownMenuLabel>
                         <div className="px-2 pb-1 text-xs leading-5 text-muted-foreground">
                           <div
@@ -5791,7 +5825,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           >
                             {localPlanMenuPath}
                           </div>
-                          <div>No hosted database writes or sharing.</div>
+                          <div>{t("plansPage.reader.localFilesNoHosted")}</div>
                         </div>
                         <DropdownMenuItem
                           onClick={() =>
@@ -5800,7 +5834,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           className="gap-2"
                         >
                           <IconFolder className="size-4" />
-                          Copy local path
+                          {t("plansPage.reader.copyLocalPath")}
                         </DropdownMenuItem>
                         {!localPlanBridgeUrl && (
                           <DropdownMenuItem
@@ -5817,7 +5851,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                             ) : (
                               <IconFolder className="size-4" />
                             )}
-                            Save to repo...
+                            {t("plansPage.reader.saveToRepo")}
                           </DropdownMenuItem>
                         )}
                         {localPlanBridgeUrl && desktopPlanFilesAvailable && (
@@ -5835,7 +5869,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                             ) : (
                               <IconFolder className="size-4" />
                             )}
-                            Save source to folder...
+                            {t("plansPage.reader.saveSourceToFolder")}
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuSeparator />
@@ -5845,20 +5879,22 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       {!localPlanMode && (
                         <>
                           <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
-                            Comments
+                            {t("plansPage.comments.comments")}
                           </DropdownMenuLabel>
                           <DropdownMenuRadioGroup value={commentVisibility}>
                             <DropdownMenuRadioItem
                               value="hidden"
                               onSelect={() => chooseCommentVisibility("hidden")}
                             >
-                              Hide comments
+                              {t("plansPage.reader.hideComments")}
                             </DropdownMenuRadioItem>
                             <DropdownMenuRadioItem
                               value="open"
                               onSelect={() => chooseCommentVisibility("open")}
                             >
-                              <span className="flex-1">Show comments</span>
+                              <span className="flex-1">
+                                {t("plansPage.reader.showComments")}
+                              </span>
                               {hasOpenThreads && (
                                 <span className="text-xs text-muted-foreground">
                                   {bundle.summary.openCommentCount}
@@ -5869,7 +5905,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                               value="all"
                               onSelect={() => chooseCommentVisibility("all")}
                             >
-                              <span className="flex-1">Show all comments</span>
+                              <span className="flex-1">
+                                {t("plansPage.reader.showAllComments")}
+                              </span>
                               {resolvedCommentThreadCount > 0 && (
                                 <span className="text-xs text-muted-foreground">
                                   {commentThreads.length}
@@ -5887,7 +5925,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                             className="gap-2"
                           >
                             <IconHistory className="size-4" />
-                            History
+                            {t("plansPage.history.title")}
                           </DropdownMenuItem>
                         </>
                       )}
@@ -5913,10 +5951,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           <IconArrowsMaximize className="size-4" />
                         )}
                         {prototypeOnly
-                          ? "Full plan"
+                          ? t("plansPage.reader.fullPlan")
                           : immersiveReader
-                            ? "App view"
-                            : "Full screen"}
+                            ? t("plansPage.reader.appView")
+                            : t("plansPage.reader.fullScreen")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() =>
@@ -5931,7 +5969,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         ) : (
                           <IconMoon className="size-4" />
                         )}
-                        {isDarkTheme ? "Light mode" : "Dark mode"}
+                        {isDarkTheme
+                          ? t("plansPage.reader.lightMode")
+                          : t("plansPage.reader.darkMode")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() =>
@@ -5941,8 +5981,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       >
                         <IconPencil className="size-4" />
                         {wireframeStyle === "sketchy"
-                          ? "Clean wireframes"
-                          : "Sketchy wireframes"}
+                          ? t("plansPage.reader.cleanWireframes")
+                          : t("plansPage.reader.sketchyWireframes")}
                       </DropdownMenuItem>
                       {bundle.plan.content?.prototype ? (
                         <DropdownMenuItem
@@ -5952,7 +5992,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           className="gap-2"
                         >
                           <IconExternalLink className="size-4" />
-                          Open prototype window
+                          {t("plansPage.reader.openPrototypeWindow")}
                         </DropdownMenuItem>
                       ) : null}
                     </DropdownMenuGroup>
@@ -5963,7 +6003,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         className="gap-2"
                       >
                         <IconCopy className="size-4" />
-                        Copy link
+                        {t("plansPage.reader.copyLink")}
                       </DropdownMenuItem>
                       <DropdownMenuItem asChild className="gap-2">
                         <a
@@ -5972,7 +6012,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           rel="noreferrer"
                         >
                           <IconHelpCircle className="size-4" />
-                          Open docs
+                          {t("plansPage.reader.openDocs")}
                         </a>
                       </DropdownMenuItem>
                       <DropdownMenuItem
@@ -5980,13 +6020,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         className="gap-2"
                       >
                         <IconFileZip className="size-4" />
-                        Download source (.zip)
+                        {t("plansPage.reader.downloadSourceZip")}
                       </DropdownMenuItem>
                       {desktopPlanFilesAvailable && !localPlanMode && (
                         <>
                           <DropdownMenuSeparator />
                           <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
-                            Local files
+                            {t("plansPage.reader.localFiles")}
                           </DropdownMenuLabel>
                           <DropdownMenuItem
                             onClick={() =>
@@ -6005,8 +6045,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                               <IconFolder className="size-4" />
                             )}
                             {desktopPlanFolder
-                              ? "Change local folder"
-                              : "Link local folder"}
+                              ? t("plansPage.reader.changeLocalFolder")
+                              : t("plansPage.reader.linkLocalFolder")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() =>
@@ -6022,7 +6062,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                             ) : (
                               <IconRefresh className="size-4" />
                             )}
-                            Sync to local folder
+                            {t("plansPage.reader.syncToLocalFolder")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() =>
@@ -6040,7 +6080,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                             ) : (
                               <IconDownload className="size-4" />
                             )}
-                            Import local edits
+                            {t("plansPage.reader.importLocalEdits")}
                           </DropdownMenuItem>
                           <DropdownMenuCheckboxItem
                             checked={desktopPlanAutoSync}
@@ -6049,14 +6089,14 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                               setDesktopPlanAutoSyncEnabled(checked === true)
                             }
                           >
-                            Auto-sync changes
+                            {t("plansPage.reader.autoSyncChanges")}
                           </DropdownMenuCheckboxItem>
                         </>
                       )}
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger className="gap-2">
                           <IconDownload className="size-4" />
-                          Export
+                          {t("plansPage.reader.export")}
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent className="w-56 rounded-xl">
                           <DropdownMenuItem
@@ -6066,7 +6106,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                             className="gap-2"
                           >
                             <IconClipboardText className="size-4" />
-                            Copy Markdown
+                            {t("plansPage.reader.copyMarkdown")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() =>
@@ -6075,14 +6115,14 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                             className="gap-2"
                           >
                             <IconDownload className="size-4" />
-                            Download Markdown
+                            {t("plansPage.reader.downloadMarkdown")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => runPlanExportAction(copyPlanHtml)}
                             className="gap-2"
                           >
                             <IconCopy className="size-4" />
-                            Copy HTML
+                            {t("plansPage.reader.copyHtml")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() =>
@@ -6091,7 +6131,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                             className="gap-2"
                           >
                             <IconDownload className="size-4" />
-                            Download HTML
+                            {t("plansPage.reader.downloadHtml")}
                           </DropdownMenuItem>
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
@@ -6106,7 +6146,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                             className="gap-2"
                           >
                             <IconClipboardText className="size-4" />
-                            Copy feedback
+                            {t("plansPage.reader.copyFeedback")}
                           </DropdownMenuItem>
                         )}
                     </DropdownMenuGroup>
@@ -6122,7 +6162,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           className="gap-2 text-destructive focus:text-destructive"
                         >
                           <IconTrash className="size-4" />
-                          Delete...
+                          {t("plansPage.overview.delete")}
                         </DropdownMenuItem>
                       </>
                     )}
@@ -6136,21 +6176,27 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       size="icon"
                       className="pointer-events-auto size-8"
                       onClick={togglePlansAgent}
-                      aria-label="Toggle agent sidebar"
+                      aria-label={t("plansPage.reader.toggleAgentSidebar")}
                     >
                       <IconLayoutSidebarRight className="size-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Toggle side chat</TooltipContent>
+                  <TooltipContent>
+                    {t("plansPage.reader.toggleSideChat")}
+                  </TooltipContent>
                 </Tooltip>
               </div>
               {reviewMode !== "none" && !recapScreenshotMode && (
                 <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-border/70 bg-background/82 px-3 py-2 text-xs text-muted-foreground shadow-2xl backdrop-blur-xl">
                   {reviewMode === "comment"
-                    ? `Click the ${isRecap ? "recap" : "plan"} or select text to comment`
+                    ? t("plansPage.reader.clickToComment", {
+                        noun: isRecap
+                          ? t("plansPage.nouns.recap")
+                          : t("plansPage.nouns.plan"),
+                      })
                     : reviewMode === "text"
-                      ? "Click the canvas to place a note"
-                      : "Drag on the canvas to draw a callout"}
+                      ? t("plansPage.reader.clickCanvasNote")
+                      : t("plansPage.reader.dragCanvasCallout")}
                 </div>
               )}
               {bundle.plan.content ? (
@@ -6216,7 +6262,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           message: buildQuestionFormRevisionMessage(summary),
                         });
                         persistQuestionFormAnswers(summary, bundle.plan.id);
-                        toast.success("Sent answers to the agent");
+                        toast.success(t("plansPage.reader.sentAnswers"));
                       }}
                     />
                   </div>
@@ -6235,7 +6281,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         onClick={beginNativeSelectionComment}
                       >
                         <IconMessageCircle className="size-4 text-primary" />
-                        Comment
+                        {t("plansPage.comments.comment")}
                       </Button>
                     </div>
                   )}
@@ -6428,13 +6474,17 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             className="space-y-4"
           >
             <DialogHeader>
-              <DialogTitle>Save local plan to repo</DialogTitle>
+              <DialogTitle>
+                {t("plansPage.reader.saveLocalPlanToRepo")}
+              </DialogTitle>
               <DialogDescription>
-                Choose a repo-relative folder for these MDX files.
+                {t("plansPage.reader.chooseRepoFolder")}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
-              <Label htmlFor="local-plan-repo-path">Repo folder</Label>
+              <Label htmlFor="local-plan-repo-path">
+                {t("plansPage.reader.repoFolder")}
+              </Label>
               <Input
                 id="local-plan-repo-path"
                 value={promoteLocalPlanTargetPath}
@@ -6456,7 +6506,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   setPromoteLocalPlanOverwrite(checked === true)
                 }
               />
-              Replace existing folder
+              {t("plansPage.reader.replaceExistingFolder")}
             </label>
             <DialogFooter>
               <Button
@@ -6465,7 +6515,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                 onClick={() => setPromoteLocalPlanOpen(false)}
                 disabled={promoteLocalPlan.isPending}
               >
-                Cancel
+                {t("plansPage.common.cancel")}
               </Button>
               <Button
                 type="submit"
@@ -6529,23 +6579,26 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
 // makes clear that anyone-with-link can view, but commenting on a public
 // plan/recap still needs an agent-native account (comments are attributed +
 // scoped). `noun` is "plan" or "recap" so recaps read as recaps everywhere.
-const buildShareVisibilityCopy = (noun: string) => ({
+const buildShareVisibilityCopy = (
+  t: ReturnType<typeof useT>,
+  noun: string,
+) => ({
   private: {
-    label: "Private",
-    description: `Only invited people can open this ${noun}`,
+    label: t("plansPage.share.visibility.private.label"),
+    description: t("plansPage.share.visibility.private.description", { noun }),
   },
   org: {
-    label: "Organization",
-    description: "Anyone in your organization with the link can view",
+    label: t("plansPage.share.visibility.org.label"),
+    description: t("plansPage.share.visibility.org.description"),
   },
   public: {
-    label: "Public",
-    description: "Anyone with the link can view",
+    label: t("plansPage.share.visibility.public.label"),
+    description: t("plansPage.share.visibility.public.description"),
   },
 });
 
-const buildShareAccessNote = (noun: string) =>
-  `Anyone with edit access can change the ${noun}. Viewing a public ${noun} needs no account, but commenting on it requires an agent-native account.`;
+const buildShareAccessNote = (t: ReturnType<typeof useT>, noun: string) =>
+  t("plansPage.share.accessNote", { noun });
 
 function PlanReportControl({
   planId,
@@ -6558,6 +6611,7 @@ function PlanReportControl({
   isRecap?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
+  const t = useT();
   const noun = isRecap ? "recap" : "plan";
   const reportPlan = useReportVisualPlan();
   const [open, setOpen] = useState(false);
@@ -6612,19 +6666,21 @@ function PlanReportControl({
             size="icon"
             className="pointer-events-auto size-8"
             onClick={() => setDialogOpen(true)}
-            aria-label={`Report ${noun}`}
+            aria-label={t("plansPage.report.reportAria", { noun })}
           >
             <IconFlag className="size-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Report {noun}</TooltipContent>
+        <TooltipContent>
+          {t("plansPage.report.report", { noun })}
+        </TooltipContent>
       </Tooltip>
       <DialogContent className="sm:max-w-[460px]">
         <form onSubmit={submitReport} className="space-y-4">
           <DialogHeader>
-            <DialogTitle>Report {noun}</DialogTitle>
+            <DialogTitle>{t("plansPage.report.report", { noun })}</DialogTitle>
             <DialogDescription>
-              Tell us why this public {noun} should be reviewed.
+              {t("plansPage.report.description", { noun })}
             </DialogDescription>
           </DialogHeader>
 
@@ -6633,7 +6689,9 @@ function PlanReportControl({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="plan-report-reason">Reason</Label>
+            <Label htmlFor="plan-report-reason">
+              {t("plansPage.report.reason")}
+            </Label>
             <Select
               value={reason}
               onValueChange={(value) => setReason(value as PlanReportReason)}
@@ -6644,7 +6702,7 @@ function PlanReportControl({
               <SelectContent>
                 {REPORT_REASON_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
-                    {option.label}
+                    {t(`plansPage.report.reasons.${option.value}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -6653,7 +6711,9 @@ function PlanReportControl({
 
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="plan-report-details">Details</Label>
+              <Label htmlFor="plan-report-details">
+                {t("plansPage.report.details")}
+              </Label>
               <span className="text-xs text-muted-foreground">
                 {details.length}/1000
               </span>
@@ -6663,7 +6723,7 @@ function PlanReportControl({
               value={details}
               onChange={(event) => setDetails(event.target.value)}
               maxLength={1000}
-              placeholder="Add a short note for moderators"
+              placeholder={t("plansPage.report.detailsPlaceholder")}
               className="min-h-28 resize-none"
             />
           </div>
@@ -6675,18 +6735,18 @@ function PlanReportControl({
               onClick={() => setDialogOpen(false)}
               disabled={reportPlan.isPending}
             >
-              Cancel
+              {t("plansPage.common.cancel")}
             </Button>
             <Button type="submit" disabled={reportPlan.isPending}>
               {reportPlan.isPending ? (
                 <>
                   <IconLoader2 className="size-4 animate-spin" />
-                  Sending
+                  {t("plansPage.reader.sending")}
                 </>
               ) : (
                 <>
                   <IconFlag className="size-4" />
-                  Submit report
+                  {t("plansPage.report.submit")}
                 </>
               )}
             </Button>
@@ -6722,6 +6782,7 @@ function PlanShareControl({
   hostedPlanUrl?: string | null;
   onOpenChange?: (open: boolean) => void;
 }) {
+  const t = useT();
   const noun = isRecap ? "recap" : "plan";
   const Noun = isRecap ? "Recap" : "Plan";
   const { session, isLoading: sessionLoading } = useSession();
@@ -6781,12 +6842,15 @@ function PlanShareControl({
     window.location.href = target;
   }, []);
 
-  const copyPublishedUrl = useCallback((url: string) => {
-    void navigator.clipboard.writeText(url).then(
-      () => toast.success("Shareable link copied"),
-      () => toast.error("Could not copy link"),
-    );
-  }, []);
+  const copyPublishedUrl = useCallback(
+    (url: string) => {
+      void navigator.clipboard.writeText(url).then(
+        () => toast.success(t("plansPage.share.linkCopied")),
+        () => toast.error(t("plansPage.share.copyFailed")),
+      );
+    },
+    [t],
+  );
 
   const handlePublish = useCallback(() => {
     publishPlan.mutate(
@@ -6798,7 +6862,9 @@ function PlanShareControl({
               authUrl: result.authUrl,
               connectCommand: result.connectCommand,
             });
-            toast.message(`Create a free account to publish this ${noun}`);
+            toast.message(
+              t("plansPage.share.createAccountToPublish", { noun }),
+            );
             return;
           }
           setPublishedPlan({
@@ -6830,13 +6896,13 @@ function PlanShareControl({
         resourceId={managedShareResourceId}
         resourceTitle={planTitle}
         shareUrl={managedShareUrl}
-        shareUrlLabel={`${Noun} link`}
-        shareUrlDescription="Private by default. Invite people, share with your org, or set Public for anyone-with-link review."
+        shareUrlLabel={t("plansPage.share.linkLabel", { noun: Noun })}
+        shareUrlDescription={t("plansPage.share.description")}
         shareUrlPlacement="top"
-        peopleAccessLabel={`People with ${noun} access`}
-        generalAccessLabel={`General ${noun} access`}
-        accessNote={buildShareAccessNote(noun)}
-        visibilityCopy={buildShareVisibilityCopy(noun)}
+        peopleAccessLabel={t("plansPage.share.peopleAccess", { noun })}
+        generalAccessLabel={t("plansPage.share.generalAccess", { noun })}
+        accessNote={buildShareAccessNote(t, noun)}
+        visibilityCopy={buildShareVisibilityCopy(t, noun)}
         trigger="icon"
         triggerClassName="pointer-events-auto size-8"
         onOpenChange={onOpenChange}
@@ -6862,13 +6928,13 @@ function PlanShareControl({
               variant="ghost"
               size="icon"
               className="pointer-events-auto size-8"
-              aria-label={`Share ${noun}`}
+              aria-label={t("plansPage.share.shareAria", { noun })}
             >
               <IconShare3 className="size-4" />
             </Button>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent>Share {noun}</TooltipContent>
+        <TooltipContent>{t("plansPage.share.share", { noun })}</TooltipContent>
       </Tooltip>
       <PopoverContent
         align="end"
@@ -6877,19 +6943,18 @@ function PlanShareControl({
       >
         <div className="mb-1 flex items-center gap-2 text-sm font-semibold">
           <IconWorld className="size-4 text-muted-foreground" />
-          Share this {noun}
+          {t("plansPage.share.shareThis", { noun })}
         </div>
         <p className="mb-3 text-xs leading-5 text-muted-foreground">
           {effectivePublishedUrl
-            ? `This local ${noun} has a hosted copy for sharing. Open the hosted ${noun} to manage access.`
-            : `Create a free account to publish this ${noun} to a shareable link. You can keep editing locally with your coding agent until you do.`}
+            ? t("plansPage.share.hostedCopy", { noun })
+            : t("plansPage.share.publishDescription", { noun })}
         </p>
 
         {authPrompt ? (
           <div className="space-y-3">
             <div className="rounded-md border border-border bg-muted/35 p-3 text-xs leading-5 text-muted-foreground">
-              Finish creating your account, then come back and we will generate
-              the link.
+              {t("plansPage.share.finishAccount")}
             </div>
             {authPrompt.connectCommand ? (
               <code className="block overflow-x-auto rounded-md border border-border bg-muted/40 px-2.5 py-1.5 font-mono text-[11px] text-foreground">
@@ -6907,10 +6972,10 @@ function PlanShareControl({
                 {publishPlan.isPending ? (
                   <>
                     <IconLoader2 className="size-3.5 animate-spin" />
-                    Checking
+                    {t("plansPage.share.checking")}
                   </>
                 ) : (
-                  "I'm signed in — retry"
+                  t("plansPage.share.signedInRetry")
                 )}
               </Button>
               <Button
@@ -6918,7 +6983,7 @@ function PlanShareControl({
                 size="sm"
                 onClick={() => openAuthFlow(authPrompt.authUrl)}
               >
-                Create account
+                {t("plansPage.loadError.createAccount")}
               </Button>
             </div>
           </div>
@@ -6938,7 +7003,7 @@ function PlanShareControl({
                 onClick={() => copyPublishedUrl(effectivePublishedUrl)}
               >
                 <IconCopy className="size-3.5" />
-                Copy
+                {t("plansPage.loggedOut.copy")}
               </Button>
               <Button
                 type="button"
@@ -6950,12 +7015,12 @@ function PlanShareControl({
                 {publishPlan.isPending ? (
                   <>
                     <IconLoader2 className="size-3.5 animate-spin" />
-                    Updating
+                    {t("plansPage.share.updating")}
                   </>
                 ) : (
                   <>
                     <IconRefresh className="size-3.5" />
-                    Update link
+                    {t("plansPage.share.updateLink")}
                   </>
                 )}
               </Button>
@@ -6966,7 +7031,7 @@ function PlanShareControl({
                   rel="noreferrer"
                 >
                   <IconExternalLink className="size-3.5" />
-                  Open hosted plan
+                  {t("plansPage.share.openHostedPlan")}
                 </a>
               </Button>
             </div>
@@ -6981,12 +7046,12 @@ function PlanShareControl({
             {publishPlan.isPending ? (
               <>
                 <IconLoader2 className="size-4 animate-spin" />
-                Creating link
+                {t("plansPage.share.creatingLink")}
               </>
             ) : (
               <>
                 <IconLink className="size-4" />
-                Create shareable link
+                {t("plansPage.share.createShareableLink")}
               </>
             )}
           </Button>
@@ -6997,17 +7062,19 @@ function PlanShareControl({
 }
 
 function PlanSkeleton({ isRecap = false }: { isRecap?: boolean }) {
+  const t = useT();
+  const loadingLabel = isRecap
+    ? t("plansPage.skeleton.loadingRecap")
+    : t("plansPage.skeleton.loadingPlan");
   // Recaps are document-only review surfaces that almost never use the top
   // canvas, so skip the canvas placeholder for them while keeping it for plans.
   return (
     <div
       className="plan-content-surface h-full min-h-0 overflow-auto bg-plan-document text-plan-text"
       role="status"
-      aria-label={isRecap ? "Loading recap" : "Loading plan"}
+      aria-label={loadingLabel}
     >
-      <span className="sr-only">
-        {isRecap ? "Loading recap" : "Loading plan"}
-      </span>
+      <span className="sr-only">{loadingLabel}</span>
       {!isRecap && <PlanCanvasSkeleton />}
       <PlanDocumentSkeleton />
     </div>
@@ -7211,6 +7278,7 @@ function ReviewMarkupToolbar({
   mode: CanvasMarkupMode;
   onModeChange: (mode: CanvasMarkupMode) => void;
 }) {
+  const t = useT();
   const value = mode === "comment" ? "comment" : "";
   const setValue = (next: string) => {
     onModeChange(next === "comment" ? "comment" : "none");
@@ -7223,20 +7291,26 @@ function ReviewMarkupToolbar({
       variant="default"
       size="sm"
       className="pointer-events-auto gap-0.5 rounded-md border border-border/60 bg-background/55 p-0.5"
-      aria-label="Review markup tools"
+      aria-label={t("plansPage.reader.reviewMarkupTools")}
     >
       <Tooltip>
         <TooltipTrigger asChild>
           <ToggleGroupItem
             value="comment"
             className="size-7 px-0"
-            aria-label={mode === "comment" ? "Stop commenting" : "Comment"}
+            aria-label={
+              mode === "comment"
+                ? t("plansPage.reader.stopCommenting")
+                : t("plansPage.comments.comment")
+            }
           >
             <IconMessageCircle className="size-4" />
           </ToggleGroupItem>
         </TooltipTrigger>
         <TooltipContent>
-          {mode === "comment" ? "Stop commenting" : "Pin a comment"}
+          {mode === "comment"
+            ? t("plansPage.reader.stopCommenting")
+            : t("plansPage.reader.pinComment")}
         </TooltipContent>
       </Tooltip>
     </ToggleGroup>
@@ -7252,10 +7326,11 @@ function LocalPlanLoadError({
   slug: string;
   onRetry: () => void;
 }) {
+  const t = useT();
   const message =
     error instanceof Error && error.message
       ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
-      : `The local plan folder "${slug}" could not be read.`;
+      : t("plansPage.localPlanLoadError.message", { slug });
 
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-12">
@@ -7266,7 +7341,7 @@ function LocalPlanLoadError({
           </div>
           <div>
             <h1 className="text-lg font-semibold tracking-tight">
-              Local plan not found
+              {t("plansPage.localPlanLoadError.title")}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">{message}</p>
           </div>
@@ -7274,12 +7349,12 @@ function LocalPlanLoadError({
         <div className="mt-5 flex flex-wrap gap-2">
           <Button type="button" variant="outline" onClick={onRetry}>
             <IconRefresh className="me-2 size-4" />
-            Retry
+            {t("plansPage.loadError.retry")}
           </Button>
           <Button asChild type="button" variant="ghost">
             <Link to="/plans">
               <IconArrowLeft className="me-2 size-4 rtl:-scale-x-100" />
-              Plans
+              {t("plansPage.overview.title")}
             </Link>
           </Button>
         </div>
@@ -7310,6 +7385,7 @@ function PlanLoadError({
   /** The signed-in identity for THIS origin, or null when anonymous. */
   viewerEmail?: string | null;
 }) {
+  const t = useT();
   const [emailOpen, setEmailOpen] = useState(false);
   const [emailMode, setEmailMode] = useState<"sign-in" | "create">("sign-in");
   const [email, setEmail] = useState("");
@@ -7322,7 +7398,7 @@ function PlanLoadError({
   const message =
     error instanceof Error && error.message
       ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
-      : "This plan could not be loaded from the current session.";
+      : t("plansPage.loadError.genericMessage");
   const status =
     error && typeof error === "object" && "status" in error
       ? (error as { status?: number }).status
@@ -7340,11 +7416,11 @@ function PlanLoadError({
   const orgName = accessStatus?.orgName?.trim() || null;
   const orgAccessBody =
     orgName && accessStatus?.visibility === "org"
-      ? `This plan belongs to ${orgName}. You need to be a member of ${orgName} to view it.`
+      ? t("plansPage.loadError.orgBody", { orgName })
       : null;
   const orgAccessTitle =
     orgName && accessStatus?.visibility === "org"
-      ? `Join ${orgName} to view this plan`
+      ? t("plansPage.loadError.orgTitle", { orgName })
       : null;
 
   const returnPath = () =>
@@ -7380,7 +7456,10 @@ function PlanLoadError({
         );
         if (!registerRes.ok) {
           throw new Error(
-            await readAuthError(registerRes, "Could not create account."),
+            await readAuthError(
+              registerRes,
+              t("plansPage.loadError.createAccountFailed"),
+            ),
           );
         }
       }
@@ -7394,7 +7473,10 @@ function PlanLoadError({
       );
       if (!loginRes.ok) {
         throw new Error(
-          await readAuthError(loginRes, "Could not sign in with email."),
+          await readAuthError(
+            loginRes,
+            t("plansPage.loadError.emailSignInFailed"),
+          ),
         );
       }
       window.location.assign(returnPath());
@@ -7402,11 +7484,9 @@ function PlanLoadError({
       const next =
         authError instanceof Error
           ? authError.message
-          : "Could not sign in with email.";
+          : t("plansPage.loadError.emailSignInFailed");
       if (/not verified|verification/i.test(next)) {
-        setEmailAuthNotice(
-          "Check your email to verify the account, then reopen this link.",
-        );
+        setEmailAuthNotice(t("plansPage.loadError.verifyEmail"));
       } else {
         setEmailAuthError(next);
       }
@@ -7425,22 +7505,22 @@ function PlanLoadError({
   };
 
   const title = planMissing
-    ? "Plan not found"
+    ? t("plansPage.loadError.notFoundTitle")
     : showAccessHelp
       ? signedIn
-        ? (orgAccessTitle ?? "Request access to this plan")
-        : "Sign in to view this plan"
-      : "Plan did not load";
+        ? (orgAccessTitle ?? t("plansPage.loadError.requestAccessTitle"))
+        : t("plansPage.loadError.signInTitle")
+      : t("plansPage.loadError.didNotLoadTitle");
   const body = planMissing
-    ? "This plan does not exist, or it belongs to another organization and you need access."
+    ? t("plansPage.loadError.notFoundBody")
     : showAccessHelp
       ? orgAccessBody
         ? orgAccessBody
         : signedIn
           ? planExists
-            ? "This plan exists, but this account does not have access to view it."
-            : "This plan may belong to another organization, or this account may not have access."
-          : "This plan is private. Sign in with an account that has access."
+            ? t("plansPage.loadError.noAccessBody")
+            : t("plansPage.loadError.maybeOtherOrgBody")
+          : t("plansPage.loadError.privateBody")
       : message;
 
   return (
@@ -7461,7 +7541,7 @@ function PlanLoadError({
               <div className="mt-3 flex items-center gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-sm">
                 <IconAt className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 truncate text-muted-foreground">
-                  Signed in as{" "}
+                  {t("plansPage.loadError.signedInAs")}{" "}
                   <span className="font-medium text-foreground">
                     {signedInEmail}
                   </span>
@@ -7470,14 +7550,12 @@ function PlanLoadError({
             ) : null}
             {accessRequestSent ? (
               <div className="mt-3 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
-                Access request sent. You will be able to open this link once an
-                owner grants access.
+                {t("plansPage.loadError.accessRequestSent")}
               </div>
             ) : null}
             {!showAccessHelp && !planMissing ? (
               <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                Retry the load, or sign in with another account if this is a
-                private plan link.
+                {t("plansPage.loadError.retryHelp")}
               </p>
             ) : null}
           </div>
@@ -7507,7 +7585,7 @@ function PlanLoadError({
                     ) : (
                       <GoogleLogoIcon className="size-[18px]" />
                     )}
-                    Continue with Google
+                    {t("plansPage.loadError.continueWithGoogle")}
                   </Button>
                 )}
                 {signedIn ? (
@@ -7519,7 +7597,7 @@ function PlanLoadError({
                       disabled={googlePending}
                     >
                       <IconLogin2 className="size-4" />
-                      Switch account
+                      {t("plansPage.loadError.switchAccount")}
                     </Button>
                   </div>
                 ) : null}
@@ -7532,7 +7610,7 @@ function PlanLoadError({
                     >
                       <span className="inline-flex items-center gap-2">
                         <IconMail className="size-4" />
-                        Sign in with email
+                        {t("plansPage.loadError.signInWithEmail")}
                       </span>
                       <IconChevronDown
                         className={cn(
@@ -7548,7 +7626,9 @@ function PlanLoadError({
                       onSubmit={submitEmailAuth}
                     >
                       <div className="space-y-1.5">
-                        <Label htmlFor="plan-access-email">Email</Label>
+                        <Label htmlFor="plan-access-email">
+                          {t("plansPage.loadError.email")}
+                        </Label>
                         <Input
                           id="plan-access-email"
                           type="email"
@@ -7559,7 +7639,9 @@ function PlanLoadError({
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <Label htmlFor="plan-access-password">Password</Label>
+                        <Label htmlFor="plan-access-password">
+                          {t("plansPage.loadError.password")}
+                        </Label>
                         <Input
                           id="plan-access-password"
                           type="password"
@@ -7592,8 +7674,8 @@ function PlanLoadError({
                             <IconLock className="size-4" />
                           )}
                           {emailMode === "create"
-                            ? "Create account"
-                            : "Sign in"}
+                            ? t("plansPage.loadError.createAccount")
+                            : t("plansPage.loadError.signIn")}
                         </Button>
                         <Button
                           type="button"
@@ -7607,8 +7689,8 @@ function PlanLoadError({
                           }}
                         >
                           {emailMode === "create"
-                            ? "I have an account"
-                            : "Create account"}
+                            ? t("plansPage.loadError.haveAccount")
+                            : t("plansPage.loadError.createAccount")}
                         </Button>
                       </div>
                     </form>
@@ -7619,7 +7701,7 @@ function PlanLoadError({
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" onClick={onSignIn}>
                   <IconExternalLink className="size-4" />
-                  Sign in
+                  {t("plansPage.loadError.signIn")}
                 </Button>
               </div>
             )}
@@ -7634,7 +7716,7 @@ function PlanLoadError({
         className="mt-3 gap-1.5 text-muted-foreground hover:text-foreground"
       >
         <IconRefresh className="size-3.5" />
-        Retry
+        {t("plansPage.loadError.retry")}
       </Button>
     </div>
   );
@@ -7653,6 +7735,7 @@ function SignedInPlanAccessActions({
   requestAccessPending?: boolean;
   accessRequestSent?: boolean;
 }) {
+  const t = useT();
   const { data: org } = useOrg();
   const acceptInvitation = useAcceptInvitation();
   const joinByDomain = useJoinByDomain();
@@ -7668,7 +7751,9 @@ function SignedInPlanAccessActions({
 
     const onSuccess = () => {
       toast.success(
-        `Joined ${orgAccessPrompt.organizationName}. Opening plan…`,
+        t("plansPage.loadError.joinedOrg", {
+          orgName: orgAccessPrompt.organizationName,
+        }),
       );
       onAccessResolved();
     };
@@ -7688,18 +7773,33 @@ function SignedInPlanAccessActions({
   const label = orgAccessPrompt
     ? orgAccessPending
       ? orgAccessPrompt.kind === "invitation"
-        ? "Accepting invite"
-        : "Joining organization"
-      : orgAccessPrompt.buttonLabel
+        ? t("plansPage.loadError.acceptingInvite")
+        : t("plansPage.loadError.joiningOrg")
+      : orgAccessPrompt.kind === "invitation"
+        ? t("plansPage.loadError.acceptInvite")
+        : t("plansPage.loadError.joinOrg", {
+            orgName: orgAccessPrompt.organizationName,
+          })
     : accessRequestSent
-      ? "Request sent"
-      : "Request access";
+      ? t("plansPage.loadError.requestSent")
+      : t("plansPage.loadError.requestAccess");
 
   return (
     <>
       {orgAccessPrompt ? (
         <div className="rounded-md border border-border bg-muted/35 px-3 py-2 text-sm leading-5 text-muted-foreground">
-          {orgAccessPrompt.message}
+          {orgAccessPrompt.kind === "invitation"
+            ? t("plansPage.loadError.inviteMessage", {
+                orgName: orgAccessPrompt.organizationName,
+              })
+            : orgAccessPrompt.domain
+              ? t("plansPage.loadError.domainMessage", {
+                  domain: orgAccessPrompt.domain,
+                  orgName: orgAccessPrompt.organizationName,
+                })
+              : t("plansPage.loadError.joinMessage", {
+                  orgName: orgAccessPrompt.organizationName,
+                })}
         </div>
       ) : null}
       <Button type="button" onClick={handleOrgAccess} disabled={disabled}>
@@ -7726,25 +7826,16 @@ const PLAN_SKILL_INSTALL_COMMAND =
 
 type PlanSkillDemo = {
   command: string;
-  label: string;
-  description: string;
-  videoAriaLabel: string;
   videoUrl?: string;
 };
 
 const PLAN_SKILL_DEMOS: PlanSkillDemo[] = [
   {
     command: "/visual-plan",
-    label: "Visual Plan",
-    description: "Review the implementation shape before code changes land.",
-    videoAriaLabel: "Visual Plan skill demo video",
     videoUrl: import.meta.env.VITE_VISUAL_PLAN_SKILL_DEMO_VIDEO_URL,
   },
   {
     command: "/visual-recap",
-    label: "Visual Recap",
-    description: "Turn a PR or diff into a shareable review recap.",
-    videoAriaLabel: "Visual Recap skill demo video",
     videoUrl: import.meta.env.VITE_VISUAL_RECAP_SKILL_DEMO_VIDEO_URL,
   },
 ];
@@ -7756,6 +7847,7 @@ function EmptyPlan({
   onCreate: () => void;
   canCreate: boolean;
 }) {
+  const t = useT();
   if (!canCreate) {
     return <LoggedOutEmptyPlan />;
   }
@@ -7767,22 +7859,21 @@ function EmptyPlan({
           <IconClipboardText className="size-5 text-muted-foreground" />
         </div>
         <h2 className="mt-4 text-xl font-semibold tracking-tight">
-          Start with a visual plan
+          {t("plansPage.empty.title")}
         </h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Create a polished plan with editable document blocks, diagrams,
-          wireframes, and comments before implementation starts.
+          {t("plansPage.empty.description")}
         </p>
         <Button className="mt-5" onClick={onCreate}>
           <IconPlus className="size-4" />
-          New Plan
+          {t("plansPage.empty.newPlan")}
         </Button>
         <p className="mt-3 text-xs text-muted-foreground/70">
-          Or install the skill and use{" "}
+          {t("plansPage.empty.installPrefix")}{" "}
           <code className="rounded bg-muted/60 px-1 py-0.5 font-mono text-[11px]">
             /visual-plan
           </code>{" "}
-          from your coding agent:
+          {t("plansPage.empty.installSuffix")}
           <br />
           <code className="mt-1 inline-block rounded bg-muted/60 px-1 py-0.5 font-mono text-[11px]">
             {PLAN_SKILL_INSTALL_COMMAND}
@@ -7794,6 +7885,7 @@ function EmptyPlan({
 }
 
 function PlanSkillDemoVideo({ demo }: { demo: PlanSkillDemo }) {
+  const t = useT();
   const [isLoaded, setIsLoaded] = useState(false);
   if (!demo.videoUrl) return null;
 
@@ -7811,9 +7903,11 @@ function PlanSkillDemoVideo({ demo }: { demo: PlanSkillDemo }) {
     <article className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card text-left">
       <div className="flex items-start justify-between gap-3 p-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-foreground">{demo.label}</p>
+          <p className="text-sm font-medium text-foreground">
+            {t(`plansPage.skillDemos.${demo.command.slice(1)}.label`)}
+          </p>
           <p className="mt-1 min-h-10 text-xs leading-5 text-muted-foreground">
-            {demo.description}
+            {t(`plansPage.skillDemos.${demo.command.slice(1)}.description`)}
           </p>
         </div>
         <code className="shrink-0 rounded bg-muted/70 px-1.5 py-1 font-mono text-[11px] text-muted-foreground">
@@ -7823,7 +7917,9 @@ function PlanSkillDemoVideo({ demo }: { demo: PlanSkillDemo }) {
       <div className="relative aspect-[1189/1080] overflow-hidden bg-muted">
         <video
           src={demo.videoUrl}
-          aria-label={demo.videoAriaLabel}
+          aria-label={t(
+            `plansPage.skillDemos.${demo.command.slice(1)}.videoAriaLabel`,
+          )}
           autoPlay
           muted
           loop
@@ -7858,6 +7954,7 @@ function PlanSkillDemoVideo({ demo }: { demo: PlanSkillDemo }) {
 }
 
 function LoggedOutEmptyPlan() {
+  const t = useT();
   const [installCommandCopied, setInstallCommandCopied] = useState(false);
   const copyResetTimeoutRef = useRef<number | null>(null);
 
@@ -7873,7 +7970,7 @@ function LoggedOutEmptyPlan() {
     try {
       await navigator.clipboard.writeText(PLAN_SKILL_INSTALL_COMMAND);
       setInstallCommandCopied(true);
-      toast.success("Install command copied");
+      toast.success(t("plansPage.loggedOut.installCopied"));
       if (copyResetTimeoutRef.current) {
         window.clearTimeout(copyResetTimeoutRef.current);
       }
@@ -7881,7 +7978,7 @@ function LoggedOutEmptyPlan() {
         setInstallCommandCopied(false);
       }, 2200);
     } catch {
-      toast.error("Could not copy install command");
+      toast.error(t("plansPage.loggedOut.installCopyFailed"));
     }
   }, []);
 
@@ -7889,11 +7986,10 @@ function LoggedOutEmptyPlan() {
     <div className="flex min-h-full items-center justify-center overflow-auto p-4 sm:p-8">
       <div className="flex w-full max-w-4xl flex-col items-center gap-3 py-8 text-center">
         <h2 className="text-2xl font-semibold tracking-tight">
-          Start with /visual-plan
+          {t("plansPage.loggedOut.title")}
         </h2>
         <p className="max-w-md text-sm leading-6 text-muted-foreground">
-          Install the Plan skills in your coding agent, then use the slash
-          command to create your first review plan.
+          {t("plansPage.loggedOut.description")}
         </p>
         <div className="mt-1 flex w-full max-w-xl items-center gap-2 rounded-md bg-muted/40 p-1.5 text-left">
           <code className="min-w-0 flex-1 overflow-x-auto px-2 py-1 font-mono text-xs leading-5 text-foreground">
@@ -7907,8 +8003,8 @@ function LoggedOutEmptyPlan() {
             className="h-8 min-w-20 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
             aria-label={
               installCommandCopied
-                ? "Install command copied"
-                : "Copy install command"
+                ? t("plansPage.loggedOut.installCopied")
+                : t("plansPage.loggedOut.copyInstallCommand")
             }
           >
             {installCommandCopied ? (
@@ -7916,7 +8012,9 @@ function LoggedOutEmptyPlan() {
             ) : (
               <IconCopy className="size-3.5" />
             )}
-            {installCommandCopied ? "Copied" : "Copy"}
+            {installCommandCopied
+              ? t("plansPage.loggedOut.copied")
+              : t("plansPage.loggedOut.copy")}
           </Button>
         </div>
         <div className="grid w-full gap-3 pt-2 sm:grid-cols-2">
@@ -7932,7 +8030,7 @@ function LoggedOutEmptyPlan() {
         >
           <a href={PLAN_DOCS_URL} target="_blank" rel="noreferrer">
             <IconExternalLink className="size-4" />
-            View the docs
+            {t("plansPage.loggedOut.viewDocs")}
           </a>
         </Button>
       </div>
@@ -7963,6 +8061,7 @@ function PlansOverview({
   onRestore: (plan: DeletePlanTarget) => void;
   onSignIn?: () => void;
 }) {
+  const t = useT();
   const [filter, setFilter] = useState<OverviewFilter>("all");
   const [search, setSearch] = useState("");
   const [author, setAuthor] = useState<string>("all");
@@ -8036,15 +8135,19 @@ function PlansOverview({
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <h1 className="truncate text-xl font-semibold tracking-tight">
-                Plans
+                {t("plansPage.overview.title")}
               </h1>
               <p className="text-sm text-muted-foreground">
-                {totalVisible} document{totalVisible === 1 ? "" : "s"}
+                {t("plansPage.overview.documentCount", {
+                  count: totalVisible,
+                })}
               </p>
             </div>
             <Button type="button" onClick={onCreate}>
               <IconPlus className="size-4" />
-              {canCreate ? "New Plan" : "Sign in to create"}
+              {canCreate
+                ? t("plansPage.overview.newPlan")
+                : t("plansPage.overview.signInToCreate")}
             </Button>
           </div>
 
@@ -8054,12 +8157,20 @@ function PlansOverview({
               onValueChange={(v) => setFilter(v as OverviewFilter)}
             >
               <TabsList>
-                <TabsTrigger value="all">All</TabsTrigger>
-                <TabsTrigger value="plans">Plans</TabsTrigger>
-                <TabsTrigger value="recaps">Recaps</TabsTrigger>
-                <TabsTrigger value="archived">Archived</TabsTrigger>
+                <TabsTrigger value="all">
+                  {t("plansPage.overview.tabs.all")}
+                </TabsTrigger>
+                <TabsTrigger value="plans">
+                  {t("plansPage.overview.tabs.plans")}
+                </TabsTrigger>
+                <TabsTrigger value="recaps">
+                  {t("plansPage.overview.tabs.recaps")}
+                </TabsTrigger>
+                <TabsTrigger value="archived">
+                  {t("plansPage.overview.tabs.archived")}
+                </TabsTrigger>
                 <TabsTrigger value="deleted">
-                  Deleted
+                  {t("plansPage.overview.tabs.deleted")}
                   {deletedPlans.length > 0 && (
                     <span className="ml-1 text-[11px] text-muted-foreground">
                       {deletedPlans.length}
@@ -8072,11 +8183,19 @@ function PlansOverview({
             {authorEmails.length > 1 && (
               <Select value={author} onValueChange={setAuthor}>
                 <SelectTrigger className="h-9 w-[170px] text-sm">
-                  <SelectValue placeholder="Created by" />
+                  <SelectValue
+                    placeholder={t("plansPage.overview.createdBy")}
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All authors</SelectItem>
-                  {hasMine && <SelectItem value="me">Me</SelectItem>}
+                  <SelectItem value="all">
+                    {t("plansPage.overview.allAuthors")}
+                  </SelectItem>
+                  {hasMine && (
+                    <SelectItem value="me">
+                      {t("plansPage.overview.me")}
+                    </SelectItem>
+                  )}
                   {authorEmails
                     .filter(
                       (email) =>
@@ -8098,7 +8217,7 @@ function PlansOverview({
               <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="search"
-                placeholder="Search plans…"
+                placeholder={t("plansPage.overview.searchPlaceholder")}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="h-9 pl-8 text-sm"
@@ -8109,12 +8228,12 @@ function PlansOverview({
           {visiblePlans.length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
               {search.trim()
-                ? "No plans match."
+                ? t("plansPage.overview.empty.noMatch")
                 : filter === "archived"
-                  ? "No archived plans."
+                  ? t("plansPage.overview.empty.noArchived")
                   : filter === "deleted"
-                    ? "No deleted plans."
-                    : "No plans here yet."}
+                    ? t("plansPage.overview.empty.noDeleted")
+                    : t("plansPage.overview.empty.noPlans")}
             </div>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
@@ -8133,7 +8252,7 @@ function PlansOverview({
                               variant="outline"
                               className="shrink-0 text-[10px]"
                             >
-                              Recap
+                              {t("plansPage.overview.recapBadge")}
                             </Badge>
                           )}
                           {isDeleted && (
@@ -8141,7 +8260,7 @@ function PlansOverview({
                               variant="outline"
                               className="shrink-0 border-destructive/30 text-[10px] text-destructive"
                             >
-                              Deleted
+                              {t("plansPage.overview.deletedBadge")}
                             </Badge>
                           )}
                         </div>
@@ -8157,7 +8276,11 @@ function PlansOverview({
                     </div>
                     <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
                       {isDeleted ? (
-                        <span>Deleted {shortDate(plan.deletedAt ?? "")}</span>
+                        <span>
+                          {t("plansPage.overview.deletedAt", {
+                            date: shortDate(plan.deletedAt ?? ""),
+                          })}
+                        </span>
                       ) : ENABLE_PLAN_STATUS_FEATURE ? (
                         <>
                           <span>{statusLabel(plan.status)}</span>
@@ -8227,7 +8350,8 @@ function PlansOverview({
                           <button
                             type="button"
                             className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            aria-label="Plan actions"
+                            data-plan-actions-trigger
+                            aria-label={t("plansPage.overview.planActions")}
                           >
                             <IconDots className="size-4" />
                           </button>
@@ -8243,7 +8367,7 @@ function PlansOverview({
                                 disabled={!plan.canDelete}
                               >
                                 <IconRestore className="size-4" />
-                                Restore
+                                {t("plansPage.overview.restore")}
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={(e) => {
@@ -8254,7 +8378,7 @@ function PlansOverview({
                                 className="text-destructive focus:text-destructive"
                               >
                                 <IconTrash className="size-4" />
-                                Delete permanently
+                                {t("plansPage.overview.deletePermanently")}
                               </DropdownMenuItem>
                             </>
                           ) : (
@@ -8267,7 +8391,7 @@ function PlansOverview({
                                   }}
                                 >
                                   <IconArchiveOff className="size-4" />
-                                  Unarchive
+                                  {t("plansPage.overview.unarchive")}
                                 </DropdownMenuItem>
                               ) : (
                                 <DropdownMenuItem
@@ -8277,7 +8401,7 @@ function PlansOverview({
                                   }}
                                 >
                                   <IconArchive className="size-4" />
-                                  Archive
+                                  {t("plansPage.overview.archive")}
                                 </DropdownMenuItem>
                               )}
                               {plan.canDelete && (
@@ -8291,7 +8415,7 @@ function PlansOverview({
                                     className="text-destructive focus:text-destructive"
                                   >
                                     <IconTrash className="size-4" />
-                                    Delete...
+                                    {t("plansPage.overview.delete")}
                                   </DropdownMenuItem>
                                 </>
                               )}
@@ -8350,11 +8474,18 @@ function PlansOverviewSkeleton() {
   );
 }
 
-function planVersionSurfaceLabel(version: PlanVersionSummary) {
-  if (version.hasPrototype) return "Prototype";
-  if (version.hasCanvas) return "Canvas";
-  if (version.blockCount > 0) return `${version.blockCount} blocks`;
-  return `${version.sectionCount} sections`;
+function planVersionSurfaceLabel(
+  version: PlanVersionSummary,
+  t: ReturnType<typeof useT>,
+) {
+  if (version.hasPrototype) return t("plansPage.history.surface.prototype");
+  if (version.hasCanvas) return t("plansPage.history.surface.canvas");
+  if (version.blockCount > 0) {
+    return t("plansPage.history.surface.blocks", { count: version.blockCount });
+  }
+  return t("plansPage.history.surface.sections", {
+    count: version.sectionCount,
+  });
 }
 
 function PlanHistorySheet({
@@ -8368,6 +8499,7 @@ function PlanHistorySheet({
   onOpenChange: (open: boolean) => void;
   canRestore: boolean;
 }) {
+  const t = useT();
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
     null,
   );
@@ -8413,14 +8545,14 @@ function PlanHistorySheet({
     if (!versionId) return;
     try {
       await restoreVersion.mutateAsync({ planId, versionId });
-      toast.success("Plan version restored.");
+      toast.success(t("plansPage.history.restoreSuccess"));
       setRestoreCandidateId(null);
       close(false);
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
-          : "Failed to restore plan version.",
+          : t("plansPage.history.restoreFailed"),
       );
     }
   };
@@ -8440,17 +8572,17 @@ function PlanHistorySheet({
                   className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
                 >
                   <IconArrowLeft className="size-4" />
-                  <span>Back to history</span>
+                  <span>{t("plansPage.history.back")}</span>
                 </button>
               ) : (
                 <>
                   <IconHistory className="size-4 text-primary" />
-                  <span>Plan history</span>
+                  <span>{t("plansPage.history.title")}</span>
                 </>
               )}
             </SheetTitle>
             <SheetDescription className="sr-only">
-              Browse saved plan versions and restore a previous snapshot.
+              {t("plansPage.history.description")}
             </SheetDescription>
           </SheetHeader>
           <Separator className="mt-3" />
@@ -8466,12 +8598,13 @@ function PlanHistorySheet({
                 ) : (
                   <>
                     <p className="truncate text-sm font-medium">
-                      {selectedVersion?.title || "Untitled plan"}
+                      {selectedVersion?.title ||
+                        t("plansPage.history.untitled")}
                     </p>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
                       {selectedVersion
-                        ? `${shortDate(selectedVersion.createdAt)} · ${planVersionSurfaceLabel(selectedVersion)}`
-                        : "Snapshot unavailable"}
+                        ? `${shortDate(selectedVersion.createdAt)} · ${planVersionSurfaceLabel(selectedVersion, t)}`
+                        : t("plansPage.history.snapshotUnavailable")}
                     </p>
                   </>
                 )}
@@ -8495,7 +8628,7 @@ function PlanHistorySheet({
                   />
                 ) : selectedVersion?.html ? (
                   <iframe
-                    title="Plan version preview"
+                    title={t("plansPage.history.previewTitle")}
                     srcDoc={selectedVersion.html}
                     // Stored plan HTML is agent-authored and may carry
                     // prompt-injected markup. Match the main document iframe
@@ -8508,7 +8641,7 @@ function PlanHistorySheet({
                   />
                 ) : (
                   <div className="px-6 py-14 text-center text-sm text-muted-foreground">
-                    This snapshot has no previewable content.
+                    {t("plansPage.history.noPreview")}
                   </div>
                 )}
               </ScrollArea>
@@ -8528,10 +8661,10 @@ function PlanHistorySheet({
                     ) : (
                       <IconRestore className="size-4" />
                     )}
-                    Restore this version
+                    {t("plansPage.history.restoreThisVersion")}
                   </Button>
                   <p className="mt-2 text-center text-[11px] text-muted-foreground">
-                    Your current version is saved to history first.
+                    {t("plansPage.history.savedFirst")}
                   </p>
                 </div>
               ) : null}
@@ -8597,10 +8730,11 @@ function PlanHistorySheet({
                             <div className="min-w-0 flex-1">
                               <div className="flex min-w-0 items-center gap-2 pr-7">
                                 <p className="truncate text-sm font-medium">
-                                  {version.title || "Untitled plan"}
+                                  {version.title ||
+                                    t("plansPage.history.untitled")}
                                 </p>
                                 <span className="shrink-0 text-[10px] text-muted-foreground">
-                                  {planVersionSurfaceLabel(version)}
+                                  {planVersionSurfaceLabel(version, t)}
                                 </span>
                               </div>
                               <p className="mt-0.5 text-[11px] text-muted-foreground">
@@ -8626,7 +8760,9 @@ function PlanHistorySheet({
                                 <button
                                   type="button"
                                   className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                  aria-label="Version actions"
+                                  aria-label={t(
+                                    "plansPage.history.versionActions",
+                                  )}
                                 >
                                   <IconDots className="size-4" />
                                 </button>
@@ -8639,7 +8775,7 @@ function PlanHistorySheet({
                                   }}
                                 >
                                   <IconRestore className="size-4" />
-                                  Restore this version
+                                  {t("plansPage.history.restoreThisVersion")}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -8652,9 +8788,11 @@ function PlanHistorySheet({
               ) : (
                 <div className="px-6 py-14 text-center">
                   <IconHistory className="mx-auto mb-3 size-6 text-muted-foreground/60" />
-                  <p className="text-sm font-medium">No saved versions yet</p>
+                  <p className="text-sm font-medium">
+                    {t("plansPage.history.noVersions")}
+                  </p>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Versions are saved automatically before future plan edits.
+                    {t("plansPage.history.noVersionsDescription")}
                   </p>
                 </div>
               )}
@@ -8670,19 +8808,20 @@ function PlanHistorySheet({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Restore this version?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("plansPage.history.restoreConfirmTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This replaces the current plan with the snapshot
-              {restoreCandidate
-                ? ` from ${shortDate(restoreCandidate.createdAt)}`
-                : ""}
-              . Your current version is saved to history first, so you can undo
-              this.
+              {t("plansPage.history.restoreConfirmDescription", {
+                date: restoreCandidate
+                  ? shortDate(restoreCandidate.createdAt)
+                  : "",
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={restoreVersion.isPending}>
-              Cancel
+              {t("plansPage.common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
@@ -8691,7 +8830,9 @@ function PlanHistorySheet({
               }}
               disabled={restoreVersion.isPending}
             >
-              {restoreVersion.isPending ? "Restoring…" : "Restore"}
+              {restoreVersion.isPending
+                ? t("plansPage.history.restoring")
+                : t("plansPage.history.restore")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -8702,19 +8843,13 @@ function PlanHistorySheet({
 
 const CREATE_PLAN_PROMPTS = [
   {
-    label: "Checkout flow",
-    prompt:
-      "Plan a checkout review flow with desktop and mobile wireframes, key empty/loading/error states, comment prompts, and implementation notes.",
+    id: "checkout",
   },
   {
-    label: "Settings redesign",
-    prompt:
-      "Create a UI flow plan for a settings redesign, including navigation states, risky interactions, review annotations, and code handoff notes.",
+    id: "settings",
   },
   {
-    label: "Imported plan",
-    prompt:
-      "# Implementation plan\n\nPaste the existing Codex or Claude Code plan here and turn it into a visual review document.",
+    id: "imported",
   },
 ] as const;
 
@@ -8746,8 +8881,6 @@ function isProbablyImportedPlan(prompt: string) {
 
 function assessPlanPrompt(prompt: string): {
   kind: AutoPlanKind;
-  label: string;
-  reason: string;
 } {
   let score = 0;
   let ambiguitySignals = 0;
@@ -8799,34 +8932,38 @@ function assessPlanPrompt(prompt: string): {
   if (uiDirection) {
     return {
       kind: "ui",
-      label: "UI flow",
-      reason:
-        "Auto detected UI states or flows; the agent will make a wireframe-first plan.",
     };
   }
 
   return {
     kind: "visual",
-    label: "General visual",
-    reason:
-      "Auto will ask the agent for a rich technical plan with diagrams and implementation detail.",
   };
 }
 
-function sourceOptionLabel(source: PlanSource) {
-  return (
-    SOURCE_OPTIONS.find((option) => option.value === source)?.label ?? source
-  );
+function sourceOptionDisplayLabel(
+  source: PlanSource,
+  t: ReturnType<typeof useT>,
+) {
+  return t(`plansPage.create.sourceOptions.${source}`);
+}
+
+function planKindDisplayLabel(
+  kind: CreatePlanKind,
+  t: ReturnType<typeof useT>,
+) {
+  return t(`plansPage.create.kindOptions.${kind}.label`);
 }
 
 function buildCreatePlanAgentMessage({
   prompt,
   source,
   planKind,
+  t,
 }: {
   prompt: string;
   source: PlanSource;
   planKind: CreatePlanKind;
+  t: ReturnType<typeof useT>;
 }) {
   const imported = isProbablyImportedPlan(prompt);
   const resolvedPlanKind =
@@ -8843,7 +8980,7 @@ function buildCreatePlanAgentMessage({
     "Create an Agent-Native Plan from this request.",
     "",
     routing,
-    `Source/provenance: ${sourceOptionLabel(source)}.`,
+    `Source/provenance: ${sourceOptionDisplayLabel(source, t)}.`,
     "",
     "Use the Plan actions after you have enough substance. Generate the wireframes, diagrams, implementation map, review prompts, and concrete file/symbol notes yourself. Do not use placeholder file names, generic scaffold text, or browser-generated fallback sections as the final plan content.",
     "After creating the plan, open the plan link for review.",
@@ -8864,6 +9001,7 @@ function CreatePlanDialog({
   canCreate: boolean;
   onRequireSignIn: () => void;
 }) {
+  const t = useT();
   const [source, setSource] = useState<PlanSource>("codex");
   const [planKind, setPlanKind] = useState<CreatePlanKind>("auto");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -8892,33 +9030,30 @@ function CreatePlanDialog({
       return;
     }
     if (agentMissing) {
-      toast.message(
-        "Connect the agent to run — add an API key or use Builder.",
-      );
+      toast.message(t("plansPage.create.agentMissing"));
       return;
     }
     const prompt = value.trim();
     if (!prompt) {
-      toast.message("Describe the plan first.");
+      toast.message(t("plansPage.create.describeFirst"));
       return;
     }
     sendToAgentChat({
       type: "content",
       submit: true,
-      message: buildCreatePlanAgentMessage({ prompt, source, planKind }),
+      message: buildCreatePlanAgentMessage({ prompt, source, planKind, t }),
     });
     onOpenChange(false);
-    toast.success("Sent to the Plan agent");
+    toast.success(t("plansPage.create.sent"));
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[680px]">
         <DialogHeader>
-          <DialogTitle>Ask agent to create plan</DialogTitle>
+          <DialogTitle>{t("plansPage.create.title")}</DialogTitle>
           <DialogDescription>
-            Describe the plan you want, or paste an existing Codex/Claude plan.
-            The Plan agent will generate the wireframes and review structure.
+            {t("plansPage.create.description")}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
@@ -8938,7 +9073,7 @@ function CreatePlanDialog({
               disabled={composerLocked}
               attachmentsEnabled={false}
               showModelSelector={false}
-              placeholder="Ask the agent for a UI flow, implementation map, review notes..."
+              placeholder={t("plansPage.create.placeholder")}
               draftScope="plans:create-plan"
               initialText={promptSeed}
               initialTextKey={promptSeedKey}
@@ -8949,19 +9084,22 @@ function CreatePlanDialog({
           <div className="flex flex-wrap gap-2">
             {CREATE_PLAN_PROMPTS.map((preset) => (
               <Button
-                key={preset.label}
+                key={preset.id}
                 type="button"
                 variant="outline"
                 size="sm"
                 className="h-8 rounded-full border-border/80 px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
                 disabled={composerLocked}
                 onClick={() => {
-                  setPromptSeed(preset.prompt);
+                  const presetPrompt = t(
+                    `plansPage.create.presetPrompts.${preset.id}`,
+                  );
+                  setPromptSeed(presetPrompt);
                   setPromptSeedKey((key) => key + 1);
-                  setPromptText(preset.prompt);
+                  setPromptText(presetPrompt);
                 }}
               >
-                {preset.label}
+                {t(`plansPage.create.presets.${preset.id}`)}
               </Button>
             ))}
           </div>
@@ -8971,19 +9109,26 @@ function CreatePlanDialog({
                 type="button"
                 className="flex w-full items-center justify-between gap-3 rounded-lg px-1 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
-                <span className="font-medium">Advanced</span>
+                <span className="font-medium">
+                  {t("plansPage.create.advanced")}
+                </span>
                 <span className="flex min-w-0 items-center gap-2">
                   <span className="truncate">
-                    {sourceOptionLabel(source)} ·{" "}
+                    {sourceOptionDisplayLabel(source, t)} ·{" "}
                     {planKind === "auto"
                       ? promptAssessment
-                        ? `Auto: ${promptAssessment.label}`
-                        : "Auto"
+                        ? t("plansPage.create.autoWithLabel", {
+                            label: planKindDisplayLabel(
+                              promptAssessment.kind,
+                              t,
+                            ),
+                          })
+                        : planKindDisplayLabel("auto", t)
                       : planKind === "ui"
-                        ? "UI flow"
+                        ? planKindDisplayLabel("ui", t)
                         : planKind === "questions"
-                          ? "Visual questions"
-                          : "General visual"}
+                          ? planKindDisplayLabel("questions", t)
+                          : planKindDisplayLabel("visual", t)}
                   </span>
                   <IconChevronDown
                     className={cn(
@@ -8998,30 +9143,30 @@ function CreatePlanDialog({
               <div className="grid gap-3 rounded-lg border border-border/70 bg-muted/20 p-3 sm:grid-cols-2">
                 <div className="grid gap-1.5">
                   <span className="text-xs font-medium text-foreground">
-                    Source
+                    {t("plansPage.create.source")}
                   </span>
                   <Select
                     value={source}
                     onValueChange={(value) => setSource(value as PlanSource)}
                   >
-                    <SelectTrigger aria-label="Plan source">
+                    <SelectTrigger aria-label={t("plansPage.create.source")}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {SOURCE_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
-                          {option.label}
+                          {sourceOptionDisplayLabel(option.value, t)}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Provenance only. It helps explain where the plan started.
+                    {t("plansPage.create.sourceHelp")}
                   </p>
                 </div>
                 <div className="grid gap-1.5">
                   <span className="text-xs font-medium text-foreground">
-                    Agent planning style
+                    {t("plansPage.create.planningStyle")}
                   </span>
                   <Select
                     value={planKind}
@@ -9037,28 +9182,30 @@ function CreatePlanDialog({
                       )
                     }
                   >
-                    <SelectTrigger aria-label="Fresh prompt style">
+                    <SelectTrigger
+                      aria-label={t("plansPage.create.planningStyle")}
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="auto">
-                        Auto - choose the right planning path
+                        {t("plansPage.create.kindOptions.auto.description")}
                       </SelectItem>
                       <SelectItem value="ui">
-                        UI flow - wireframes and states
+                        {t("plansPage.create.kindOptions.ui.description")}
                       </SelectItem>
                       <SelectItem value="questions">
-                        Visual questions - explicit intake
+                        {t(
+                          "plansPage.create.kindOptions.questions.description",
+                        )}
                       </SelectItem>
                       <SelectItem value="visual">
-                        General visual - diagrams and notes
+                        {t("plansPage.create.kindOptions.visual.description")}
                       </SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Pasted plans are detected and sent to the agent with import
-                    context. Auto keeps the normal plan flow; choose Visual
-                    questions when you want intake first.
+                    {t("plansPage.create.planningHelp")}
                   </p>
                 </div>
               </div>
@@ -9066,13 +9213,12 @@ function CreatePlanDialog({
           </Collapsible>
           {promptAssessment && planKind === "auto" ? (
             <p className="px-1 text-xs text-muted-foreground">
-              {promptAssessment.reason}
+              {t(`plansPage.create.assessment.${promptAssessment.kind}`)}
             </p>
           ) : null}
           {promptText.trim() && isProbablyImportedPlan(promptText) ? (
             <p className="px-1 text-xs text-muted-foreground">
-              Looks like an existing plan. The agent will preserve it and add
-              visual review structure.
+              {t("plansPage.create.importDetected")}
             </p>
           ) : null}
         </div>
@@ -9208,6 +9354,7 @@ function CommentMentionEditor({
   onChange: (draft: Pick<CommentDraft, "message" | "mentions">) => void;
   onSubmitShortcut?: () => void;
 }) {
+  const t = useT();
   const editorRef = useRef<HTMLDivElement>(null);
   const activeQueryRef = useRef<ReturnType<typeof mentionQueryAtCaret>>(null);
   const onChangeRef = useRef(onChange);
@@ -9336,16 +9483,16 @@ function CommentMentionEditor({
       {suggestionsOpen && (
         <div
           role="listbox"
-          aria-label="Mention organization member"
+          aria-label={t("plansPage.comments.mentionMember")}
           className="absolute bottom-full left-0 z-50 mb-2 w-[min(320px,calc(100vw-48px))] overflow-hidden rounded-xl border border-border/80 bg-background/98 p-1 shadow-2xl backdrop-blur-xl"
         >
           {isLoading && members.length === 0 ? (
             <div className="px-3 py-2 text-xs text-muted-foreground">
-              Searching people...
+              {t("plansPage.comments.searchingPeople")}
             </div>
           ) : members.length === 0 ? (
             <div className="px-3 py-2 text-xs text-muted-foreground">
-              No matching organization members.
+              {t("plansPage.comments.noMatchingMembers")}
             </div>
           ) : (
             members.map((member, index) => {
@@ -9392,6 +9539,7 @@ function ResolutionTargetToggle({
   value: PlanCommentResolutionTarget;
   onChange: (value: PlanCommentResolutionTarget) => void;
 }) {
+  const t = useT();
   return (
     <ToggleGroup
       type="single"
@@ -9402,15 +9550,15 @@ function ResolutionTargetToggle({
       variant="default"
       size="sm"
       className="w-fit gap-0.5 rounded-md border border-border/70 bg-muted/35 p-0.5"
-      aria-label="Expected resolver"
+      aria-label={t("plansPage.comments.expectedResolver")}
     >
       <ToggleGroupItem value="agent" className="h-7 gap-1.5 px-2 text-xs">
         <IconSend className="size-3.5" />
-        Agent
+        {t("plansPage.comments.agent")}
       </ToggleGroupItem>
       <ToggleGroupItem value="human" className="h-7 gap-1.5 px-2 text-xs">
         <IconMessageCircle className="size-3.5" />
-        Human
+        {t("plansPage.comments.human")}
       </ToggleGroupItem>
     </ToggleGroup>
   );
@@ -9429,6 +9577,7 @@ function InlineCommentPopover({
   onSubmit: (draft: CommentDraft) => Promise<void>;
   lockToAgent?: boolean;
 }) {
+  const t = useT();
   const initialMessageRef = useRef(initialDraft.message);
   const [draft, setDraft] = useState<CommentDraft>(initialDraft);
   const [resolverTouched, setResolverTouched] = useState(false);
@@ -9475,7 +9624,7 @@ function InlineCommentPopover({
         {lockToAgent ? (
           <span className="flex items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground">
             <IconSend className="size-3.5" />
-            To agent
+            {t("plansPage.comments.toAgent")}
           </span>
         ) : (
           <ResolutionTargetToggle
@@ -9493,7 +9642,7 @@ function InlineCommentPopover({
             variant="ghost"
             className="size-8 shrink-0 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
             onClick={onCancel}
-            aria-label="Cancel comment"
+            aria-label={t("plansPage.comments.cancelComment")}
           >
             <IconX className="size-3.5" />
           </Button>
@@ -9502,7 +9651,7 @@ function InlineCommentPopover({
       <div className="flex items-start gap-2">
         <CommentMentionEditor
           initialMessage={initialMessageRef.current}
-          placeholder="Add a comment..."
+          placeholder={t("plansPage.comments.addPlaceholder")}
           autoFocus
           onSubmitShortcut={submit}
           onChange={(value) =>
@@ -9524,12 +9673,14 @@ function InlineCommentPopover({
           onClick={submit}
           disabled={!canSubmit}
         >
-          {isSubmitting ? "Saving" : "Save"}
+          {isSubmitting
+            ? t("plansPage.comments.saving")
+            : t("plansPage.common.save")}
         </Button>
       </div>
       {submitError && (
         <p className="mt-2 px-1 text-xs text-destructive">
-          Couldn't save. Try again.
+          {t("plansPage.comments.saveFailed")}
         </p>
       )}
     </div>
@@ -9545,6 +9696,7 @@ function GuestCommentCta({
   onSignIn: () => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   return (
     <div
       data-plan-interactive
@@ -9552,23 +9704,25 @@ function GuestCommentCta({
       style={{ left: position.left, top: position.top, width: position.width }}
     >
       <div className="mb-3 flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold">Sign in to comment</p>
+        <p className="text-sm font-semibold">
+          {t("plansPage.comments.signInTitle")}
+        </p>
         <Button
           type="button"
           size="icon"
           variant="ghost"
           className="size-8 shrink-0 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
           onClick={onCancel}
-          aria-label="Cancel"
+          aria-label={t("plansPage.common.cancel")}
         >
           <IconX className="size-3.5" />
         </Button>
       </div>
       <p className="mb-4 text-sm text-muted-foreground">
-        Create a free account to leave comments on this plan.
+        {t("plansPage.comments.signInDescription")}
       </p>
       <Button type="button" size="sm" className="w-full" onClick={onSignIn}>
-        Sign in
+        {t("plansPage.loadError.signIn")}
       </Button>
     </div>
   );
@@ -9635,7 +9789,7 @@ function CommentDeleteButton({
 function ReplyComposer({
   author,
   isPending,
-  placeholder = "Reply",
+  placeholder,
   onSubmit,
 }: {
   author: CommentAuthorPresentation;
@@ -9643,6 +9797,7 @@ function ReplyComposer({
   placeholder?: string;
   onSubmit: (message: string) => Promise<void>;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState<
     Pick<CommentDraft, "message" | "mentions">
   >({
@@ -9676,7 +9831,9 @@ function ReplyComposer({
         <CommentAvatar author={author} size="md" className="mb-1" />
         <div className="flex min-w-0 flex-1 items-end gap-2 rounded-xl border border-border/80 bg-muted/40 px-3 py-2 focus-within:border-primary/60 focus-within:bg-background">
           <CommentMentionEditor
-            placeholder={placeholder}
+            placeholder={
+              placeholder ?? t("plansPage.comments.replyPlaceholder")
+            }
             resetKey={`reply-${resetKey}`}
             className="min-h-10 border-0 bg-transparent px-0 py-2 shadow-none focus-visible:ring-0"
             onChange={setDraft}
@@ -9688,7 +9845,7 @@ function ReplyComposer({
             className="mb-0.5 size-8 shrink-0 rounded-full"
             onClick={() => void submit()}
             disabled={!canSubmit}
-            aria-label="Send reply"
+            aria-label={t("plansPage.comments.sendReply")}
           >
             {isSubmitting ? (
               <IconLoader2 className="size-4 animate-spin" />
@@ -9700,7 +9857,7 @@ function ReplyComposer({
       </div>
       {submitError && (
         <p className="ml-11 text-xs text-destructive">
-          Couldn't send. Try again.
+          {t("plansPage.comments.sendFailed")}
         </p>
       )}
     </div>
@@ -9738,6 +9895,7 @@ function AnnotationPopover({
   onDeleteComment: (commentId: string) => void;
   onClose?: () => void;
 }) {
+  const t = useT();
   const popoverRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
   const [messageDraft, setMessageDraft] = useState<
@@ -9766,6 +9924,7 @@ function AnnotationPopover({
   const annotationComments = [rootComment, ...replies];
   const rootDeleteLabel = deleteCommentLabel(
     commentDescendantCount(annotationComments, rootComment.id),
+    t,
   );
   const canSave =
     canEditRootComment && messageDraft.message.trim().length > 0 && !isPending;
@@ -9824,7 +9983,9 @@ function AnnotationPopover({
       <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border/70 px-4">
         <div className="flex min-w-0 items-center gap-2">
           <IconMessageCircle className="size-4 text-muted-foreground" />
-          <h2 className="truncate text-sm font-semibold">Comment</h2>
+          <h2 className="truncate text-sm font-semibold">
+            {t("plansPage.comments.comment")}
+          </h2>
           {annotation.commentCount > 1 && (
             <Badge variant="secondary" className="h-5 rounded-md px-1.5">
               {annotation.commentCount}
@@ -9834,7 +9995,9 @@ function AnnotationPopover({
             variant="outline"
             className="h-5 rounded-md px-1.5 text-[11px]"
           >
-            {resolver === "human" ? "Human review" : "Agent action"}
+            {resolver === "human"
+              ? t("plansPage.comments.humanReview")
+              : t("plansPage.comments.agentAction")}
           </Badge>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -9846,7 +10009,7 @@ function AnnotationPopover({
                   size="icon"
                   variant="ghost"
                   className="size-8 shrink-0"
-                  aria-label="Comment options"
+                  aria-label={t("plansPage.comments.options")}
                 >
                   <IconDotsVertical className="size-4" />
                 </Button>
@@ -9864,7 +10027,9 @@ function AnnotationPopover({
                     }
                   >
                     <IconCircleCheck className="size-4" />
-                    {isResolved ? "Reopen thread" : "Mark as resolved"}
+                    {isResolved
+                      ? t("plansPage.comments.reopenThread")
+                      : t("plansPage.comments.markResolved")}
                   </DropdownMenuItem>
                 )}
                 {canEditRootComment && (
@@ -9873,7 +10038,7 @@ function AnnotationPopover({
                     onClick={() => setEditing(true)}
                   >
                     <IconPencil className="size-4" />
-                    Edit first comment
+                    {t("plansPage.comments.editFirstComment")}
                   </DropdownMenuItem>
                 )}
                 {canDelete && (
@@ -9902,13 +10067,19 @@ function AnnotationPopover({
                   onClick={() =>
                     onStatusChange(isResolved ? "open" : "resolved")
                   }
-                  aria-label={isResolved ? "Reopen thread" : "Mark as resolved"}
+                  aria-label={
+                    isResolved
+                      ? t("plansPage.comments.reopenThread")
+                      : t("plansPage.comments.markResolved")
+                  }
                 >
                   <IconCircleCheck className="size-4" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {isResolved ? "Reopen thread" : "Mark as resolved"}
+                {isResolved
+                  ? t("plansPage.comments.reopenThread")
+                  : t("plansPage.comments.markResolved")}
               </TooltipContent>
             </Tooltip>
           )}
@@ -9919,7 +10090,7 @@ function AnnotationPopover({
               variant="ghost"
               className="size-8 shrink-0"
               onClick={onClose}
-              aria-label="Close comment"
+              aria-label={t("plansPage.comments.closeComment")}
             >
               <IconX className="size-4" />
             </Button>
@@ -9933,7 +10104,7 @@ function AnnotationPopover({
               <CommentMentionEditor
                 initialMessage={annotation.message}
                 resetKey={`edit-${annotation.id}-${editing ? "on" : "off"}`}
-                placeholder="Edit comment..."
+                placeholder={t("plansPage.comments.editPlaceholder")}
                 autoFocus
                 className="min-h-24"
                 onChange={setMessageDraft}
@@ -9952,7 +10123,7 @@ function AnnotationPopover({
                     });
                   }}
                 >
-                  Cancel
+                  {t("plansPage.common.cancel")}
                 </Button>
                 <Button
                   type="button"
@@ -9960,7 +10131,7 @@ function AnnotationPopover({
                   onClick={save}
                   disabled={!canSave}
                 >
-                  Save
+                  {t("plansPage.common.save")}
                 </Button>
               </div>
             </div>
@@ -9970,6 +10141,7 @@ function AnnotationPopover({
           {replies.map((reply) => {
             const replyDeleteLabel = deleteCommentLabel(
               commentDescendantCount(annotationComments, reply.id),
+              t,
             );
             return (
               <CommentThreadMessage
@@ -10033,6 +10205,7 @@ function AnnotationsPanel({
   onDeleteComment: (thread: CommentThread, commentId: string) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const panelRef = useRef<HTMLElement>(null);
   const [filterTab, setFilterTab] = useState<"open" | "resolved">("open");
 
@@ -10062,7 +10235,7 @@ function AnnotationsPanel({
       onClose();
       // Return focus to the toolbar dots-menu trigger if reachable.
       const trigger = document.querySelector<HTMLElement>(
-        '[aria-label="Plan actions"]',
+        "[data-plan-actions-trigger]",
       );
       trigger?.focus();
     };
@@ -10089,7 +10262,9 @@ function AnnotationsPanel({
       <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border/70 px-4">
         <div className="flex min-w-0 items-center gap-2">
           <IconMessageCircle className="size-4 text-muted-foreground" />
-          <h2 className="truncate text-sm font-semibold">Comments</h2>
+          <h2 className="truncate text-sm font-semibold">
+            {t("plansPage.comments.comments")}
+          </h2>
         </div>
         <Button
           type="button"
@@ -10097,7 +10272,7 @@ function AnnotationsPanel({
           variant="ghost"
           className="size-8"
           onClick={onClose}
-          aria-label="Close comments"
+          aria-label={t("plansPage.comments.closeComments")}
         >
           <IconX className="size-4" />
         </Button>
@@ -10112,7 +10287,7 @@ function AnnotationsPanel({
           >
             <TabsList className="h-7 gap-0.5 rounded-lg p-0.5">
               <TabsTrigger value="open" className="h-6 gap-1.5 px-2 text-xs">
-                Open
+                {t("plansPage.comments.open")}
                 {openThreads.length > 0 && (
                   <span className="rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground">
                     {openThreads.length}
@@ -10123,7 +10298,7 @@ function AnnotationsPanel({
                 value="resolved"
                 className="h-6 gap-1.5 px-2 text-xs"
               >
-                Resolved
+                {t("plansPage.comments.resolved")}
                 {resolvedThreads.length > 0 && (
                   <span className="rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground">
                     {resolvedThreads.length}
@@ -10139,8 +10314,8 @@ function AnnotationsPanel({
           {visibleThreads.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border p-4 text-sm leading-6 text-muted-foreground">
               {showResolvedComments && filterTab === "resolved"
-                ? "No resolved comments."
-                : "No open comments. Click Comment, then click to place one."}
+                ? t("plansPage.comments.noResolved")
+                : t("plansPage.comments.noOpen")}
             </p>
           ) : (
             visibleThreads.map((thread) => {
@@ -10148,6 +10323,7 @@ function AnnotationsPanel({
               const canDelete = canDeleteThread(thread);
               const rootDeleteLabel = deleteCommentLabel(
                 commentDescendantCount(thread.comments, thread.root.id),
+                t,
               );
               return (
                 <article
@@ -10165,8 +10341,8 @@ function AnnotationsPanel({
                             {normalizePlanCommentResolutionTarget(
                               thread.anchor.resolutionTarget,
                             ) === "human"
-                              ? "Human review"
-                              : "Agent action"}
+                              ? t("plansPage.comments.humanReview")
+                              : t("plansPage.comments.agentAction")}
                           </span>
                           {" · "}
                           {formatAnchorForAgent(thread.anchor)}
@@ -10189,8 +10365,8 @@ function AnnotationsPanel({
                                 }
                                 aria-label={
                                   isResolved
-                                    ? "Reopen thread"
-                                    : "Mark as resolved"
+                                    ? t("plansPage.comments.reopenThread")
+                                    : t("plansPage.comments.markResolved")
                                 }
                               >
                                 <IconCircleCheck className="size-4" />
@@ -10198,8 +10374,8 @@ function AnnotationsPanel({
                             </TooltipTrigger>
                             <TooltipContent>
                               {isResolved
-                                ? "Reopen thread"
-                                : "Mark as resolved"}
+                                ? t("plansPage.comments.reopenThread")
+                                : t("plansPage.comments.markResolved")}
                             </TooltipContent>
                           </Tooltip>
                           {canDelete && (
@@ -10248,6 +10424,7 @@ function AnnotationsPanel({
                     );
                     const commentDeleteLabel = deleteCommentLabel(
                       commentDescendantCount(thread.comments, comment.id),
+                      t,
                     );
                     return (
                       <CommentThreadMessage
@@ -10295,29 +10472,36 @@ function DeleteCommentDialog({
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
 }) {
+  const t = useT();
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>
-            {replyCount > 0 ? "Delete thread?" : "Delete comment?"}
+            {replyCount > 0
+              ? t("plansPage.comments.deleteThreadTitle")
+              : t("plansPage.comments.deleteCommentTitle")}
           </AlertDialogTitle>
           <AlertDialogDescription>
             {replyCount > 0
-              ? `This will remove the comment and ${replyCount} ${
-                  replyCount === 1 ? "reply" : "replies"
-                } from the plan.`
-              : "This will remove the comment from the plan."}
+              ? t("plansPage.comments.deleteThreadDescription", {
+                  count: replyCount,
+                })
+              : t("plansPage.comments.deleteCommentDescription")}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={isDeleting}>
+            {t("plansPage.common.cancel")}
+          </AlertDialogCancel>
           <AlertDialogAction
             disabled={isDeleting}
             onClick={onConfirm}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
-            {isDeleting ? "Deleting..." : "Delete"}
+            {isDeleting
+              ? t("plansPage.common.deleting")
+              : t("plansPage.common.delete")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -10340,6 +10524,7 @@ function DeletePlanDialog({
   onOpenChange: (open: boolean) => void;
   onConfirm: (mode: "soft" | "hard", confirmation?: string) => void;
 }) {
+  const t = useT();
   const [mode, setMode] = useState<"soft" | "hard">("soft");
   const [confirmation, setConfirmation] = useState("");
   const plan = request?.plan ?? null;
@@ -10347,6 +10532,10 @@ function DeletePlanDialog({
   const effectiveMode = hardOnly ? "hard" : mode;
   const phrase = plan ? hardDeletePlanPhrase(plan.id) : "";
   const noun = plan?.kind === "recap" ? "recap" : "plan";
+  const nounLabel =
+    plan?.kind === "recap"
+      ? t("plansPage.nouns.recap")
+      : t("plansPage.nouns.plan");
   const canSubmit =
     Boolean(plan) &&
     !isPending &&
@@ -10364,12 +10553,13 @@ function DeletePlanDialog({
         <DialogHeader>
           <DialogTitle>
             {effectiveMode === "hard"
-              ? `Permanently delete this ${noun}?`
-              : `Delete this ${noun}?`}
+              ? t("plansPage.deletePlan.hardTitle", { noun: nounLabel })
+              : t("plansPage.deletePlan.softTitle", { noun: nounLabel })}
           </DialogTitle>
           <DialogDescription>
-            {plan?.title ?? "This hosted plan"} will no longer be available from
-            normal plan views.
+            {t("plansPage.deletePlan.description", {
+              title: plan?.title ?? t("plansPage.deletePlan.fallbackTitle"),
+            })}
           </DialogDescription>
         </DialogHeader>
 
@@ -10388,9 +10578,11 @@ function DeletePlanDialog({
                   : "border-border hover:bg-accent/40",
               )}
             >
-              <span className="font-medium">Move to Deleted</span>
+              <span className="font-medium">
+                {t("plansPage.deletePlan.moveToDeleted")}
+              </span>
               <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                Hide it now, stop public access, and keep restore available.
+                {t("plansPage.deletePlan.softOptionDescription")}
               </span>
             </button>
             <button
@@ -10404,10 +10596,10 @@ function DeletePlanDialog({
               )}
             >
               <span className="font-medium text-destructive">
-                Delete permanently
+                {t("plansPage.deletePlan.deletePermanently")}
               </span>
               <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                Remove hosted rows and references. This cannot be undone.
+                {t("plansPage.deletePlan.hardOptionDescription")}
               </span>
             </button>
           </div>
@@ -10415,9 +10607,7 @@ function DeletePlanDialog({
 
         {effectiveMode === "soft" ? (
           <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">
-            Soft delete moves the {noun} to the Deleted tab. Direct links,
-            public sharing, comments, and agent reads stop working until you
-            restore it.
+            {t("plansPage.deletePlan.softDescription", { noun: nounLabel })}
           </div>
         ) : (
           <div className="space-y-3">
@@ -10426,23 +10616,23 @@ function DeletePlanDialog({
                 <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
                 <div className="space-y-1 text-sm">
                   <p className="font-medium text-destructive">
-                    Permanent deletion cannot be undone.
+                    {t("plansPage.deletePlan.permanentWarning")}
                   </p>
                   <p className="leading-6 text-muted-foreground">
-                    This removes the hosted {noun}, comments, shares, activity,
-                    versions, reports, and Plan SQL asset records. Local files
-                    and external upload-provider lifecycle rules are separate.
+                    {t("plansPage.deletePlan.permanentDescription", {
+                      noun: nounLabel,
+                    })}
                   </p>
                 </div>
               </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="hard-delete-plan-confirmation">
-                Type{" "}
+                {t("plansPage.deletePlan.typePrefix")}{" "}
                 <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
                   {phrase}
                 </code>{" "}
-                to confirm
+                {t("plansPage.deletePlan.typeSuffix")}
               </Label>
               <Input
                 id="hard-delete-plan-confirmation"
@@ -10462,7 +10652,7 @@ function DeletePlanDialog({
             onClick={() => onOpenChange(false)}
             disabled={isPending}
           >
-            Cancel
+            {t("plansPage.common.cancel")}
           </Button>
           <Button
             type="button"
@@ -10476,10 +10666,10 @@ function DeletePlanDialog({
             }
           >
             {isPending
-              ? "Deleting..."
+              ? t("plansPage.common.deleting")
               : effectiveMode === "hard"
-                ? "Delete permanently"
-                : "Move to Deleted"}
+                ? t("plansPage.deletePlan.deletePermanently")
+                : t("plansPage.deletePlan.moveToDeleted")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -10520,6 +10710,9 @@ function injectAnnotationRuntime(
   annotateMode: boolean,
   theme: "dark" | "light",
   preferredEditor: PreferredEditor,
+  labels: {
+    closeCodePreview: string;
+  },
   avatarUrls: Record<string, string | null> = {},
   currentUser?: CurrentCommentAuthor | null,
 ) {
@@ -10574,6 +10767,7 @@ function injectAnnotationRuntime(
       );
     },
   );
+  const closeCodePreviewLabel = escapeRuntimeJsString(labels.closeCodePreview);
   const runtime = `<style>
     :root[data-agent-native-theme="light"] {
       color-scheme: light;
@@ -10885,13 +11079,13 @@ function injectAnnotationRuntime(
         return editorIconHtml(normalized) + '<span class="editor-picker-sr">Preferred editor: ' + editorLabel(normalized) + '</span><span class="editor-picker-caret" aria-hidden="true"></span>';
       }
       function editorSelectOptionsHtml() {
-        return editorOptions.map(({ value, label }) => '<option value="' + value + '">' + label + '</option>').join("");
+        return editorOptions.map(({ value, label }) => '<option value="' + value + '">' + label + '</option>').join(""); // i18n-ignore generated editor picker markup with stable app labels
       }
       function editorMenuHtml(activeEditor) {
         const active = normalizeEditor(activeEditor);
         return editorOptions.map(({ value, label }) => {
           const selected = value === active;
-          return '<button type="button" class="editor-picker-option' + (selected ? " is-active" : "") + '" data-agent-native-editor-option="' + value + '" role="menuitemradio" aria-checked="' + (selected ? "true" : "false") + '">' + editorIconHtml(value) + '<span>' + label + '</span></button>';
+          return '<button type="button" class="editor-picker-option' + (selected ? " is-active" : "") + '" data-agent-native-editor-option="' + value + '" role="menuitemradio" aria-checked="' + (selected ? "true" : "false") + '">' + editorIconHtml(value) + '<span>' + label + '</span></button>'; // i18n-ignore generated editor picker markup with stable app labels
         }).join("");
       }
       function closeEditorMenus(exceptPicker) {
@@ -10944,13 +11138,13 @@ function injectAnnotationRuntime(
         const lineSuffix = location.line ? ":" + location.line + ":" + location.column : "";
         if (normalized === "finder") return "file://" + encodeURI(location.path);
         if (normalized === "xcode") {
-          return "xcode://open?url=" + encodeURIComponent("file://" + location.path) + (location.line ? "&line=" + encodeURIComponent(location.line) : "");
+          return "xcode://open?url=" + encodeURIComponent("file://" + location.path) + (location.line ? "&line=" + encodeURIComponent(location.line) : ""); // i18n-ignore stable editor URL scheme
         }
         if (normalized === "terminal") {
-          return "terminal://open?path=" + encodeURIComponent(directoryForPath(location.path));
+          return "terminal://open?path=" + encodeURIComponent(directoryForPath(location.path)); // i18n-ignore stable editor URL scheme
         }
         if (normalized === "ghostty") {
-          return "ghostty://open?path=" + encodeURIComponent(directoryForPath(location.path));
+          return "ghostty://open?path=" + encodeURIComponent(directoryForPath(location.path)); // i18n-ignore stable editor URL scheme
         }
         return normalized + "://file" + encodeURI(location.path) + lineSuffix;
       }
@@ -11613,7 +11807,7 @@ function injectAnnotationRuntime(
         hideCodePopover();
         const popover = document.createElement("div");
         popover.className = "an-plan-code-popover";
-        popover.innerHTML = '<div class="an-plan-code-popover-header"><span class="an-plan-code-popover-title"></span><div class="an-plan-code-popover-actions"></div><button type="button" class="an-plan-code-popover-close" aria-label="Close code preview">×</button></div><div class="an-plan-code-popover-body"></div>';
+        popover.innerHTML = '<div class="an-plan-code-popover-header"><span class="an-plan-code-popover-title"></span><div class="an-plan-code-popover-actions"></div><button type="button" class="an-plan-code-popover-close" aria-label="${closeCodePreviewLabel}">×</button></div><div class="an-plan-code-popover-body"></div>';
         const content = template.content.cloneNode(true);
         const codePreview = content.querySelector?.(".code-preview");
         const oldTitle = content.querySelector?.(".code-preview-title");
@@ -11858,7 +12052,22 @@ function injectAnnotationRuntime(
   return `${html}${runtime}`;
 }
 
-function buildClientPlanHtml(bundle: PlanBundle) {
+function escapeRuntimeJsString(value: string) {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/"/g, "&quot;");
+}
+
+function buildClientPlanHtml(
+  bundle: PlanBundle,
+  labels: {
+    workingPlan: string;
+  },
+) {
   const escape = (value: unknown) =>
     String(value ?? "")
       .replace(/&/g, "&amp;")
@@ -11876,7 +12085,7 @@ function buildClientPlanHtml(bundle: PlanBundle) {
     bundle.plan.title,
   )}</title><style>
   :root{color-scheme:dark;--bg:#0a0a0b;--paper:#111113;--line:#28282c;--text:#f2f2f3;--muted:#a4a4aa;--accent:#00B5FF}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55}main{width:min(1080px,calc(100vw - 48px));margin:0 auto;padding:96px 0 96px}h1{max-width:760px;margin:0;font-size:clamp(36px,5vw,58px);line-height:1.03;letter-spacing:-.04em}.lede{max-width:760px;margin:20px 0 0;color:#d7d7da;font-size:clamp(18px,2vw,23px);line-height:1.45}.meta{display:grid;gap:7px;margin:24px 0 0;padding-left:20px;color:var(--muted);font-size:13px}.meta li::marker{color:var(--accent)}.section{margin-top:70px;padding-top:46px;border-top:1px solid var(--line)}.type{margin:0 0 12px;color:var(--accent);font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}.section h2{margin:0;font-size:clamp(26px,4vw,42px);letter-spacing:-.035em}.section p{max-width:760px;color:#d7d7da;font-size:17px}.visual{margin:24px 0;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.visual i{display:block;height:120px;border:1px solid rgba(0,181,255,.25);border-radius:14px;background:rgba(0,181,255,.12)}@media(max-width:760px){.visual{grid-template-columns:1fr}main{width:min(100vw - 24px,980px);padding-top:72px}}
-  </style></head><body><main><p class="type">Working plan</p><h1>${escape(
+  </style></head><body><main><p class="type">${escape(labels.workingPlan)}</p><h1>${escape(
     bundle.plan.title,
   )}</h1><p class="lede">${escape(
     bundle.plan.brief,

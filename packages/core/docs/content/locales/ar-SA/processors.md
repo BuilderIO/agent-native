@@ -9,13 +9,13 @@ description: "حلقة المراقبة الداخلية/خطافات الدرا
 
 ```an-diagram title="حيث تطلق الخطافات الثلاثة أثناء الركض" summary="يراقب processOutputStream كل قطعة، وتستدعي أداة البوابات processOutputStep كل استجابة، ويسجل processOutputResult حكمًا في النهاية. يمكن إحباط أي خطاف باستخدام TripWire."
 {
-  "html": "<div class=\"diagram-proc\"><div class=\"diagram-node\" data-rough>stream chunks<br><small class=\"diagram-muted\">processOutputStream</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>per model response<br><small class=\"diagram-muted\">processOutputStep — gate tool calls</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>run end<br><small class=\"diagram-muted\">processOutputResult — verdict</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-pill warn\">abort() &rarr; TripWire &rarr; tripwire event</div></div>",
+  "html": "<div class=\"diagram-proc\"><div class=\"diagram-node\" data-rough>stream chunks<br><small class=\"diagram-muted\">processOutputStream</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>per model response<br><small class=\"diagram-muted\">processOutputStep — يضبط استدعاءات الأدوات</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>run end<br><small class=\"diagram-muted\">processOutputResult — الحكم</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-pill warn\">abort() &rarr; TripWire &rarr; tripwire event</div></div>",
   "css": ".diagram-proc{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-proc .diagram-arrow{font-size:22px;line-height:1}.diagram-proc .diagram-pill{flex-basis:100%}"
 }
 ```
 
 > [!WARNING]
-> المعالج هو **تكوين**، وليس أداة، وليس إجراءً، وليس تأليفًا DSL. تقوم المعالجات فقط بمراقبة وتعديل حالة نطاق الدفق الخاصة بها و`abort()`. ولا تحدد أبدًا سلوك التطبيق، أو تستبدل actions، أو تظهر للنموذج. تنتمي عمليات التطبيق إلى [actions](/docs/actions).
+> المعالج هو **تكوين**، وليس أداة، وليس إجراءً، وليس تأليفًا DSL. تقوم المعالجات فقط بمراقبة وتعديل حالة نطاق الدفق الخاصة بها و`abort()`. ولا تحدد أبدًا سلوك التطبيق، أو تستبدل actions, أو تظهر للنموذج. تنتمي عمليات التطبيق إلى [actions](/docs/actions).
 
 ## الخطافات {#hooks}
 

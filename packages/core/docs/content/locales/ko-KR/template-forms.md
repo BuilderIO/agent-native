@@ -10,7 +10,7 @@ Forms는 에이전트 기반 양식 작성 도구입니다. 원하는 양식을 
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>베타 가입</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>공유</button><button class='primary'>게시 취소</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>편집</span><span class='wf-pill'>결과 187</span><span class='wf-pill'>설정</span><span class='wf-pill'>통합</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>베타 가입</h2><p class='wf-muted' style='margin:0'>Reserve a spot in the upcoming private beta cohort.</p><div class='wf-card'><strong>전체 이름</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>업무 이메일</strong><input value='you@company.com'/></div><div class='wf-card'><strong>내 역할</strong><input value='Select...'/></div><div class='wf-card'><strong>팀 규모</strong><input value='Select...'/></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>베타 가입</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>공유</button><button class='primary'>게시 취소</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>편집</span><span class='wf-pill'>결과 187</span><span class='wf-pill'>설정</span><span class='wf-pill'>통합</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>베타 가입</h2><p class='wf-muted' style='margin:0'>예정된 비공개 베타 그룹의 자리를 예약하세요.</p><div class='wf-card'><strong>전체 이름</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>업무 이메일</strong><input value='you@company.com'/></div><div class='wf-card'><strong>내 역할</strong><input value='Select...'/></div><div class='wf-card'><strong>팀 규모</strong><input value='Select...'/></div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ Forms는 에이전트 기반 양식 작성 도구입니다. 원하는 양식을 
 
 ```an-diagram title="구축, 게시, 수집" summary="에이전트와 시각적 편집기는 하나의 SQL-backed 양식 정의를 편집합니다. 공개 채우기 페이지는 인증되지 않으며 제출 내용은 서버 측에서 대상으로 라우팅됩니다."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Agent prompt<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">Visual editor<br><small class=\"diagram-muted\">labels, validation, order</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">fields JSON, settings JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL via Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Public fill page<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / Sheets</small></div></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">에이전트 프롬프트<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">비주얼 편집기<br><small class=\"diagram-muted\">레이블, 검증, 순서</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">필드 JSON, 설정 JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">Drizzle 기반 SQL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">공개 작성 페이지<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">Slack / webhook / Sheets 추가</small></div></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -94,7 +94,7 @@ npx @agent-native/core@latest create my-platform
 
 `fields` 및 `settings` JSON 형상은 `templates/forms/shared/types.ts`(`FormField`, `FormSettings`)에 정의됩니다. 통합 웹훅 URL 및 허용된 출처와 같은 소유자 개인 설정은 데이터가 `toPublicFormSettings`를 통해 공개 채우기 페이지에 도달하기 전에 제거됩니다.
 
-```an-schema title="Forms data model" summary="Three tables. Fields and integrations are JSON columns on forms, so the agent's edits are surgical patches rather than cross-table row changes."
+```an-schema title="양식 데이터 모델" summary="테이블 세 개. 필드 및 통합은 양식의 JSON 열이므로 에이전트의 편집 내용은 테이블 간 행 변경이 아닌 외과적 패치입니다."
 {
   "entities": [
     {
@@ -106,9 +106,9 @@ npx @agent-native/core@latest create my-platform
         { "name": "title", "type": "string" },
         { "name": "description", "type": "string", "nullable": true },
         { "name": "slug", "type": "string", "note": "unique; public URL" },
-        { "name": "fields", "type": "json", "note": "FormField[] — all field types" },
-        { "name": "settings", "type": "json", "note": "FormSettings — integrations, etc." },
-        { "name": "status", "type": "enum", "note": "draft | published | closed" },
+        { "name": "fields", "type": "json", "note": "FormField[] — 모든 필드 유형" },
+        { "name": "settings", "type": "json", "note": "FormSettings — 통합 등" },
+        { "name": "status", "type": "enum", "note": "초안 | 출판됨 | 닫은" },
         { "name": "deleted_at", "type": "datetime", "nullable": true, "note": "soft delete" },
         { "name": "owner_email", "type": "string" },
         { "name": "org_id", "type": "id", "nullable": true }
@@ -117,7 +117,7 @@ npx @agent-native/core@latest create my-platform
     {
       "id": "responses",
       "name": "responses",
-      "note": "One submission per row",
+      "note": "행당 하나의 제출",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "form_id", "type": "id", "fk": "forms.id" },
@@ -130,12 +130,12 @@ npx @agent-native/core@latest create my-platform
     {
       "id": "form_shares",
       "name": "form_shares",
-      "note": "Framework shares table — principals to roles per form",
+      "note": "프레임워크 공유 테이블 - 양식당 역할에 대한 주체",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "form_id", "type": "id", "fk": "forms.id" },
         { "name": "principal", "type": "string", "note": "user or org" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+        { "name": "role", "type": "enum", "note": "뷰어 | 편집자 | 관리자" }
       ]
     }
   ],

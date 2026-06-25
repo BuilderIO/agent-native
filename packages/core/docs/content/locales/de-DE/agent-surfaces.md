@@ -13,13 +13,13 @@ Anwendung.
 Der sinnvolle Weg zur Auswahl besteht nicht zuerst nach dem Protokoll. Wählen Sie die Produktoberfläche
 Sie möchten, dann verwenden Sie das passende Grundelement.
 
-| Oberfläche                      | Verwenden Sie es, wenn                                                                                                                   | Beginnen Sie mit                                                                            |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **Kopfloser Agent**             | Code, Jobs, Skripte, eine andere App oder ein anderer Agent sollten die Arbeit direkt aufrufen.                                          | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
-| **Rich-Chat auf Agent-Native**  | Sie möchten einen eigenständigen oder eingebetteten Chat, der durch die integrierte Agentenschleife unterstützt wird.                    | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
-| **Rich-Chat auf Ihrem Agenten** | Sie haben den Agent woanders erstellt und möchten den Composer, das Transkript, die Toolkarten und die nativen Widgets von Agent-Native. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
-| **Eingebetteter Sidecar**       | Sie haben bereits eine SaaS-App und möchten daneben einen Agenten mit Seitenkontext und Hostbefehlen.                                    | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
-| **Vollständige Bewerbung**      | Menschen und Agenten sollten robuste Bildschirme, Daten, Navigation und Zusammenarbeit gemeinsam nutzen.                                 | Vorlagen, actions, SQL-Status, Kontextbewusstsein                                           |
+| Oberfläche                      | Verwenden Sie es, wenn                                                                                                                     | Beginnen Sie mit                                                                            |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| **Kopfloser Agent**             | Code, Jobs, Skripte, eine andere App oder ein anderer Agent sollten die Arbeit direkt aufrufen.                                            | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
+| **Rich-Chat auf Agent-Native**  | Sie möchten einen eigenständigen oder eingebetteten Chat, der durch die integrierte Agentenschleife unterstützt wird.                      | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
+| **Rich-Chat auf Ihrem Agenten** | Sie haben den Agent woanders erstellt und möchten den Verfassenr, das Transkript, die Toolkarten und die nativen Widgets von Agent-Native. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
+| **Eingebetteter Sidecar**       | Sie haben bereits eine SaaS-App und möchten daneben einen Agenten mit Seitenkontext und Hostbefehlen.                                      | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
+| **Vollständige Bewerbung**      | Menschen und Agenten sollten robuste Bildschirme, Daten, Navigation und Zusammenarbeit gemeinsam nutzen.                                   | Vorlagen, actions, SQL-Status, Kontextbewusstsein                                           |
 
 Das sind Stufen, keine separaten Produkte. Ein Workflow kann als Headless starten
 Agent mit einer Aktion, erscheint im Chat als Tabelle oder Diagramm und wird später zum
@@ -27,7 +27,7 @@ Vollbild in einer App, ohne den vom Agenten aufgerufenen Vorgang zu ändern.
 
 ```an-diagram title="Das Oberflächenspektrum" summary="Eine Aktionsoberfläche, vier Produktformen – jede fügt eine Benutzeroberfläche hinzu, ohne die Bedienung darunter zu ändern."
 {
-  "html": "<div class=\"diagram-spectrum\"><div class=\"diagram-card\"><strong>Headless</strong><small class=\"diagram-muted\">actions, jobs, scripts, other agents</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Rich chat</strong><small class=\"diagram-muted\">composer, transcript, tool cards</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embedded sidecar</strong><small class=\"diagram-muted\">agent beside an existing app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">most UI</span><strong>Full application</strong><small class=\"diagram-muted\">durable screens, data, collaboration</small></div></div><div class=\"diagram-base\" data-rough><span class=\"diagram-muted\">same actions · same SQL · same agent loop</span></div>",
+  "html": "<div class=\"diagram-spectrum\"><div class=\"diagram-card\"><strong>Headless</strong><small class=\"diagram-muted\">actions, Jobs, Skripte, andere Agenten</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Rich Chat</strong><small class=\"diagram-muted\">Composer, Transkript, Tool-Karten</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Eingebetteter Sidecar</strong><small class=\"diagram-muted\">agent beside an existing app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">meiste UI</span><strong>Vollständige Anwendung</strong><small class=\"diagram-muted\">dauerhafte Screens, Daten, Zusammenarbeit</small></div></div><div class=\"diagram-base\" data-rough><span class=\"diagram-muted\">gleiche actions · gleiches SQL · gleiche Agentenschleife</span></div>",
   "css": ".diagram-spectrum{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-spectrum .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px;flex:1}.diagram-spectrum .diagram-arrow{align-self:center;font-size:22px;line-height:1}.diagram-base{margin-top:12px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -110,11 +110,11 @@ Eine Aktion ist dann aufrufbar als:
 - **UI** – bis `useActionQuery`, `useActionMutation` oder `callAction`
 - **Agent-Tool** – aus der integrierten Chat-Schleife
 
-```an-api title="Calling an action over HTTP"
+```an-api title="Aufrufen einer Aktion über HTTP"
 {
   "method": "POST",
   "path": "/_agent-native/actions/summarize-week",
-  "summary": "Invoke any action by name over HTTP",
+  "summary": "Jede Aktion namentlich über HTTP aufrufen",
   "description": "Every `defineAction` is auto-mounted at `/_agent-native/actions/<name>`. The JSON body is validated against the action's zod schema before `run` executes.",
   "request": {
     "contentType": "application/json",
@@ -268,12 +268,12 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 Actions kann explizite native Widget-Ergebnisse zurückgeben, sodass die Chat-Ausgabe nicht einfach ist
 Text. Tabellen, Diagramme und getippte Produktkarten werden als Erstanbieter-React
-Komponenten im Chat, ohne Iframes. Siehe [Native Chat UI](/docs/native-chat-ui).
+Komponenten im Chat, ohne Iframes. Siehe [Native Chat-Oberfläche](/docs/native-chat-ui).
 
 ## Rich-Chat auf Ihrem Agenten {#byo-agent}
 
 Verwenden Sie diesen Pfad, wenn Ihr Agent bereits mit einem anderen Framework erstellt wurde oder
-Laufzeit und Sie möchten Agent-Natives Chat UI darum herum. `AgentChatRuntime` ist der
+Laufzeit und Sie möchten Agent-Natives Chat-Oberfläche darum herum. `AgentChatRuntime` ist der
 Grenze: Ihre Laufzeit streamt normalisierte Ereignisse und Agent-Native rendert die
 Komponist, Transkript, Toolaufrufe, Genehmigungen, native Widgets und App-Layout.
 
@@ -300,7 +300,7 @@ Beanspruchen Sie A2UI-Unterstützung. ACP wird an einer bestimmten Stelle unters
 Kodierungsagent (Gemini CLI, Claude Code, …) über den
 [harness layer](/docs/harness-agents#acp), nicht als Chat-Laufzeit hier.
 
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+[Native Chat-Oberfläche — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
 ist das kanonische Zuhause für die Ereignisformen, die Laufzeithelfer und `chatUI`
 Tool-Ergebnis-Metadaten. Beginnen Sie dort, wenn Sie einen externen Agenten in den Chat einbinden.
 
@@ -347,7 +347,7 @@ export function AppShell({ children }) {
 
 ```an-diagram title="Wie der Sidecar eine Brücke zu einer Host-App herstellt" summary="Das Plugin mountet Agent-Native-Routen serverseitig; Der Sidecar React streamt den Seitenkontext ein und Hostbefehle aus."
 {
-  "html": "<div class=\"diagram-sidecar\"><div class=\"diagram-panel\"><strong>Host app</strong><small class=\"diagram-muted\">your existing SaaS</small><div class=\"diagram-node\">getContext()<br><small class=\"diagram-muted\">route · selection</small></div><div class=\"diagram-node\">onNavigate / onRefresh<br><small class=\"diagram-muted\">host commands</small></div></div><div class=\"diagram-col-arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div></div><div class=\"diagram-panel accent-panel\"><span class=\"diagram-pill accent\">AgentNativeEmbedded</span><small class=\"diagram-muted\">agent + workspace</small><div class=\"diagram-box\" data-rough>Agent-Native routes<br><small class=\"diagram-muted\">mounted by the server plugin</small></div></div></div>",
+  "html": "<div class=\"diagram-sidecar\"><div class=\"diagram-panel\"><strong>Host-App</strong><small class=\"diagram-muted\">Ihr vorhandenes SaaS</small><div class=\"diagram-node\">getContext()<br><small class=\"diagram-muted\">Route · Auswahl</small></div><div class=\"diagram-node\">onNavigate / onRefresh<br><small class=\"diagram-muted\">Host-Befehle</small></div></div><div class=\"diagram-col-arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div></div><div class=\"diagram-panel accent-panel\"><span class=\"diagram-pill accent\">AgentNativeEmbedded</span><small class=\"diagram-muted\">agent + workspace</small><div class=\"diagram-box\" data-rough>Agent-Native-Routen<br><small class=\"diagram-muted\">mounted by the server plugin</small></div></div></div>",
   "css": ".diagram-sidecar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sidecar .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:200px}.diagram-sidecar .diagram-col-arrows{display:flex;flex-direction:column;gap:6px}.diagram-sidecar .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -374,13 +374,13 @@ Sie möchten eine vollständige Produktform.
 
 ## So wählen Sie aus {#how-to-choose}
 
-| Wenn Sie denken...                                                              | Auswählen                    |
-| ------------------------------------------------------------------------------- | ---------------------------- |
-| „Ich brauche nur ein aufrufbares Tool oder einen Workflow.“                     | Kopfloser Agent              |
-| „Ich möchte den Agenten des Frameworks, aber Chat sollte der Haupt-UI sein.“    | Rich-Chat auf Agent-Native   |
-| „Ich habe bereits einen Agenten; dafür brauche ich einen ausgefeilten Chat UI.“ | Rich-Chat über Ihren Agenten |
-| „Ich habe bereits eine SaaS-App. Fügen Sie daneben einen Agenten hinzu.“        | Eingebetteter Sidecar        |
-| „Der Agent und UI sollten sich gemeinsam als Produkt weiterentwickeln.“         | Vollständige Bewerbung       |
+| Wenn Sie denken...                                                                      | Auswählen                    |
+| --------------------------------------------------------------------------------------- | ---------------------------- |
+| „Ich brauche nur ein aufrufbares Tool oder einen Workflow.“                             | Kopfloser Agent              |
+| „Ich möchte den Agenten des Frameworks, aber Chat sollte der Haupt-UI sein.“            | Rich-Chat auf Agent-Native   |
+| „Ich habe bereits einen Agenten; dafür brauche ich einen ausgefeilten Chat-Oberfläche.“ | Rich-Chat über Ihren Agenten |
+| „Ich habe bereits eine SaaS-App. Fügen Sie daneben einen Agenten hinzu.“                | Eingebetteter Sidecar        |
+| „Der Agent und UI sollten sich gemeinsam als Produkt weiterentwickeln.“                 | Vollständige Bewerbung       |
 
 Halten Sie den Vertrag klein: Definieren Sie dauerhafte Operationen als actions, geben Sie explizit zurück
 Widget-Ergebnisse, wenn der Chat umfangreiches UI benötigt, und Vollbildanzeigen nur hinzufügen, wenn Benutzer
@@ -389,7 +389,7 @@ müssen persistente Objekte durchsuchen, vergleichen, konfigurieren oder zusamme
 ## Verwandte Dokumente {#related-docs}
 
 - [Actions](/docs/actions) – Definieren Sie den Headless-Vorgang einmal.
-- [Native Chat UI](/docs/native-chat-ui) – typisierte Aktionsergebnisse im Chat rendern.
+- [Native Chat-Oberfläche](/docs/native-chat-ui) – typisierte Aktionsergebnisse im Chat rendern.
 - [Drop-in Agent](/docs/drop-in-agent) – Chat-, Seitenleisten- oder Bedienfeldoberflächen bereitstellen.
 - [Component API](/docs/components) – React Chat-/Komponistenstücke auf niedrigerer Ebene.
 - [Embedding SDK](/docs/embedding-sdk) – Agent-Native zu einer vorhandenen App hinzufügen.

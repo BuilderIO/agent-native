@@ -63,7 +63,7 @@ npx @agent-native/core@latest create my-agent --headless
 ثم قم بالتثبيت من المجلد الذي قمت بإنشائه:
 
 ```bash
-cd my-agent # or my-app if you chose the Chat template
+cd my-agent # أو تطبيقي إذا اخترت قالب الدردشة
 pnpm install
 ```
 
@@ -82,9 +82,9 @@ pnpm install
   "annotations": [
     { "lines": "5", "label": "وصف الأداة", "note": "يقرأ الوكيل `description` ليقرر متى يستدعيه كأداة." },
     { "lines": "6-8", "label": "عقد typed", "note": "يتحقق zod `schema` واحد من الإدخال من كل سطح: الوكيل، UI، HTTP، MCP وA2A." },
-    { "lines": "9", "label": "HTTP verb", "note": "Opt this action into an auto-mounted HTTP endpoint." },
-    { "lines": "10", "label": "Read-only", "note": "`readOnly` marks the action as safe to call without approval and cacheable for queries." },
-    { "lines": "11-13", "label": "One implementation", "note": "The `run` body is the single source of truth that every surface executes." }
+    { "lines": "9", "label": "فعل HTTP", "note": "اجعل هذا الإجراء متاحًا كنقطة نهاية HTTP تُركّب تلقائيًا." },
+    { "lines": "10", "label": "للقراءة فقط", "note": "تشير `readOnly` إلى أن الإجراء آمن للاستدعاء دون موافقة وقابل للتخزين المؤقت للاستعلامات." },
+    { "lines": "11-13", "label": "تنفيذ واحد", "note": "جسم `run` هو مصدر الحقيقة الوحيد الذي تنفذه كل الواجهات." }
   ]
 }
 ```
@@ -123,7 +123,7 @@ pnpm dev
 
 ```an-diagram title="إجراء واحد، على كل سطح" summary="يتم إرسال ملف defineAction واحد إلى كل مستهلك بدون أي أسلاك إضافية."
 {
-  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Scheduled jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
+  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">واجهة الدردشة</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">مهام مجدولة</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
   "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -138,7 +138,7 @@ pnpm dev
 ```an-callout
 {
   "tone": "info",
-  "body": "**Headless is still a real app.** The app-agent loop persists sessions, threads, runs, settings, and credentials in SQL — it is not a stateless prompt. You can add a UI later without touching your actions or state."
+  "body": "**لا يزال تطبيق Headless تطبيقًا حقيقيًا.** تستمر حلقة وكيل التطبيق في الجلسات والسلاسل وعمليات التشغيل والإعدادات وبيانات الاعتماد في SQL — وهي ليست مطالبة عديمة الحالة. يمكنك إضافة UI لاحقًا دون لمس أفعالك أو حالتك."
 }
 ```
 
@@ -165,7 +165,7 @@ export default function ChatRoute() {
   `useActionMutation()`.
 
 راجع [Drop-in Agent](/docs/drop-in-agent) للتعرف على مجموعة المكونات الكاملة، و
-[Native Chat UI](/docs/native-chat-ui) لعرض نتائج الإجراء على هيئة جداول
+[Native واجهة الدردشة](/docs/native-chat-ui) لعرض نتائج الإجراء على هيئة جداول
 المخططات والبطاقات المكتوبة بدلاً من النص العادي.
 
 **بدأت بدون رأس وتريد UI لاحقًا؟** قالب الدردشة _هو_ UI على الطريق المنحدر —
@@ -178,12 +178,12 @@ export default function ChatRoute() {
 
 ```text
 my-app/
-  actions/         # Agent-callable actions
-  app/             # React frontend (UI templates only; omitted when headless)
-  server/          # Nitro API server (routes, plugins)
-  AGENTS.md        # Always-on agent instructions
-  .agents/         # Skills the agent can pull in when relevant
-  data/app.db      # Local SQLite state when DATABASE_URL is unset
+  actions/         # إجراءات يمكن للوكيل استدعاؤها
+  app/             # واجهة React أمامية (لقوالب UI فقط؛ تُحذف في وضع headless)
+  server/          # خادم Nitro API (مسارات، إضافات)
+  AGENTS.md        # تعليمات الوكيل الدائمة
+  .agents/         # مهارات يمكن للوكيل جلبها عند الحاجة
+  data/app.db      # حالة SQLite محلية عند عدم ضبط DATABASE_URL
 ```
 
 ## إلى أين ستتجه بعد ذلك

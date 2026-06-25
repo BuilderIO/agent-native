@@ -1,5 +1,5 @@
 import { agentChat } from "@agent-native/core";
-import { usePinchZoom } from "@agent-native/core/client";
+import { usePinchZoom, useT } from "@agent-native/core/client";
 import { useRef, useEffect, useCallback, useMemo } from "react";
 
 // NOTE: This wires up the NEW shared visual-editor DrawOverlay + comment-pin
@@ -378,6 +378,7 @@ export function DesignCanvas({
   commentContextLabel,
   onPrototypeNavigate,
 }: DesignCanvasProps) {
+  const t = useT();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
@@ -402,10 +403,10 @@ export function DesignCanvas({
       NAV_BRIDGE_SCRIPT +
       (editMode ? EDIT_BRIDGE_SCRIPT : "");
     if (content.includes("</body>")) {
-      return content.replace("</body>", bridgeToInject + "</body>");
+      return content.replace("</body>", bridgeToInject + "</body>"); // i18n-ignore generated iframe HTML injection
     }
     if (content.includes("</html>")) {
-      return content.replace("</html>", bridgeToInject + "</html>");
+      return content.replace("</html>", bridgeToInject + "</html>"); // i18n-ignore generated iframe HTML injection
     }
     // No body/html tags — wrap it
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${content}${bridgeToInject}</body></html>`;
@@ -564,8 +565,9 @@ export function DesignCanvas({
         ref={iframeRef}
         srcDoc={srcdoc}
         sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+        data-design-preview-iframe
         className="border-0 bg-white block w-full h-full"
-        title="Design Preview"
+        title={t("designEditor.designPreview")}
       />
       {/* Draw-to-prompt overlay — sits over the iframe, NOT inside it. */}
       <SharedDrawOverlay

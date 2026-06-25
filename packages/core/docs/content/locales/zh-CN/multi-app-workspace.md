@@ -66,7 +66,7 @@ CLI 显示每个第一方模板的多选选择器。选择任意数量的邮件 
 
 ```bash
 cd my-company-platform
-cp .env.example .env             # fill in ANTHROPIC_API_KEY, BETTER_AUTH_SECRET, ...
+cp .env.example .env             # 填写ANTHROPIC_API_KEY、BETTER_AUTH_SECRET、...
 pnpm install
 pnpm dev                         # opens Dispatch; other apps start on first visit
 ```

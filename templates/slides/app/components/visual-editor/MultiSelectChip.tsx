@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconX, IconArrowRight } from "@tabler/icons-react";
 import { createPortal } from "react-dom";
 
@@ -26,6 +27,7 @@ export function MultiSelectChip({
   onClear,
   onSendToAgent,
 }: MultiSelectChipProps) {
+  const t = useT();
   if (count === 0) return null;
 
   // Position the chip top-center relative to the anchor (the slide canvas).
@@ -60,7 +62,9 @@ export function MultiSelectChip({
       }}
     >
       <span style={{ color: "#609FF8" }}>{count}</span>
-      <span style={{ color: "rgba(255,255,255,0.85)" }}>selected</span>
+      <span style={{ color: "rgba(255,255,255,0.85)" }}>
+        {t("raw.selected")}
+      </span>
       <button
         type="button"
         onClick={onSendToAgent}
@@ -79,13 +83,13 @@ export function MultiSelectChip({
           cursor: "pointer",
         }}
       >
-        Send to agent
+        {t("raw.sendToAgent")}
         <IconArrowRight size={12} stroke={3} />
       </button>
       <button
         type="button"
         onClick={onClear}
-        aria-label="Clear selection"
+        aria-label={t("raw.clearSelection")}
         style={{
           display: "inline-flex",
           alignItems: "center",

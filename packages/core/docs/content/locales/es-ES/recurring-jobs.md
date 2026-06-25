@@ -17,12 +17,12 @@ Los trabajos se encuentran en [workspace](/docs/workspace) en `jobs/<name>.md`: 
 {
   "filename": "jobs/morning-digest.md",
   "language": "markdown",
-  "code": "---\nschedule: \"0 7 * * *\"\nenabled: true\nrunAs: creator\n---\n\n# Morning digest\n\nSummarize the emails received overnight. Group by sender domain.\nPin the top 3 threads that look like they need a reply today to the\n\"Needs reply\" label. Draft replies for any that are obvious.",
+  "code": "---\nschedule: \"0 7 * * *\"\nenabled: true\nrunAs: creator\n---\n\n# Resumen matutino\n\nSummarize los correos electrónicos recibidos durante la noche. Agrupar por dominio del remitente.\nPin los 3 hilos principales que parecen necesitar una respuesta hoy a la etiqueta\n\"Necesita respuesta\". Borradores de respuestas para aquellos que sean obvios.",
   "annotations": [
-    { "lines": "2", "label": "When", "note": "Standard 5-field cron — `0 7 * * *` is every day at 07:00." },
-    { "lines": "3", "label": "Pause switch", "note": "Flip to `false` to stop the job without deleting it." },
-    { "lines": "4", "label": "Identity", "note": "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key." },
-    { "lines": "7-12", "label": "The prompt", "note": "The body is just a prompt — the agent runs it at each firing with all its normal tools and workspace context." }
+    { "lines": "2", "label": "cuando", "note": "Cron estándar de 5 campos: `0 7 * * *` es todos los días a las 07:00." },
+    { "lines": "3", "label": "interruptor de pausa", "note": "Flip to `false` to stop the job without deleting it." },
+    { "lines": "4", "label": "Identidad", "note": "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key." },
+    { "lines": "7-12", "label": "el aviso", "note": "El cuerpo es solo un mensaje: el agente lo ejecuta en cada disparo con todas sus herramientas normales y el contexto del espacio de trabajo." }
   ]
 }
 ```

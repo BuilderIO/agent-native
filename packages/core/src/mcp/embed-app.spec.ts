@@ -122,13 +122,18 @@ describe("embedApp", () => {
     expect(html).toContain('render.frame === "transplant"');
     expect(html).toContain("isClaudeMcpContentHost()");
     expect(html).toContain("if (isClaudeMcpContentHost()) return true;");
+    // ChatGPT is excluded from the transplant set — it uses the controlled
+    // nested frame, not cross-origin import() inside its sandbox.
     expect(html).toContain(
+      'isClaudeMcpContentHost() ||\n        mode === "transplant"',
+    );
+    expect(html).not.toContain(
       "isClaudeMcpContentHost() ||\n        isChatGptSandboxHost()",
     );
     // Standards-track MCP Apps hosts (Codex, Cursor, the SDK App fallback, and
     // our own renderer) keep the host bridge alive by rendering the real app in
     // a controlled child iframe. Transplant remains a fallback for strict
-    // Claude/ChatGPT-style hosts and explicit render-mode requests.
+    // Claude-style hosts and explicit render-mode requests.
     expect(html).not.toContain("function isNativeMcpAppsBridgeHost()");
     expect(html).not.toContain("isNativeMcpAppsBridgeHost() ||");
     expect(html).toContain(

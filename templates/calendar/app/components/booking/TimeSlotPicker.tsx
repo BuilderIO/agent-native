@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { format, parseISO } from "date-fns";
 
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,8 @@ export function TimeSlotPicker({
   onSelect,
   loading,
 }: TimeSlotPickerProps) {
+  const t = useT();
+
   if (loading) {
     return (
       <div className="grid grid-cols-3 gap-2">
@@ -29,7 +32,7 @@ export function TimeSlotPicker({
   if (slots.length === 0) {
     return (
       <p className="text-sm text-muted-foreground text-center py-4">
-        No available slots for this date.
+        {t("bookingLinks.noAvailableSlotsForDate")}
       </p>
     );
   }

@@ -15,7 +15,7 @@ Les éléments `name` et `description` de chaque compétence sont toujours injec
 
 ```an-diagram title="Divulgation progressive" summary="Seul le nom + la description de chaque compétence est toujours en contexte. Le corps entier se charge à la demande lorsque la tâche correspond."
 {
-  "html": "<div class=\"sk-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Always in the system prompt</span><div class=\"sk-list\"><span class=\"diagram-pill\">storing-data &mdash; <small class=\"diagram-muted\">add data models&hellip;</small></span><span class=\"diagram-pill\">real-time-sync &mdash; <small class=\"diagram-muted\">wire polling&hellip;</small></span><span class=\"diagram-pill\">create-skill &mdash; <small class=\"diagram-muted\">add a skill&hellip;</small></span></div><small class=\"diagram-muted\">just name + description (cheap)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><small class=\"diagram-muted\">task matches a description</small><span class=\"diagram-pill accent\">load on demand</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Full <code>SKILL.md</code> body<br><small class=\"diagram-muted\">rules, code, do/don't</small></div></div>",
+  "html": "<div class=\"sk-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Toujours dans le prompt système</span><div class=\"sk-list\"><span class=\"diagram-pill\">storing-data &mdash; <small class=\"diagram-muted\">add data models&hellip;</small></span><span class=\"diagram-pill\">real-time-sync &mdash; <small class=\"diagram-muted\">wire polling&hellip;</small></span><span class=\"diagram-pill\">create-skill &mdash; <small class=\"diagram-muted\">add a skill&hellip;</small></span></div><small class=\"diagram-muted\">just name + description (cheap)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><small class=\"diagram-muted\">task matches a description</small><span class=\"diagram-pill accent\">load on demand</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Full <code>SKILL.md</code> body<br><small class=\"diagram-muted\">règles, code, à faire / à éviter</small></div></div>",
   "css": ".sk-flow{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.sk-flow .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:240px}.sk-flow .sk-list{display:flex;flex-direction:column;gap:6px}.sk-flow .center{display:flex;flex-direction:column;align-items:center;gap:6px}.sk-flow .diagram-arrow{font-size:22px}"
 }
 ```
@@ -86,10 +86,10 @@ Chaque compétence est un fichier Markdown avec le thème principal YAML :
   "language": "markdown",
   "code": "---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import",
   "annotations": [
-    { "lines": "2", "label": "Discovery key", "note": "The `name` matches the folder; it is how the skill is invoked as `/project-imports`." },
-    { "lines": "3-5", "label": "The trigger", "note": "This `description` is the **only** text always in context. Make it state precisely *when* the skill applies." },
-    { "lines": "9-14", "label": "Rules first", "note": "Lead with the hard rule and the why; the agent reads the body only once the task matches." },
-    { "lines": "27-30", "label": "Cross-link", "note": "Point at related skills so the agent can chain them instead of re-deriving guidance." }
+    { "lines": "2", "label": "Clé de découverte", "note": "The `name` matches the folder; it is how the skill is invoked as `/project-imports`." },
+    { "lines": "3-5", "label": "Le déclencheur", "note": "Ce `description` est le **seul** texte toujours en contexte. Faites-le indiquer précisément *quand* la compétence s'applique." },
+    { "lines": "9-14", "label": "Les règles d'abord", "note": "Commencez par la règle stricte et le pourquoi ; l’agent ne lit le corps que lorsque la tâche correspond." },
+    { "lines": "27-30", "label": "Lien croisé", "note": "Pointez sur les compétences associées afin que l'agent puisse les enchaîner au lieu de rediriger les conseils." }
   ]
 }
 ```
@@ -132,7 +132,7 @@ Cela remplace l'ancien hack consistant à s'appuyer sur le code Claude lisant un
 
 ```an-diagram title="Quel agent charge quelle compétence" summary="scope décide si l'agent d'exécution intégré à l'application voit une compétence. Les compétences dev sont visibles uniquement par votre agent de codage."
 {
-"html": "<div class=\"sc-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill\">.agents/skills/</span><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: both</span><small class=\"diagram-muted\">default</small></div><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: runtime</span></div><div class=\"sc-row\"><span class=\"diagram-pill warn\">scope: dev</span></div></div><div class=\"sc-targets\"><div class=\"diagram-box\">Runtime agent<br><small class=\"diagram-muted\">reads <code>both</code> + <code>runtime</code></small></div><div class=\"diagram-box\">Coding agent<br><small class=\"diagram-muted\">Claude Code reads <code>.claude/skills/</code> + <code>dev</code></small></div></div></div>",
+"html": "<div class=\"sc-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill\">.agents/skills/</span><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: both</span><small class=\"diagram-muted\">default</small></div><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: runtime</span></div><div class=\"sc-row\"><span class=\"diagram-pill warn\">scope: dev</span></div></div><div class=\"sc-targets\"><div class=\"diagram-box\">Runtime agent<br><small class=\"diagram-muted\">reads <code>both</code> + <code>runtime</code></small></div><div class=\"diagram-box\">Agent de code<br><small class=\"diagram-muted\">Claude Code reads <code>.claude/skills/</code> + <code>dev</code></small></div></div></div>",
 "css": ".sc-grid{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}.sc-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.sc-grid .sc-row{display:flex;align-items:center;gap:8px}.sc-grid .sc-targets{display:flex;flex-direction:column;gap:10px}"
 }
 
@@ -199,30 +199,30 @@ Hosted est le chemin d’installation par défaut. Le lancement local est explic
 travail hors ligne ou utilisation sensible à la confidentialité.
 
 ```bash
-# Happy path: exported instructions plus hosted MCP connector.
+# Chemin heureux : instructions exportées et connecteur MCP hébergé.
 npx @agent-native/core@latest skills add visual-plan
 npx @agent-native/core@latest skills add assets
 
-# Repo-first Content docs/blog/MDX editing.
+# Édition docs/blog/MDX avec Content, d'abord dans le dépôt.
 npx @agent-native/core@latest skills add content --mode local-files --scope project
 
-# Vercel/open Skills CLI: exported instructions only, no MCP config.
+# Compétences Vercel/open CLI : instructions exportées uniquement, pas de configuration MCP.
 npx skills@latest add BuilderIO/agent-native --skill assets
 
-# Register a hosted MCP connector for local agent clients.
+# Enregistrez un connecteur MCP hébergé pour les clients d'agent locaux.
 npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
 
-# Materialize and run editable local source.
+# Matérialisez et exécutez une source locale modifiable.
 npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
 
-# Build marketplace adapters: Codex plugin, Claude marketplace, Vercel skills,
-# plain/Claude skills, and MCP configs.
+# Créez des adaptateurs de marché : plugin Codex, compétences Claude marketplace, Vercel,
+# Compétences plain/Claude et configurations MCP.
 npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
 
-# Install a local exported bundle with the Vercel/open Skills CLI.
+# Installez un bundle exporté local avec les compétences Vercel/open CLI.
 npx skills@latest add ./dist/assets-skill --skill assets -a codex -y
 
-# Add the generated Claude Code marketplace, then install its Assets plugin.
+# Ajoutez la place de marché Claude Code générée, puis installez son plugin Assets.
 claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace
 claude plugin install agent-native-assets@agent-native-apps
 ```
@@ -272,7 +272,7 @@ espace de travail). Actualisez ces skills échafaudés à partir du CLI actuel/d
 
 ```bash
 npm run skills:update
-# or, without relying on the local package script:
+# ou, sans compter sur le script du package local :
 npx @agent-native/core@latest skills update scaffold --project
 ```
 

@@ -1,4 +1,4 @@
-import { useActionMutation } from "@agent-native/core/client";
+import { useActionMutation, useT } from "@agent-native/core/client";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Exercise } from "@shared/types";
 import { IconPlus } from "@tabler/icons-react";
@@ -48,6 +48,7 @@ export function AddExerciseDialog({
   isOpen: controlledOpen,
   currentDate = new Date(),
 }: AddExerciseDialogProps) {
+  const t = useT();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
   const setOpen =
@@ -71,20 +72,20 @@ export function AddExerciseDialog({
 
   const createMutation = useActionMutation("log-exercise", {
     onSuccess: () => {
-      toast.success("Exercise logged");
+      toast.success(t("exercise.logged"));
       setOpen(false);
       form.reset();
     },
-    onError: () => toast.error("Failed to log exercise"),
+    onError: () => toast.error(t("exercise.logFailed")),
   });
 
   const updateMutation = useActionMutation("update-exercise", {
     onSuccess: () => {
-      toast.success("Exercise updated");
+      toast.success(t("exercise.updated"));
       setOpen(false);
       form.reset();
     },
-    onError: () => toast.error("Failed to update exercise"),
+    onError: () => toast.error(t("exercise.updateFailed")),
   });
 
   const handleOpenChange = (newOpen: boolean) => {
@@ -135,28 +136,28 @@ export function AddExerciseDialog({
       {!isEditing && (
         <DialogTrigger asChild>
           <Button size="sm" className="gap-1.5 h-8 rounded-md shadow-sm">
-            <IconPlus className="h-3.5 w-3.5" /> Log Exercise
+            <IconPlus className="h-3.5 w-3.5" /> {t("exercise.log")}
           </Button>
         </DialogTrigger>
       )}
       <DialogContent className="sm:max-w-[425px] gap-6">
         <DialogHeader>
           <DialogTitle>
-            {isEditing ? "Edit Exercise" : "Log Exercise"}
+            {isEditing ? t("exercise.edit") : t("exercise.log")}
           </DialogTitle>
           <DialogDescription className="sr-only">
             {isEditing
-              ? "Update the selected exercise entry."
-              : "Log an exercise with calories burned."}
+              ? t("exercise.updateDescription")
+              : t("exercise.logDescription")}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="exercise-name">Exercise</Label>
+            <Label htmlFor="exercise-name">{t("exercise.nameLabel")}</Label>
             <Input
               id="exercise-name"
               {...form.register("name")}
-              placeholder="e.g., Running, Cycling"
+              placeholder={t("exercise.namePlaceholder")}
               autoFocus
               autoComplete="off"
             />
@@ -167,7 +168,9 @@ export function AddExerciseDialog({
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="calories-burned">Calories Burned</Label>
+            <Label htmlFor="calories-burned">
+              {t("exercise.caloriesBurned")}
+            </Label>
             <Input
               id="calories-burned"
               type="number"
@@ -187,10 +190,10 @@ export function AddExerciseDialog({
             disabled={createMutation.isPending || updateMutation.isPending}
           >
             {createMutation.isPending || updateMutation.isPending
-              ? "Saving..."
+              ? t("common.saving")
               : isEditing
-                ? "Save Changes"
-                : "Log Exercise"}
+                ? t("common.saveChanges")
+                : t("exercise.log")}
           </Button>
         </form>
       </DialogContent>

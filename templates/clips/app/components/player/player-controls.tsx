@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconPlayerPlay,
   IconPlayerPause,
@@ -64,6 +65,7 @@ export interface PlayerControlsProps {
 }
 
 export function PlayerControls(props: PlayerControlsProps) {
+  const t = useT();
   const {
     isPlaying,
     durationMs,
@@ -199,7 +201,7 @@ export function PlayerControls(props: PlayerControlsProps) {
                 </button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>Playback speed</TooltipContent>
+            <TooltipContent>{t("playerControls.playbackSpeed")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent
             align="end"

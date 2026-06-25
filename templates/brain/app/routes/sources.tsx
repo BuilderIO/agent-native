@@ -1,4 +1,8 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconAlertTriangle,
   IconArchive,
@@ -89,6 +93,7 @@ import {
 
 type Provider = "manual" | "generic" | "clips" | "slack" | "granola" | "github";
 type CaptureStatusFilter = BrainCaptureReviewStatus | "all";
+type BrainT = ReturnType<typeof useT>;
 
 interface SourceFormState {
   title: string;
@@ -153,27 +158,32 @@ const providers: Array<{
   },
 ];
 
-function defaultTitle(provider: Provider) {
+function defaultTitle(provider: Provider, t?: ReturnType<typeof useT>) {
   switch (provider) {
     case "slack":
-      return "Slack knowledge channels";
+      return t?.("sources.defaultTitle.slack") ?? "Slack knowledge channels";
     case "granola":
-      return "Granola team notes";
+      return t?.("sources.defaultTitle.granola") ?? "Granola team notes";
     case "github":
-      return "GitHub product repos";
+      return t?.("sources.defaultTitle.github") ?? "GitHub product repos";
     case "clips":
-      return "Clips exports";
+      return t?.("sources.defaultTitle.clips") ?? "Clips exports";
     case "generic":
-      return "Generic transcript webhook";
+      return (
+        t?.("sources.defaultTitle.generic") ?? "Generic transcript webhook"
+      );
     case "manual":
     default:
-      return "Manual imports";
+      return t?.("sources.defaultTitle.manual") ?? "Manual imports";
   }
 }
 
-function defaultForm(provider: Provider): SourceFormState {
+function defaultForm(
+  provider: Provider,
+  t?: ReturnType<typeof useT>,
+): SourceFormState {
   return {
-    title: defaultTitle(provider),
+    title: defaultTitle(provider, t),
     provider,
     channelRefs: "",
     historyLimit: "15",
@@ -308,15 +318,21 @@ function shortDate(value?: string | null) {
   });
 }
 
-function syncDetail(source: BrainSource) {
+function syncDetail(source: BrainSource, t: BrainT) {
   const retry = sourceRetryAfter(source);
-  if (retry) return `Retry after ${shortDate(retry) ?? retry}`;
+  if (retry)
+    return t("sources.retryAfter", { date: shortDate(retry) ?? retry });
   if (source.lastError) return source.lastError;
   if (source.latestRun?.status === "error") {
-    return source.latestRun.error ?? "Last sync failed";
+    return source.latestRun.error ?? t("sources.lastSyncFailed");
   }
-  if (source.nextSyncAt) return `Next ${shortDate(source.nextSyncAt)}`;
-  return sourceAutoSync(source) ? "Waiting for first sync" : "Manual sync";
+  if (source.nextSyncAt)
+    return t("sources.nextSync", {
+      date: shortDate(source.nextSyncAt) ?? source.nextSyncAt,
+    });
+  return sourceAutoSync(source)
+    ? t("sources.waitingForFirstSync")
+    : t("sources.manualSync");
 }
 
 const captureStatusOptions: CaptureStatusFilter[] = [
@@ -327,43 +343,44 @@ const captureStatusOptions: CaptureStatusFilter[] = [
   "all",
 ];
 
-function captureStatusLabel(status: CaptureStatusFilter) {
+function captureStatusLabel(status: CaptureStatusFilter, t: BrainT) {
   switch (status) {
     case "queued":
-      return "Queued";
+      return t("sources.captureStatus.queued");
     case "distilling":
-      return "Distilling";
+      return t("sources.captureStatus.distilling");
     case "distilled":
-      return "Distilled";
+      return t("sources.captureStatus.distilled");
     case "ignored":
-      return "Ignored";
+      return t("sources.captureStatus.ignored");
     case "all":
     default:
-      return "All captures";
+      return t("sources.captureStatus.all");
   }
 }
 
-function queueStatusLabel(status: string) {
+function queueStatusLabel(status: string, t: BrainT) {
   switch (status) {
     case "processing":
-      return "Processing";
+      return t("sources.queueStatus.processing");
     case "done":
-      return "Done";
+      return t("sources.queueStatus.done");
     case "failed":
-      return "Failed";
+      return t("sources.queueStatus.failed");
     case "queued":
     default:
-      return "Queued";
+      return t("sources.queueStatus.queued");
   }
 }
 
 function queueActionLabel(
   queue: NonNullable<CapturesResponse["captures"]>[number]["distillationQueue"],
+  t: BrainT,
 ) {
-  if (!queue) return "Queue distill";
-  if (queue.status === "failed") return "Retry distill";
-  if (queue.status === "done") return "Distilled";
-  return "Queued";
+  if (!queue) return t("sources.queueDistill");
+  if (queue.status === "failed") return t("sources.retryDistill");
+  if (queue.status === "done") return t("sources.captureStatus.distilled");
+  return t("sources.queueStatus.queued");
 }
 
 function captureCanQueue(capture: BrainCaptureReviewItem) {
@@ -382,23 +399,24 @@ function dispatchIntegrationsHref(providerId: string) {
   return `/dispatch/integrations?${params.toString()}`;
 }
 
-function grantStateLabel(state: BrainWorkspaceConnectionGrantState) {
+function grantStateLabel(state: BrainWorkspaceConnectionGrantState, t: BrainT) {
   switch (state) {
     case "connected":
-      return "Connected";
+      return t("sources.grantState.connected");
     case "granted":
-      return "Granted";
+      return t("sources.grantState.granted");
     case "needs_grant":
-      return "Needs grant";
+      return t("sources.grantState.needsGrant");
     case "not_connected":
     default:
-      return "Not connected";
+      return t("sources.grantState.notConnected");
   }
 }
 
 function grantStateDetail(
   provider: BrainConnectionProvider,
   state: BrainWorkspaceConnectionGrantState,
+  t: BrainT,
 ) {
   const workspace = provider.workspaceConnection;
   if (workspace?.grantAvailabilityMessage) {
@@ -407,20 +425,22 @@ function grantStateDetail(
   const sourceCount = provider.configuredSourceCount.toLocaleString();
   switch (state) {
     case "connected":
-      return `${workspace?.activeConnectionCount ?? 0} active connection${
-        workspace?.activeConnectionCount === 1 ? "" : "s"
-      } granted to Brain`;
+      return t("sources.grantDetail.connected", {
+        count: (workspace?.activeConnectionCount ?? 0).toLocaleString(),
+      });
     case "granted":
-      return `Brain can access ${
-        workspace?.grantedConnectionCount ?? 0
-      } connection${workspace?.grantedConnectionCount === 1 ? "" : "s"}`;
+      return t("sources.grantDetail.granted", {
+        count: (workspace?.grantedConnectionCount ?? 0).toLocaleString(),
+      });
     case "needs_grant":
-      return "Connection exists in Dispatch; grant Brain access to reuse it";
+      return t("sources.grantDetail.needsGrant");
     case "not_connected":
     default:
       return provider.hasConfiguredSources
-        ? `${sourceCount} source${sourceCount === "1" ? "" : "s"} configured with scoped credentials`
-        : "No shared workspace connection yet";
+        ? t("sources.grantDetail.configuredSources", {
+            count: sourceCount,
+          })
+        : t("sources.grantDetail.noSharedConnection");
   }
 }
 
@@ -448,20 +468,20 @@ function readinessToneClass(tone: ReadinessTone) {
   }
 }
 
-function providerHealthLabel(provider: BrainConnectionProvider) {
+function providerHealthLabel(provider: BrainConnectionProvider, t: BrainT) {
   switch (provider.providerHealth?.status) {
     case "ready":
-      return "Ready";
+      return t("sources.providerHealth.ready");
     case "needs_grant":
-      return "Grant needed";
+      return t("sources.providerHealth.grantNeeded");
     case "unhealthy":
-      return "Needs repair";
+      return t("sources.providerHealth.needsRepair");
     case "missing_credentials":
-      return "Missing keys";
+      return t("sources.providerHealth.missingKeys");
     case "unsupported":
-      return "Metadata only";
+      return t("sources.providerHealth.metadataOnly");
     default:
-      return "Unknown";
+      return t("sources.providerHealth.unknown");
   }
 }
 
@@ -498,17 +518,20 @@ type BrainWorkspaceSummaryConnection = NonNullable<
   BrainConnectionProvider["workspaceConnection"]
 >["connections"][number];
 
-function appAccessLabel(access: BrainWorkspaceSummaryConnection["appAccess"]) {
+function appAccessLabel(
+  access: BrainWorkspaceSummaryConnection["appAccess"],
+  t: BrainT,
+) {
   switch (access?.mode) {
     case "all-apps":
-      return "All apps";
+      return t("sources.appAccess.allApps");
     case "allowed-app":
-      return "Brain allow-list";
+      return t("sources.appAccess.brainAllowList");
     case "explicit-grant":
-      return "Brain grant";
+      return t("sources.appAccess.brainGrant");
     case "unavailable":
     default:
-      return "Needs Brain grant";
+      return t("sources.appAccess.needsBrainGrant");
   }
 }
 
@@ -518,19 +541,22 @@ function appAccessClass(access: BrainWorkspaceSummaryConnection["appAccess"]) {
     : grantStateClass("needs_grant");
 }
 
-function workspaceStatusLabel(status: BrainWorkspaceConnectionStatus) {
+function workspaceStatusLabel(
+  status: BrainWorkspaceConnectionStatus,
+  t: BrainT,
+) {
   switch (status) {
     case "connected":
-      return "Connected";
+      return t("sources.workspaceStatus.connected");
     case "checking":
-      return "Checking";
+      return t("sources.workspaceStatus.checking");
     case "needs_reauth":
-      return "Needs reauth";
+      return t("sources.workspaceStatus.needsReauth");
     case "error":
-      return "Error";
+      return t("sources.workspaceStatus.error");
     case "disabled":
     default:
-      return "Disabled";
+      return t("sources.workspaceStatus.disabled");
   }
 }
 
@@ -629,53 +655,53 @@ function countLabel(count: number, singular: string, plural = `${singular}s`) {
 
 function sharedConnectionReadiness(
   provider: BrainConnectionProvider,
+  t: BrainT,
 ): ProviderReadinessItem {
   const workspace = provider.workspaceConnection;
   if (!workspace) {
     return {
-      label: "Shared connection",
-      value: "Checking",
-      detail: "Workspace connection status has not loaded yet.",
+      label: t("sources.sharedConnection"),
+      value: t("sources.workspaceStatus.checking"),
+      detail: t("sources.readiness.workspaceNotLoaded"),
       tone: "muted",
       icon: IconCircleDashed,
     };
   }
   if (workspace.hasActiveWorkspaceConnection) {
     return {
-      label: "Shared connection",
-      value: "Connected",
-      detail: `${countLabel(
-        workspace.activeConnectionCount,
-        "active connection",
-      )} can provide credential refs.`,
+      label: t("sources.sharedConnection"),
+      value: t("sources.workspaceStatus.connected"),
+      detail: t("sources.readiness.activeConnections", {
+        count: workspace.activeConnectionCount.toLocaleString(),
+      }),
       tone: "ready",
       icon: IconCircleCheck,
     };
   }
   if (workspace.hasGrantedWorkspaceConnection) {
     return {
-      label: "Shared connection",
-      value: "Repair",
-      detail: "Brain has a grant, but the provider connection needs attention.",
+      label: t("sources.sharedConnection"),
+      value: t("sources.readiness.repair"),
+      detail: t("sources.readiness.grantNeedsAttention"),
       tone: "attention",
       icon: IconAlertTriangle,
     };
   }
   if (workspace.hasWorkspaceConnection) {
     return {
-      label: "Shared connection",
-      value: "Grantable",
-      detail: "A workspace connection exists and can be granted to Brain.",
+      label: t("sources.sharedConnection"),
+      value: t("sources.readiness.grantable"),
+      detail: t("sources.readiness.workspaceConnectionGrantable"),
       tone: "attention",
       icon: IconShieldCheck,
     };
   }
   return {
-    label: "Shared connection",
-    value: "Not connected",
+    label: t("sources.sharedConnection"),
+    value: t("sources.grantState.notConnected"),
     detail: scopedCredentialCount(provider)
-      ? "Brain can still use scoped local credential refs."
-      : "Add a reusable provider connection in Dispatch.",
+      ? t("sources.readiness.scopedLocalCredentialRefs")
+      : t("sources.readiness.addReusableConnection"),
     tone: "muted",
     icon: IconCircleDashed,
   };
@@ -683,36 +709,42 @@ function sharedConnectionReadiness(
 
 function appGrantReadiness(
   provider: BrainConnectionProvider,
+  t: BrainT,
 ): ProviderReadinessItem {
   const workspace = provider.workspaceConnection;
   const grantState = workspace?.grantState ?? "not_connected";
   if (grantState === "connected" || grantState === "granted") {
     return {
-      label: "Brain app grant",
-      value: grantState === "connected" ? "Granted" : "Granted, repair",
+      label: t("sources.brainAppGrant"),
+      value:
+        grantState === "connected"
+          ? t("sources.grantState.granted")
+          : t("sources.readiness.grantedRepair"),
       detail:
         grantState === "connected"
-          ? "Brain can use the shared workspace connection."
-          : "Access is granted, but the connection is not active yet.",
+          ? t("sources.readiness.brainCanUseSharedConnection")
+          : t("sources.readiness.accessGrantedConnectionInactive"),
       tone: grantState === "connected" ? "ready" : "attention",
       icon: grantStateIcon(grantState),
     };
   }
   if (grantState === "needs_grant") {
     return {
-      label: "Brain app grant",
-      value: "Needed",
-      detail: "Grant the existing provider connection to the Brain app.",
+      label: t("sources.brainAppGrant"),
+      value: t("sources.readiness.needed"),
+      detail: t("sources.readiness.grantExistingConnection"),
       tone: "attention",
       icon: IconAlertTriangle,
     };
   }
   return {
-    label: "Brain app grant",
-    value: scopedCredentialCount(provider) ? "Not needed" : "No grant",
+    label: t("sources.brainAppGrant"),
+    value: scopedCredentialCount(provider)
+      ? t("sources.readiness.notNeeded")
+      : t("sources.readiness.noGrant"),
     detail: scopedCredentialCount(provider)
-      ? "Scoped Brain credentials are already available."
-      : "A grant appears after a workspace provider connection exists.",
+      ? t("sources.readiness.scopedCredentialsAvailable")
+      : t("sources.readiness.grantAppearsAfterConnection"),
     tone: "muted",
     icon: IconCircleDashed,
   };
@@ -720,22 +752,23 @@ function appGrantReadiness(
 
 function credentialPathReadiness(
   provider: BrainConnectionProvider,
+  t: BrainT,
 ): ProviderReadinessItem {
   const health = provider.credentialHealth;
   if (!health) {
     return {
-      label: "Credential path",
-      value: "Checking",
-      detail: "Credential availability has not loaded yet.",
+      label: t("sources.credentialPath"),
+      value: t("sources.workspaceStatus.checking"),
+      detail: t("sources.readiness.credentialNotLoaded"),
       tone: "muted",
       icon: IconCircleDashed,
     };
   }
   if (health.status === "not_required") {
     return {
-      label: "Credential path",
-      value: "Not required",
-      detail: "This provider does not require a credential key.",
+      label: t("sources.credentialPath"),
+      value: t("sources.notRequired"),
+      detail: t("sources.readiness.noCredentialKeyRequired"),
       tone: "ready",
       icon: IconCircleCheck,
     };
@@ -744,46 +777,46 @@ function credentialPathReadiness(
   const available = availableCredentialDetails(provider)[0];
   if (available?.provenance?.source === "workspace_connection") {
     return {
-      label: "Credential path",
-      value: "Shared",
-      detail: "Using workspace credential refs; values stay hidden.",
+      label: t("sources.credentialPath"),
+      value: t("sources.readiness.shared"),
+      detail: t("sources.readiness.usingWorkspaceCredentialRefs"),
       tone: "ready",
       icon: IconShieldCheck,
     };
   }
   if (available?.provenance?.source === "brain_local") {
     return {
-      label: "Credential path",
-      value: "Brain-local",
-      detail: "Scoped Brain credential refs are configured.",
+      label: t("sources.credentialPath"),
+      value: t("sources.readiness.brainLocal"),
+      detail: t("sources.readiness.scopedCredentialRefsConfigured"),
       tone: "ready",
       icon: IconShieldCheck,
     };
   }
   if (available?.provenance?.source === "registered_secret") {
     return {
-      label: "Credential path",
-      value: "Vault",
-      detail: "A registered credential ref is available in the vault.",
+      label: t("sources.credentialPath"),
+      value: t("sources.readiness.vault"),
+      detail: t("sources.readiness.registeredCredentialRefAvailable"),
       tone: "ready",
       icon: IconShieldCheck,
     };
   }
   if (health.available) {
     return {
-      label: "Credential path",
-      value: "Available",
-      detail: "Required credential refs are available without exposing values.",
+      label: t("sources.credentialPath"),
+      value: t("sources.readiness.available"),
+      detail: t("sources.readiness.requiredCredentialRefsAvailable"),
       tone: "ready",
       icon: IconShieldCheck,
     };
   }
   return {
-    label: "Credential path",
-    value: "Missing",
+    label: t("sources.credentialPath"),
+    value: t("sources.readiness.missing"),
     detail:
       health.missingMessages[0] ??
-      "Add a shared provider connection or scoped Brain credential.",
+      t("sources.readiness.addSharedOrScopedCredential"),
     tone: "danger",
     icon: IconAlertTriangle,
   };
@@ -791,135 +824,136 @@ function credentialPathReadiness(
 
 function providerConnectionReadiness(
   provider: BrainConnectionProvider,
+  t: BrainT,
 ): ProviderReadinessItem {
   const workspace = provider.workspaceConnection;
   const health = provider.providerHealth?.status;
   if (!provider.sourceProviderSupported) {
     return {
-      label: "Provider connection",
-      value: "Metadata only",
-      detail: "Brain source setup is not implemented for this provider.",
+      label: t("sources.providerConnection"),
+      value: t("sources.providerHealth.metadataOnly"),
+      detail: t("sources.readiness.sourceSetupNotImplemented"),
       tone: "muted",
       icon: IconCircleDashed,
     };
   }
   if (health === "ready") {
     return {
-      label: "Provider connection",
-      value: "Ready",
+      label: t("sources.providerConnection"),
+      value: t("sources.providerHealth.ready"),
       detail: workspace?.hasActiveWorkspaceConnection
-        ? "Ready through a shared workspace connection."
+        ? t("sources.readiness.readyThroughSharedConnection")
         : scopedCredentialCount(provider)
-          ? "Ready through scoped Brain credential refs."
-          : "Ready for source setup.",
+          ? t("sources.readiness.readyThroughScopedRefs")
+          : t("sources.readiness.readyForSourceSetup"),
       tone: "ready",
       icon: IconCircleCheck,
     };
   }
   if (health === "needs_grant") {
     return {
-      label: "Provider connection",
-      value: "Needs grant",
-      detail: "The provider is connected, but Brain needs app access.",
+      label: t("sources.providerConnection"),
+      value: t("sources.providerHealth.grantNeeded"),
+      detail: t("sources.readiness.providerNeedsAppAccess"),
       tone: "attention",
       icon: IconAlertTriangle,
     };
   }
   if (health === "unhealthy") {
     return {
-      label: "Provider connection",
-      value: "Repair",
-      detail: "Reauthorize or repair the shared provider connection.",
+      label: t("sources.providerConnection"),
+      value: t("sources.readiness.repair"),
+      detail: t("sources.readiness.reauthorizeProviderConnection"),
       tone: "attention",
       icon: IconAlertTriangle,
     };
   }
   if (health === "missing_credentials" && !workspace?.hasWorkspaceConnection) {
     return {
-      label: "Provider connection",
-      value: "Connect provider",
-      detail: "Add a shared connection or configure scoped Brain credentials.",
+      label: t("sources.providerConnection"),
+      value: t("sources.connectProvider"),
+      detail: t("sources.readiness.addSharedOrScopedCredential"),
       tone: "danger",
       icon: IconAlertTriangle,
     };
   }
   return {
-    label: "Provider connection",
-    value: providerHealthLabel(provider),
+    label: t("sources.providerConnection"),
+    value: providerHealthLabel(provider, t),
     detail:
       provider.providerHealth?.message ??
-      "Provider readiness could not be determined.",
+      t("sources.readiness.providerUnknown"),
     tone: health === "missing_credentials" ? "danger" : "muted",
     icon:
       health === "missing_credentials" ? IconAlertTriangle : IconCircleDashed,
   };
 }
 
-function providerReadinessItems(provider: BrainConnectionProvider) {
+function providerReadinessItems(provider: BrainConnectionProvider, t: BrainT) {
   return [
-    sharedConnectionReadiness(provider),
-    appGrantReadiness(provider),
-    providerConnectionReadiness(provider),
-    credentialPathReadiness(provider),
+    sharedConnectionReadiness(provider, t),
+    appGrantReadiness(provider, t),
+    providerConnectionReadiness(provider, t),
+    credentialPathReadiness(provider, t),
   ];
 }
 
 function providerReadinessCallout(
   provider: BrainConnectionProvider,
+  t: BrainT,
 ): ProviderReadinessItem & { title: string } {
   const workspace = provider.workspaceConnection;
   if (!provider.sourceProviderSupported) {
     return {
-      ...providerConnectionReadiness(provider),
-      title: "Connection metadata only",
+      ...providerConnectionReadiness(provider, t),
+      title: t("sources.connectionMetadataOnly"),
     };
   }
   if (workspace?.hasActiveWorkspaceConnection) {
     return {
-      label: "Readiness",
-      value: "Shared",
-      title: "Shared workspace connection ready",
-      detail: "Brain can reuse the provider connection without showing values.",
+      label: t("sources.readinessLabel"),
+      value: t("sources.readiness.shared"),
+      title: t("sources.sharedWorkspaceConnectionReady"),
+      detail: t("sources.readiness.reuseProviderConnection"),
       tone: "ready",
       icon: IconCircleCheck,
     };
   }
   if (workspace?.grantState === "needs_grant") {
     return {
-      label: "Readiness",
-      value: "Grant needed",
-      title: "Grant Brain access",
-      detail:
-        "A workspace provider connection exists; approve Brain to use it.",
+      label: t("sources.readinessLabel"),
+      value: t("sources.providerHealth.grantNeeded"),
+      title: t("sources.grantBrainAccess"),
+      detail: t("sources.readiness.approveBrainAccess"),
       tone: "attention",
       icon: IconAlertTriangle,
     };
   }
   if (scopedCredentialCount(provider)) {
     return {
-      label: "Readiness",
-      value: "Local",
-      title: "Scoped credentials ready",
-      detail: "Brain has local credential refs available; values stay hidden.",
+      label: t("sources.readinessLabel"),
+      value: t("sources.readiness.local"),
+      title: t("sources.scopedCredentialsReady"),
+      detail: t("sources.readiness.localCredentialRefsAvailable"),
       tone: "ready",
       icon: IconShieldCheck,
     };
   }
   if (provider.credentialHealth?.status === "not_required") {
     return {
-      label: "Readiness",
-      value: "Ready",
-      title: "No credential required",
-      detail: "This provider can be configured without a credential key.",
+      label: t("sources.readinessLabel"),
+      value: t("sources.providerHealth.ready"),
+      title: t("sources.noCredentialRequired"),
+      detail: t("sources.readiness.providerNoCredential"),
       tone: "ready",
       icon: IconCircleCheck,
     };
   }
   return {
-    label: "Readiness",
-    value: "Connect",
-    title: "Connect the provider",
-    detail: "Add a shared provider connection or scoped Brain credential.",
+    label: t("sources.readinessLabel"),
+    value: t("sources.readiness.connect"),
+    title: t("sources.connectTheProvider"),
+    detail: t("sources.readiness.addSharedOrScopedCredential"),
     tone: "danger",
     icon: IconAlertTriangle,
   };
@@ -958,27 +992,28 @@ function provenanceLabel(
       BrainConnectionProvider["credentialHealth"]
     >["details"][number]["provenance"]
   >,
+  t: BrainT,
 ) {
   switch (provenance.source) {
     case "workspace_connection":
       return [
-        provenance.connectionLabel ?? "Workspace connection",
+        provenance.connectionLabel ?? t("sources.workspaceConnection"),
         provenance.appAccessMode === "explicit-grant"
-          ? "explicit Brain grant"
+          ? t("sources.provenance.explicitBrainGrant")
           : provenance.appAccessMode === "all-apps"
-            ? "all apps"
+            ? t("sources.appAccess.allApps")
             : provenance.appAccessMode === "allowed-app"
-              ? "Brain allow-list"
+              ? t("sources.appAccess.brainAllowList")
               : null,
       ]
         .filter(Boolean)
         .join(" - ");
     case "brain_local":
-      return "Brain-local credential";
+      return t("sources.provenance.brainLocalCredential");
     case "registered_secret":
-      return "Credential vault";
+      return t("sources.provenance.credentialVault");
     default:
-      return "Credential source";
+      return t("sources.provenance.credentialSource");
   }
 }
 
@@ -993,6 +1028,7 @@ function ProviderCatalog({
   workspaceError?: string | null;
   onAddSource: (provider: Provider) => void;
 }) {
+  const t = useT();
   const [expandedProviderId, setExpandedProviderId] = useState<string | null>(
     null,
   );
@@ -1003,17 +1039,20 @@ function ProviderCatalog({
         <div>
           <div className="flex items-center gap-2">
             <IconDatabaseImport className="size-4 text-muted-foreground" />
-            <h2 className="text-sm font-medium">Connection providers</h2>
+            <h2 className="text-sm font-medium">
+              {t("sources.connectionProviders")}
+            </h2>
           </div>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-            Reuse workspace integrations, grant Brain access, or add Brain-local
-            sources without exposing credential values.
+            {t("sources.connectionProvidersDescription")}
           </p>
         </div>
         <Badge variant="outline" className="w-fit max-w-full">
           {loading
-            ? "Loading"
-            : `${connectionProviders.length.toLocaleString()} providers`}
+            ? t("sources.loading")
+            : t("sources.providerCount", {
+                count: connectionProviders.length.toLocaleString(),
+              })}
         </Badge>
       </div>
 
@@ -1021,7 +1060,7 @@ function ProviderCatalog({
         <div className="rounded-md border border-border bg-card p-4 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
             <IconLoader2 className="size-4 animate-spin" />
-            Loading provider catalog...
+            {t("sources.loadingProviderCatalog")}
           </div>
         </div>
       ) : connectionProviders.length ? (
@@ -1049,9 +1088,9 @@ function ProviderCatalog({
               ? sourceProviderIcon(sourceProvider)
               : IconDatabaseImport;
             const expanded = expandedProviderId === provider.id;
-            const readinessCallout = providerReadinessCallout(provider);
+            const readinessCallout = providerReadinessCallout(provider, t);
             const ReadinessIcon = readinessCallout.icon;
-            const readinessItems = providerReadinessItems(provider);
+            const readinessItems = providerReadinessItems(provider, t);
             return (
               <div
                 key={provider.id}
@@ -1067,7 +1106,7 @@ function ProviderCatalog({
                       <p className="mt-1 text-xs text-muted-foreground">
                         {provider.hasConfiguredSources
                           ? `${provider.configuredSourceCount.toLocaleString()} configured`
-                          : "No Brain sources yet"}
+                          : t("sources.noBrainSourcesYet")}
                       </p>
                     </div>
                   </div>
@@ -1076,19 +1115,19 @@ function ProviderCatalog({
                     className={`${grantStateClass(grantState)} w-fit max-w-full`}
                   >
                     <GrantIcon className="me-1 size-3" />
-                    {grantStateLabel(grantState)}
+                    {grantStateLabel(grantState, t)}
                   </Badge>
                   <Badge
                     variant="outline"
                     className={`${providerHealthClass(provider)} w-fit max-w-full`}
                   >
-                    {providerHealthLabel(provider)}
+                    {providerHealthLabel(provider, t)}
                   </Badge>
                 </div>
 
                 <p className="text-xs leading-5 text-muted-foreground">
                   {provider.providerHealth?.message ??
-                    grantStateDetail(provider, grantState)}
+                    grantStateDetail(provider, grantState, t)}
                 </p>
 
                 <div className="rounded-md border border-border bg-muted/25 p-3">
@@ -1131,10 +1170,10 @@ function ProviderCatalog({
                     <div className="grid gap-2">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          Connection readiness
+                          {t("sources.connectionReadiness")}
                         </p>
                         <span className="truncate text-xs text-muted-foreground">
-                          Values hidden
+                          {t("sources.valuesHidden")}
                         </span>
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2">
@@ -1149,8 +1188,8 @@ function ProviderCatalog({
                     <div>
                       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                         {credentialRefs.length
-                          ? "Credential refs"
-                          : "Catalog keys"}
+                          ? t("sources.credentialRefs")
+                          : t("sources.catalogKeys")}
                       </p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {credentialBadges.length ? (
@@ -1161,7 +1200,7 @@ function ProviderCatalog({
                           ))
                         ) : (
                           <span className="text-xs text-muted-foreground">
-                            No credential keys required
+                            {t("sources.noCredentialKeysRequired")}
                           </span>
                         )}
                       </div>
@@ -1175,23 +1214,12 @@ function ProviderCatalog({
                       <div className="grid gap-2 rounded-md border border-border bg-card p-3">
                         <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                           <IconBrandSlack className="size-4" />
-                          Slack setup guide
+                          {t("sources.slackSetupGuide")}
                         </div>
                         <div className="grid gap-1 text-xs leading-5 text-muted-foreground">
-                          <p>
-                            Allow-list approved channel IDs such as C0123456789,
-                            or channel names like #product when name resolution
-                            is acceptable.
-                          </p>
-                          <p>
-                            Minimum scopes are channels:read and
-                            channels:history. Add groups:read and groups:history
-                            for private channels.
-                          </p>
-                          <p>
-                            Invite the Slack app to private channels before
-                            syncing. DMs and MPIMs stay excluded.
-                          </p>
+                          <p>{t("sources.slackSetupAllowList")}</p>
+                          <p>{t("sources.slackSetupScopes")}</p>
+                          <p>{t("sources.slackSetupPrivateChannels")}</p>
                         </div>
                       </div>
                     ) : null}
@@ -1204,7 +1232,7 @@ function ProviderCatalog({
                               {credential.required ? (
                                 <span className="text-muted-foreground">
                                   {" "}
-                                  required
+                                  {t("sources.required")}
                                 </span>
                               ) : null}
                             </p>
@@ -1220,7 +1248,7 @@ function ProviderCatalog({
                     {provider.credentialHealth?.details.length ? (
                       <div className="grid gap-2">
                         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          Credential provenance
+                          {t("sources.credentialProvenance")}
                         </p>
                         {provider.credentialHealth.details.map((detail) => (
                           <div
@@ -1237,12 +1265,14 @@ function ProviderCatalog({
                                     : readinessToneClass("danger")
                                 }
                               >
-                                {detail.available ? "Available" : "Missing"}
+                                {detail.available
+                                  ? t("sources.readiness.available")
+                                  : t("sources.readiness.missing")}
                               </Badge>
                             </div>
                             <p className="mt-1 text-xs leading-5 text-muted-foreground">
                               {detail.provenance
-                                ? provenanceLabel(detail.provenance)
+                                ? provenanceLabel(detail.provenance, t)
                                 : detail.missingMessage}
                             </p>
                           </div>
@@ -1252,7 +1282,7 @@ function ProviderCatalog({
                     {workspace?.connections.length ? (
                       <div className="grid gap-2">
                         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          Workspace connections
+                          {t("sources.workspaceConnections")}
                         </p>
                         {workspace.connections.map((connection) => {
                           const refs = [
@@ -1282,7 +1312,7 @@ function ProviderCatalog({
                                       connection.status,
                                     )}
                                   >
-                                    {workspaceStatusLabel(connection.status)}
+                                    {workspaceStatusLabel(connection.status, t)}
                                   </Badge>
                                   <Badge
                                     variant="outline"
@@ -1290,7 +1320,7 @@ function ProviderCatalog({
                                       connection.appAccess,
                                     )}
                                   >
-                                    {appAccessLabel(connection.appAccess)}
+                                    {appAccessLabel(connection.appAccess, t)}
                                   </Badge>
                                 </div>
                               </div>
@@ -1307,7 +1337,7 @@ function ProviderCatalog({
                                 </div>
                               ) : (
                                 <p className="text-xs text-muted-foreground">
-                                  No credential refs on this connection
+                                  {t("sources.noCredentialRefs")}
                                 </p>
                               )}
                               {connection.lastError ? (
@@ -1321,15 +1351,12 @@ function ProviderCatalog({
                       </div>
                     ) : (
                       <p className="text-xs leading-5 text-muted-foreground">
-                        No shared workspace connection has been registered for
-                        this provider yet.
+                        {t("sources.noSharedWorkspaceConnection")}
                       </p>
                     )}
                     {!provider.sourceProviderSupported ? (
                       <p className="text-xs leading-5 text-muted-foreground">
-                        Brain can reuse this connection metadata, but source
-                        setup for this provider has not been added to this
-                        template yet.
+                        {t("sources.connectionMetadataOnlyDetail")}
                       </p>
                     ) : null}
                   </div>
@@ -1347,13 +1374,13 @@ function ProviderCatalog({
                     }
                   >
                     <IconSettings2 className="size-4" />
-                    {expanded ? "Hide details" : "Details"}
+                    {expanded ? t("sources.hideDetails") : t("sources.details")}
                   </Button>
                   {grantState === "needs_grant" ? (
                     <Button size="sm" variant="outline" asChild>
                       <a href={dispatchIntegrationsHref(provider.id)}>
                         <IconExternalLink className="size-4" />
-                        Grant in Dispatch
+                        {t("sources.grantInDispatch")}
                       </a>
                     </Button>
                   ) : null}
@@ -1364,7 +1391,7 @@ function ProviderCatalog({
                       onClick={() => onAddSource(sourceProvider)}
                     >
                       <IconDatabaseImport className="size-4" />
-                      Add source
+                      {t("sources.addSource")}
                     </Button>
                   ) : null}
                 </div>
@@ -1374,12 +1401,12 @@ function ProviderCatalog({
         </div>
       ) : (
         <div className="rounded-md border border-border bg-card p-4 text-sm text-muted-foreground">
-          No Brain connection providers are available from the shared catalog.
+          {t("sources.noConnectionProviders")}
         </div>
       )}
       {workspaceError ? (
         <div className="rounded-md border border-border bg-card p-4 text-sm text-muted-foreground">
-          Workspace integration status is unavailable: {workspaceError}
+          {t("sources.workspaceStatusUnavailable", { error: workspaceError })}
         </div>
       ) : null}
     </section>
@@ -1393,6 +1420,7 @@ function BrainHealthStrip({
   health?: BrainHealthResponse;
   loading: boolean;
 }) {
+  const t = useT();
   const attention =
     (health?.sources.needsSetup ?? 0) +
     (health?.sources.needsSync ?? 0) +
@@ -1407,39 +1435,47 @@ function BrainHealthStrip({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <IconReportAnalytics className="size-4 text-muted-foreground" />
-            <h2 className="text-sm font-medium">Brain health</h2>
+            <h2 className="text-sm font-medium">{t("sources.brainHealth")}</h2>
             {loading ? (
               <Badge variant="outline" className="gap-1.5">
                 <IconLoader2 className="size-3 animate-spin" />
-                Checking
+                {t("sources.workspaceStatus.checking")}
               </Badge>
             ) : null}
           </div>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            {nextStep ??
-              "Sources, review queue, and retrieval checks are ready for normal use."}
+            {nextStep ?? t("sources.healthReady")}
           </p>
         </div>
         <div className="grid gap-2 sm:grid-flow-col sm:auto-cols-max">
           <Badge variant="outline" className="justify-center gap-1.5">
             <IconCircleCheck className="size-3" />
-            {health?.sources.healthy ?? 0}/{health?.sources.total ?? 0} healthy
+            {t("sources.healthHealthy", {
+              healthy: (health?.sources.healthy ?? 0).toLocaleString(),
+              total: (health?.sources.total ?? 0).toLocaleString(),
+            })}
           </Badge>
           {attention ? (
             <Badge variant="outline" className="justify-center gap-1.5">
               <IconAlertTriangle className="size-3" />
-              {attention} attention
+              {t("sources.healthAttention", {
+                count: attention.toLocaleString(),
+              })}
             </Badge>
           ) : null}
           <Badge variant="outline" className="justify-center gap-1.5">
             <IconClock className="size-3" />
             {health?.sources.lastSyncedAt
-              ? `Last sync ${shortDate(health.sources.lastSyncedAt)}`
-              : "No sync yet"}
+              ? t("sources.lastSyncWithDate", {
+                  date: shortDate(health.sources.lastSyncedAt),
+                })
+              : t("sources.noSyncYet")}
           </Badge>
           {lastEval ? (
             <Badge variant="outline" className="justify-center gap-1.5">
-              Eval {Math.round(lastEval.score * 100)}%
+              {t("sources.evalScore", {
+                score: Math.round(lastEval.score * 100).toLocaleString(),
+              })}
             </Badge>
           ) : null}
         </div>
@@ -1472,6 +1508,7 @@ function SourceListItem({
   onSync: () => void;
   onTune: () => void;
 }) {
+  const t = useT();
   const Icon = sourceProviderIcon(source.provider);
   const retry = sourceRetryAfter(source);
   const hasSyncNotice = Boolean(
@@ -1504,7 +1541,7 @@ function SourceListItem({
                 </Badge>
                 {nextSync ? (
                   <span className="text-xs text-muted-foreground">
-                    Next sync {nextSync}
+                    {t("sources.nextSync", { date: nextSync })}
                   </span>
                 ) : null}
               </div>
@@ -1522,20 +1559,22 @@ function SourceListItem({
             }
           >
             <SourceFact
-              label="Captures"
+              label={t("sources.captures")}
               value={(source.recordCount ?? 0).toLocaleString()}
             />
             <SourceFact
-              label="Last sync"
-              value={shortDate(sourceLastSync(source)) ?? "Never"}
+              label={t("sources.lastSync")}
+              value={shortDate(sourceLastSync(source)) ?? t("sources.never")}
             />
-            {coverage ? <SourceFact label="Coverage" value={coverage} /> : null}
+            {coverage ? (
+              <SourceFact label={t("sources.coverage")} value={coverage} />
+            ) : null}
           </div>
 
           <div className="flex items-center justify-end gap-2">
             <Button size="sm" variant="outline" onClick={onReview}>
               <IconFileSearch className="size-4" />
-              Captures
+              {t("sources.captures")}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1543,7 +1582,9 @@ function SourceListItem({
                   size="icon"
                   variant="ghost"
                   className="size-9"
-                  aria-label={`More actions for ${sourceName(source)}`}
+                  aria-label={t("sources.moreActionsFor", {
+                    source: sourceName(source),
+                  })}
                 >
                   <IconDotsVertical className="size-4" />
                 </Button>
@@ -1551,11 +1592,11 @@ function SourceListItem({
               <DropdownMenuContent align="end" className="w-40">
                 <DropdownMenuItem disabled={syncPending} onSelect={onSync}>
                   <IconRefresh className="size-4" />
-                  Sync now
+                  {t("sources.syncNow")}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={onTune}>
                   <IconSettings2 className="size-4" />
-                  Tune source
+                  {t("sources.tuneSource")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1573,7 +1614,7 @@ function SourceListItem({
           <div className="mt-3 flex gap-2 rounded-md border border-border bg-muted/25 px-3 py-2 text-sm">
             <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             <p className="min-w-0 truncate text-muted-foreground">
-              {syncDetail(source)}
+              {syncDetail(source, t)}
             </p>
           </div>
         ) : null}
@@ -1583,6 +1624,7 @@ function SourceListItem({
 }
 
 export default function SourcesRoute() {
+  const t = useT();
   const [params, setParams] = useSearchParams();
   const type = params.get("type") ?? "all";
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -1597,7 +1639,9 @@ export default function SourcesRoute() {
   );
   const [bulkResult, setBulkResult] =
     useState<EnqueueCapturesDistillationResponse | null>(null);
-  const [form, setForm] = useState<SourceFormState>(() => defaultForm("slack"));
+  const [form, setForm] = useState<SourceFormState>(() =>
+    defaultForm("slack", t),
+  );
 
   const sourcesQuery = useActionQuery<SourcesResponse>(
     "list-sources" as any,
@@ -1662,9 +1706,8 @@ export default function SourcesRoute() {
     { captureId: string; status: "ignored" }
   >("mark-capture-distilled" as any);
 
-  const sources: BrainSource[] = sourcesQuery.data?.sources ?? [];
-  const connectionProviders: BrainConnectionProvider[] =
-    connectionProvidersQuery.data?.providers ?? [];
+  const sources = sourcesQuery.data?.sources ?? [];
+  const connectionProviders = connectionProvidersQuery.data?.providers ?? [];
   const formProviderMetadata = providerMetadataForSource(
     connectionProviders,
     form.provider,
@@ -1682,7 +1725,7 @@ export default function SourcesRoute() {
   const selectedWorkspaceConnection = formWorkspaceConnections.find(
     (connection) => connection.id === form.workspaceConnectionId,
   );
-  const captures: BrainCaptureReviewItem[] = capturesQuery.data?.captures ?? [];
+  const captures = capturesQuery.data?.captures ?? [];
   const queueableCaptures = captures.filter(captureCanQueue);
   const queueableCaptureIds = new Set(
     queueableCaptures.map((capture) => capture.id),
@@ -1738,7 +1781,7 @@ export default function SourcesRoute() {
         ? (type as Provider)
         : "slack");
     setEditingSource(null);
-    setForm(defaultForm(selected));
+    setForm(defaultForm(selected, t));
     setSetupOpen(true);
   }
 
@@ -1776,14 +1819,14 @@ export default function SourcesRoute() {
     if (editingSource) {
       updateSource.mutate({
         id: editingSource.id,
-        title: form.title.trim() || defaultTitle(form.provider),
+        title: form.title.trim() || defaultTitle(form.provider, t),
         status:
           form.autoSync || sourceEnabled(editingSource) ? "active" : "paused",
         config,
       });
     } else {
       createSource.mutate({
-        title: form.title.trim() || defaultTitle(form.provider),
+        title: form.title.trim() || defaultTitle(form.provider, t),
         provider: form.provider,
         visibility: "org",
         config,
@@ -1827,9 +1870,9 @@ export default function SourcesRoute() {
   return (
     <div className="min-h-full bg-muted/20">
       <PageHeader
-        eyebrow="Sources"
-        title="Source configuration"
-        description="Connect approved places Brain can learn from, then sync and review them as needed."
+        eyebrow={t("sources.eyebrow")}
+        title={t("sources.title")}
+        description={t("sources.description")}
         actions={
           <div className="grid w-full gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:justify-end">
             <Button
@@ -1838,7 +1881,7 @@ export default function SourcesRoute() {
               onClick={() => setAdvancedOpen(true)}
             >
               <IconSettings2 className="size-4" />
-              Advanced
+              {t("sources.advanced")}
             </Button>
             <Button
               size="sm"
@@ -1846,7 +1889,7 @@ export default function SourcesRoute() {
               onClick={() => openCreate()}
             >
               <IconDatabaseImport className="size-4" />
-              Add source
+              {t("sources.addSource")}
             </Button>
           </div>
         }
@@ -1871,8 +1914,8 @@ export default function SourcesRoute() {
         ) : (
           <div>
             <EmptyActionState
-              title="Connect Brain's first source"
-              detail="Add an approved Slack channel, Granola Team-space source, GitHub repo, Clips export, manual import, or signed webhook."
+              title={t("sources.emptyTitle")}
+              detail={t("sources.emptyDetail")}
             />
           </div>
         )}
@@ -1886,8 +1929,8 @@ export default function SourcesRoute() {
         enqueueCapturesDistillation.isError ? (
           <div>
             <EmptyActionState
-              title="Source action failed"
-              detail="Check source credentials, channel allow-lists, and the latest sync error."
+              title={t("sources.actionFailedTitle")}
+              detail={t("sources.actionFailedDetail")}
             />
           </div>
         ) : null}
@@ -1896,10 +1939,9 @@ export default function SourcesRoute() {
       <Sheet open={advancedOpen} onOpenChange={setAdvancedOpen}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-3xl">
           <SheetHeader>
-            <SheetTitle>Advanced source controls</SheetTitle>
+            <SheetTitle>{t("sources.advancedTitle")}</SheetTitle>
             <SheetDescription>
-              Filter sources, check connection readiness, and run maintenance
-              syncs when the normal source list is not enough.
+              {t("sources.advancedDescription")}
             </SheetDescription>
           </SheetHeader>
 
@@ -1907,15 +1949,19 @@ export default function SourcesRoute() {
             <section className="grid gap-3 rounded-md border border-border bg-card p-4">
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
                 <div className="grid gap-2">
-                  <Label htmlFor="source-type-filter">Source type</Label>
+                  <Label htmlFor="source-type-filter">
+                    {t("sources.sourceType")}
+                  </Label>
                   <Select value={type} onValueChange={updateType}>
                     <SelectTrigger id="source-type-filter">
-                      <SelectValue placeholder="Source type" />
+                      <SelectValue placeholder={t("sources.sourceType")} />
                     </SelectTrigger>
                     <SelectContent>
                       {sourceTypes.map((sourceType) => (
                         <SelectItem key={sourceType} value={sourceType}>
-                          {sourceType === "all" ? "All sources" : sourceType}
+                          {sourceType === "all"
+                            ? t("sources.allSources")
+                            : sourceType}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1928,7 +1974,7 @@ export default function SourcesRoute() {
                   onClick={() => syncDueSources.mutate({ limit: 5 })}
                 >
                   <IconPlayerPlay className="size-4" />
-                  Run due syncs
+                  {t("sources.runDueSyncs")}
                 </Button>
               </div>
             </section>
@@ -1962,18 +2008,22 @@ export default function SourcesRoute() {
       >
         <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
           <SheetHeader>
-            <SheetTitle>Review raw captures</SheetTitle>
+            <SheetTitle>{t("sources.reviewRawCaptures")}</SheetTitle>
             <SheetDescription>
               {reviewSource
-                ? `${sourceName(reviewSource)} inventory. Raw bodies stay hidden unless a reviewer enables previews.`
-                : "Review imported raw material before distillation."}
+                ? t("sources.captureInventoryDescription", {
+                    source: sourceName(reviewSource),
+                  })
+                : t("sources.reviewRawCapturesDescription")}
             </SheetDescription>
           </SheetHeader>
 
           <div className="mt-6 grid gap-4">
             <div className="grid gap-3 rounded-md border border-border bg-muted/25 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
               <div className="grid gap-2 sm:max-w-56">
-                <Label htmlFor="capture-status-filter">Status</Label>
+                <Label htmlFor="capture-status-filter">
+                  {t("sources.status")}
+                </Label>
                 <Select
                   value={captureStatus}
                   onValueChange={(value) => {
@@ -1988,7 +2038,7 @@ export default function SourcesRoute() {
                   <SelectContent>
                     {captureStatusOptions.map((status) => (
                       <SelectItem key={status} value={status}>
-                        {captureStatusLabel(status)}
+                        {captureStatusLabel(status, t)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1996,9 +2046,9 @@ export default function SourcesRoute() {
               </div>
               <label className="flex items-center justify-between gap-3 text-sm">
                 <span>
-                  Previews
+                  {t("sources.previews")}
                   <span className="block text-xs text-muted-foreground">
-                    Show short snippets for intentional review
+                    {t("sources.previewsDescription")}
                   </span>
                 </span>
                 <Switch
@@ -2012,10 +2062,11 @@ export default function SourcesRoute() {
               <div className="grid gap-3 rounded-md border border-border bg-card p-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-sm font-medium">Batch distillation</p>
+                    <p className="text-sm font-medium">
+                      {t("sources.batchDistillation")}
+                    </p>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Select queueable captures and hand them to the Brain
-                      distillation worker together.
+                      {t("sources.batchDistillationDescription")}
                     </p>
                   </div>
                   <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
@@ -2026,7 +2077,9 @@ export default function SourcesRoute() {
                       onClick={toggleAllQueueableCaptures}
                     >
                       <IconChecks className="size-4" />
-                      {allQueueableSelected ? "Unselect all" : "Select all"}
+                      {allQueueableSelected
+                        ? t("sources.unselectAll")
+                        : t("sources.selectAll")}
                     </Button>
                     <Button
                       size="sm"
@@ -2041,7 +2094,7 @@ export default function SourcesRoute() {
                       ) : (
                         <IconSend className="size-4 rtl:-scale-x-100" />
                       )}
-                      Queue selected
+                      {t("sources.queueSelected")}
                     </Button>
                     {selectedCaptureIds.size ? (
                       <Button
@@ -2049,25 +2102,31 @@ export default function SourcesRoute() {
                         variant="ghost"
                         onClick={() => setSelectedCaptureIds(new Set())}
                       >
-                        Clear
+                        {t("sources.clear")}
                       </Button>
                     ) : null}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   <Badge variant="outline">
-                    {selectedQueueableIds.length.toLocaleString()} selected
+                    {t("sources.selectedCount", {
+                      count: selectedQueueableIds.length.toLocaleString(),
+                    })}
                   </Badge>
                   <Badge variant="outline">
-                    {queueableCaptures.length.toLocaleString()} queueable
+                    {t("sources.queueableCount", {
+                      count: queueableCaptures.length.toLocaleString(),
+                    })}
                   </Badge>
                   {bulkResult ? (
                     <Badge
                       variant={bulkResult.errors ? "destructive" : "secondary"}
                     >
-                      {bulkResult.queued.toLocaleString()} queued,{" "}
-                      {bulkResult.existing.toLocaleString()} existing,{" "}
-                      {bulkResult.errors.toLocaleString()} errors
+                      {t("sources.bulkResult", {
+                        queued: bulkResult.queued.toLocaleString(),
+                        existing: bulkResult.existing.toLocaleString(),
+                        errors: bulkResult.errors.toLocaleString(),
+                      })}
                     </Badge>
                   ) : null}
                 </div>
@@ -2078,8 +2137,8 @@ export default function SourcesRoute() {
               <LoadingRows rows={3} />
             ) : capturesQuery.isError ? (
               <EmptyActionState
-                title="Capture inventory failed"
-                detail="Check source access and try again."
+                title={t("sources.captureInventoryFailedTitle")}
+                detail={t("sources.captureInventoryFailedDetail")}
               />
             ) : (capturesQuery.data?.captures ?? []).length ? (
               <div className="grid gap-3">
@@ -2106,7 +2165,9 @@ export default function SourcesRoute() {
                             className="mt-1 size-4 shrink-0 rounded border-border accent-primary disabled:cursor-not-allowed disabled:opacity-50"
                             checked={selected}
                             disabled={!canQueue || isMutating}
-                            aria-label={`Select ${capture.title}`}
+                            aria-label={t("sources.selectCapture", {
+                              title: capture.title,
+                            })}
                             onChange={(event) =>
                               toggleCaptureSelection(
                                 capture.id,
@@ -2132,8 +2193,7 @@ export default function SourcesRoute() {
                               </p>
                             ) : (
                               <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                                Raw content hidden. Enable previews or open the
-                                source only when review requires context.
+                                {t("sources.rawContentHidden")}
                               </p>
                             )}
                             {queue ? (
@@ -2146,20 +2206,20 @@ export default function SourcesRoute() {
                                         : "outline"
                                     }
                                   >
-                                    Distillation{" "}
-                                    {queueStatusLabel(queue.status)}
+                                    {t("sources.distillation")}{" "}
+                                    {queueStatusLabel(queue.status, t)}
                                   </Badge>
                                   {queue.attempts ? (
                                     <span>
                                       {queue.attempts}{" "}
                                       {queue.attempts === 1
-                                        ? "attempt"
-                                        : "attempts"}
+                                        ? t("sources.attempt")
+                                        : t("sources.attempts")}
                                     </span>
                                   ) : null}
                                   {queue.runAfter ? (
                                     <span>
-                                      Next check{" "}
+                                      {t("sources.nextCheck")}{" "}
                                       {shortDate(queue.runAfter) ??
                                         queue.runAfter}
                                     </span>
@@ -2169,9 +2229,7 @@ export default function SourcesRoute() {
                                   <p className="mt-2">{queue.error}</p>
                                 ) : queueIsActive ? (
                                   <p className="mt-2">
-                                    Waiting for the Brain distillation worker to
-                                    write knowledge or send this capture to
-                                    review.
+                                    {t("sources.waitingForWorker")}
                                   </p>
                                 ) : null}
                               </div>
@@ -2189,7 +2247,7 @@ export default function SourcesRoute() {
                               rel="noreferrer"
                             >
                               <IconExternalLink className="size-4" />
-                              Source
+                              {t("sources.source")}
                             </a>
                           </Button>
                         ) : null}
@@ -2209,7 +2267,7 @@ export default function SourcesRoute() {
                           ) : (
                             <IconSend className="size-4 rtl:-scale-x-100" />
                           )}
-                          {queueActionLabel(queue)}
+                          {queueActionLabel(queue, t)}
                         </Button>
                         <Button
                           size="sm"
@@ -2223,7 +2281,7 @@ export default function SourcesRoute() {
                           }
                         >
                           <IconArchive className="size-4" />
-                          Ignore
+                          {t("sources.ignore")}
                         </Button>
                       </div>
                     </div>
@@ -2232,8 +2290,8 @@ export default function SourcesRoute() {
               </div>
             ) : (
               <EmptyActionState
-                title="No captures match this view"
-                detail="Try another status, run a source sync, or import a transcript."
+                title={t("sources.noCapturesTitle")}
+                detail={t("sources.noCapturesDetail")}
               />
             )}
           </div>
@@ -2244,18 +2302,14 @@ export default function SourcesRoute() {
         <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
           <SheetHeader>
             <SheetTitle>
-              {editingSource ? "Tune source" : "Add source"}
+              {editingSource ? t("sources.tuneSource") : t("sources.addSource")}
             </SheetTitle>
-            <SheetDescription>
-              Configure what Brain may ingest. Credentials stay in the workspace
-              credential store; this form only saves allow-lists, cursors, and
-              review rules.
-            </SheetDescription>
+            <SheetDescription>{t("sources.setupDescription")}</SheetDescription>
           </SheetHeader>
 
           <div className="mt-6 grid gap-5">
             <div className="grid gap-2">
-              <Label htmlFor="source-title">Name</Label>
+              <Label htmlFor="source-title">{t("sources.name")}</Label>
               <Input
                 id="source-title"
                 value={form.title}
@@ -2264,7 +2318,7 @@ export default function SourcesRoute() {
             </div>
 
             <div className="grid gap-2">
-              <Label>Provider</Label>
+              <Label>{t("sources.provider")}</Label>
               <Select
                 value={form.provider}
                 disabled={!!editingSource}
@@ -2272,8 +2326,8 @@ export default function SourcesRoute() {
                   setForm((current) => ({
                     ...defaultForm(provider as Provider),
                     title:
-                      current.title === defaultTitle(current.provider)
-                        ? defaultTitle(provider as Provider)
+                      current.title === defaultTitle(current.provider, t)
+                        ? defaultTitle(provider as Provider, t)
                         : current.title,
                     workspaceConnectionId: "",
                   }))
@@ -2295,7 +2349,7 @@ export default function SourcesRoute() {
             {supportsWorkspaceConnectionBinding(form.provider) && (
               <div className="grid gap-2">
                 <Label htmlFor="workspace-connection">
-                  Workspace connection
+                  {t("sources.workspaceConnection")}
                 </Label>
                 <Select
                   value={form.workspaceConnectionId || "__automatic__"}
@@ -2313,7 +2367,7 @@ export default function SourcesRoute() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__automatic__">
-                      Automatic credential selection
+                      {t("sources.automaticCredentialSelection")}
                     </SelectItem>
                     {formWorkspaceConnections.map((connection) => (
                       <SelectItem key={connection.id} value={connection.id}>
@@ -2327,10 +2381,12 @@ export default function SourcesRoute() {
                 </Select>
                 <p className="text-xs leading-5 text-muted-foreground">
                   {selectedWorkspaceConnection
-                    ? `This source is bound to ${selectedWorkspaceConnection.label}; sync will not fall back to another shared connection.`
+                    ? t("sources.boundConnectionDescription", {
+                        connection: selectedWorkspaceConnection.label,
+                      })
                     : formWorkspaceConnections.length
-                      ? "Pick a granted connection to pin this source, or leave automatic to use the existing credential fallback."
-                      : "Grant a workspace connection to Brain in Dispatch before pinning this source."}
+                      ? t("sources.pickGrantedConnection")
+                      : t("sources.grantConnectionBeforePinning")}
                 </p>
               </div>
             )}
@@ -2340,22 +2396,17 @@ export default function SourcesRoute() {
                 <div className="rounded-md border border-border bg-muted/25 p-3">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <IconShieldCheck className="size-4 text-muted-foreground" />
-                    Slack access rules
+                    {t("sources.slackAccessRules")}
                   </div>
                   <div className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
-                    <p>
-                      Use one approved channel ID or #name per line. IDs are
-                      safest for pilots; names are resolved before validation.
-                    </p>
-                    <p>
-                      Slack access should support auth.test,
-                      conversations.info/history, and chat.getPermalink. Add
-                      private-channel access when piloting private channels.
-                    </p>
+                    <p>{t("sources.slackAccessRuleIds")}</p>
+                    <p>{t("sources.slackAccessRuleScopes")}</p>
                   </div>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="slack-channels">Allowed channels</Label>
+                  <Label htmlFor="slack-channels">
+                    {t("sources.allowedChannels")}
+                  </Label>
                   <Textarea
                     id="slack-channels"
                     value={form.channelRefs}
@@ -2365,13 +2416,14 @@ export default function SourcesRoute() {
                     placeholder={"C0123456789\n#product\n#launches"}
                   />
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Brain verifies the allow-list, rejects DMs/MPIMs, and never
-                    stores credential values in source config.
+                    {t("sources.allowedChannelsDescription")}
                   </p>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="grid gap-2">
-                    <Label htmlFor="history-limit">Messages per page</Label>
+                    <Label htmlFor="history-limit">
+                      {t("sources.messagesPerPage")}
+                    </Label>
                     <Input
                       id="history-limit"
                       type="number"
@@ -2384,7 +2436,9 @@ export default function SourcesRoute() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="poll-minutes">Poll minutes</Label>
+                    <Label htmlFor="poll-minutes">
+                      {t("sources.pollMinutes")}
+                    </Label>
                     <Input
                       id="poll-minutes"
                       type="number"
@@ -2404,7 +2458,9 @@ export default function SourcesRoute() {
               <div className="grid gap-4 rounded-md border border-border p-4">
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="grid gap-2">
-                    <Label htmlFor="granola-page-size">Page size</Label>
+                    <Label htmlFor="granola-page-size">
+                      {t("sources.pageSize")}
+                    </Label>
                     <Input
                       id="granola-page-size"
                       type="number"
@@ -2417,7 +2473,9 @@ export default function SourcesRoute() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="granola-poll-minutes">Poll minutes</Label>
+                    <Label htmlFor="granola-poll-minutes">
+                      {t("sources.pollMinutes")}
+                    </Label>
                     <Input
                       id="granola-poll-minutes"
                       type="number"
@@ -2432,7 +2490,7 @@ export default function SourcesRoute() {
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="granola-updated-after">
-                    Initial updated-after
+                    {t("sources.initialUpdatedAfter")}
                   </Label>
                   <Input
                     id="granola-updated-after"
@@ -2443,8 +2501,7 @@ export default function SourcesRoute() {
                     placeholder="2026-05-01T00:00:00.000Z"
                   />
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Granola Enterprise API returns Team-space notes; private
-                    notes are outside the API scope.
+                    {t("sources.granolaDescription")}
                   </p>
                 </div>
               </div>
@@ -2453,7 +2510,9 @@ export default function SourcesRoute() {
             {form.provider === "github" && (
               <div className="grid gap-4 rounded-md border border-border p-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="github-repos">Approved repositories</Label>
+                  <Label htmlFor="github-repos">
+                    {t("sources.approvedRepositories")}
+                  </Label>
                   <Textarea
                     id="github-repos"
                     value={form.githubRepos}
@@ -2463,13 +2522,12 @@ export default function SourcesRoute() {
                     placeholder={"owner/repo\nhttps://github.com/owner/repo"}
                   />
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Brain imports bounded issue and pull request context from
-                    these repositories using the workspace GitHub credential.
+                    {t("sources.githubRepositoriesDescription")}
                   </p>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-3">
                   <div className="grid gap-2">
-                    <Label htmlFor="github-state">State</Label>
+                    <Label htmlFor="github-state">{t("sources.state")}</Label>
                     <Select
                       value={form.githubState}
                       onValueChange={(githubState) =>
@@ -2483,14 +2541,20 @@ export default function SourcesRoute() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All</SelectItem>
-                        <SelectItem value="open">Open</SelectItem>
-                        <SelectItem value="closed">Closed</SelectItem>
+                        <SelectItem value="all">{t("sources.all")}</SelectItem>
+                        <SelectItem value="open">
+                          {t("sources.open")}
+                        </SelectItem>
+                        <SelectItem value="closed">
+                          {t("sources.closed")}
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="github-limit">Items per repo</Label>
+                    <Label htmlFor="github-limit">
+                      {t("sources.itemsPerRepo")}
+                    </Label>
                     <Input
                       id="github-limit"
                       type="number"
@@ -2503,7 +2567,9 @@ export default function SourcesRoute() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="github-poll-minutes">Poll minutes</Label>
+                    <Label htmlFor="github-poll-minutes">
+                      {t("sources.pollMinutes")}
+                    </Label>
                     <Input
                       id="github-poll-minutes"
                       type="number"
@@ -2518,7 +2584,7 @@ export default function SourcesRoute() {
                 </div>
                 <div className="grid gap-3 rounded-md bg-muted/25 p-3">
                   <label className="flex items-center justify-between gap-3 text-sm">
-                    <span>Include issues</span>
+                    <span>{t("sources.includeIssues")}</span>
                     <Switch
                       checked={form.githubIncludeIssues}
                       onCheckedChange={(githubIncludeIssues) =>
@@ -2527,7 +2593,7 @@ export default function SourcesRoute() {
                     />
                   </label>
                   <label className="flex items-center justify-between gap-3 text-sm">
-                    <span>Include pull requests</span>
+                    <span>{t("sources.includePullRequests")}</span>
                     <Switch
                       checked={form.githubIncludePullRequests}
                       onCheckedChange={(githubIncludePullRequests) =>
@@ -2542,7 +2608,9 @@ export default function SourcesRoute() {
             {(form.provider === "generic" || form.provider === "clips") && (
               <div className="grid gap-4 rounded-md border border-border p-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="source-key">Webhook source key</Label>
+                  <Label htmlFor="source-key">
+                    {t("sources.webhookSourceKey")}
+                  </Label>
                   <Input
                     id="source-key"
                     value={form.sourceKey}
@@ -2552,8 +2620,7 @@ export default function SourcesRoute() {
                     placeholder={form.provider}
                   />
                   <p className="text-xs leading-5 text-muted-foreground">
-                    New sources receive a one-time ingest token. Existing
-                    sources keep their token unless rotated separately.
+                    {t("sources.webhookSourceKeyDescription")}
                   </p>
                 </div>
               </div>
@@ -2562,9 +2629,9 @@ export default function SourcesRoute() {
             <div className="grid gap-3 rounded-md border border-border bg-muted/25 p-4">
               <label className="flex items-center justify-between gap-3 text-sm">
                 <span>
-                  Auto-sync
+                  {t("sources.autoSync")}
                   <span className="block text-xs text-muted-foreground">
-                    Background polling uses this source when due
+                    {t("sources.autoSyncDescription")}
                   </span>
                 </span>
                 <Switch
@@ -2574,9 +2641,9 @@ export default function SourcesRoute() {
               </label>
               <label className="flex items-center justify-between gap-3 text-sm">
                 <span>
-                  Review required
+                  {t("sources.reviewRequired")}
                   <span className="block text-xs text-muted-foreground">
-                    Queue extracted knowledge before approval
+                    {t("sources.reviewRequiredDescription")}
                   </span>
                 </span>
                 <Switch
@@ -2595,7 +2662,7 @@ export default function SourcesRoute() {
               className="w-full sm:w-auto"
               onClick={() => setSetupOpen(false)}
             >
-              Cancel
+              {t("sources.cancel")}
             </Button>
             <Button
               className="w-full sm:w-auto"
@@ -2606,7 +2673,9 @@ export default function SourcesRoute() {
                 !form.title.trim()
               }
             >
-              {editingSource ? "Save source" : "Create source"}
+              {editingSource
+                ? t("sources.saveSource")
+                : t("sources.createSource")}
             </Button>
           </SheetFooter>
         </SheetContent>

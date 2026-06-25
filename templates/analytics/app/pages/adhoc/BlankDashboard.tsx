@@ -1,11 +1,14 @@
+import { useT } from "@agent-native/core/client";
 import { IconFlask } from "@tabler/icons-react";
 
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 export default function BlankDashboard() {
+  const t = useT();
+
   useSetPageTitle(
     <h1 className="text-lg font-semibold tracking-tight truncate">
-      Empty Dashboard
+      {t("common.emptyDashboard")}
     </h1>,
   );
 
@@ -14,11 +17,11 @@ export default function BlankDashboard() {
       <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 mb-6">
         <IconFlask className="h-8 w-8 text-primary" />
       </div>
-      <h3 className="text-lg font-semibold mb-2">Empty Dashboard</h3>
+      <h3 className="text-lg font-semibold mb-2">
+        {t("common.emptyDashboard")}
+      </h3>
       <p className="text-sm text-muted-foreground max-w-md">
-        This dashboard is empty. Tell the AI assistant what charts and data you
-        want to see here — for example, "show me signups by attribution source
-        over the last 90 days" — and it will populate this dashboard for you.
+        {t("common.emptyDashboardDescription")}
       </p>
     </div>
   );

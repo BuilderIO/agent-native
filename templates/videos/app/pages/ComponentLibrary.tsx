@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebar,
@@ -16,6 +17,7 @@ import { ComponentLibraryView } from "@/pages/ComponentLibraryView";
 import { libraryComponents } from "@/remotion/componentRegistry";
 
 export default function ComponentLibrary() {
+  const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -116,9 +118,11 @@ export default function ComponentLibrary() {
           ) : (
             <div className="h-full flex items-center justify-center text-muted-foreground">
               <div className="text-center">
-                <p className="text-lg">No component selected</p>
+                <p className="text-lg">
+                  {t("raw.componentLibrary.noSelection")}
+                </p>
                 <p className="text-sm mt-2">
-                  Select a component from the sidebar to preview
+                  {t("raw.componentLibrary.selectToPreview")}
                 </p>
               </div>
             </div>

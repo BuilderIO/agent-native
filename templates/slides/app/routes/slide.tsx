@@ -2,6 +2,7 @@ import {
   appBasePath,
   isInAgentEmbed,
   postNavigate,
+  useT,
 } from "@agent-native/core/client";
 import { IconExternalLink } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
@@ -9,18 +10,20 @@ import { useSearchParams } from "react-router";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
+import messages from "@/i18n/en-US";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 export function meta() {
-  return [{ title: "Slide Preview" }];
+  return [{ title: messages.raw.slidePreviewTitle }];
 }
 
 function SlideError({ message }: { message: string }) {
+  const t = useT();
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-black">
       <div className="text-center">
         <div className="text-sm font-medium text-white/60">
-          Slide unavailable
+          {t("raw.slideUnavailable")}
         </div>
         <div className="mt-1 text-xs text-white/35">{message}</div>
       </div>
@@ -29,6 +32,7 @@ function SlideError({ message }: { message: string }) {
 }
 
 export default function SlideRoute() {
+  const t = useT();
   const [params] = useSearchParams();
   const deckId = params.get("deckId");
   const slideNumberParam = params.get("slideNumber");
@@ -90,10 +94,12 @@ export default function SlideRoute() {
         setLoading(false);
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "Could not load slide.");
+        setError(
+          err instanceof Error ? err.message : t("raw.couldNotLoadSlide"),
+        );
         setLoading(false);
       });
-  }, [deckId, slideIndex, slideIndexParam, slideNumber, slideNumberParam]);
+  }, [deckId, slideIndex, slideIndexParam, slideNumber, slideNumberParam, t]);
 
   if (loading) {
     return <div className="h-screen w-screen bg-black" />;
@@ -121,7 +127,7 @@ export default function SlideRoute() {
           className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/70 backdrop-blur-sm hover:bg-white/20 hover:text-white"
         >
           <IconExternalLink className="h-3.5 w-3.5" />
-          Open in app
+          {t("raw.openInApp")}
         </button>
       )}
     </div>

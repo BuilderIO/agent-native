@@ -98,7 +98,7 @@ muss den Follow-up-Status korrelieren oder später einen Deep-Link zum Lauf erst
 | Option                | Typ         | Beschreibung                                                                                       |
 | --------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
 | `message`             | `string`    | Die sichtbare Eingabeaufforderung, die an den Chat gesendet wurde                                  |
-| `context`             | `string?`   | Versteckter Kontext angehängt (nicht im Chat UI angezeigt)                                         |
+| `context`             | `string?`   | Versteckter Kontext angehängt (nicht im Chat-Oberfläche angezeigt)                                 |
 | `submit`              | `boolean?`  | true = automatische Übermittlung, false = nur Vorabausfüllung                                      |
 | `newTab`              | `boolean?`  | Erstellen Sie einen separaten Chat-Thread für diese Eingabeaufforderung                            |
 | `background`          | `boolean?`  | Mit `newTab` ausführen, ohne die Registerkarte zu fokussieren, und den Lauf in `RunsTray` anzeigen |
@@ -110,7 +110,7 @@ muss den Follow-up-Status korrelieren oder später einen Deep-Link zum Lauf erst
 ## Agent-Chat-Kontextstatus (Erweitert) {#agent-chat-context-state}
 
 Die Kontextstatus-APIs sind optionale Installationen für UI, die eine bidirektionale Synchronisierung mit erfordern
-Staging-Kontext-Chips: Rendern der aktuell bereitgestellten Elemente außerhalb des Composers
+Staging-Kontext-Chips: Rendern der aktuell bereitgestellten Elemente außerhalb des Verfassenrs
 zeigt an, ob ein Element bereits angehängt ist, oder stellt explizite Angaben bereit
 Steuerelemente entfernen/löschen.
 
@@ -184,7 +184,7 @@ aktuelle bereitgestellte Elemente einmal. `clearAgentChatContext()` ist absichtl
 | Option        | Typ        | Beschreibung                                                                                  |
 | ------------- | ---------- | --------------------------------------------------------------------------------------------- |
 | `key`         | `string`   | Stabile Kennung, die zum Ersetzen eines vorhandenen Nuggets verwendet wird                    |
-| `title`       | `string`   | Kurzbezeichnung wird im Composer-Chip angezeigt                                               |
+| `title`       | `string`   | Kurzbezeichnung wird im Verfassenr-Chip angezeigt                                             |
 | `context`     | `string`   | Versteckter Kontext in der nächsten übermittelten Eingabeaufforderung enthalten               |
 | `openSidebar` | `boolean?` | Standardmäßig ist true; Übergeben Sie „false“, um den Kontext stillschweigend bereitzustellen |
 
@@ -201,7 +201,7 @@ darauf verzweigen.
 
 Verwenden Sie es, wenn der UI vor ihm genau eine kleine Entscheidung (2–4 Optionen) benötigt.
 startet die Agentenarbeit – anstatt ein benutzerdefiniertes Modal zu erstellen. Greifen Sie nach
-Composer für Freiformdetails und ein Formular/Popover für die Eingabe mehrerer Felder.
+Verfassenr für Freiformdetails und ein Formular/Popover für die Eingabe mehrerer Felder.
 
 ```tsx
 import { askUserQuestion, sendToAgentChat } from "@agent-native/core/client";
@@ -332,7 +332,7 @@ function App() {
 | ------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `queryClient`      | `QueryClient?`     | React-Abfrage-Client für Cache-Ungültigmachung                                                                                       |
 | `queryKeys`        | `string[]?`        | Veraltet und ignoriert; für alte Anrufseiten beibehalten                                                                             |
-| `pollUrl`          | `string?`          | Poll-Endpunkt URL. Standard: `"/_agent-native/poll"`                                                                                 |
+| `pollUrl`          | `string?`          | Polling-Endpunkt URL. Standard: `"/_agent-native/poll"`                                                                              |
 | `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only                                               |
 | `interval`         | `number?`          | Abfrageintervall in ms. Standard: `2000`                                                                                             |
 | `fallbackInterval` | `number?`          | Fallback-Abfrageintervall, wenn SSE nicht verfügbar ist. Standard: `15000`                                                           |
@@ -378,7 +378,7 @@ function DashboardView({ id }) {
 
 ```an-diagram title="Zwei Wege zu einem erneuten Abruf" summary="Eine lokale Mutation macht ihre eigenen Caches sofort ungültig; Ein Remote-Schreibvorgang erreicht diese Registerkarte über SSE oder den Polling-Tick als Fallback."
 {
-  "html": "<div class=\"diagram-latency\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill ok\">This tab</span><strong>useActionMutation</strong><small class=\"diagram-muted\">fires source: \"action\" on success &rarr; instant local refetch</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Agent · webhook · other tab</span><strong>Remote write</strong><small class=\"diagram-muted\">SSE push, or the ~2s polling tick as fallback &rarr; version bumps &rarr; background refetch</small></div></div></div>",
+  "html": "<div class=\"diagram-latency\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill ok\">Dieser Tab</span><strong>useActionMutation</strong><small class=\"diagram-muted\">fires source: \"action\" on success &rarr; instant local refetch</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Agent · Webhook · anderer Tab</span><strong>Remote-Schreibvorgang</strong><small class=\"diagram-muted\">SSE push, or the ~2s polling tick as fallback &rarr; version bumps &rarr; background refetch</small></div></div></div>",
   "css": ".diagram-latency .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-latency .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px}"
 }
 ```

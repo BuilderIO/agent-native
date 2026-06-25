@@ -29,7 +29,7 @@ Todos estos se exportan desde `@agent-native/core/client`.
 
 ```an-diagram title="El modelo de montaje" summary="<AgentSidebar> ajusta su diseño existente. Tus rutas se muestran en el área principal; el panel del agente se monta junto a ellos. <AgentPanel> es el mismo panel sin el contenedor."
 {
-  "html": "<div class=\"diagram-mount\"><div class=\"diagram-box sidebar\" data-rough><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><div class=\"inner\"><div class=\"diagram-node main\">Your app<br><small class=\"diagram-muted\">children: header + &lt;Outlet/&gt;</small></div><div class=\"diagram-node panel\">Agent panel<br><small class=\"diagram-muted\">chat &middot; CLI &middot; workspace</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card alt\"><span class=\"diagram-pill\">&lt;AgentPanel&gt;</span><small class=\"diagram-muted\">same panel, no wrapper &mdash; you own the layout</small></div></div>",
+  "html": "<div class=\"diagram-mount\"><div class=\"diagram-box sidebar\" data-rough><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><div class=\"inner\"><div class=\"diagram-node main\">Tu aplicación<br><small class=\"diagram-muted\">children: header + &lt;Outlet/&gt;</small></div><div class=\"diagram-node panel\">Panel del agente<br><small class=\"diagram-muted\">chat &middot; CLI &middot; workspace</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card alt\"><span class=\"diagram-pill\">&lt;AgentPanel&gt;</span><small class=\"diagram-muted\">same panel, no wrapper &mdash; you own the layout</small></div></div>",
   "css": ".diagram-mount{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mount .sidebar{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-mount .inner{display:flex;gap:10px}.diagram-mount .main{flex:2}.diagram-mount .panel{flex:1}.diagram-mount .alt{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-mount .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -44,13 +44,13 @@ los niños permanecen en el área principal de la aplicación. El chat del agent
 {
   "filename": "app/root.tsx",
   "language": "tsx",
-  "code": "import { Outlet } from \"react-router\";\nimport { AgentSidebar, AgentToggleButton } from \"@agent-native/core/client\";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText=\"How can I help?\"\n      suggestions={[\n        \"Summarize my inbox\",\n        \"Draft a reply to the latest email\",\n        \"Show me yesterday's signup numbers\",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position=\"right\"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}",
+  "code": "import { Outlet } from \"react-router\";\nimport { AgentSidebar, AgentToggleButton } from \"@agent-native/core/client\";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText=\"¿Cómo puedo ayudar?\"\n      suggestions={[\n        \"Summarize my inbox\",\n        \"Draft a reply to the latest email\",\n        \"Show me yesterday's signup numbers\",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position=\"right\"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}",
   "annotations": [
-    { "lines": "6", "label": "Wrapper", "note": "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area." },
-    { "lines": "8-12", "label": "Starter prompts", "note": "`suggestions` render as clickable chips on the empty chat." },
-    { "lines": "13", "label": "Context-aware chips", "note": "`dynamicSuggestions` merges screen-aware prompts (e.g. \"Summarize this selection\") with your static ones. On by default." },
-    { "lines": "18-20", "label": "Toggle button", "note": "Put `<AgentToggleButton />` anywhere in your header to open and close the panel." },
-    { "lines": "22-24", "label": "Your app", "note": "`<Outlet/>` (your routes) renders in the main area, untouched." }
+    { "lines": "6", "label": "Envoltorio", "note": "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area." },
+    { "lines": "8-12", "label": "Indicaciones de inicio", "note": "`suggestions` se renderiza como chips en los que se puede hacer clic en el chat vacío." },
+    { "lines": "13", "label": "Chips sensibles al contexto", "note": "`dynamicSuggestions` merges screen-aware prompts (e.g. \"Summarize this selection\") with your static ones. On by default." },
+    { "lines": "18-20", "label": "Botón de alternar", "note": "Put `<AgentToggleButton />` anywhere in your header to open and close the panel." },
+    { "lines": "22-24", "label": "Tu aplicación", "note": "`<Outlet/>` (your routes) renders in the main area, untouched." }
   ]
 }
 ```
@@ -174,7 +174,7 @@ tiempo de ejecución, actions y estado respaldado por SQL:
   `<AssistantChat runtime={...} />`. Los conectores
   (`createHttpAgentChatRuntime()` y OpenAI / Claude / Vercel AI / AG-UI
   helpers) y el contrato del evento están documentados en
-  [Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+  [Native Interfaz de chat — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
 
 Cualquiera que sea la capa que elija, mantenga el estado de la aplicación respaldada por actions y SQL como contrato,
 y evite publicar directamente en `/_agent-native/agent-chat` desde el producto UI. Si un

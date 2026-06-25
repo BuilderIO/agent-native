@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconCheck,
   IconClock,
@@ -69,8 +70,11 @@ function formatTime(timestamp: number) {
   });
 }
 
-function statusLabel(status: QueuedEmailDraft["status"]) {
-  if (status === "in_review") return "in review";
+function statusLabel(
+  status: QueuedEmailDraft["status"],
+  t: ReturnType<typeof useT>,
+) {
+  if (status === "in_review") return t("mail.draftQueue.statusInReview");
   return status;
 }
 
@@ -104,6 +108,7 @@ function QueueDraftDialog({
   members: { email: string; role: string }[];
   currentUser: string;
 }) {
+  const t = useT();
   const queueDraft = useQueueEmailDraft();
   const [ownerEmail, setOwnerEmail] = useState(currentUser);
   const [form, setForm] = useState<DraftFormState>(EMPTY_FORM);
@@ -125,14 +130,14 @@ function QueueDraftDialog({
         to: form.to,
         cc: form.cc || undefined,
         bcc: form.bcc || undefined,
-        subject: form.subject || "(no subject)",
+        subject: form.subject || t("mail.draftQueue.noSubject"),
         body: form.body,
         context: form.context || undefined,
         source: "ui",
       },
       {
         onSuccess: () => {
-          toast("Draft queued.");
+          toast(t("mail.toasts.draftQueued"));
           setForm(EMPTY_FORM);
           onOpenChange(false);
         },
@@ -145,17 +150,19 @@ function QueueDraftDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Queue a draft</DialogTitle>
+          <DialogTitle>{t("mail.draftQueue.queueDraft")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
             <div>
               <label className="mb-1.5 block text-[11px] font-medium uppercase text-muted-foreground">
-                Reviewer
+                {t("mail.draftQueue.reviewer")}
               </label>
               <Select value={ownerEmail} onValueChange={setOwnerEmail}>
                 <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Choose member" />
+                  <SelectValue
+                    placeholder={t("mail.draftQueue.chooseMember")}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {members.map((member) => (
@@ -168,7 +175,7 @@ function QueueDraftDialog({
             </div>
             <div>
               <label className="mb-1.5 block text-[11px] font-medium uppercase text-muted-foreground">
-                To
+                {t("mail.draftQueue.to")}
               </label>
               <Input
                 value={form.to}
@@ -181,7 +188,7 @@ function QueueDraftDialog({
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1.5 block text-[11px] font-medium uppercase text-muted-foreground">
-                Cc
+                {t("mail.draftQueue.cc")}
               </label>
               <Input
                 value={form.cc}
@@ -190,7 +197,7 @@ function QueueDraftDialog({
             </div>
             <div>
               <label className="mb-1.5 block text-[11px] font-medium uppercase text-muted-foreground">
-                Bcc
+                {t("mail.draftQueue.bcc")}
               </label>
               <Input
                 value={form.bcc}
@@ -201,7 +208,7 @@ function QueueDraftDialog({
 
           <div>
             <label className="mb-1.5 block text-[11px] font-medium uppercase text-muted-foreground">
-              Subject
+              {t("mail.draftQueue.subject")}
             </label>
             <Input
               value={form.subject}
@@ -211,7 +218,7 @@ function QueueDraftDialog({
 
           <div>
             <label className="mb-1.5 block text-[11px] font-medium uppercase text-muted-foreground">
-              Draft
+              {t("mail.draftQueue.draft")}
             </label>
             <Textarea
               value={form.body}
@@ -223,7 +230,7 @@ function QueueDraftDialog({
 
           <div>
             <label className="mb-1.5 block text-[11px] font-medium uppercase text-muted-foreground">
-              Context
+              {t("mail.draftQueue.context")}
             </label>
             <Textarea
               value={form.context}
@@ -235,7 +242,7 @@ function QueueDraftDialog({
 
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("mail.draftQueue.cancel")}
             </Button>
             <Button
               onClick={submit}
@@ -246,7 +253,7 @@ function QueueDraftDialog({
               ) : (
                 <IconPlus className="h-4 w-4" />
               )}
-              Queue draft
+              {t("mail.draftQueue.queueDraft")}
             </Button>
           </div>
         </div>
@@ -266,6 +273,7 @@ function QueueList({
   onSelect: (id: string) => void;
   isLoading: boolean;
 }) {
+  const t = useT();
   if (isLoading) {
     return (
       <div className="space-y-2 p-3">
@@ -285,10 +293,10 @@ function QueueList({
         <div>
           <IconClock className="mx-auto mb-3 h-7 w-7 text-muted-foreground/25" />
           <p className="text-sm font-medium text-foreground">
-            No queued drafts
+            {t("mail.draftQueue.noQueuedDrafts")}
           </p>
           <p className="mt-1 text-xs text-muted-foreground/60">
-            New requests from teammates appear here.
+            {t("mail.draftQueue.emptyDescription")}
           </p>
         </div>
       </div>
@@ -312,7 +320,7 @@ function QueueList({
           >
             <div className="mb-1 flex items-center justify-between gap-2">
               <span className="truncate text-[13px] font-semibold text-foreground">
-                {draft.subject || "(no subject)"}
+                {draft.subject || t("mail.draftQueue.noSubject")}
               </span>
               <span
                 className={cn(
@@ -320,15 +328,17 @@ function QueueList({
                   statusClassName(draft.status),
                 )}
               >
-                {statusLabel(draft.status)}
+                {statusLabel(draft.status, t)}
               </span>
             </div>
             <p className="truncate text-[12px] text-muted-foreground">
-              To {draft.to}
+              {t("mail.draftQueue.toRecipient", { recipient: draft.to })}
             </p>
             <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground/55">
               <span className="truncate">
-                From {draft.requesterName || draft.requesterEmail}
+                {t("mail.draftQueue.fromRequester", {
+                  requester: draft.requesterName || draft.requesterEmail,
+                })}
               </span>
               <span className="shrink-0">{formatTime(draft.createdAt)}</span>
             </div>
@@ -350,6 +360,7 @@ function DraftDetail({
   onFormChange: (patch: Partial<DraftFormState>) => void;
   currentUser: string;
 }) {
+  const t = useT();
   const updateDraft = useUpdateQueuedDraft();
   const openDraft = useOpenQueuedDraft();
   const sendDraft = useSendQueuedDrafts();
@@ -370,7 +381,7 @@ function DraftDetail({
         <div>
           <IconPencil className="mx-auto mb-3 h-8 w-8 text-muted-foreground/20" />
           <p className="text-sm text-muted-foreground">
-            Select a queued draft to review.
+            {t("mail.draftQueue.selectDraft")}
           </p>
         </div>
       </div>
@@ -389,7 +400,7 @@ function DraftDetail({
         context: form.context,
       },
       {
-        onSuccess: () => toast("Draft updated."),
+        onSuccess: () => toast(t("mail.toasts.draftUpdated")),
         onError: (error) => toast.error(error.message),
       },
     );
@@ -399,7 +410,7 @@ function DraftDetail({
     updateDraft.mutate(
       { id: draft.id, status: "dismissed" },
       {
-        onSuccess: () => toast("Draft dismissed."),
+        onSuccess: () => toast(t("mail.toasts.draftDismissed")),
         onError: (error) => toast.error(error.message),
       },
     );
@@ -409,7 +420,7 @@ function DraftDetail({
     openDraft.mutate(
       { id: draft.id },
       {
-        onSuccess: () => toast("Opened in compose."),
+        onSuccess: () => toast(t("mail.toasts.openedInCompose")),
         onError: (error) => toast.error(error.message),
       },
     );
@@ -421,9 +432,11 @@ function DraftDetail({
       {
         onSuccess: (result: any) => {
           if (result?.failed?.length) {
-            toast.error(result.failed[0]?.error || "Failed to send draft.");
+            toast.error(
+              result.failed[0]?.error || t("mail.toasts.failedToSendDraft"),
+            );
           } else {
-            toast("Draft sent.");
+            toast(t("mail.toasts.draftSent"));
           }
         },
         onError: (error) => toast.error(error.message),
@@ -442,14 +455,19 @@ function DraftDetail({
                 statusClassName(draft.status),
               )}
             >
-              {statusLabel(draft.status)}
+              {statusLabel(draft.status, t)}
             </span>
             <span className="truncate text-xs text-muted-foreground">
-              Requested by {draft.requesterName || draft.requesterEmail}
+              {t("mail.draftQueue.requestedBy", {
+                name: draft.requesterName || draft.requesterEmail,
+              })}
             </span>
           </div>
           <p className="mt-1 text-[11px] text-muted-foreground/55">
-            Queued {formatTime(draft.createdAt)} for {draft.ownerEmail}
+            {t("mail.draftQueue.queuedFor", {
+              time: formatTime(draft.createdAt),
+              owner: draft.ownerEmail,
+            })}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -466,7 +484,7 @@ function DraftDetail({
                 ) : (
                   <IconCheck className="h-3.5 w-3.5" />
                 )}
-                Save
+                {t("mail.draftQueue.save")}
               </Button>
               <Button
                 size="sm"
@@ -479,7 +497,7 @@ function DraftDetail({
                 ) : (
                   <IconPencil className="h-3.5 w-3.5" />
                 )}
-                Compose
+                {t("mail.draftQueue.compose")}
               </Button>
               <Button
                 size="sm"
@@ -491,7 +509,7 @@ function DraftDetail({
                 ) : (
                   <IconSend className="h-3.5 w-3.5 rtl:-scale-x-100" />
                 )}
-                Send
+                {t("mail.draftQueue.send")}
               </Button>
               <Button
                 size="sm"
@@ -594,6 +612,7 @@ function DraftDetail({
 }
 
 export function DraftQueuePage() {
+  const t = useT();
   const params = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -660,12 +679,18 @@ export function DraftQueuePage() {
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border/30 px-4 py-3">
         <div>
           <h1 className="text-[15px] font-semibold text-foreground">
-            Draft queue
+            {t("mail.draftQueue.title")}
           </h1>
           <p className="text-[12px] text-muted-foreground">
             {scope === "review"
-              ? `${queue.count} draft${queue.count === 1 ? "" : "s"} awaiting approval before sending`
-              : `${queue.count} draft request${queue.count === 1 ? "" : "s"} you created`}
+              ? t("mail.draftQueue.awaitingApprovalCount", {
+                  count: queue.count,
+                  plural: queue.count === 1 ? "" : "s",
+                })
+              : t("mail.draftQueue.requestedCount", {
+                  count: queue.count,
+                  plural: queue.count === 1 ? "" : "s",
+                })}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -679,7 +704,7 @@ export function DraftQueuePage() {
               )}
               onClick={() => setScope("review")}
             >
-              Awaiting approval
+              {t("mail.draftQueue.awaitingApproval")}
             </button>
             <button
               className={cn(
@@ -690,12 +715,12 @@ export function DraftQueuePage() {
               )}
               onClick={() => setScope("requested")}
             >
-              Requested by me
+              {t("mail.draftQueue.requestedByMe")}
             </button>
           </div>
           <Button size="sm" onClick={() => setDialogOpen(true)}>
             <IconPlus className="h-3.5 w-3.5" />
-            New draft request
+            {t("mail.draftQueue.newDraftRequest")}
           </Button>
         </div>
       </div>
@@ -705,7 +730,7 @@ export function DraftQueuePage() {
           <div>
             <IconX className="mx-auto mb-3 h-8 w-8 text-muted-foreground/25" />
             <p className="text-sm font-medium text-foreground">
-              Draft queue needs an active organization.
+              {t("mail.draftQueue.needsOrg")}
             </p>
             <Button
               variant="outline"
@@ -713,7 +738,7 @@ export function DraftQueuePage() {
               className="mt-3"
               onClick={() => navigate("/settings")}
             >
-              Open settings
+              {t("mail.draftQueue.openSettings")}
             </Button>
           </div>
         </div>

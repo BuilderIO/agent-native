@@ -1,4 +1,5 @@
-import type { Booking, BookingLink, CustomField } from "@shared/api";
+import { useT } from "@agent-native/core/client";
+import type { Booking, CustomField } from "@shared/api";
 import { IconCircleX } from "@tabler/icons-react";
 import { format, parseISO } from "date-fns";
 import { useMemo, useState } from "react";
@@ -33,10 +34,9 @@ import { useBookings, useDeleteBooking } from "@/hooks/use-bookings";
 type FilterStatus = "all" | "confirmed" | "cancelled";
 
 export default function BookingsList() {
-  const { data: bookingsData } = useBookings();
-  const { data: bookingLinksData } = useBookingLinks();
-  const bookings: Booking[] = bookingsData ?? [];
-  const bookingLinks: BookingLink[] = bookingLinksData ?? [];
+  const t = useT();
+  const { data: bookings = [] } = useBookings();
+  const { data: bookingLinks = [] } = useBookingLinks();
   const deleteBooking = useDeleteBooking();
   const [filter, setFilter] = useState<FilterStatus>("all");
 
@@ -56,8 +56,8 @@ export default function BookingsList() {
 
   function handleCancel(booking: Booking) {
     deleteBooking.mutate(booking.id, {
-      onSuccess: () => toast.success("Booking cancelled"),
-      onError: () => toast.error("Failed to cancel booking"),
+      onSuccess: () => toast.success(t("bookingLinks.bookingCancelled")),
+      onError: () => toast.error(t("bookingLinks.failedToCancelBooking")),
     });
   }
 
@@ -65,33 +65,39 @@ export default function BookingsList() {
     <div className="space-y-6">
       <Tabs value={filter} onValueChange={(v) => setFilter(v as FilterStatus)}>
         <TabsList>
-          <TabsTrigger value="all">All ({bookings.length})</TabsTrigger>
+          <TabsTrigger value="all">
+            {t("bookingLinks.allCount", { count: bookings.length })}
+          </TabsTrigger>
           <TabsTrigger value="confirmed">
-            Confirmed ({bookings.filter((b) => b.status === "confirmed").length}
-            )
+            {t("bookingLinks.confirmedCount", {
+              count: bookings.filter((b) => b.status === "confirmed").length,
+            })}
           </TabsTrigger>
           <TabsTrigger value="cancelled">
-            Cancelled ({bookings.filter((b) => b.status === "cancelled").length}
-            )
+            {t("bookingLinks.cancelledCount", {
+              count: bookings.filter((b) => b.status === "cancelled").length,
+            })}
           </TabsTrigger>
         </TabsList>
       </Tabs>
 
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-12">
-          <p className="text-sm text-muted-foreground">No bookings found.</p>
+          <p className="text-sm text-muted-foreground">
+            {t("bookingLinks.noBookingsFound")}
+          </p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Event</TableHead>
-                <TableHead>Date & Time</TableHead>
-                <TableHead>Details</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>{t("bookingLinks.name")}</TableHead>
+                <TableHead>{t("bookingLinks.email")}</TableHead>
+                <TableHead>{t("eventForm.event")}</TableHead>
+                <TableHead>{t("bookingLinks.dateAndTime")}</TableHead>
+                <TableHead>{t("bookingLinks.details")}</TableHead>
+                <TableHead>{t("bookingLinks.status")}</TableHead>
                 <TableHead className="w-[80px]" />
               </TableRow>
             </TableHeader>
@@ -122,7 +128,9 @@ export default function BookingsList() {
                         booking.status === "confirmed" ? "default" : "secondary"
                       }
                     >
-                      {booking.status}
+                      {booking.status === "confirmed"
+                        ? t("bookingLinks.confirmed")
+                        : t("bookingLinks.cancelled")}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -138,7 +146,9 @@ export default function BookingsList() {
                             <IconCircleX className="h-4 w-4 text-destructive" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Cancel booking</TooltipContent>
+                        <TooltipContent>
+                          {t("bookingLinks.cancelBooking")}
+                        </TooltipContent>
                       </Tooltip>
                     )}
                   </TableCell>
@@ -159,6 +169,7 @@ function BookingDetails({
   booking: Booking;
   customFields?: CustomField[];
 }) {
+  const t = useT();
   const responses = booking.fieldResponses;
   const hasResponses = responses && Object.keys(responses).length > 0;
   const hasNotes = !!booking.notes;
@@ -169,7 +180,7 @@ function BookingDetails({
 
   const lines: { label: string; value: string }[] = [];
   if (hasNotes) {
-    lines.push({ label: "Notes", value: booking.notes! });
+    lines.push({ label: t("bookingLinks.notes"), value: booking.notes! });
   }
   if (hasResponses && customFields) {
     for (const field of customFields) {
@@ -177,7 +188,7 @@ function BookingDetails({
       if (val !== undefined && val !== "" && val !== false) {
         lines.push({
           label: field.label,
-          value: typeof val === "boolean" ? "Yes" : String(val),
+          value: typeof val === "boolean" ? t("bookingLinks.yes") : String(val),
         });
       }
     }
@@ -196,12 +207,12 @@ function BookingDetails({
           size="sm"
           className="h-auto px-0 py-0 text-xs text-muted-foreground underline decoration-dotted"
         >
-          {lines.length} {lines.length === 1 ? "detail" : "details"}
+          {t("bookingLinks.detailCount", { count: lines.length })}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[80vh] overflow-hidden sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Booking Details</DialogTitle>
+          <DialogTitle>{t("bookingLinks.bookingDetails")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 overflow-y-auto pr-1 text-sm">
           {lines.map((line) => (

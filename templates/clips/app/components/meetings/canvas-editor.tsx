@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconWand } from "@tabler/icons-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -51,6 +52,7 @@ export function CanvasEditor({
   renderBullet,
   readOnly = false,
 }: CanvasEditorProps) {
+  const t = useT();
   const showUser = view === "user";
   const showAi = view === "ai";
   const hasAi = summaryMd || bullets.length > 0;
@@ -83,7 +85,7 @@ export function CanvasEditor({
       {/* Empty state when AI notes haven't been generated yet */}
       {showAi && !hasAi && (
         <p className="text-sm leading-relaxed text-muted-foreground/50 italic">
-          No AI notes yet. Generate notes from a finished transcript.
+          {t("meetingCanvas.noAiNotes")}
         </p>
       )}
     </div>
@@ -101,6 +103,7 @@ function UserNotesBlock({
   onChange: (next: string) => void;
   readOnly?: boolean;
 }) {
+  const t = useT();
   const ref = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState(value);
   const focusedRef = useRef(false);
@@ -120,7 +123,7 @@ function UserNotesBlock({
       </p>
     ) : (
       <p className="text-sm leading-relaxed text-muted-foreground/50 italic">
-        No notes.
+        {t("meetingCanvas.noNotes")}
       </p>
     );
   }
@@ -129,7 +132,7 @@ function UserNotesBlock({
     <Textarea
       ref={ref}
       value={draft}
-      placeholder="Your notes…"
+      placeholder={t("meetingCanvas.yourNotes")}
       onChange={(e) => setDraft(e.target.value)}
       onFocus={() => {
         focusedRef.current = true;
@@ -154,6 +157,7 @@ function AiSummaryBlock({
   onChange: (next: string) => void;
   readOnly?: boolean;
 }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -238,7 +242,7 @@ function AiSummaryBlock({
               </p>
             </button>
           </TooltipTrigger>
-          <TooltipContent>Click to edit</TooltipContent>
+          <TooltipContent>{t("meetingCanvas.clickToEdit")}</TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>

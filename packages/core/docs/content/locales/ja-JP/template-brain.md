@@ -21,7 +21,7 @@ Brain は、承認された Slack チャンネル、クリップ録画、グラ�
 
 ```an-diagram title="出典から引用された回答まで" summary="Brain は、承認された情報源を生のキャプチャに取り込み、耐久性のある記憶を抽出し、レビューを通じてそれをゲートし、その後のみ引用で回答します。"
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Sources</span><small class=\"diagram-muted\">Slack · Granola · GitHub · Clips · webhooks</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Raw captures<br><small class=\"diagram-muted\">deduped, redacted</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Distill<br><small class=\"diagram-muted\">facts · decisions · processes</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Review</span><small class=\"diagram-muted\">sensitive / low-confidence queue</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Knowledge</span><small class=\"diagram-muted\">approved, atomic</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Ask</span><small class=\"diagram-muted\">cited answer</small></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Sources</span><small class=\"diagram-muted\">Slack · Granola · GitHub · Clips · webhooks</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>未加工キャプチャ<br><small class=\"diagram-muted\">重複排除済み、編集済み</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Distill<br><small class=\"diagram-muted\">事実 · 決定 · プロセス</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Review</span><small class=\"diagram-muted\">sensitive / low-confidence queue</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Knowledge</span><small class=\"diagram-muted\">承認済み、アトミック</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Ask</span><small class=\"diagram-muted\">cited answer</small></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px}.diagram-flow .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-flow .diagram-arrow{font-size:20px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -29,7 +29,7 @@ Brain は、承認された Slack チャンネル、クリップ録画、グラ�
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Ask company memory</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='Search'></span><strong style='flex:1'>Why did we choose usage pricing?</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>The team chose usage pricing after pilots showed seat counts undercounted automation value.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>Pricing RFC</span><span class='wf-pill'>Launch retro</span><span class='wf-pill'>Sales notes</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Source timeline</strong><div class='wf-box'>May 3 · Decision captured</div><div class='wf-box'>May 8 · Customer evidence added</div><div class='wf-box'>May 12 · Legal note approved</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>会社メモリに質問</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='検索'></span><strong style='flex:1'>なぜ従量課金を選んだのですか？</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>パイロットでシート数が自動化価値を過小評価すると分かったため、チームは従量課金を選びました。</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>価格設定 RFC</span><span class='wf-pill'>ローンチレトロ</span><span class='wf-pill'>営業メモ</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>ソースタイムライン</strong><div class='wf-box'>5月3日 · 決定を記録</div><div class='wf-box'>5月8日 · 顧客証拠を追加</div><div class='wf-box'>5月12日 · 法務メモ承認済み</div></div></div>"
 }
 ```
 
@@ -152,10 +152,10 @@ Brain のスキーマは `templates/brain/server/db/schema.ts` にあります�
 | `brain_sync_runs`        | 同期監査ログ — プロバイダー、ステータス、統計 JSON、エラー、開始/終了タイムスタンプ                                                                 |
 | `brain_ingest_queue`     | バックグラウンド蒸留キュー — 操作、ステータス、優先順位、再試行回数、`run_after`                                                                    |
 
-```an-schema title="Brain data model" summary="Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
+```an-schema title="脳データモデル" summary="Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
 {
   "entities": [
-    { "id": "sources", "name": "brain_sources", "note": "Connector config", "fields": [
+    { "id": "sources", "name": "brain_sources", "note": "コネクタ構成", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "provider", "type": "text", "note": "slack / granola / github / clips / webhook" },
       { "name": "ingest_token_hash", "type": "text" },
@@ -165,14 +165,14 @@ Brain のスキーマは `templates/brain/server/db/schema.ts` にあります�
     { "id": "source_shares", "name": "brain_source_shares", "note": "viewer / editor / admin", "fields": [
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" }
     ] },
-    { "id": "captures", "name": "brain_raw_captures", "note": "Ingested raw payloads", "fields": [
+    { "id": "captures", "name": "brain_raw_captures", "note": "取り込まれた生のペイロード", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" },
       { "name": "external_id", "type": "text", "note": "dedupe key" },
       { "name": "content_hash", "type": "text" },
       { "name": "kind", "type": "text" }
     ] },
-    { "id": "knowledge", "name": "brain_knowledge", "note": "Distilled atomic entries", "fields": [
+    { "id": "knowledge", "name": "brain_knowledge", "note": "抽出されたアトミックエントリ", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "kind", "type": "text", "note": "decision / fact / process" },
       { "name": "topic", "type": "text" },
@@ -183,19 +183,19 @@ Brain のスキーマは `templates/brain/server/db/schema.ts` にあります�
     { "id": "knowledge_shares", "name": "brain_knowledge_shares", "fields": [
       { "name": "knowledge_id", "type": "id", "fk": "brain_knowledge.id" }
     ] },
-    { "id": "proposals", "name": "brain_proposals", "note": "Pending review items", "fields": [
+    { "id": "proposals", "name": "brain_proposals", "note": "保留中のレビュー項目", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "op", "type": "text", "note": "create / update / archive" }
     ] },
     { "id": "proposal_shares", "name": "brain_proposal_shares", "fields": [
       { "name": "proposal_id", "type": "id", "fk": "brain_proposals.id" }
     ] },
-    { "id": "sync_runs", "name": "brain_sync_runs", "note": "Sync audit log", "fields": [
+    { "id": "sync_runs", "name": "brain_sync_runs", "note": "監査ログを同期する", "fields": [
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" },
       { "name": "status", "type": "text" },
       { "name": "stats", "type": "json" }
     ] },
-    { "id": "ingest_queue", "name": "brain_ingest_queue", "note": "Background distillation queue", "fields": [
+    { "id": "ingest_queue", "name": "brain_ingest_queue", "note": "バックグラウンド蒸留キュー", "fields": [
       { "name": "operation", "type": "text" },
       { "name": "status", "type": "text" },
       { "name": "priority", "type": "int" },
@@ -259,11 +259,11 @@ Analytics スタイルの GitHub レポートの代替品。
 通話トランスクリプト、顧客調査、インポートに同じペイロード形式を使用します
 メモ、または制限されたキャプチャを生成できるその他のソース。
 
-```an-api title="Signed ingest webhook" summary="Clips and generic transcript/capture imports post a RawCapturePayload with a per-source bearer token."
+```an-api title="署名付き取り込み Webhook" summary="クリップと汎用の transcript/capture インポートは、ソースごとのベアラー トークンを含む RawCapturePayload をポストします。"
 {
   "method": "POST",
   "path": "/api/_agent-native/brain/ingest",
-  "summary": "Import a raw capture from Clips or a generic source",
+  "summary": "クリップまたは汎用ソースから生のキャプチャをインポートする",
   "auth": "Bearer <ingestToken> issued per source via its sourceKey",
   "request": {
     "contentType": "application/json",

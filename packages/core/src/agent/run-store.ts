@@ -392,11 +392,12 @@ export async function readBackgroundRunClaim(runId: string): Promise<{
   dispatchMode: string | null;
   status: string | null;
   diagStage: string | null;
+  lastLivenessAt: number | null;
 } | null> {
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT dispatch_mode, status, diag_stage FROM agent_runs WHERE id = ? LIMIT 1`,
+    sql: `SELECT dispatch_mode, status, diag_stage, started_at, heartbeat_at FROM agent_runs WHERE id = ? LIMIT 1`,
     args: [runId],
   });
   const row = rows?.[0] as
@@ -404,6 +405,8 @@ export async function readBackgroundRunClaim(runId: string): Promise<{
         dispatch_mode?: string | null;
         status?: string | null;
         diag_stage?: string | null;
+        started_at?: number | null;
+        heartbeat_at?: number | null;
       }
     | undefined;
   if (!row) return null;
@@ -411,6 +414,9 @@ export async function readBackgroundRunClaim(runId: string): Promise<{
     dispatchMode: row.dispatch_mode ?? null,
     status: row.status ?? null,
     diagStage: row.diag_stage ?? null,
+    // Same liveness basis the unclaimed-reaper uses (COALESCE(heartbeat_at,
+    // started_at)), so the foreground can decide to recover BEFORE the reaper.
+    lastLivenessAt: row.heartbeat_at ?? row.started_at ?? null,
   };
 }
 
@@ -534,6 +540,8 @@ export const RUN_DIAG_STAGE = {
   workerClaimLost: "worker_claim_lost",
   /** The agent loop started (startRun fired). */
   workerStarted: "worker_started",
+  /** Pre-claim setup timing breakdown (diagnostic). */
+  setupTimings: "setup_timings",
   /** The worker threw before/while running the loop (message carried in detail). */
   workerThrew: "worker_threw",
   /** The route handler caught an error from the worker invocation. */

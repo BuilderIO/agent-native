@@ -38,7 +38,7 @@ description: "AI エージェントがファーストクラスのピアである
 
 ```an-diagram title="5つの連動層" summary="メモリ内の CRDT からピア間で更新を運ぶトランスポートまで、各層には 1 つのジョブがあります。"
 {
-  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; conflict-free merge, no coordinator</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; SQL canonical content</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; updatedAt-gated reconcile</span><small class=\"diagram-muted\">agent edits propagate via the SQL bump</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; Lead-client election</span><small class=\"diagram-muted\">exactly one tab applies the snapshot</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; SSE fast-path + polling</span><small class=\"diagram-muted\">~tens of ms, degrades to 2s poll anywhere</small></div></div>",
+  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; 競合なしマージ、調整役なし</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; SQL の正規コンテンツ</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; updatedAt で制御する調整</span><small class=\"diagram-muted\">エージェント編集は SQL bump 経由で伝播</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; リードクライアント選出</span><small class=\"diagram-muted\">ちょうど 1 つのタブがスナップショットを適用</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; SSE 高速パス + ポーリング</span><small class=\"diagram-muted\">数十 ms 程度、どこでも 2 秒ポーリングへフォールバック</small></div></div>",
   "css": ".diagram-stack{display:flex;flex-direction:column;gap:8px}.diagram-stack .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
 }
 ```
@@ -102,7 +102,7 @@ Yjs 状態は、base64 でエンコードされたバイナリとして `_collab
 
 ```an-diagram title="2 つの編集パス、1 つのマージ" summary="人間のキーストロークは Y.Doc → サーバー → SSE という流れになります。エージェントの編集は SQL を通過します。アクションが updatedAt に達し、リード クライアントが調整され、変更が Yjs に再度入ります。"
 {
-  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">Human edit</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce ~80ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">Agent edit</span><div class=\"diagram-node\">Action writes SQL<br><small class=\"diagram-muted\">bumps updatedAt</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>Lead client<br><small class=\"diagram-muted\">setContent into Y.Doc</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
+  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">人による編集</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce 約80ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">エージェント編集</span><div class=\"diagram-node\">ActionがSQLを書き込む<br><small class=\"diagram-muted\">updatedAtを更新</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>リードクライアント<br><small class=\"diagram-muted\">setContentをY.Docへ</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
   "css": ".diagram-collab{display:flex;flex-direction:column;gap:14px}.diagram-collab .lane{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-collab .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -248,13 +248,13 @@ useEffect(() => {
 コンテンツ テンプレートの `edit-document` アクションは、エージェントが共同モードでドキュメントに変更を加える主な方法です。
 
 ```bash
-# Single edit
+# 単一編集
 pnpm action edit-document --id doc123 --find "old text" --replace "new text"
 
-# Batch edits
+# バッチ編集
 pnpm action edit-document --id doc123 --edits '[{"find":"old","replace":"new"}]'
 
-# Delete text
+# テキストの削除
 pnpm action edit-document --id doc123 --find "delete me" --replace ""
 ```
 
@@ -625,7 +625,7 @@ undoManager.redo(); // Shift+Cmd+Z
 ```an-callout
 {
   "tone": "risk",
-  "body": "**Same-region simultaneous rewrite is last-write-wins.** If the agent rewrites a passage while a human has unsaved edits in the *exact same region*, the lead-client snapshot can clobber the in-flight human edit. Edits in different regions always merge cleanly via the CRDT. For structured documents, use granular server-side merge to sidestep this entirely."
+  "body": "**同じリージョンの同時書き換えは、最後に書き込んだ方が勝ちです。**人間が *まったく同じリージョン* に未保存の編集を行っているときにエージェントがパッセージを書き換えると、リードクライアントのスナップショットが進行中の人間による編集を破壊する可能性があります。異なるリージョンでの編集は常に CRDT を介してきれいにマージされます。構造化ドキュメントの場合、これを完全に回避するには、詳細なサーバー側マージを使用します。"
 }
 ```
 

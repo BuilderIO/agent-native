@@ -30,7 +30,7 @@ Chaque application est construite avec `APP_BASE_PATH=/<name>` et `VITE_APP_BASE
 
 ```an-diagram title="Une origine, de nombreuses applications" summary="Chaque application d'espace de travail est créée avec son propre chemin de base et montée sous un préfixe de chemin sur une seule origine. Ainsi, la connexion et l'application inter-application A2A sont de même origine et gratuites."
 {
-  "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">zero-config cross-app A2A</span></div></div>",
+  "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">A2A inter-apps sans configuration</span></div></div>",
   "css": ".diagram-ws{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-ws .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-ws .diagram-row{display:flex;align-items:center;gap:8px}.diagram-ws .wins{display:flex;flex-direction:column;gap:8px;align-items:flex-start}"
 }
 ```
@@ -85,7 +85,7 @@ La sortie est autonome : copiez `.output/` dans n'importe quel environnement et
 
 ```an-diagram title="Construire pour déployer" summary="Une arborescence source se construit selon un préréglage Nitro ; la même sortie autonome s'exécute sur Node, Vercel, Netlify, Cloudflare, AWS ou Deno. Chaque instance pointe vers le même DATABASE_URL persistant."
 {
-  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>App source</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Persistent DATABASE_URL<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
+  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>Source de l’app</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>DATABASE_URL persistante<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
   "css": ".diagram-deploy{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-deploy .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-deploy .diagram-arrow{font-size:22px;line-height:1}.diagram-deploy .diagram-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}"
 }
 ```
@@ -137,8 +137,8 @@ RUN pnpm build
 FROM node:24-slim
 WORKDIR /app
 COPY --from=build /app/.output .output
-# data/ is a runtime-created SQLite directory — do not copy a dev DB into prod.
-# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+# data/ est un répertoire SQLite créé au moment de l'exécution — ne copiez pas une base de données de développement dans prod.
+# Pour la production, définissez DATABASE_URL sur une instance hébergée de Postgres ou Turso.
 RUN mkdir -p /app/data
 ENV PORT=3000
 EXPOSE 3000
@@ -345,4 +345,4 @@ Voir [Frames](/docs/frames) pour en savoir plus sur le panneau d'agent intégré
 
 ## Déploiements multi-instances {#multi-instance}
 
-Les applications natives d'agent stockent tous les états dans SQL via Drizzle et synchronisent le UI via [polling](/docs/key-concepts#polling-sync) avec la base de données : pas d'état du système de fichiers, pas de sessions persistantes, pas de caches en mémoire. Cela signifie que les déploiements multi-instances et sans serveur fonctionnent immédiatement : pointez chaque instance vers le même `DATABASE_URL` et elles convergent automatiquement. Voir [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) et [Portability](/docs/key-concepts#hosting-agnostic).
+Les applications natives d'agent stockent tous les états dans SQL avec Drizzle et synchronisent le UI via [polling](/docs/key-concepts#polling-sync) avec la base de données : pas d'état du système de fichiers, pas de sessions persistantes, pas de caches en mémoire. Cela signifie que les déploiements multi-instances et sans serveur fonctionnent immédiatement : pointez chaque instance vers le même `DATABASE_URL` et elles convergent automatiquement. Voir [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) et [Portability](/docs/key-concepts#hosting-agnostic).

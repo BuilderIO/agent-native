@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
 import { IconMessageCircle, IconUser } from "@tabler/icons-react";
 import { useEffect, useId, useMemo, useState } from "react";
@@ -17,7 +18,6 @@ import { useAttendeePhotos } from "@/hooks/use-attendee-photos";
 import { useRsvpEvent } from "@/hooks/use-events";
 import {
   canInlineRsvp,
-  getRsvpStatusLabel,
   RsvpStatusIcon,
   type RsvpStatus,
 } from "@/lib/rsvp-status";
@@ -30,6 +30,24 @@ type EditableRsvpStatus = Exclude<RsvpStatus, "needsAction">;
 
 const ATTENDEE_TRUNCATE_THRESHOLD = 5;
 const ATTENDEE_INITIAL_SHOW = 3;
+
+function getLocalizedRsvpStatusLabel(
+  t: ReturnType<typeof useT>,
+  status: RsvpStatus | undefined,
+) {
+  switch (status) {
+    case "accepted":
+      return t("eventForm.rsvpAccepted");
+    case "declined":
+      return t("eventForm.rsvpDeclined");
+    case "tentative":
+      return t("eventForm.rsvpTentative");
+    case "needsAction":
+      return t("eventForm.awaiting");
+    default:
+      return null;
+  }
+}
 
 function getAvatarUrl(email: string): string {
   return `https://unavatar.io/${encodeURIComponent(email.trim().toLowerCase())}?fallback=false`;
@@ -91,6 +109,7 @@ function RsvpControls({
   onChange: (status: RsvpStatus, note: string) => void;
   isRecurring?: boolean;
 }) {
+  const t = useT();
   const mutation = useRsvpEvent();
   const noteId = useId();
   const scopeId = useId();
@@ -105,17 +124,17 @@ function RsvpControls({
     value: EditableRsvpStatus;
     label: string;
   }> = [
-    { value: "accepted", label: "Yes" },
-    { value: "declined", label: "No" },
-    { value: "tentative", label: "Maybe" },
+    { value: "accepted", label: t("eventForm.rsvpYes") },
+    { value: "declined", label: t("eventForm.rsvpNo") },
+    { value: "tentative", label: t("eventForm.rsvpMaybe") },
   ];
   const scopeOptions: Array<{
     value: RecurringScope;
     label: string;
   }> = [
-    { value: "single", label: "This event" },
-    { value: "thisAndFollowing", label: "This and following events" },
-    { value: "all", label: "All events" },
+    { value: "single", label: t("eventForm.thisEvent") },
+    { value: "thisAndFollowing", label: t("deleteEvent.thisAndFollowing") },
+    { value: "all", label: t("eventForm.allEvents") },
   ];
 
   const supportsNote =
@@ -209,7 +228,7 @@ function RsvpControls({
           className="mt-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
         >
           <IconMessageCircle className="h-3 w-3" />
-          {currentNote ? "Edit note" : "Add note"}
+          {currentNote ? t("eventForm.editNote") : t("eventForm.addNote")}
         </button>
       )}
 
@@ -226,8 +245,8 @@ function RsvpControls({
             <div className="p-5">
               <p className="text-base font-semibold leading-tight">
                 {isRecurring
-                  ? "Save response status for recurring event"
-                  : "Save response status"}
+                  ? t("eventForm.saveRecurringResponseStatus")
+                  : t("eventForm.saveResponseStatus")}
               </p>
 
               {isRecurring && (
@@ -236,7 +255,7 @@ function RsvpControls({
                   onValueChange={(value) =>
                     setPendingScope(value as RecurringScope)
                   }
-                  aria-label="Recurring response scope"
+                  aria-label={t("eventForm.recurringResponseScope")}
                   className="mt-5 gap-4"
                 >
                   {scopeOptions.map((option) => {
@@ -269,14 +288,14 @@ function RsvpControls({
                 <Separator />
                 <div className="space-y-2 p-5">
                   <Label htmlFor={noteId} className="text-sm font-medium">
-                    Optional note
+                    {t("eventForm.optionalNote")}
                   </Label>
                   <Textarea
                     id={noteId}
                     value={noteDraft}
                     onChange={(e) => setNoteDraft(e.target.value)}
                     maxLength={1000}
-                    placeholder="Add a short note..."
+                    placeholder={t("eventForm.addShortNote")}
                     className="min-h-[96px] resize-none text-sm"
                   />
                 </div>
@@ -293,7 +312,7 @@ function RsvpControls({
                   closePopover();
                 }}
               >
-                Cancel
+                {t("eventForm.cancel")}
               </Button>
               <Button
                 size="sm"
@@ -305,7 +324,7 @@ function RsvpControls({
                   closePopover();
                 }}
               >
-                Save response
+                {t("eventForm.saveResponse")}
               </Button>
             </div>
           </div>
@@ -334,8 +353,10 @@ function AttendeeRow({
   onResponseChange?: (status: RsvpStatus, note: string) => void;
   isRecurring?: boolean;
 }) {
+  const t = useT();
   const displayStatus = inlineRsvp ? currentStatus : attendee.responseStatus;
-  const statusLabel = getRsvpStatusLabel(displayStatus) ?? "Awaiting";
+  const statusLabel =
+    getLocalizedRsvpStatusLabel(t, displayStatus) ?? t("eventForm.awaiting");
   const comment = (inlineRsvp ? currentNote : attendee.comment)?.trim();
 
   return (
@@ -355,7 +376,7 @@ function AttendeeRow({
               </span>
               {attendee.organizer && (
                 <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  Organizer
+                  {t("eventForm.organizer")}
                 </span>
               )}
             </div>
@@ -365,7 +386,9 @@ function AttendeeRow({
               </div>
             )}
             <div className="mt-0.5 text-[11px] text-muted-foreground/70">
-              {inlineRsvp ? `Your response: ${statusLabel}` : statusLabel}
+              {inlineRsvp
+                ? t("eventForm.yourResponse", { status: statusLabel })
+                : statusLabel}
             </div>
           </div>
         </div>
@@ -414,6 +437,7 @@ export function EventAttendeesSection({
     | "recurringEventId"
   >;
 }) {
+  const t = useT();
   const attendees = event.attendees ?? [];
   const [expanded, setExpanded] = useState(false);
   const [selfStatus, setSelfStatus] = useState<RsvpStatus>(
@@ -471,13 +495,23 @@ export function EventAttendeesSection({
           {shouldTruncate && (
             <div className="mb-2">
               <div className="text-sm font-medium text-foreground">
-                {attendees.length} participants
+                {t("eventForm.participants", { count: attendees.length })}
               </div>
               <div className="text-[11px] text-muted-foreground/60">
-                {accepted} yes
-                {tentative > 0 && `, ${tentative} maybe`}
-                {declined > 0 && `, ${declined} no`}
-                {pending > 0 && `, ${pending} awaiting`}
+                {[
+                  t("eventForm.responseYesCount", { count: accepted }),
+                  tentative > 0
+                    ? t("eventForm.responseMaybeCount", { count: tentative })
+                    : null,
+                  declined > 0
+                    ? t("eventForm.responseNoCount", { count: declined })
+                    : null,
+                  pending > 0
+                    ? t("eventForm.responseAwaitingCount", { count: pending })
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(", ")}
               </div>
             </div>
           )}
@@ -501,7 +535,11 @@ export function EventAttendeesSection({
                 <span className="flex h-8 w-8 items-center justify-center text-lg text-muted-foreground/50">
                   ⋮
                 </span>
-                <span>See all {attendees.length} participants</span>
+                <span>
+                  {t("eventForm.seeAllParticipants", {
+                    count: attendees.length,
+                  })}
+                </span>
               </button>
             )}
 

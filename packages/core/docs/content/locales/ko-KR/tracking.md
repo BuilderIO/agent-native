@@ -21,7 +21,7 @@ track(
 
 ```an-diagram title="하나의 track() 호출, 모든 공급자" summary="서버 및 클라이언트 호출자는 동일한 레지스트리에 도달하여 모든 이벤트를 모든 활성 공급자에게 병렬로 전달합니다."
 {
-  "html": "<div class=\"trk\"><div class=\"diagram-col\"><div class=\"diagram-node\">Server code<br><small class=\"diagram-muted\">actions &middot; plugins &middot; routes</small></div><div class=\"diagram-node\">Browser code<br><small class=\"diagram-muted\">POST /_agent-native/track</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Provider registry</span><small class=\"diagram-muted\">fan-out, fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">PostHog</div><div class=\"diagram-box\">Mixpanel</div><div class=\"diagram-box\">Amplitude</div><div class=\"diagram-box\">Webhook</div></div></div>",
+  "html": "<div class=\"trk\"><div class=\"diagram-col\"><div class=\"diagram-node\">서버 코드<br><small class=\"diagram-muted\">actions &middot; plugins &middot; routes</small></div><div class=\"diagram-node\">브라우저 코드<br><small class=\"diagram-muted\">POST /_agent-native/track</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Provider registry</span><small class=\"diagram-muted\">fan-out, 보내고 잊기</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">PostHog</div><div class=\"diagram-box\">Mixpanel</div><div class=\"diagram-box\">Amplitude</div><div class=\"diagram-box\">Webhook</div></div></div>",
   "css": ".trk{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.trk .diagram-col{display:flex;flex-direction:column;gap:8px}.trk .diagram-arrow{font-size:22px;line-height:1}.trk .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -102,11 +102,11 @@ export default defineAction({
 
 `track()`는 브라우저/앱 코드에서도 작동합니다. `@agent-native/core/client`에서 클라이언트 쌍을 가져오고 동일한 방식으로 호출합니다. 이벤트를 `POST /_agent-native/track`의 프레임워크 경로에 게시하고 **동일** 등록된 서버 측 공급자(PostHog, Mixpanel, Amplitude, webhook)에 전달합니다. 분석 SDK는 브라우저에 제공되지 않으며 공급자 키는 클라이언트 측에 노출되지 않습니다.
 
-```an-api title="The client tracking route"
+```an-api title="클라이언트 추적 경로"
 {
   "method": "POST",
   "path": "/_agent-native/track",
-  "summary": "Forward a browser event to the registered server-side providers",
+  "summary": "등록된 서버측 공급자에게 브라우저 이벤트 전달",
   "auth": "Session required + same-origin/CSRF marker (set automatically by the client helper). Not an open analytics relay.",
   "params": [
     { "name": "name", "in": "body", "type": "string", "required": true, "description": "Event name. Capped at 200 characters." },

@@ -20,7 +20,7 @@ Agent-native ist für Leute gedacht, die möchten, dass eine echte App und ein K
 - **Verwenden Sie eine gehostete App**, wenn Sie E-Mail, Kalender, Formulare, Pläne oder eine andere fertige Vorlage ohne Einrichtung wünschen – beginnen Sie bei [template gallery](/templates).
 - **Beginnen Sie mit Chat**, wenn Sie eine einfache App wünschen, mit der Benutzer sofort sprechen können, dann erweitern Sie sie mit actions und Bildschirmen – beginnen Sie mit [Getting Started](/docs/getting-started) oder [Chat](/docs/template-chat).
 - **Starten Sie primitiv zuerst**, wenn Sie eine Aktion und eine kopflose App-Agent-Schleife wünschen, bevor Sie sich an UI festlegen – beginnen Sie mit [Getting Started](/docs/getting-started).
-- **Forken und passen Sie eine Vorlage an**, wenn Sie Ihr eigenes SaaS-Produkt mit Authentifizierung, Datenbank, UI und Agent actions bereits verkabelt haben möchten – siehe [Templates](/docs/cloneable-saas).
+- **Forken und passen Sie eine Vorlage an**, wenn Sie Ihr eigenes SaaS-Produkt mit Authentifizierung, Datenbank, UI und Agentenaktionen bereits verkabelt haben möchten – siehe [Templates](/docs/cloneable-saas).
 - **Erstellen Sie von Grund auf**, wenn Sie die Framework-Grundelemente für ein neues agentengesteuertes Produkt benötigen – beginnen Sie mit [Getting Started](/docs/getting-started).
 - **Verbinden Sie einen anderen Agenten oder ein anderes Code-Tool**, wenn Sie möchten, dass Claude, ChatGPT, Codex, Cursor oder GitHub Copilot/VS-Code eine agentennative App verwenden – siehe [External Agents](/docs/external-agents) und [Skills Guide](/docs/skills-guide).
 
@@ -30,7 +30,7 @@ Bei den meisten Apps wird die KI nachträglich eingebaut, sodass sie in der App 
 
 ```an-diagram title="Angeschraubte KI vs. agent-native" summary="Eine angeschraubte Chat-Seitenleiste lebt in einer eigenen Welt. Ein agent-native-Agent nutzt dieselben Aktionen, dieselben Datenbanken und denselben Status wie die Benutzeroberfläche."
 {
-  "html": "<div class=\"diagram-vs\"><div class=\"diagram-col\"><span class=\"diagram-pill warn\">Bolted-on AI</span><div class=\"diagram-node\">Chat sidebar</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>separate AI world<br><small class=\"diagram-muted\">can't touch the app</small></div><div class=\"diagram-box diagram-muted\">App UI &amp; data</div></div><div class=\"diagram-divider\" aria-hidden=\"true\"></div><div class=\"diagram-col\"><span class=\"diagram-pill ok\">Agent-native</span><div class=\"diagram-row2\"><div class=\"diagram-node\">UI</div><div class=\"diagram-node\">Agent</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>shared actions, DB &amp; state</div></div></div>",
+  "html": "<div class=\"diagram-vs\"><div class=\"diagram-col\"><span class=\"diagram-pill warn\">nachträglich angebaute KI</span><div class=\"diagram-node\">Chat-Seitenleiste</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>separate KI-Welt<br><small class=\"diagram-muted\">kann die App nicht steuern</small></div><div class=\"diagram-box diagram-muted\">App UI &amp; data</div></div><div class=\"diagram-divider\" aria-hidden=\"true\"></div><div class=\"diagram-col\"><span class=\"diagram-pill ok\">Agent-native</span><div class=\"diagram-row2\"><div class=\"diagram-node\">UI</div><div class=\"diagram-node\">Agent</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>shared actions, DB &amp; state</div></div></div>",
   "css": ".diagram-vs{display:flex;align-items:stretch;gap:18px;flex-wrap:wrap}.diagram-vs .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:center;flex:1;min-width:200px}.diagram-vs .diagram-row2{display:flex;gap:8px}.diagram-vs .diagram-arrow{font-size:20px;line-height:1}.diagram-vs .diagram-divider{width:1px;align-self:stretch;background:currentColor;opacity:.15}"
 }
 ```
@@ -68,7 +68,7 @@ Das ist möglich, aber Agent-nativ funktioniert am besten, wenn es von Grund auf
 
 ### Welche Vorlagen sind verfügbar? {#what-templates-are-available}
 
-Das Framework wird mit produktionsbereiten Vorlagen geliefert, darunter [Chat](/docs/template-chat), [Mail](/docs/template-mail), [Calendar](/docs/template-calendar), [Forms](/docs/template-forms), [Plan](/docs/template-plan) (visuelle Pläne und PR-Zusammenfassungen), [Analytics](/docs/template-analytics), [Dispatch](/docs/template-dispatch) und mehr. Bei jeder handelt es sich um eine vollständige App mit UI, Agent actions, Datenbankschema und sofort einsatzbereiten KI-Anweisungen. Den vollständigen Katalog finden Sie unter [Templates](/docs/cloneable-saas).
+Das Framework wird mit produktionsbereiten Vorlagen geliefert, darunter [Chat](/docs/template-chat), [Mail](/docs/template-mail), [Calendar](/docs/template-calendar), [Forms](/docs/template-forms), [Plan](/docs/template-plan) (visuelle Pläne und PR-Zusammenfassungen), [Analytics](/docs/template-analytics), [Dispatch](/docs/template-dispatch) und mehr. Bei jeder handelt es sich um eine vollständige App mit UI, Agentenaktionen, Datenbankschema und sofort einsatzbereiten KI-Anweisungen. Den vollständigen Katalog finden Sie unter [Templates](/docs/cloneable-saas).
 
 ### Kann ich Vorlagen anpassen? {#can-i-customize-templates}
 
@@ -124,11 +124,11 @@ Ja. Legen Sie `DATABASE_URL` fest und das Framework erkennt es automatisch. Zu d
 
 ### Warum SSE plus Polling statt WebSockets? {#why-polling-not-websockets}
 
-SSE gibt Schreibvorgängen im selben Prozess einen sofortigen Pfad zum Browser, und eine einfache Abfrage des Versionszählers bleibt der Fallback, da sie in jeder Bereitstellungsumgebung funktioniert – einschließlich serverloser und Edge-Umgebungen, in denen dauerhafte Sockets möglicherweise nicht verfügbar sind. Siehe [Key Concepts — Live sync](/docs/key-concepts#polling-sync).
+SSE gibt Schreibvorgängen im selben Prozess einen sofortigen Pfad zum Browser, und eine einfache Abfrage des Versionszählers bleibt der Fallback, da sie in jeder Bereitstellungsumgebung funktioniert – einschließlich serverloser und Edge-Umgebungen, in denen dauerhafte Sockets möglicherweise nicht verfügbar sind. Siehe [Key Concepts — Live-Synchronisierung](/docs/key-concepts#polling-sync).
 
 ```an-diagram title="SSE zuerst, Polling-Fallback" summary="Gleicher Prozess schreibt Stream sofort; Eine Abfrage des Versionszählers sorgt dafür, dass serverlose, Edge- und prozessübergreifende Schreibvorgänge konvergent bleiben."
 {
-  "html": "<div class=\"diagram-transport\"><div class=\"diagram-box\" data-rough>DB write</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">SSE<br><small class=\"diagram-muted\">/_agent-native/events &middot; instant</small></div><div class=\"diagram-node\">Poll<br><small class=\"diagram-muted\">/_agent-native/poll &middot; universal fallback</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Browser refetch</div></div>",
+  "html": "<div class=\"diagram-transport\"><div class=\"diagram-box\" data-rough>DB-Schreibvorgang</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">SSE<br><small class=\"diagram-muted\">/_agent-native/events &middot; instant</small></div><div class=\"diagram-node\">Polling<br><small class=\"diagram-muted\">/_agent-native/poll &middot; universal fallback</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Browser lädt neu</div></div>",
   "css": ".diagram-transport{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-transport .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-transport .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

@@ -5,8 +5,11 @@ import {
 } from "@agent-native/dispatch/lib/thread-link-preview";
 import type { LoaderFunctionArgs } from "react-router";
 
-export async function loader({ params, url }: LoaderFunctionArgs) {
-  const threadId = params.threadId ?? url.searchParams.get("thread");
+import { messagesByLocale } from "@/i18n-data";
+
+export async function loader({ params, request }: LoaderFunctionArgs) {
+  const threadId =
+    params.threadId ?? new URL(request.url).searchParams.get("thread");
   const { loadThreadLinkPreview } =
     await import("@agent-native/dispatch/server/lib/thread-link-preview");
   return {
@@ -15,11 +18,11 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
 }
 
 export function meta({
-  loaderData,
+  data,
 }: {
-  loaderData?: { threadPreview: ThreadLinkPreview | null };
+  data?: { threadPreview: ThreadLinkPreview | null };
 }) {
-  return loaderData?.threadPreview
-    ? buildThreadLinkPreviewMeta(loaderData.threadPreview)
-    : [{ title: "Chat — Dispatch" }];
+  return data?.threadPreview
+    ? buildThreadLinkPreviewMeta(data.threadPreview)
+    : [{ title: messagesByLocale["en-US"].routeTitles.chat }];
 }

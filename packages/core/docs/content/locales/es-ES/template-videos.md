@@ -10,7 +10,7 @@ Un estudio de vídeo programático para el tipo de gráficos en movimiento, demo
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Logo reveal</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>Remotion preview</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>New track</button></div><div class='wf-box'>Title fade · 0-48 frames</div><div class='wf-box'>Logo scale · 48-120 frames</div><div class='wf-box'>Camera push · 72-144 frames</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Revelación del logotipo</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>Vista previa de Remotion</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>Nueva pista</button></div><div class='wf-box'>Fundido del título · frames 0-48</div><div class='wf-box'>Escala del logotipo · frames 48-120</div><div class='wf-box'>Avance de cámara · frames 72-144</div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ Cuando abras el estudio, verás una lista de composiciones en la pantalla de ini
 
 ```an-diagram title="Animación como datos" summary="Una composición es un componente React; Cada animación se lee de una pista para que el agente y la línea de tiempo editen los mismos datos."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Timeline<br><small class=\"diagram-muted\">drag, resize, scrub</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">\"fade in at 2s\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">AnimationTrack</span><small class=\"diagram-muted\">startFrame / easing / animatedProps</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>React composition<br><small class=\"diagram-muted\">Remotion &lt;Player&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">MP4 / WebM</div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Timeline<br><small class=\"diagram-muted\">arrastrar, redimensionar, recorrer</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">\"fade in at 2s\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">AnimationTrack</span><small class=\"diagram-muted\">startFrame / easing / animatedProps</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Composición React<br><small class=\"diagram-muted\">Remotion &lt;Player&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">MP4 / WebM</div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -99,7 +99,7 @@ Debajo del capó, el agente llama a actions como `navigate`, `save-composition` 
 
 El esquema del lado del servidor está en `templates/videos/server/db/schema.ts`:
 
-```an-schema title="Video data model" summary="SQL-backed compositions plus design systems and nestable folders, each with a framework shares table."
+```an-schema title="Modelo de datos de vídeo" summary="Composiciones respaldadas por SQL más sistemas de diseño y carpetas encajables, cada una con una tabla de recursos compartidos."
 {
   "entities": [
     {
@@ -110,7 +110,7 @@ El esquema del lado del servidor está en `templates/videos/server/db/schema.ts`
         { "name": "id", "type": "text", "pk": true },
         { "name": "title", "type": "text" },
         { "name": "type", "type": "text" },
-        { "name": "data", "type": "text", "note": "Full composition JSON blob" },
+        { "name": "data", "type": "text", "note": "Composición completa JSON blob" },
         { "name": "created_at", "type": "text" },
         { "name": "updated_at", "type": "text" }
       ]
@@ -138,7 +138,7 @@ El esquema del lado del servidor está en `templates/videos/server/db/schema.ts`
     {
       "id": "folder_memberships",
       "name": "folder_memberships",
-      "note": "Many-to-many join",
+      "note": "Unión de muchos a muchos",
       "fields": [
         { "name": "folder_id", "type": "text", "fk": "folders.id" },
         { "name": "composition_id", "type": "text", "fk": "compositions.id" }

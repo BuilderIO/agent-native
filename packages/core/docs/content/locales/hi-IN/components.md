@@ -27,7 +27,7 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 
 ```an-diagram title="एक परत नीचे गिराएं, ढांचे से बाहर नहीं" summary="प्रत्येक परत आपको क्रोम पर अधिक नियंत्रण प्रदान करते हुए समान रनटाइम - क्रियाएं, थ्रेड स्थिति और SQL-backed सिंक रखती है।"
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Whole sidebar around your app. The 80% case.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">The panel or a chat page in your own layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Composer and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Same runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">आपके ऐप के चारों ओर पूरी साइडबार। 80% वाला केस।</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">आपके अपने layout में पैनल या चैट पेज।</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">लिखेंr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>वही runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -58,7 +58,7 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 बातचीत जबकि Agent-Native कंपोजर, ट्रांसक्रिप्ट, टूल कार्ड और रखता है
 देशी विजेट प्रतिपादन। उपरोक्त कनेक्टर API सतह हैं; रनटाइम
 अनुबंध और घटना के आकार
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+[Native चैट UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
 यदि आप हेडलेस एजेंटों, रिच चैट, एम्बेडेड साइडकार और
 पूर्ण ऐप आकार, [Agent Surfaces](/docs/agent-surfaces) देखें।
 
@@ -96,7 +96,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 अपने स्वयं के एजेंट एंडपॉइंट लाने के लिए, इनमें से किसी एक के साथ एक `AgentChatRuntime` बनाएं
 ऊपर कनेक्टर्स और इसे `<AssistantChat runtime={...} />` पर पास करें। देखें
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+[Native चैट UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
 कनेक्टर उपयोग के लिए, सामान्यीकृत ईवेंट स्ट्रीम, और कब पहुंचना है
 `createHttpAgentChatRuntime()` बनाम एक प्रोटोकॉल-विशिष्ट कनेक्टर।
 
@@ -151,7 +151,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 सादे JSON के बजाय चैट के अंदर। अंतर्निहित पुन: प्रयोज्य आउटपुट में
 `DataTableWidget`, `DataChartWidget`, और `DataWidgetResult`; उनका निर्यात किया जाता है
 `@agent-native/core/client/chat` और रूट क्लाइंट प्रविष्टि से। देखें
-कार्रवाई परिणाम अनुबंध के लिए [Native Chat UI](/docs/native-chat-ui)।
+कार्रवाई परिणाम अनुबंध के लिए [Native चैट UI](/docs/native-chat-ui)।
 
 | API                              | कब उपयोग करें                                                                                          |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------ |
@@ -180,7 +180,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 ```an-diagram title="उपस्थिति: मनुष्य और एजेंट एक जागरूकता परत साझा करते हैं" summary="useCollaborativeDoc जागरूकता उदाहरण का स्वामी है; क्लाइंट हुक कर्सर और चयन प्रकाशित करते हैं; सर्वर सहायक एजेंट की कार्रवाई को लाइव भागीदार के रूप में प्रदर्शित होने देते हैं।"
 {
-  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">Agent action<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">render everyone, agent included</small></div></div>",
+  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">एजेंट action<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">सभी को रेंडर करें, एजेंट सहित</small></div></div>",
   "css": ".diagram-presence{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-presence .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-presence .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-presence .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

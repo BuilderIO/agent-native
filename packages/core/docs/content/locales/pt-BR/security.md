@@ -11,7 +11,7 @@ Os aplicativos nativos do agente são projetados para serem seguros por padrão.
 
 ```an-diagram title="Defesa em camadas" summary="A estrutura possui a maior parte da superfície de ameaças; você possui duas coisas: marcar tabelas para definir o escopo e validar entradas externas."
 {
-  "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">Framework owns</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">You own</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
+  "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">Pertence ao framework</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">Você controla</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
   "css": ".sec-layers{display:flex;flex-direction:column;gap:12px}.sec-layers .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
 }
 ```
@@ -86,7 +86,7 @@ await exec(`INSERT INTO notes (title) VALUES ('${title}')`);
 ```an-callout
 {
   "tone": "risk",
-  "body": "Never build SQL by string concatenation or template literals. Pass user input as `args` to `exec` / `db-query`, or use Drizzle — both always parameterize. The `pnpm guards` checks catch unscoped and concatenated queries at CI time."
+  "body": "Nunca construa SQL por concatenação de strings ou literais de modelo. Passe a entrada do usuário como `args` para `exec` / `db-query` ou use Drizzle — ambos sempre parametrizam. As verificações `pnpm guards` capturam consultas sem escopo e concatenadas no momento do CI."
 }
 ```
 
@@ -125,7 +125,7 @@ session.orgId → AGENT_ORG_ID → SQL row scoping
 
 ```an-diagram title="O pipeline de escopo" summary="O agente SQL nunca toca as tabelas base diretamente - ele lê uma visão temporária com escopo para a identidade atual, portanto, um nome de tabela vazio só pode retornar linhas próprias."
 {
-  "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">Signed-in session<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">Agent SQL<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
+  "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">Sessão conectada<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">SQL do agente<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
   "css": ".scope-pipe{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.scope-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.scope-pipe .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -189,17 +189,17 @@ export const projects = table("projects", {
 });
 ```
 
-```an-schema title="What ownableColumns() adds" summary="The three columns that make a table tenant-aware and shareable."
+```an-schema title="What ownableColumns() adds" summary="As três colunas que tornam uma tabela compatível com locatários e compartilhável."
 {
   "entities": [
     {
       "id": "ownable",
       "name": "ownable resource",
-      "note": "Any table that spreads ...ownableColumns()",
+      "note": "Any table that spreads...ownableColumns()",
       "fields": [
         { "name": "owner_email", "type": "text", "nullable": false, "note": "Creator. Auto-filled by write actions; auto-injected on INSERT." },
-        { "name": "org_id", "type": "text", "nullable": true, "note": "Owner's active org at creation. Drives org-visibility checks." },
-        { "name": "visibility", "type": "enum", "nullable": false, "note": "private | org | public — coarse default, defaults to private." }
+        { "name": "org_id", "type": "text", "nullable": true, "note": "Organização ativa do proprietário na criação. Impulsiona verificações de visibilidade organizacional." },
+        { "name": "visibility", "type": "enum", "nullable": false, "note": "privado | organização | público — padrão grosseiro, o padrão é privado." }
       ]
     }
   ]
@@ -219,8 +219,8 @@ As tabelas criadas com `ownableColumns()` exigem essas leituras e gravações co
 ### Validação
 
 ```bash
-pnpm action db-check-scoping           # Check all tables have owner_email
-pnpm action db-check-scoping --require-org  # Also require org_id
+pnpm action db-check-scoping           # Verifique se todas as tabelas possuem proprietário_email
+pnpm action db-check-scoping --require-org  # Também requer org_id
 ```
 
 ## Gerenciamento de segredos {#secrets}

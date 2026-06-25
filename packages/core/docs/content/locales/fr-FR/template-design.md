@@ -10,7 +10,7 @@ Design est un studio de prototypage HTML natif avec agent. Au lieu d'un canevas 
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Product launch page</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Generated HTML prototype</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Make the hero denser and the CTA clearer.</span><div style='flex:1'></div><button class='primary'>Apply revision</button></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Page de lancement produit</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Prototype HTML généré</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Rendez le hero plus dense et le CTA plus clair.</span><div style='flex:1'></div><button class='primary'>Appliquer la révision</button></div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ Lorsque vous ouvrez l'application, le prototype généré est au centre de l'esp
 
 ```an-diagram title="Un artefact, pas de traduction" summary="L'agent génère Alpine/Tailwind HTML autonome ; l'iframe, la source modifiable et chaque exportation lisent tous les mêmes fichiers. Un système de conception lié alimente les jetons dans chaque passe."
 {
-  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">Invite<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">Design system</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Agent generate</span><small class=\"diagram-muted\">standalone HTML / JSX files</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">tweak knobs · Cmd+I refine</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · handoff</small></div></div>",
+  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">Invite<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">Système de design</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Génération agent</span><small class=\"diagram-muted\">fichiers HTML / JSX autonomes</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">ajuster les réglages · affiner avec Cmd+I</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · transfert</small></div></div>",
   "css": ".diagram-design{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-design .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-design .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-design .diagram-arrow{font-size:20px;line-height:1}.diagram-design .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -75,7 +75,7 @@ pnpm dev
 
 ### Modèle de données
 
-Toutes les données se trouvent dans SQL via Drizzle ORM. Schéma : `templates/design/server/db/schema.ts`. Les conceptions et les systèmes de conception portent la norme `ownableColumns` et une table de partages de framework correspondante, ils s'intègrent donc dans le modèle de partage par utilisateur/par organisation.
+Toutes les données se trouvent dans SQL avec Drizzle ORM. Schéma : `templates/design/server/db/schema.ts`. Les conceptions et les systèmes de conception portent la norme `ownableColumns` et une table de partages de framework correspondante, ils s'intègrent donc dans le modèle de partage par utilisateur/par organisation.
 
 | Tableau                                  | Ce qu'il contient                                                                                                                                     |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -85,7 +85,7 @@ Toutes les données se trouvent dans SQL via Drizzle ORM. Schéma : `templates/
 | `design_systems`                         | Jetons de marque réutilisables – `data` (couleurs/typographie/espacement), `assets`, `custom_instructions` et un drapeau `is_default`                 |
 | `design_shares` / `design_system_shares` | Framework partage des tables mappant les principaux (utilisateurs ou organisations) aux rôles (spectateur, éditeur, administrateur)                   |
 
-```an-schema title="Design data model" summary="A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
+```an-schema title="Modèle de données de conception" summary="Une conception est propriétaire de ses fichiers et de ses instantanés versionnés, et relie éventuellement un système de conception réutilisable. Les conceptions et les systèmes peuvent être possédés, chacun avec une table de partage de cadre."
 {
   "entities": [
     { "id": "designs", "name": "designs", "note": "A design project (ownable)", "fields": [
@@ -96,13 +96,13 @@ Toutes les données se trouvent dans SQL via Drizzle ORM. Schéma : `templates/
       { "name": "data", "type": "json", "note": "starts as {}" },
       { "name": "design_system_id", "type": "id", "fk": "design_systems.id", "nullable": true }
     ] },
-    { "id": "files", "name": "design_files", "note": "Files in a design", "fields": [
+    { "id": "files", "name": "design_files", "note": "Fichiers dans une conception", "fields": [
       { "name": "design_id", "type": "id", "fk": "designs.id" },
       { "name": "filename", "type": "text" },
       { "name": "content", "type": "text" },
       { "name": "file_type", "type": "text", "note": "defaults to html" }
     ] },
-    { "id": "versions", "name": "design_versions", "note": "History / rollback", "fields": [
+    { "id": "versions", "name": "design_versions", "note": "Historique / restauration", "fields": [
       { "name": "design_id", "type": "id", "fk": "designs.id" },
       { "name": "snapshot", "type": "json" },
       { "name": "label", "type": "text", "nullable": true }
@@ -114,11 +114,11 @@ Toutes les données se trouvent dans SQL via Drizzle ORM. Schéma : `templates/
       { "name": "custom_instructions", "type": "text", "nullable": true },
       { "name": "is_default", "type": "boolean" }
     ] },
-    { "id": "design_shares", "name": "design_shares", "note": "Framework shares table", "fields": [
+    { "id": "design_shares", "name": "design_shares", "note": "Tableau des partages du framework", "fields": [
       { "name": "design_id", "type": "id", "fk": "designs.id" },
       { "name": "role", "type": "text", "note": "viewer / editor / admin" }
     ] },
-    { "id": "system_shares", "name": "design_system_shares", "note": "Framework shares table", "fields": [
+    { "id": "system_shares", "name": "design_system_shares", "note": "Tableau des partages du framework", "fields": [
       { "name": "design_system_id", "type": "id", "fk": "design_systems.id" },
       { "name": "role", "type": "text", "note": "viewer / editor / admin" }
     ] }

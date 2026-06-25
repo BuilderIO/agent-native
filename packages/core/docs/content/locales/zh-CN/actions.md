@@ -21,7 +21,7 @@ Actions 是您的应用所做的任何事情的唯一事实来源。使用 `defi
 
 ```an-diagram title="一个定义，七个消费者" summary="单个 defineAction() 扇出到每个表面 - 代理、UI、HTTP、MCP、A2A 和 CLI - 具有一个经过验证的模式和一个 run() 主体。"
 {
-  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agent tool<br><small class=\"diagram-muted\">JSON Schema in context</small></div><div class=\"diagram-node\">React hooks<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">imperative client</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP tool<br><small class=\"diagram-muted\">external hosts</small></div><div class=\"diagram-node\">A2A tool<br><small class=\"diagram-muted\">other agent-native apps</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
+  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run()，只定义一次</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agent 工具<br><small class=\"diagram-muted\">上下文中的 JSON Schema</small></div><div class=\"diagram-node\">React 钩子<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">命令式客户端</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP 工具<br><small class=\"diagram-muted\">外部主机</small></div><div class=\"diagram-node\">A2A 工具<br><small class=\"diagram-muted\">其他 agent-native 应用</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
   "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
 }
 ```
@@ -155,7 +155,7 @@ export default defineAction({
   "method": "GET",
   "path": "/_agent-native/actions/get-lead",
   "summary": "每个 action 都会自动挂载在这里 - 文件名就是 action 名称。",
-  "description": "默认是 POST；`http: { method: \"GET\" }` 会让它成为 GET。无论任何 `http.path` 覆盖如何，React hooks 和 `callAction` 始终按名称调用这个路径。",
+  "description": "默认是 POST；`http: { method: \"GET\" }` 会让它成为 GET。无论任何 `http.path` 覆盖如何，React 钩子 和 `callAction` 始终按名称调用这个路径。",
   "auth": "会话 cookie；前端调用会携带 `X-Agent-Native-Frontend: 1`",
   "params": [
     { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET 参数以查询参数传入；POST 参数以 JSON body 传入。" }
@@ -434,7 +434,7 @@ export default defineAction({
 
 内置判别式为 `"data-table"`、`"data-chart"` 和
 `"data-insights"`，具有服务器安全的构建器和架构
-`@agent-native/core/data-widgets`。见[Native Chat UI](/docs/native-chat-ui)
+`@agent-native/core/data-widgets`。见[Native 聊天界面](/docs/native-chat-ui)
 获取完整结果合约和 BYO 运行时指南，或
 [Agent Surfaces](/docs/agent-surfaces) 了解如何保持相同的操作
 无头、在聊天中渲染或变成全屏。

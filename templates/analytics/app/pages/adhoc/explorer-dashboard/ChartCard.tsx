@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client";
+import { callAction, useT } from "@agent-native/core/client";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -67,6 +67,7 @@ export function DashboardChartCard({
   onEdit,
   editable = true,
 }: ChartCardProps) {
+  const t = useT();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const {
@@ -137,7 +138,9 @@ export function DashboardChartCard({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {chart.width === 2 ? "Half width" : "Full width"}
+                  {chart.width === 2
+                    ? t("explorerDashboard.halfWidth")
+                    : t("explorerDashboard.fullWidth")}
                 </TooltipContent>
               </Tooltip>
               <Tooltip>
@@ -149,7 +152,9 @@ export function DashboardChartCard({
                     <IconExternalLink className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Edit in Explorer</TooltipContent>
+                <TooltipContent>
+                  {t("explorerDashboard.editInExplorer")}
+                </TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -160,7 +165,9 @@ export function DashboardChartCard({
                     <IconTrash className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Remove chart</TooltipContent>
+                <TooltipContent>
+                  {t("explorerDashboard.removeChart")}
+                </TooltipContent>
               </Tooltip>
             </div>
           ) : null}
@@ -177,7 +184,7 @@ export function DashboardChartCard({
             />
           ) : (
             <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
-              Config not found
+              {t("explorerDashboard.configNotFound")}
             </div>
           )}
         </CardContent>
@@ -187,21 +194,24 @@ export function DashboardChartCard({
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Remove chart?</AlertDialogTitle>
+              <AlertDialogTitle>
+                {t("explorerDashboard.removeChartTitle")}
+              </AlertDialogTitle>
               <AlertDialogDescription>
-                Remove &ldquo;{config?.name ?? configName}&rdquo; from this
-                dashboard? This cannot be undone.
+                {t("explorerDashboard.removeChartDescription", {
+                  name: config?.name ?? configName,
+                })}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => {
                   setConfirmOpen(false);
                   onRemove();
                 }}
               >
-                Remove
+                {t("explorerDashboard.removeChart")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

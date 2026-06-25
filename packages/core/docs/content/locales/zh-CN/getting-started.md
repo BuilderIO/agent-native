@@ -63,7 +63,7 @@ npx @agent-native/core@latest create my-agent --headless
 然后从您创建的文件夹安装：
 
 ```bash
-cd my-agent # or my-app if you chose the Chat template
+cd my-agent # 或 my-app（如果您选择聊天模板）
 pnpm install
 ```
 
@@ -82,9 +82,9 @@ pnpm install
   "annotations": [
     { "lines": "5", "label": "工具描述", "note": "代理会读取 `description`，判断何时把它作为工具调用。" },
     { "lines": "6-8", "label": "类型化契约", "note": "一个 zod `schema` 会校验来自每个入口的输入：代理、UI、HTTP、MCP 和 A2A。" },
-    { "lines": "9", "label": "HTTP verb", "note": "Opt this action into an auto-mounted HTTP endpoint." },
-    { "lines": "10", "label": "Read-only", "note": "`readOnly` marks the action as safe to call without approval and cacheable for queries." },
-    { "lines": "11-13", "label": "One implementation", "note": "The `run` body is the single source of truth that every surface executes." }
+    { "lines": "9", "label": "HTTP 动词", "note": "将此操作接入自动挂载的 HTTP 端点。" },
+    { "lines": "10", "label": "只读", "note": "`readOnly` 表示该操作无需批准即可安全调用，并且可作为查询缓存。" },
+    { "lines": "11-13", "label": "单一实现", "note": "`run` 主体是所有界面都会执行的唯一真实来源。" }
   ]
 }
 ```
@@ -123,7 +123,7 @@ pnpm dev
 
 ```an-diagram title="一个动作，每个表面" summary="单个 defineAction 文件扇出到每个消费者，无需额外接线。"
 {
-  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Scheduled jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
+  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">聊天界面</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">计划任务</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
   "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -138,7 +138,7 @@ pnpm dev
 ```an-callout
 {
   "tone": "info",
-  "body": "**Headless is still a real app.** The app-agent loop persists sessions, threads, runs, settings, and credentials in SQL — it is not a stateless prompt. You can add a UI later without touching your actions or state."
+  "body": "**Headless 仍然是一个真正的应用程序。**应用程序代理循环在 SQL 中保留会话、线程、运行、设置和凭据 - 它不是无状态提示。您可以稍后添加 UI，而无需更改操作或状态。"
 }
 ```
 
@@ -165,7 +165,7 @@ export default function ChatRoute() {
   `useActionMutation()`.
 
 请参阅 [Drop-in Agent](/docs/drop-in-agent) 了解完整的组件集，并且
-[Native Chat UI](/docs/native-chat-ui) 将操作结果呈现为表格，
+[Native 聊天界面](/docs/native-chat-ui) 将操作结果呈现为表格，
 图表和打字卡片而不是纯文本。
 
 **开始无头，稍后想要 UI？** 聊天模板*是* UI 入口 -
@@ -178,12 +178,12 @@ export default function ChatRoute() {
 
 ```text
 my-app/
-  actions/         # Agent-callable actions
-  app/             # React frontend (UI templates only; omitted when headless)
-  server/          # Nitro API server (routes, plugins)
-  AGENTS.md        # Always-on agent instructions
-  .agents/         # Skills the agent can pull in when relevant
-  data/app.db      # Local SQLite state when DATABASE_URL is unset
+  actions/         # 代理可调用的操作
+  app/             # React 前端（仅 UI 模板；无头模式会省略）
+  server/          # Nitro API 服务器（路由、插件）
+  AGENTS.md        # 始终生效的代理指令
+  .agents/         # 代理可按需引入的技能
+  data/app.db      # 未设置 DATABASE_URL 时的本地 SQLite 状态
 ```
 
 ## 下一步去哪里

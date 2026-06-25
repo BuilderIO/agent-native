@@ -215,7 +215,7 @@ const run = startAgentHarnessRun({
 
 ```an-diagram title="차례, 프로세스, 배포 전반에 걸쳐 재개" summary="매 턴마다 불투명한 이력서 상태를 SQL로 분리합니다. 다음 차례에서는 채팅 기록을 재생하는 대신 createSession에 다시 피드백합니다."
 {
-  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Turn N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opaque · SQL harness session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Turn N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
+  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>턴 N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">불투명 · SQL harness 세션</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>턴 N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
   "css": ".diagram-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-resume .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -267,7 +267,7 @@ Agent-Native actions부터 `createSession.tools`까지의 의도적인 세트**
 네이티브 위젯용 `mcpApp` 페이로드), `approval-request`, `file-change`,
 `compaction`, `usage`, `error` 및 `done`. 도구 결과는
 동일한 번역, 작업으로 선언된 기본 위젯은 여전히 렌더링됩니다.
-[Native Chat UI](/docs/native-chat-ui).
+[Native 채팅 UI](/docs/native-chat-ui).
 
 ## 백그라운드 실행 및 UI {#background-runs}
 
@@ -341,7 +341,7 @@ registerAgentHarness({
 
 ## 관련 문서 {#related-docs}
 
-- [Native Chat UI](/docs/native-chat-ui) — `AgentChatRuntime`와 UI 채팅 뒤에 자신의 에이전트를 배치하세요.
+- [Native 채팅 UI](/docs/native-chat-ui) — `AgentChatRuntime`와 UI 채팅 뒤에 자신의 에이전트를 배치하세요.
 - [Agent Surfaces](/docs/agent-surfaces) — 헤드리스, 채팅, 사이드카 또는 전체 앱을 선택하세요.
 - [Agent-Native Code UI](/docs/code-agents-ui) — 재사용 가능한 코딩 작업 공간
 - [Custom Agents & Teams](/docs/agent-teams) — 백그라운드 실행 및 하위 에이전트 위임.

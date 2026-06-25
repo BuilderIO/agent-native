@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   Area,
   AreaChart,
@@ -40,6 +41,7 @@ export function CumulativeNetChart({
   isLoading,
   error,
 }: CumulativeNetChartProps) {
+  const t = useT();
   const lastValue = data.length > 0 ? data[data.length - 1].cumulative_net : 0;
   const isPositive = lastValue >= 0;
   const color = isPositive ? "#10b981" : "#ef4444";
@@ -56,7 +58,7 @@ export function CumulativeNetChart({
           <p className="text-sm text-red-400 py-8 text-center">{error}</p>
         ) : data.length === 0 ? (
           <p className="text-sm text-muted-foreground py-8 text-center">
-            No data available
+            {t("common.noDataAvailable")}
           </p>
         ) : (
           <div className="h-[300px] w-full">

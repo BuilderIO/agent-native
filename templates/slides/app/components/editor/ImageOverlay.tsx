@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconPhoto,
   IconFolderOpen,
@@ -33,6 +34,7 @@ export default function ImageOverlay({
   onToggleObjectFit,
   onClose,
 }: ImageOverlayProps) {
+  const t = useT();
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -92,7 +94,7 @@ export default function ImageOverlay({
         className="image-overlay-btn"
       >
         <IconFolderOpen className="w-3.5 h-3.5 text-[#00E5FF]" />
-        Asset Library
+        {t("editorToolbar.assetLibrary")}
       </button>
       <button
         onClick={() => {

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { Player, type PlayerRef } from "@remotion/player";
 import {
   IconDeviceFloppy,
@@ -27,6 +28,7 @@ export function ComponentLibraryView({
   initialFrame,
   propValues,
 }: ComponentLibraryViewProps) {
+  const t = useT();
   const playerRef = useRef<PlayerRef>(null);
   const [playing, setPlaying] = useState(false);
   const [currentFrame, setCurrentFrame] = useState(initialFrame || 0);
@@ -110,8 +112,8 @@ export function ComponentLibraryView({
     );
     if (!storedZones) {
       toast({
-        title: "No zones found",
-        description: "Press D to enable debug mode and adjust zones first.",
+        title: t("editor.preview.noZonesFound"),
+        description: t("editor.preview.noZonesFoundDescription"),
         variant: "destructive",
       });
       return;
@@ -122,8 +124,8 @@ export function ComponentLibraryView({
       relativeZones = JSON.parse(storedZones) as Record<string, Zone>;
     } catch {
       toast({
-        title: "Saved zones are invalid",
-        description: "Adjust the zones again, then save them.",
+        title: t("editor.preview.invalidSavedZones"),
+        description: t("editor.preview.invalidSavedZonesDescription"),
         variant: "destructive",
       });
       return;
@@ -166,10 +168,12 @@ export function ComponentLibraryView({
     }
 
     toast({
-      title: copied ? "Zone coordinates copied" : "Zone coordinates ready",
+      title: copied
+        ? t("editor.preview.zoneCoordinatesCopied")
+        : t("editor.preview.zoneCoordinatesReady"),
       description: copied
-        ? "Paste them into the composition zone map."
-        : "Clipboard access is unavailable in this browser context.",
+        ? t("editor.preview.zoneCoordinatesCopiedDescription")
+        : t("editor.preview.clipboardUnavailable"),
     });
   }, [component.width]);
 
@@ -195,14 +199,16 @@ export function ComponentLibraryView({
           <div className="mb-4 w-full max-w-4xl">
             <div className="bg-orange-500/90 text-white px-3 sm:px-6 py-2 sm:py-3 rounded-lg shadow-lg flex items-center justify-between gap-2">
               <div className="font-bold text-xs sm:text-sm min-w-0">
-                DEBUG MODE - Press 'D' to toggle
+                {t("editor.preview.debugMode")}
               </div>
               <button
                 onClick={handleSaveZones}
                 className="flex items-center gap-2 bg-white/20 hover:bg-white/30 px-4 py-2 rounded transition-colors"
               >
                 <IconDeviceFloppy className="w-4 h-4" />
-                <span className="text-sm font-semibold">Save Zones</span>
+                <span className="text-sm font-semibold">
+                  {t("editor.preview.saveZones")}
+                </span>
               </button>
             </div>
           </div>
@@ -244,7 +250,7 @@ export function ComponentLibraryView({
               autoPlay={false}
               errorFallback={({ error }) => (
                 <div style={{ color: "red", padding: 20 }}>
-                  <h2>Remotion Error:</h2>
+                  <h2>{t("editor.preview.remotionError")}</h2>
                   <pre>{error.message}</pre>
                   <pre>{error.stack}</pre>
                 </div>
@@ -259,12 +265,12 @@ export function ComponentLibraryView({
                     <button
                       onClick={handleRestart}
                       className="p-2.5 sm:p-2 hover:bg-white/10 rounded"
-                      aria-label="Restart"
+                      aria-label={t("editor.preview.restart")}
                     >
                       <IconPlayerSkipBack className="w-4 h-4 text-white" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Restart</TooltipContent>
+                  <TooltipContent>{t("editor.preview.restart")}</TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
@@ -272,7 +278,11 @@ export function ComponentLibraryView({
                     <button
                       onClick={handlePlayPause}
                       className="p-2.5 sm:p-2 hover:bg-white/10 rounded"
-                      aria-label={playing ? "Pause" : "Play"}
+                      aria-label={
+                        playing
+                          ? t("editor.preview.pause")
+                          : t("editor.preview.play")
+                      }
                     >
                       {playing ? (
                         <IconPlayerPause className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
@@ -281,7 +291,11 @@ export function ComponentLibraryView({
                       )}
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>{playing ? "Pause" : "Play"}</TooltipContent>
+                  <TooltipContent>
+                    {playing
+                      ? t("editor.preview.pause")
+                      : t("editor.preview.play")}
+                  </TooltipContent>
                 </Tooltip>
 
                 <div className="flex-1 text-xs sm:text-sm text-white/80 font-mono">
@@ -298,36 +312,43 @@ export function ComponentLibraryView({
           {/* Info Card */}
           <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-secondary/50 rounded-lg border border-border space-y-3">
             <div>
-              <h3 className="text-sm font-semibold mb-2">Preview Timeline</h3>
+              <h3 className="text-sm font-semibold mb-2">
+                {t("editor.preview.timeline")}
+              </h3>
               <p className="text-xs text-muted-foreground mb-3">
-                Press <strong>Play</strong> to see the cursor demonstrate hover
-                and click interactions:
+                {t("editor.preview.timelineDescriptionPrefix")}{" "}
+                <strong>{t("editor.preview.play")}</strong>{" "}
+                {t("editor.preview.timelineDescriptionSuffix")}
               </p>
               <ul className="text-xs text-muted-foreground space-y-1 ms-4 list-disc">
                 <li>
-                  <strong>0.0s - 1.3s</strong>: Cursor approaches
+                  <strong>0.0s - 1.3s</strong>:{" "}
+                  {t("editor.preview.cursorApproaches")}
                 </li>
                 <li>
-                  <strong>1.3s - 2.7s</strong>: Hovers over component
+                  <strong>1.3s - 2.7s</strong>:{" "}
+                  {t("editor.preview.hoversOverComponent")}
                 </li>
                 <li>
-                  <strong>2.7s</strong>: Clicks component
+                  <strong>2.7s</strong>: {t("editor.preview.clicksComponent")}
                 </li>
                 <li>
-                  <strong>3.0s - 3.7s</strong>: Continues hovering
+                  <strong>3.0s - 3.7s</strong>:{" "}
+                  {t("editor.preview.continuesHovering")}
                 </li>
                 <li>
-                  <strong>3.7s - 5.0s</strong>: Cursor exits
+                  <strong>3.7s - 5.0s</strong>:{" "}
+                  {t("editor.preview.cursorExits")}
                 </li>
               </ul>
             </div>
 
             <div className="pt-3 border-t border-border">
               <p className="text-xs font-medium text-foreground mb-1">
-                Quick Debug
+                {t("editor.preview.quickDebug")}
               </p>
               <p className="text-xs text-muted-foreground">
-                Jump to specific frames using URL params:
+                {t("editor.preview.jumpToFrames")}
               </p>
               <code className="text-[10px] text-muted-foreground font-mono mt-1 block break-all">
                 ?frame=60 (hover) or ?frame=80 (click)

@@ -2,6 +2,7 @@ import {
   createSharedEditorExtensions,
   useCollabReconcile,
   RegistryBlockDataProvider,
+  useT,
   type RegistryBlockSideMapBlock,
   type UseCollabReconcileResult,
 } from "@agent-native/core/client";
@@ -1564,6 +1565,7 @@ export function VisualEditor({
   onOpenNotionPageLink,
   notionPageId,
 }: VisualEditorProps) {
+  const t = useT();
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -1803,7 +1805,9 @@ export function VisualEditor({
         if (!guards.registerEmitted(normalized)) return;
         queueMicrotask(() => onChangeRef.current(normalized));
       } catch (err: any) {
-        toast.error("Markdown serialization error: " + err.message);
+        toast.error(
+          t("editor.markdownSerializationError", { message: err.message }),
+        );
         console.error("Markdown serialization error:", err);
       }
     },
@@ -2044,7 +2048,7 @@ export function VisualEditor({
             <IconPhoto size={16} />
             <IconVideo size={16} />
             <IconMusic size={16} />
-            <span>Drop media</span>
+            <span>{t("editor.dropMedia")}</span>
           </div>
         </div>
       ) : null}

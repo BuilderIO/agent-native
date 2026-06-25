@@ -13,7 +13,7 @@ description: "Claude - 每个用户的代码级自定义 - skills、内存、指
 
 ```an-diagram title="Claude-Code 工作区，但存储在 SQL 中" summary="相同的定制层——指令、技能、内存、代理、作业、MCP——除了每个文件都是共享多租户数据库中的一行。"
 {
-  "html": "<div class=\"ws-map\"><div class=\"diagram-card cc\"><span class=\"diagram-pill warn\">Claude Code / Codex</span><small class=\"diagram-muted\">~/.claude/ on a local disk</small><div class=\"ws-files\"><span class=\"diagram-box\">CLAUDE.md</span><span class=\"diagram-box\">skills/</span><span class=\"diagram-box\">memory</span><span class=\"diagram-box\">mcp.json</span></div><small class=\"diagram-muted\">one codebase per developer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card an\"><span class=\"diagram-pill accent\">Agent-native workspace</span><small class=\"diagram-muted\">rows in one SQL 数据库</small><div class=\"ws-rows\"><span class=\"diagram-pill\">AGENTS.md</span><span class=\"diagram-pill\">skills/&hellip;</span><span class=\"diagram-pill\">memory/&hellip;</span><span class=\"diagram-pill\">mcp-servers/&hellip;</span></div><small class=\"diagram-muted\">one codebase, many users, scoped <code>u:&lt;email&gt;:&hellip;</code></small></div></div>",
+  "html": "<div class=\"ws-map\"><div class=\"diagram-card cc\"><span class=\"diagram-pill warn\">Claude Code / Codex</span><small class=\"diagram-muted\">~/.claude/ on a local disk</small><div class=\"ws-files\"><span class=\"diagram-box\">CLAUDE.md</span><span class=\"diagram-box\">skills/</span><span class=\"diagram-box\">memory</span><span class=\"diagram-box\">mcp.json</span></div><small class=\"diagram-muted\">one codebase per developer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card an\"><span class=\"diagram-pill accent\">Agent-native 工作区</span><small class=\"diagram-muted\">rows in one SQL 数据库</small><div class=\"ws-rows\"><span class=\"diagram-pill\">AGENTS.md</span><span class=\"diagram-pill\">skills/&hellip;</span><span class=\"diagram-pill\">memory/&hellip;</span><span class=\"diagram-pill\">mcp-servers/&hellip;</span></div><small class=\"diagram-muted\">一个代码库，多用户，有作用域 <code>u:&lt;email&gt;:&hellip;</code></small></div></div>",
   "css": ".ws-map{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ws-map .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:220px}.ws-map .ws-files,.ws-map .ws-rows{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}.ws-map .diagram-arrow{font-size:24px}"
 }
 ```
@@ -53,7 +53,7 @@ description: "Claude - 每个用户的代码级自定义 - skills、内存、指
 
 ```an-diagram title="三个范围，一个有效文件" summary="运行时在读取时解析跨工作区、应用程序和个人范围的相同路径 - 最具体的范围获胜。"
 {
-  "html": "<div class=\"ws-stack\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Workspace</span><small class=\"diagram-muted\">company-wide defaults from Dispatch</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Organization / app</span><small class=\"diagram-muted\">team override for one app</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Personal</span><small class=\"diagram-muted\">per-user override &mdash; wins</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Effective <code>context/brand.md</code></div></div>",
+  "html": "<div class=\"ws-stack\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Workspace</span><small class=\"diagram-muted\">来自 Dispatch 的公司级默认值</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">组织 / 应用</span><small class=\"diagram-muted\">team override for one app</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Personal</span><small class=\"diagram-muted\">per-user override &mdash; wins</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Effective <code>context/brand.md</code></div></div>",
   "css": ".ws-stack{display:flex;flex-direction:column;align-items:flex-start;gap:8px}.ws-stack .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px;min-width:280px}.ws-stack .diagram-arrow{font-size:20px;align-self:center}.ws-stack code{font-size:.85em}.ws-stack .diagram-box{align-self:center;margin-top:4px}"
 }
 ```
@@ -74,7 +74,7 @@ description: "Claude - 每个用户的代码级自定义 - skills、内存、指
 3. 保存，切换到**聊天**，询问任何问题 - 客服人员立即遵循新规则。
 
 ```an-callout
-{ "tone": "info", "body": "No restart, no redeploy. `AGENTS.md` is read at the start of every turn, so an edit you save now changes the agent's behavior on the very next message." }
+{ "tone": "info", "body": "无需重新启动，无需重新部署。 `AGENTS.md` 在每个回合开始时都会被读取，因此您现在保存的编辑会更改代理在下一条消息中的行为。" }
 ```
 
 **后续步骤（当您需要时）：**
@@ -96,10 +96,10 @@ description: "Claude - 每个用户的代码级自定义 - skills、内存、指
 适用于新工作区的有用入门包：
 
 ```text
-context/company.md              # what the company does, ICP, products, links
-context/brand.md                # voice, visual identity, spelling, forbidden usage
-context/messaging.md            # positioning, value props, proof points, objections
-instructions/guardrails.md      # compliance, escalation, and approval rules
+context/company.md              # 公司的业务、ICP、产品、链接
+context/brand.md                # 声音、视觉识别、拼写、禁止使用
+context/messaging.md            # 定位、价值支柱、证据点、反对意见
+instructions/guardrails.md      # 合规、升级和批准规则
 skills/company-voice/SKILL.md   # on-demand guidance for customer-facing writing
 agents/<slug>.md                # reusable custom agent profiles
 ```
@@ -119,7 +119,7 @@ workspace context/brand.md
 ```text
 <!-- context/brand.md -->
 
-# Brand
+# 品牌
 
 - Voice: direct, warm, concrete
 - Use: "workspace", "agent", "team"
@@ -183,18 +183,18 @@ instructions/legal-review-policy.md
 
 这些表面中的每一个 - `AGENTS.md`、skills、内存、自定义代理、MCP 服务器 - 都是相同的底层资源形状：`path` + `scope` + `content`，以相同的方式寻址和解析。
 
-```an-schema title="The workspace resource model" summary="One resource shape backs every workspace file. The runtime keys it by path and scope and resolves the effective value on read."
+```an-schema title="工作区资源模型" summary="一种资源形状支持每个工作区文件。运行时按路径和范围对其进行键控，并解析读取时的有效值。"
 {
   "entities": [
     {
       "id": "resource",
       "name": "workspace resource",
-      "note": "A single file in a user's workspace — instructions, skill, memory, agent, MCP config, or job.",
+      "note": "用户工作区中的单个文件 - 说明、技能、内存、代理、MCP 配置或作业。",
       "fields": [
         { "name": "path", "type": "string", "note": "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md" },
-        { "name": "scope", "type": "workspace | shared | personal", "note": "Which level this row lives at" },
+        { "name": "scope", "type": "workspace | shared | personal", "note": "该行位于哪一层" },
         { "name": "owner", "type": "string", "nullable": true, "note": "u:<email> for personal scope" },
-        { "name": "content", "type": "text", "note": "Markdown / JSON / YAML body" }
+        { "name": "content", "type": "text", "note": "Markdown / JSON / YAML 正文" }
       ]
     }
   ]
@@ -221,12 +221,12 @@ Skills 是 `skills/` 路径（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 {
   "filename": "agents/design.md",
   "language": "markdown",
-  "code": "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# Role\n\nYou are a focused design agent.\n\n## Responsibilities\n\n- Review layouts and interaction flows\n- Suggest stronger visual direction\n- Be concise and opinionated",
+  "code": "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# 角色\n\n您是一名专注的设计代理。\n\n##职责\n\n-审查布局和交互流程\n-提出更强的视觉方向\n-简洁且有主见",
   "annotations": [
-    { "lines": "2", "label": "@mention handle", "note": "`name` is what appears in the `@`-dropdown and what the main agent delegates to." },
-    { "lines": "3-4", "label": "When to delegate", "note": "The `description` is what the orchestrator reads to decide this profile fits a task." },
-    { "lines": "5", "label": "Model", "note": "`inherit` reuses the main agent's model. Override only when the profile clearly needs a different one." },
-    { "lines": "6", "note": "`tools: inherit` for now — the field is reserved for future per-agent tool policies." }
+    { "lines": "2", "label": "@mention handle", "note": "`name` 是 `@` 下拉列表中显示的内容，也是主代理委托的内容。" },
+    { "lines": "3-4", "label": "何时委托", "note": "`description` 是协调器读取的内容，以确定此配置文件适合任务。" },
+    { "lines": "5", "label": "型号", "note": "`inherit` 重用主代理的模型。仅当配置文件明确需要不同的配置文件时才覆盖。" },
+    { "lines": "6", "note": "`tools: inherit` 目前 - 该字段是为未来的每代理工具策略保留的。" }
   ]
 }
 ```
@@ -303,21 +303,21 @@ Skills 是 `skills/` 路径（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 代理使用这些内置的 actions。您也可以从您自己的 actions 中调用它们：
 
 ```bash
-# List all resources
+# 列出所有资源
 pnpm action resource-list --scope all
 
-# Read a resource
+# 阅读资源
 pnpm action resource-read --path "skills/my-skill/SKILL.md"
 
-# Read inherited workspace context managed by Dispatch
+# 读取由 Dispatch 管理的继承工作区上下文
 pnpm action resource-read --scope workspace --path "context/brand.md"
 
 # Show workspace -> organization/app -> personal precedence for a path
 pnpm action resource-effective --path "context/brand.md"
 
-# Write a resource
-pnpm action resource-write --path "notes/meeting.md" --content "# Meeting Notes..."
+# 写一个资源
+pnpm action resource-write --path "notes/meeting.md" --content "# 会议记录...”
 
-# Delete a resource
+# 删除资源
 pnpm action resource-delete --path "notes/old.md"
 ```

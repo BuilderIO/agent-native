@@ -1,4 +1,8 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import {
   type Icon,
   IconChartBar,
@@ -59,6 +63,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { type ReviewItem, type ReviewQueueResponse } from "@/lib/brain";
 import { cn } from "@/lib/utils";
 
+type BrainT = ReturnType<typeof useT>;
+
 type ProposalStatus = "pending" | "approved" | "rejected";
 
 interface ProposalDraft {
@@ -89,6 +95,7 @@ interface ProposalInsight {
 }
 
 export default function ReviewRoute() {
+  const t = useT();
   const [params, setParams] = useSearchParams();
   const status = proposalStatus(params.get("status"));
   const selectedProposalId = params.get("reviewItemId");
@@ -144,7 +151,7 @@ export default function ReviewRoute() {
     { proposalId: string; reviewerNotes?: string }
   >("reject-proposal" as any);
 
-  const proposals: ReviewItem[] =
+  const proposals =
     reviewQuery.data?.proposals ?? reviewQuery.data?.items ?? [];
   const pendingMutation =
     updateProposal.isPending ||
@@ -160,14 +167,16 @@ export default function ReviewRoute() {
   const summary = useMemo(() => {
     const label =
       status === "pending"
-        ? "Pending proposals"
+        ? t("review.pendingProposals")
         : status === "approved"
-          ? "Approved proposals"
-          : "Rejected proposals";
-    return `${label}: ${proposals.length} ${
-      proposals.length === 1 ? "item" : "items"
-    } shown`;
-  }, [proposals.length, status]);
+          ? t("review.approvedProposals")
+          : t("review.rejectedProposals");
+    return t("review.summary", {
+      label,
+      count: proposals.length,
+      itemLabel: proposals.length === 1 ? t("review.item") : t("review.items"),
+    });
+  }, [proposals.length, status, t]);
 
   function updateStatus(value: string) {
     const next = new URLSearchParams(params);
@@ -312,9 +321,9 @@ export default function ReviewRoute() {
   return (
     <div className="min-h-full bg-muted/20">
       <PageHeader
-        eyebrow="Review"
-        title="Proposal review"
-        description="Approve only the proposed memories that have durable value, source support, and the right privacy posture."
+        eyebrow={t("review.eyebrow")}
+        title={t("review.title")}
+        description={t("review.description")}
         actions={
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             <Badge variant="outline" className="w-fit max-w-full">
@@ -322,12 +331,12 @@ export default function ReviewRoute() {
             </Badge>
             <Select value={status} onValueChange={updateStatus}>
               <SelectTrigger className="w-full sm:w-44">
-                <SelectValue placeholder="Status" />
+                <SelectValue placeholder={t("review.status")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="approved">Approved</SelectItem>
-                <SelectItem value="rejected">Rejected</SelectItem>
+                <SelectItem value="pending">{t("review.pending")}</SelectItem>
+                <SelectItem value="approved">{t("review.approved")}</SelectItem>
+                <SelectItem value="rejected">{t("review.rejected")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -343,7 +352,7 @@ export default function ReviewRoute() {
               const evidence = proposal.evidence ?? [];
               const sourceUrl = firstSourceUrl(proposal);
               const canReview = proposal.status === "pending";
-              const insight = buildProposalInsight(proposal);
+              const insight = buildProposalInsight(proposal, t);
               const hasChanges = hasDraftChanges(proposal);
               const publishCanonical = canonicalChoice(proposal);
               const selected = selectedProposalId === proposal.id;
@@ -359,7 +368,7 @@ export default function ReviewRoute() {
                   )}
                   aria-label={
                     canReview
-                      ? `${proposal.title}. Press A to approve, R to reject, or S to save wording changes.`
+                      ? t("review.cardAria", { title: proposal.title })
                       : proposal.title
                   }
                 >
@@ -371,16 +380,16 @@ export default function ReviewRoute() {
                             {proposal.title}
                           </CardTitle>
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                            <span>{formatDate(proposal.createdAt)}</span>
+                            <span>{formatDate(proposal.createdAt, t)}</span>
                             <span className="hidden sm:inline">/</span>
                             <span>
-                              {proposal.createdBy ?? "Reviewer queue"}
+                              {proposal.createdBy ?? t("review.reviewerQueue")}
                             </span>
                             {hasChanges ? (
                               <>
                                 <span className="hidden sm:inline">/</span>
                                 <span className="font-medium text-foreground">
-                                  Unsaved edits
+                                  {t("review.unsavedEdits")}
                                 </span>
                               </>
                             ) : null}
@@ -397,11 +406,11 @@ export default function ReviewRoute() {
                     <div className="grid gap-4">
                       <p className="line-clamp-3 max-w-5xl whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
                         {draftValue(proposal, "body") ||
-                          "No proposed knowledge."}
+                          t("review.noProposedKnowledge")}
                       </p>
                       <ReviewSignalStrip
                         target={insight.target.label}
-                        privacy={privacySummary(insight.privacyFlags)}
+                        privacy={privacySummary(insight.privacyFlags, t)}
                         evidenceCount={evidence.length}
                         proposedAction={proposal.proposedAction}
                         publishCanonical={publishCanonical}
@@ -413,7 +422,7 @@ export default function ReviewRoute() {
                         <div className="grid gap-4">
                           <div className="grid gap-2">
                             <Label htmlFor={`proposal-title-${proposal.id}`}>
-                              Title
+                              {t("review.fieldTitle")}
                             </Label>
                             <Input
                               id={`proposal-title-${proposal.id}`}
@@ -428,7 +437,7 @@ export default function ReviewRoute() {
                           </div>
                           <div className="grid gap-2">
                             <Label htmlFor={`proposal-body-${proposal.id}`}>
-                              Proposed knowledge
+                              {t("review.proposedKnowledge")}
                             </Label>
                             <Textarea
                               id={`proposal-body-${proposal.id}`}
@@ -446,14 +455,14 @@ export default function ReviewRoute() {
                             <Label
                               htmlFor={`proposal-rationale-${proposal.id}`}
                             >
-                              Rationale
+                              {t("review.rationale")}
                             </Label>
                             <Textarea
                               id={`proposal-rationale-${proposal.id}`}
                               className="min-h-20"
                               value={draftValue(proposal, "rationale")}
                               disabled={!canReview || pendingMutation}
-                              placeholder="Why this should become durable knowledge"
+                              placeholder={t("review.rationalePlaceholder")}
                               onChange={(event) =>
                                 patchDraft(proposal.id, {
                                   rationale: event.target.value,
@@ -463,7 +472,7 @@ export default function ReviewRoute() {
                           </div>
                           <div className="grid gap-2">
                             <Label htmlFor={`reviewer-notes-${proposal.id}`}>
-                              Reviewer notes
+                              {t("review.reviewerNotes")}
                             </Label>
                             <Textarea
                               id={`reviewer-notes-${proposal.id}`}
@@ -474,7 +483,7 @@ export default function ReviewRoute() {
                                 ""
                               }
                               disabled={!canReview || pendingMutation}
-                              placeholder="Optional context for this decision"
+                              placeholder={t("review.reviewerNotesPlaceholder")}
                               onChange={(event) =>
                                 setNotes((current) => ({
                                   ...current,
@@ -492,7 +501,7 @@ export default function ReviewRoute() {
                               className="flex items-center gap-2 text-sm font-medium"
                             >
                               <IconBook className="size-4 text-muted-foreground" />
-                              Publish as company context
+                              {t("review.publishCompanyContext")}
                             </Label>
                             <div className="flex items-center gap-3">
                               {publishCanonical ? (
@@ -506,7 +515,7 @@ export default function ReviewRoute() {
                                   }
                                 >
                                   <IconFileText className="size-4" />
-                                  Preview
+                                  {t("review.preview")}
                                 </Button>
                               ) : null}
                               <Switch
@@ -527,9 +536,9 @@ export default function ReviewRoute() {
                       <p className="text-xs leading-5 text-muted-foreground sm:max-w-xl">
                         {canReview
                           ? hasChanges
-                            ? "Approval saves wording edits first."
-                            : "Approve durable, sourced memories; reject anything too narrow or uncertain."
-                          : reviewedSummary(proposal)}
+                            ? t("review.approvalSavesEdits")
+                            : t("review.reviewGuidance")
+                          : reviewedSummary(proposal, t)}
                       </p>
                       <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex sm:flex-wrap sm:justify-end">
                         <ProposalDetailsSheet
@@ -564,7 +573,7 @@ export default function ReviewRoute() {
                             onClick={() => void saveDraft(proposal)}
                           >
                             <IconPencil className="size-4" />
-                            Save wording
+                            {t("review.saveWording")}
                           </Button>
                         ) : null}
                         {canReview ? (
@@ -577,7 +586,7 @@ export default function ReviewRoute() {
                               onClick={() => void reject(proposal)}
                             >
                               <IconX className="size-4" />
-                              Reject
+                              {t("review.reject")}
                             </Button>
                             <Button
                               size="sm"
@@ -599,18 +608,20 @@ export default function ReviewRoute() {
           </div>
         ) : (
           <EmptyActionState
-            title={`No ${status} proposals`}
-            detail="New source captures appear here when Brain needs a reviewer before turning them into company knowledge."
+            title={t("review.emptyTitle", {
+              status: t(`review.${status}`),
+            })}
+            detail={t("review.emptyDetail")}
           />
         )}
 
         {reviewQuery.isError || actionError ? (
           <EmptyActionState
-            title="Review action failed"
+            title={t("review.actionFailedTitle")}
             detail={
               actionError?.message ??
               reviewQuery.error?.message ??
-              "Brain could not load or update proposals."
+              t("review.actionFailedDetail")
             }
           />
         ) : null}
@@ -621,7 +632,7 @@ export default function ReviewRoute() {
         preview={canonicalPreview}
         loading={previewCanonical.isPending || approveProposal.isPending}
         error={previewCanonical.error?.message ?? null}
-        primaryLabel="Approve and publish"
+        primaryLabel={t("review.approveAndPublish")}
         primaryDisabled={!previewProposal || pendingMutation}
         onPrimaryAction={() => void approvePreviewedProposal()}
       />
@@ -665,8 +676,8 @@ function firstSourceUrl(proposal: ReviewItem) {
   return null;
 }
 
-function formatDate(value: string | null | undefined) {
-  if (!value) return "Not recorded";
+function formatDate(value: string | null | undefined, t?: BrainT) {
+  if (!value) return t ? t("review.notRecorded") : "Not recorded";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat(undefined, {
@@ -678,7 +689,10 @@ function formatDate(value: string | null | undefined) {
   }).format(date);
 }
 
-function buildProposalInsight(proposal: ReviewItem): ProposalInsight {
+function buildProposalInsight(
+  proposal: ReviewItem,
+  t: BrainT,
+): ProposalInsight {
   const payload = proposal.payload ?? {};
   const confidence = readNumber(
     payload.confidence ?? payload.score ?? payload.confidenceScore,
@@ -689,20 +703,29 @@ function buildProposalInsight(proposal: ReviewItem): ProposalInsight {
   const status = readString(payload.status);
   const summary = readString(payload.summary);
   const tags = readStringArray(payload.tags);
-  const target = buildTargetContext(proposal, payload);
-  const privacyFlags = buildPrivacyFlags(proposal, payload, {
-    publishTier,
-    status,
-  });
+  const target = buildTargetContext(proposal, payload, t);
+  const privacyFlags = buildPrivacyFlags(
+    proposal,
+    payload,
+    {
+      publishTier,
+      status,
+    },
+    t,
+  );
 
   return {
     confidence,
-    queueReason: buildQueueReason(proposal, {
-      confidence,
-      payload,
-      publishTier,
-      privacyFlags,
-    }),
+    queueReason: buildQueueReason(
+      proposal,
+      {
+        confidence,
+        payload,
+        publishTier,
+        privacyFlags,
+      },
+      t,
+    ),
     privacyFlags,
     target,
     publishTier,
@@ -711,13 +734,14 @@ function buildProposalInsight(proposal: ReviewItem): ProposalInsight {
     status,
     summary,
     tags,
-    approveLabel: buildApproveLabel(target, status),
+    approveLabel: buildApproveLabel(target, status, t),
   };
 }
 
 function buildTargetContext(
   proposal: ReviewItem,
   payload: Record<string, unknown>,
+  t: BrainT,
 ): TargetContext {
   const knowledgeId =
     proposal.knowledgeId ??
@@ -726,10 +750,11 @@ function buildTargetContext(
 
   if (knowledgeId && supersedesId) {
     return {
-      label: "Merge update and supersede",
-      detail: `Updates ${shortId(knowledgeId)} and archives ${shortId(
-        supersedesId,
-      )}.`,
+      label: t("review.target.mergeUpdateSupersede"),
+      detail: t("review.target.mergeUpdateSupersedeDetail", {
+        knowledgeId: shortId(knowledgeId),
+        supersedesId: shortId(supersedesId),
+      }),
       knowledgeId,
       supersedesId,
     };
@@ -737,33 +762,35 @@ function buildTargetContext(
 
   if (knowledgeId) {
     return {
-      label: "Merge into existing knowledge",
-      detail: `Approving applies this wording to ${shortId(knowledgeId)}.`,
+      label: t("review.target.mergeExisting"),
+      detail: t("review.target.mergeExistingDetail", {
+        knowledgeId: shortId(knowledgeId),
+      }),
       knowledgeId,
     };
   }
 
   if (supersedesId) {
     return {
-      label: "Supersede existing knowledge",
-      detail: `Approving creates a replacement and archives ${shortId(
-        supersedesId,
-      )}.`,
+      label: t("review.target.supersedeExisting"),
+      detail: t("review.target.supersedeExistingDetail", {
+        supersedesId: shortId(supersedesId),
+      }),
       supersedesId,
     };
   }
 
   if (proposal.proposedAction === "archive") {
     return {
-      label: "Archive knowledge",
-      detail: "Approving marks the target knowledge as archived.",
+      label: t("review.target.archiveKnowledge"),
+      detail: t("review.target.archiveKnowledgeDetail"),
       knowledgeId,
     };
   }
 
   return {
-    label: "Create new knowledge",
-    detail: "Approving adds a new durable company knowledge entry.",
+    label: t("review.target.createNew"),
+    detail: t("review.target.createNewDetail"),
   };
 }
 
@@ -771,6 +798,7 @@ function buildPrivacyFlags(
   proposal: ReviewItem,
   payload: Record<string, unknown>,
   context: { publishTier: string | null; status: string | null },
+  t: BrainT,
 ) {
   const flags: string[] = readStringArray(
     payload.privacyFlags ?? payload.privacy_flags ?? payload.flags,
@@ -779,27 +807,35 @@ function buildPrivacyFlags(
   const redactions = readStringArray(payload.redactions);
 
   if (context.status === "redacted" || containsRedaction(proposal)) {
-    flags.push("Redacted content");
+    flags.push(t("review.privacy.redactedContent"));
   }
   if (redactions.length) {
     flags.push(
-      `${redactions.length} redaction ${redactions.length === 1 ? "rule" : "rules"}`,
+      t("review.privacy.redactionRules", {
+        count: redactions.length,
+        ruleLabel:
+          redactions.length === 1 ? t("review.rule") : t("review.rules"),
+      }),
     );
   }
   if (context.publishTier === "company") {
-    flags.push("Company-tier knowledge");
+    flags.push(t("review.privacy.companyTierKnowledge"));
   } else if (context.publishTier) {
-    flags.push(`${titleCase(context.publishTier)} publish tier`);
+    flags.push(
+      t("review.privacy.publishTier", { tier: titleCase(context.publishTier) }),
+    );
   }
   if (visibility) {
-    flags.push(`${titleCase(visibility)} visibility`);
+    flags.push(
+      t("review.privacy.visibility", { visibility: titleCase(visibility) }),
+    );
   }
   if (readBoolean(payload.publishCanonical)) {
-    flags.push("Canonical export");
+    flags.push(t("review.privacy.canonicalExport"));
   }
 
   const unique = Array.from(new Set(flags));
-  return unique.length ? unique : ["No privacy flags"];
+  return unique.length ? unique : [t("review.privacy.noPrivacyFlags")];
 }
 
 function buildQueueReason(
@@ -810,6 +846,7 @@ function buildQueueReason(
     publishTier: string | null;
     privacyFlags: string[];
   },
+  t: BrainT,
 ) {
   const explicit =
     proposal.rationale?.trim() ||
@@ -820,25 +857,29 @@ function buildQueueReason(
         context.payload.queue_reason,
     );
   if (explicit) return explicit;
-  if (context.privacyFlags.some((flag) => flag.includes("Redacted"))) {
-    return "Privacy-sensitive or redacted content needs reviewer confirmation.";
+  if (context.payload.status === "redacted" || containsRedaction(proposal)) {
+    return t("review.queueReason.privacySensitive");
   }
   if (context.confidence !== null && context.confidence < 90) {
-    return `Confidence is ${formatConfidence(
-      context.confidence,
-    )}, below the auto-publish threshold.`;
+    return t("review.queueReason.lowConfidence", {
+      confidence: formatConfidence(context.confidence, t),
+    });
   }
   if (context.publishTier === "company") {
-    return "Company-tier knowledge requires reviewer approval.";
+    return t("review.queueReason.companyTier");
   }
-  return "Queued for reviewer approval before becoming durable company knowledge.";
+  return t("review.queueReason.default");
 }
 
-function buildApproveLabel(target: TargetContext, status: string | null) {
-  if (status === "redacted") return "Approve redacted draft";
-  if (target.supersedesId) return "Approve replacement";
-  if (target.knowledgeId) return "Approve update";
-  return "Approve knowledge";
+function buildApproveLabel(
+  target: TargetContext,
+  status: string | null,
+  t: BrainT,
+) {
+  if (status === "redacted") return t("review.approveRedactedDraft");
+  if (target.supersedesId) return t("review.approveReplacement");
+  if (target.knowledgeId) return t("review.approveUpdate");
+  return t("review.approveKnowledge");
 }
 
 function readString(value: unknown) {
@@ -883,20 +924,27 @@ function containsRedaction(proposal: ReviewItem) {
   );
 }
 
-function privacySummary(flags: string[]) {
-  if (!flags.length || flags[0] === "No privacy flags") return "No flags";
+function privacySummary(flags: string[], t?: BrainT) {
+  if (
+    !flags.length ||
+    flags[0] === (t?.("review.privacy.noPrivacyFlags") ?? "No privacy flags")
+  ) {
+    return t?.("review.noFlags") ?? "No flags";
+  }
   return flags.length === 1 ? flags[0] : `${flags[0]} +${flags.length - 1}`;
 }
 
-function privacyDetail(flags: string[]) {
-  if (!flags.length || flags[0] === "No privacy flags") {
-    return "No redaction, export, or visibility warning was attached.";
+function privacyDetail(flags: string[], t: BrainT) {
+  if (!flags.length || flags[0] === t("review.privacy.noPrivacyFlags")) {
+    return t("review.noPrivacyDetail");
   }
-  return flags.slice(1).join(" · ") || "Review before approving.";
+  return flags.slice(1).join(" · ") || t("review.reviewBeforeApproving");
 }
 
-function formatConfidence(confidence: number | null) {
-  return confidence === null ? "Not scored" : `${confidence}%`;
+function formatConfidence(confidence: number | null, t?: BrainT) {
+  return confidence === null
+    ? (t?.("review.notScored") ?? "Not scored")
+    : `${confidence}%`;
 }
 
 function shortId(value: string) {
@@ -911,14 +959,18 @@ function titleCase(value: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function reviewedSummary(proposal: ReviewItem) {
+function reviewedSummary(proposal: ReviewItem, t: BrainT) {
   const status = proposal.status ?? "reviewed";
   if (proposal.reviewedAt || proposal.reviewedBy) {
-    return `${titleCase(status)} ${formatDate(proposal.reviewedAt)} by ${
-      proposal.reviewedBy ?? "reviewer"
-    }.`;
+    return t("review.reviewedSummary", {
+      status: titleCase(status),
+      date: formatDate(proposal.reviewedAt, t),
+      reviewer: proposal.reviewedBy ?? t("review.reviewer"),
+    });
   }
-  return `This proposal is ${status.replace(/_/g, " ")}.`;
+  return t("review.proposalStatusSummary", {
+    status: status.replace(/_/g, " "),
+  });
 }
 
 function timecode(value: number | null | undefined) {
@@ -930,6 +982,7 @@ function timecode(value: number | null | undefined) {
 }
 
 function ConfidenceBadge({ confidence }: { confidence: number | null }) {
+  const t = useT();
   return (
     <Badge
       variant="outline"
@@ -944,7 +997,7 @@ function ConfidenceBadge({ confidence }: { confidence: number | null }) {
       )}
     >
       <IconChartBar className="size-3" />
-      {formatConfidence(confidence)}
+      {formatConfidence(confidence, t)}
     </Badge>
   );
 }
@@ -960,6 +1013,7 @@ function SignalRow({
   value?: string | null;
   detail?: string | null;
 }) {
+  const t = useT();
   return (
     <div className="grid gap-1.5 text-sm">
       <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
@@ -967,7 +1021,7 @@ function SignalRow({
         <span>{label}</span>
       </div>
       <p className="line-clamp-3 break-words font-medium leading-5 text-foreground">
-        {value || "Not recorded"}
+        {value || t("review.notRecorded")}
       </p>
       {detail ? (
         <p className="break-words text-xs leading-5 text-muted-foreground">
@@ -991,14 +1045,19 @@ function ReviewSignalStrip({
   proposedAction?: string | null;
   publishCanonical: boolean;
 }) {
+  const t = useT();
   const signals = [
-    { label: "Target", value: target },
-    { label: "Privacy", value: privacy },
+    { label: t("review.signal.target"), value: target },
+    { label: t("review.signal.privacy"), value: privacy },
     {
-      label: "Evidence",
+      label: t("review.signal.evidence"),
       value: evidenceCount
-        ? `${evidenceCount} ${evidenceCount === 1 ? "snippet" : "snippets"}`
-        : "No snippets",
+        ? t("review.snippetCount", {
+            count: evidenceCount,
+            snippetLabel:
+              evidenceCount === 1 ? t("review.snippet") : t("review.snippets"),
+          })
+        : t("review.noSnippets"),
     },
   ];
 
@@ -1020,7 +1079,7 @@ function ReviewSignalStrip({
       {publishCanonical ? (
         <Badge variant="outline" className="h-5 gap-1.5">
           <IconBook className="size-3" />
-          Company context
+          {t("review.companyContext")}
         </Badge>
       ) : null}
     </div>
@@ -1044,6 +1103,7 @@ function ProposalOverflowMenu({
   onToggleEditing: () => void;
   onPreviewCanonical: () => void;
 }) {
+  const t = useT();
   if (!canReview && !sourceUrl) return null;
 
   return (
@@ -1053,7 +1113,7 @@ function ProposalOverflowMenu({
           type="button"
           size="icon"
           variant="outline"
-          aria-label="More review actions"
+          aria-label={t("review.moreActions")}
         >
           <IconDotsVertical className="size-4" />
         </Button>
@@ -1065,7 +1125,7 @@ function ProposalOverflowMenu({
             onSelect={onToggleEditing}
           >
             <IconPencil className="size-4" />
-            {editing ? "Hide editor" : "Edit wording"}
+            {editing ? t("review.hideEditor") : t("review.editWording")}
           </DropdownMenuItem>
         ) : null}
         {canReview && publishCanonical ? (
@@ -1074,7 +1134,7 @@ function ProposalOverflowMenu({
             onSelect={onPreviewCanonical}
           >
             <IconFileText className="size-4" />
-            Preview company context
+            {t("review.previewCompanyContext")}
           </DropdownMenuItem>
         ) : null}
         {sourceUrl && canReview ? <DropdownMenuSeparator /> : null}
@@ -1082,7 +1142,7 @@ function ProposalOverflowMenu({
           <DropdownMenuItem asChild>
             <a href={sourceUrl} target="_blank" rel="noreferrer">
               <IconExternalLink className="size-4" />
-              Open source
+              {t("review.openSource")}
             </a>
           </DropdownMenuItem>
         ) : null}
@@ -1096,19 +1156,25 @@ function EvidenceSnippet({
 }: {
   item: NonNullable<ReviewItem["evidence"]>[number];
 }) {
-  const source = item.captureTitle ?? item.captureId ?? "Captured source";
+  const t = useT();
+  const source =
+    item.captureTitle ?? item.captureId ?? t("review.capturedSource");
   const when = timecode(item.timestampMs);
-  const detail = [source, when ? `at ${when}` : null, item.note]
+  const detail = [
+    source,
+    when ? t("review.atTime", { time: when }) : null,
+    item.note,
+  ]
     .filter(Boolean)
-    .join(" · ");
+    .join(" - ");
 
   return (
     <div className="rounded-md border border-border bg-background p-3 text-sm">
       <p className="whitespace-pre-wrap break-words leading-6">
-        {item.quote ?? "Evidence quote unavailable"}
+        {item.quote ?? t("review.evidenceQuoteUnavailable")}
       </p>
       <p className="mt-2 break-words text-xs leading-5 text-muted-foreground">
-        {detail || "Captured source"}
+        {detail || t("review.capturedSource")}
       </p>
     </div>
   );
@@ -1133,26 +1199,41 @@ function ProposalDetailsSheet({
   draftRationale: string;
   hasDraftChanges: boolean;
 }) {
+  const t = useT();
   const queuedBody = proposal.body ?? proposal.proposedAnswer ?? "";
   const detailRows = [
-    { label: "Source", value: proposal.sourceName ?? proposal.sourceId },
-    { label: "Capture", value: proposal.captureId, mono: true },
     {
-      label: "Knowledge target",
+      label: t("review.details.source"),
+      value: proposal.sourceName ?? proposal.sourceId,
+    },
+    {
+      label: t("review.details.capture"),
+      value: proposal.captureId,
+      mono: true,
+    },
+    {
+      label: t("review.details.knowledgeTarget"),
       value: insight.target.knowledgeId,
       mono: true,
     },
-    { label: "Supersedes", value: insight.target.supersedesId, mono: true },
-    { label: "Visibility", value: proposal.visibility },
-    { label: "Updated", value: formatDate(proposal.updatedAt) },
+    {
+      label: t("review.details.supersedes"),
+      value: insight.target.supersedesId,
+      mono: true,
+    },
+    { label: t("review.details.visibility"), value: proposal.visibility },
+    {
+      label: t("review.details.updated"),
+      value: formatDate(proposal.updatedAt, t),
+    },
   ];
   const payloadRows = [
-    { label: "Kind", value: insight.kind },
-    { label: "Topic", value: insight.topic },
-    { label: "Publish tier", value: insight.publishTier },
-    { label: "Result status", value: insight.status },
-    { label: "Tags", value: insight.tags.join(", ") },
-    { label: "Summary", value: insight.summary },
+    { label: t("review.details.kind"), value: insight.kind },
+    { label: t("review.details.topic"), value: insight.topic },
+    { label: t("review.details.publishTier"), value: insight.publishTier },
+    { label: t("review.details.resultStatus"), value: insight.status },
+    { label: t("review.details.tags"), value: insight.tags.join(", ") },
+    { label: t("review.details.summary"), value: insight.summary },
   ];
 
   return (
@@ -1160,42 +1241,45 @@ function ProposalDetailsSheet({
       <SheetTrigger asChild>
         <Button size="sm" variant="outline" className="w-full sm:w-auto">
           <IconListDetails className="size-4" />
-          Details
+          {t("review.detailsButton")}
         </Button>
       </SheetTrigger>
       <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
         <SheetHeader>
           <SheetTitle className="pr-8">{proposal.title}</SheetTitle>
           <SheetDescription>
-            {insight.target.label} · {formatConfidence(insight.confidence)}
+            {insight.target.label} - {formatConfidence(insight.confidence, t)}
           </SheetDescription>
         </SheetHeader>
 
         <div className="grid gap-6 py-6">
           <section className="grid gap-3">
-            <SectionHeading icon={IconInfoCircle} title="Review signals" />
+            <SectionHeading
+              icon={IconInfoCircle}
+              title={t("review.reviewSignals")}
+            />
             <div className="grid gap-3 sm:grid-cols-2">
               <SignalRow
                 icon={IconInfoCircle}
-                label="Why queued"
+                label={t("review.whyQueued")}
                 value={insight.queueReason}
               />
               <SignalRow
                 icon={IconGitMerge}
-                label="Target context"
+                label={t("review.targetContext")}
                 value={insight.target.label}
                 detail={insight.target.detail}
               />
               <SignalRow
                 icon={IconShieldCheck}
-                label="Privacy flags"
-                value={privacySummary(insight.privacyFlags)}
-                detail={privacyDetail(insight.privacyFlags)}
+                label={t("review.privacyFlags")}
+                value={privacySummary(insight.privacyFlags, t)}
+                detail={privacyDetail(insight.privacyFlags, t)}
               />
               <div className="grid gap-1.5 text-sm">
                 <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                   <IconChartBar className="size-3.5" />
-                  <span>Confidence</span>
+                  <span>{t("review.confidence")}</span>
                 </div>
                 <div>
                   <ConfidenceBadge confidence={insight.confidence} />
@@ -1205,7 +1289,10 @@ function ProposalDetailsSheet({
           </section>
 
           <section className="grid gap-3">
-            <SectionHeading icon={IconGitMerge} title="Target and payload" />
+            <SectionHeading
+              icon={IconGitMerge}
+              title={t("review.targetAndPayload")}
+            />
             <MetadataGrid rows={detailRows} />
             <MetadataGrid rows={payloadRows} />
           </section>
@@ -1213,21 +1300,25 @@ function ProposalDetailsSheet({
           <section className="grid gap-3">
             <SectionHeading
               icon={IconPencil}
-              title={hasDraftChanges ? "Draft changes" : "Queued proposal"}
+              title={
+                hasDraftChanges
+                  ? t("review.draftChanges")
+                  : t("review.queuedProposal")
+              }
             />
             <DraftDiff
-              label="Title"
+              label={t("review.fieldTitle")}
               queued={proposal.title}
               current={draftTitle}
             />
             <DraftDiff
-              label="Knowledge body"
+              label={t("review.knowledgeBody")}
               queued={queuedBody}
               current={draftBody}
               multiline
             />
             <DraftDiff
-              label="Rationale"
+              label={t("review.rationale")}
               queued={proposal.rationale ?? ""}
               current={draftRationale}
               multiline
@@ -1236,12 +1327,15 @@ function ProposalDetailsSheet({
 
           <section className="grid gap-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <SectionHeading icon={IconFileText} title="Evidence" />
+              <SectionHeading
+                icon={IconFileText}
+                title={t("review.evidence")}
+              />
               {sourceUrl ? (
                 <Button asChild size="sm" variant="outline">
                   <a href={sourceUrl} target="_blank" rel="noreferrer">
                     <IconExternalLink className="size-4" />
-                    Open source
+                    {t("review.openSource")}
                   </a>
                 </Button>
               ) : null}
@@ -1257,7 +1351,7 @@ function ProposalDetailsSheet({
               </div>
             ) : (
               <p className="rounded-md border border-dashed border-border bg-muted/20 p-3 text-sm leading-6 text-muted-foreground">
-                No source snippets were attached to this proposal.
+                {t("review.noSourceSnippets")}
               </p>
             )}
           </section>
@@ -1312,24 +1406,33 @@ function DraftDiff({
   current: string;
   multiline?: boolean;
 }) {
+  const t = useT();
   const changed = queued !== current;
   return (
     <div className="grid gap-2 rounded-md border border-border bg-muted/20 p-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-medium">{label}</p>
-        {changed ? <Badge variant="outline">Edited</Badge> : null}
+        {changed ? <Badge variant="outline">{t("review.edited")}</Badge> : null}
       </div>
       {changed ? (
         <div className="grid gap-2 md:grid-cols-2">
-          <DiffText label="Queued" value={queued} multiline={multiline} />
           <DiffText
-            label="Current draft"
+            label={t("review.queued")}
+            value={queued}
+            multiline={multiline}
+          />
+          <DiffText
+            label={t("review.currentDraft")}
             value={current}
             multiline={multiline}
           />
         </div>
       ) : (
-        <DiffText label="Current" value={current} multiline={multiline} />
+        <DiffText
+          label={t("review.current")}
+          value={current}
+          multiline={multiline}
+        />
       )}
     </div>
   );
@@ -1344,6 +1447,7 @@ function DiffText({
   value: string;
   multiline: boolean;
 }) {
+  const t = useT();
   return (
     <div className="grid gap-1">
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
@@ -1355,7 +1459,7 @@ function DiffText({
           multiline && "whitespace-pre-wrap",
         )}
       >
-        {value || "Not recorded"}
+        {value || t("review.notRecorded")}
       </p>
     </div>
   );
@@ -1370,13 +1474,14 @@ function MetadataRow({
   value?: string | null;
   mono?: boolean;
 }) {
+  const t = useT();
   return (
     <div className="grid gap-1 rounded-md border border-border bg-background p-3">
       <span className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
         {label}
       </span>
       <span className={cn("break-words text-sm", mono && "font-mono text-xs")}>
-        {value || "Not recorded"}
+        {value || t("review.notRecorded")}
       </span>
     </div>
   );

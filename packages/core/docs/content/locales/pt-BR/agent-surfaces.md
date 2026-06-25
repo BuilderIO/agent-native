@@ -27,7 +27,7 @@ tela inteira em um aplicativo sem alterar a operação que o agente chama.
 
 ```an-diagram title="O espectro de superfície" summary="Uma superfície de ação, quatro formatos de produto – cada um adiciona UI sem alterar a operação subjacente."
 {
-  "html": "<div class=\"diagram-spectrum\"><div class=\"diagram-card\"><strong>Headless</strong><small class=\"diagram-muted\">actions, jobs, scripts, other agents</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Rich chat</strong><small class=\"diagram-muted\">composer, transcript, tool cards</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embedded sidecar</strong><small class=\"diagram-muted\">agent beside an existing app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">most UI</span><strong>Full application</strong><small class=\"diagram-muted\">durable screens, data, collaboration</small></div></div><div class=\"diagram-base\" data-rough><span class=\"diagram-muted\">same actions · same SQL · same agent loop</span></div>",
+  "html": "<div class=\"diagram-spectrum\"><div class=\"diagram-card\"><strong>Headless</strong><small class=\"diagram-muted\">actions, jobs, scripts, outros agentes</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Chat enriquecido</strong><small class=\"diagram-muted\">composer, transcrição, cards de ferramentas</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Sidecar incorporado</strong><small class=\"diagram-muted\">agent beside an existing app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">maior parte do UI</span><strong>Aplicação completa</strong><small class=\"diagram-muted\">telas duráveis, dados, colaboração</small></div></div><div class=\"diagram-base\" data-rough><span class=\"diagram-muted\">mesmas actions · mesmo SQL · mesmo loop do agente</span></div>",
   "css": ".diagram-spectrum{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-spectrum .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px;flex:1}.diagram-spectrum .diagram-arrow{align-self:center;font-size:22px;line-height:1}.diagram-base{margin-top:12px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -110,11 +110,11 @@ Uma ação pode ser chamada como:
 - **UI** — por meio de `useActionQuery`, `useActionMutation` ou `callAction`
 - **Ferramenta de agente** — no loop de bate-papo integrado
 
-```an-api title="Calling an action over HTTP"
+```an-api title="Chamando uma ação em HTTP"
 {
   "method": "POST",
   "path": "/_agent-native/actions/summarize-week",
-  "summary": "Invoke any action by name over HTTP",
+  "summary": "Invoque qualquer ação pelo nome em HTTP",
   "description": "Every `defineAction` is auto-mounted at `/_agent-native/actions/<name>`. The JSON body is validated against the action's zod schema before `run` executes.",
   "request": {
     "contentType": "application/json",
@@ -268,7 +268,7 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 Actions pode retornar resultados de widget nativos explícitos para que a saída do chat não seja apenas
 texto. Tabelas, gráficos e cartões de produtos digitados são renderizados como React primários
-componentes no chat, sem iframes. Consulte [Native Chat UI](/docs/native-chat-ui).
+componentes no chat, sem iframes. Consulte [Native Interface de chat](/docs/native-chat-ui).
 
 ## Bate-papo avançado com seu agente {#byo-agent}
 
@@ -300,7 +300,7 @@ reivindicar suporte A2UI. ACP é compatível com um local específico: dirigindo
 agente de codificação (Gemini CLI, Claude Code, …) através do
 [harness layer](/docs/harness-agents#acp), não como o tempo de execução do chat aqui.
 
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+[Native Interface de chat — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
 é o local canônico para os formatos de evento, os auxiliares de tempo de execução e `chatUI`
 metadados de resultados da ferramenta. Comece por aí ao conectar um agente externo ao chat.
 
@@ -347,7 +347,7 @@ export function AppShell({ children }) {
 
 ```an-diagram title="Como o sidecar faz a ponte para um aplicativo host" summary="O plugin monta rotas Agent-Native no lado do servidor; o sidecar React transmite o contexto da página e sai dos comandos do host."
 {
-  "html": "<div class=\"diagram-sidecar\"><div class=\"diagram-panel\"><strong>Host app</strong><small class=\"diagram-muted\">your existing SaaS</small><div class=\"diagram-node\">getContext()<br><small class=\"diagram-muted\">route · selection</small></div><div class=\"diagram-node\">onNavigate / onRefresh<br><small class=\"diagram-muted\">host commands</small></div></div><div class=\"diagram-col-arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div></div><div class=\"diagram-panel accent-panel\"><span class=\"diagram-pill accent\">AgentNativeEmbedded</span><small class=\"diagram-muted\">agent + workspace</small><div class=\"diagram-box\" data-rough>Agent-Native routes<br><small class=\"diagram-muted\">mounted by the server plugin</small></div></div></div>",
+  "html": "<div class=\"diagram-sidecar\"><div class=\"diagram-panel\"><strong>App host</strong><small class=\"diagram-muted\">seu SaaS existente</small><div class=\"diagram-node\">getContext()<br><small class=\"diagram-muted\">rota · seleção</small></div><div class=\"diagram-node\">onNavigate / onRefresh<br><small class=\"diagram-muted\">comandos do host</small></div></div><div class=\"diagram-col-arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div></div><div class=\"diagram-panel accent-panel\"><span class=\"diagram-pill accent\">AgentNativeEmbedded</span><small class=\"diagram-muted\">agent + workspace</small><div class=\"diagram-box\" data-rough>rotas Agent-Native<br><small class=\"diagram-muted\">mounted by the server plugin</small></div></div></div>",
   "css": ".diagram-sidecar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sidecar .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:200px}.diagram-sidecar .diagram-col-arrows{display:flex;flex-direction:column;gap:6px}.diagram-sidecar .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -389,7 +389,7 @@ precisa navegar, comparar, configurar ou colaborar em objetos persistentes.
 ## Documentos relacionados {#related-docs}
 
 - [Actions](/docs/actions) — defina a operação sem comando uma vez.
-- [Native Chat UI](/docs/native-chat-ui) — renderiza os resultados da ação digitada no bate-papo.
+- [Native Interface de chat](/docs/native-chat-ui) — renderiza os resultados da ação digitada no bate-papo.
 - [Drop-in Agent](/docs/drop-in-agent) — monte bate-papo, barra lateral ou superfícies de painel.
 - [Component API](/docs/components) — peças de bate-papo/compositor React de nível inferior.
 - [Embedding SDK](/docs/embedding-sdk) — adicione Agent-Native a um aplicativo existente.

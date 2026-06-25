@@ -27,12 +27,12 @@ daher wählen Bundler den browsersicheren Eintrag.
 
 ```an-diagram title="Lassen Sie eine Ebene nach unten fallen, nicht aus dem Framework heraus" summary="Jede Ebene behält die gleiche Laufzeit bei – Aktionen, Thread-Status und SQL-backed-Synchronisierung – und gibt Ihnen gleichzeitig mehr Kontrolle über Chrome."
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Whole sidebar around your app. The 80% case.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">The panel or a chat page in your own layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Composer and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Same runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Ganze Seitenleiste um deine App. Der 80%-Fall.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">Das Panel oder eine Chat-Seite in deinem eigenen Layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Verfassenr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Gleiche Runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
 
-## Agent und Chat UI {#agent-chat-ui}
+## Agent und Chat-Oberfläche {#agent-chat-ui}
 
 | API                                  | Importpfad                                      | Verwenden, wenn                                                                                                                        |
 | ------------------------------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -40,17 +40,17 @@ daher wählen Bundler den browsersicheren Eintrag.
 | `<AgentToggleButton>`                | `@agent-native/core/client` oder `/client/chat` | Sie rendern Ihre eigene Kopfzeilenschaltfläche für die Seitenleiste.                                                                   |
 | `<AgentPanel>`                       | `@agent-native/core/client` oder `/client/chat` | Sie möchten das vollständige Panel in Ihrem eigenen Layout, Ihrer eigenen Route, Ihrem eigenen Dialog oder Ihrer eigenen Seitenspalte. |
 | `<AgentChatSurface>`                 | `@agent-native/core/client` oder `/client/chat` | Sie möchten im Panel- oder Seitenmodus ohne den Seitenleisten-Wrapper chatten.                                                         |
-| `<AssistantChat>`                    | `@agent-native/core/client` oder `/client/chat` | Sie möchten das umgebende Chrome besitzen und gleichzeitig die Standard-Konversations- und Composer-Laufzeit beibehalten.              |
+| `<AssistantChat>`                    | `@agent-native/core/client` oder `/client/chat` | Sie möchten das umgebende Chrome besitzen und gleichzeitig die Standard-Konversations- und Verfassenr-Laufzeit beibehalten.            |
 | `<MultiTabAssistantChat>`            | `@agent-native/core/client` oder `/client/chat` | Sie möchten die Thread-Registerkarten des Frameworks ohne `AgentPanel` Chrome.                                                         |
 | `createHttpAgentChatRuntime()`       | `@agent-native/core/client` oder `/client/chat` | Sie verfügen über einen BYO-Agentenendpunkt, der normalisierte Chat-Ereignisse streamt.                                                |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` oder `/client/chat` | Sie haben einen OpenAI Agents SDK-Stream und möchten den Standard-Chat UI darum herum.                                                 |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` oder `/client/chat` | Sie haben einen OpenAI Responses-Ereignisstrom und möchten ihn in den Chat UI normalisieren.                                           |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client` oder `/client/chat` | Sie haben einen AG-UI-Ereignisstrom und möchten ihn in den Chat UI normalisieren.                                                      |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` oder `/client/chat` | Sie haben einen Claude Agent SDK-Stream und möchten ihn in den Chat UI normalisieren.                                                  |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` oder `/client/chat` | Sie haben einen Vercel AI SDK-Stream und möchten ihn in den Chat UI normalisieren.                                                     |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` oder `/client/chat` | Sie haben einen OpenAI Agents SDK-Stream und möchten den Standard-Chat-Oberfläche darum herum.                                         |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` oder `/client/chat` | Sie haben einen OpenAI Responses-Ereignisstrom und möchten ihn in den Chat-Oberfläche normalisieren.                                   |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client` oder `/client/chat` | Sie haben einen AG-UI-Ereignisstrom und möchten ihn in den Chat-Oberfläche normalisieren.                                              |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` oder `/client/chat` | Sie haben einen Claude Agent SDK-Stream und möchten ihn in den Chat-Oberfläche normalisieren.                                          |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client` oder `/client/chat` | Sie haben einen Vercel AI SDK-Stream und möchten ihn in den Chat-Oberfläche normalisieren.                                             |
 | `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` oder `/client/chat` | Sie müssen einen `AgentChatRuntime` selbst in die Assistant-UI umwandeln.                                                              |
 | `createAgentChatAdapter()`           | `@agent-native/core/client` oder `/client/chat` | Sie benötigen den integrierten Agent-Native SSE-Transport als Low-Level-Assistent-UI-Adapter.                                          |
-| `useChatThreads()`                   | `@agent-native/core/client` oder `/client/chat` | Sie benötigen eine benutzerdefinierte Thread-Liste, eine Verlaufsauswahl oder einen begrenzten Chat UI.                                |
+| `useChatThreads()`                   | `@agent-native/core/client` oder `/client/chat` | Sie benötigen eine benutzerdefinierte Thread-Liste, eine Verlaufsauswahl oder einen begrenzten Chat-Oberfläche.                        |
 | `sendToAgentChat()`                  | `@agent-native/core/client` oder `/client/chat` | Eine Produktaktion sollte dem Agenten-Chat Arbeit überlassen.                                                                          |
 
 `AgentChatRuntime` ist der BYO-Agentenvertrag für die Standard-Chat-Shell. Bestehen
@@ -58,7 +58,7 @@ daher wählen Bundler den browsersicheren Eintrag.
 Konversation, während Agent-Native den Komponisten, das Transkript, die Werkzeugkarten usw. behält.
 natives Widget-Rendering. Die Anschlüsse oben sind die API-Oberfläche; die Laufzeit
 Vertrags- und Ereignisformen werden eingelernt
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+[Native Chat-Oberfläche — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
 Wenn Sie zwischen Headless Agents, Rich Chat, eingebettetem Sidecar und
 Vollständige App-Formen finden Sie unter [Agent Surfaces](/docs/agent-surfaces).
 
@@ -96,7 +96,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 Für einen Bring-Your-Own-Agent-Endpunkt erstellen Sie einen `AgentChatRuntime` mit einem der
 Anschlüsse oben und übergeben Sie es an `<AssistantChat runtime={...} />`. Siehe
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+[Native Chat-Oberfläche — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
 für die Connector-Nutzung, den normalisierten Ereignisstrom und wann Sie darauf zugreifen sollten
 `createHttpAgentChatRuntime()` im Vergleich zu einem protokollspezifischen Anschluss.
 
@@ -108,8 +108,8 @@ Feld, das von der Seitenleiste im benutzerdefinierten UI verwendet wird.
 | API                               | Verwenden wenn                                                                                                                                                                               |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `<PromptComposer>`                | Sie benötigen ein zum Senden bereites Chatfeld mit Anhängen, Schrägstrichbefehlen, Referenzen, Handhabung von eingefügtem Text, Entwurfspersistenz, Spracheingabe und Übermittlungssemantik. |
-| `<AgentComposerFrame>`            | Sie möchten die standardmäßige visuelle Hülle um einen benutzerdefinierten Composer-Körper herum.                                                                                            |
-| `<TiptapComposer>`                | Sie benötigen das Rich-Chat-Feld der untersten Ebene. Es muss innerhalb einer Assistant-UI `ThreadPrimitive.Root` / Composer-Laufzeitumgebung gerendert werden.                              |
+| `<AgentComposerFrame>`            | Sie möchten die standardmäßige visuelle Hülle um einen benutzerdefinierten Verfassenr-Körper herum.                                                                                          |
+| `<TiptapComposer>`                | Sie benötigen das Rich-Chat-Feld der untersten Ebene. Es muss innerhalb einer Assistant-UI `ThreadPrimitive.Root` / Verfassenr-Laufzeitumgebung gerendert werden.                            |
 | `buildPromptComposerSubmission()` | Sie benötigen die gleiche Normalisierung von Anhängen und eingefügtem Text, bevor Sie Ihren eigenen Submit-Handler aufrufen.                                                                 |
 | `formatPromptWithAttachments()`   | Sie müssen versteckte Anhangsmetadaten in eine Eingabeaufforderungszeichenfolge rendern.                                                                                                     |
 
@@ -151,7 +151,7 @@ Verwenden Sie native Tool-Widgets, wenn ein Aktionsergebnis als UI in App-Qualit
 Innerer Chat statt einfach JSON. Zu den integrierten wiederverwendbaren Ausgängen gehören
 `DataTableWidget`, `DataChartWidget` und `DataWidgetResult`; sie werden exportiert
 von `@agent-native/core/client/chat` und dem Root-Client-Eintrag. Siehe
-[Native Chat UI](/docs/native-chat-ui) für den Aktionsergebnisvertrag.
+[Native Chat-Oberfläche](/docs/native-chat-ui) für den Aktionsergebnisvertrag.
 
 | API                              | Verwenden wenn                                                                                             |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -180,7 +180,7 @@ Hooks für kollaborative Dokumente.
 
 ```an-diagram title="Präsenz: Menschen und der Agent teilen eine Bewusstseinsebene" summary="useCollaborativeDoc ist Eigentümer der Awareness-Instanz. Client-Hooks veröffentlichen Cursor und Auswahlen; Serverhelfer lassen eine Agentenaktion als Live-Teilnehmer erscheinen."
 {
-  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">Agent action<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">render everyone, agent included</small></div></div>",
+  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">Agentenaktion<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">alle rendern, Agent eingeschlossen</small></div></div>",
   "css": ".diagram-presence{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-presence .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-presence .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-presence .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

@@ -2,9 +2,10 @@ import { useT } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
 
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
+import { messagesByLocale } from "@/i18n-data";
 
 export function meta() {
-  return [{ title: "Workspace access — Content" }];
+  return [{ title: messagesByLocale["en-US"].team.metaTitle }];
 }
 
 export default function TeamRoute() {

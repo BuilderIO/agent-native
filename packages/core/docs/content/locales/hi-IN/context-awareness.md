@@ -26,7 +26,7 @@ description: "एजेंट को कैसे पता चलता है 
 
 ```an-diagram title="आप जो देखते हैं उसे एजेंट कैसे देखता है" summary="यूआई हल्के राज्य कुंजी लिखता है; व्यू-स्क्रीन उन्हें वास्तविक रिकॉर्ड में हाइड्रेट करता है; एजेंट यूआई को स्थानांतरित करने के लिए वापस नेविगेट लिख सकता है।"
 {
-  "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI writes</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">view, open ids</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">rows, blocks, shapes</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Agent acts<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">agent moves the UI</small></div></div>",
+  "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI लिखता है</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">व्यू, खुले ID</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">पंक्तियां, ब्लॉक, आकृतियां</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">एजेंट कार्य करता है<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">एजेंट UI को चलाता है</small></div></div>",
   "css": ".diagram-ctx{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-ctx .col{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-ctx .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-ctx .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -133,7 +133,7 @@ if (url?.searchParams) {
       "id": "hero-title",
       "selector": "[data-block-id='hero-title']",
       "label": "Hero title",
-      "text": "Q3 launch plan"
+      "text": "Q3 लॉन्च plan"
     }
   ],
   "capturedAt": 1780332977027
@@ -197,10 +197,10 @@ await setClientAppState(
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { readAppState } from \"@agent-native/core/application-state\";\nimport { eq, inArray } from \"drizzle-orm\";\nimport { z } from \"zod\";\nimport { getDb, schema } from \"../server/db/index.js\";\n\nexport default defineAction({\n  description:\n    \"See what the user is currently looking at on screen.\",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState(\"navigation\")) as any;\n    const selection = (await readAppState(\"selection\")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === \"inbox\") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === \"email.messages\") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return \"No application state found. Is the app running?\";\n    }\n    return screen;\n  },\n});",
   "annotations": [
-    { "lines": "10-11", "label": "Tool surface", "note": "The agent reads this description to know it can call `view-screen` to see the current UI." },
-    { "lines": "13", "label": "http: false", "note": "Internal action — not exposed over HTTP. The agent and `pnpm action` call it, not the browser." },
-    { "lines": "15-16", "label": "Read state", "note": "Pulls the lightweight `navigation` and `selection` keys the UI wrote." },
-    { "lines": "23-37", "label": "Hydrate", "note": "Turns those IDs into **fresh** records straight from SQL, so the agent verifies the live object before acting." }
+    { "lines": "10-11", "label": "उपकरण सतह", "note": "एजेंट इस विवरण को यह जानने के लिए पढ़ता है कि वह वर्तमान UI को देखने के लिए `view-screen` पर कॉल कर सकता है।" },
+    { "lines": "13", "label": "http: false", "note": "आंतरिक कार्रवाई - HTTP पर उजागर नहीं हुई। एजेंट और `pnpm action` इसे कॉल करते हैं, ब्राउज़र नहीं।" },
+    { "lines": "15-16", "label": "स्थिति पढ़ें", "note": "UI द्वारा लिखी गई हल्की `navigation` और `selection` कुंजियाँ खींचता है।" },
+    { "lines": "23-37", "label": "हाइड्रेट", "note": "उन आईडी को SQL से सीधे **ताजा** रिकॉर्ड में बदल देता है, इसलिए एजेंट कार्य करने से पहले लाइव ऑब्जेक्ट को सत्यापित करता है।" }
   ]
 }
 ```
@@ -210,7 +210,7 @@ await setClientAppState(
 ```an-callout
 {
   "tone": "info",
-  "body": "**Keep `navigation` and `selection` small.** Store IDs plus short labels, not whole records. `view-screen` fetches the source of truth on demand, so stale or bulky state never reaches the agent."
+  "body": "**`navigation` और `selection` को छोटा रखें।** स्टोर आईडी और छोटे लेबल, संपूर्ण रिकॉर्ड नहीं। `view-screen` मांग पर सत्य का स्रोत लाता है, इसलिए बासी या भारी स्थिति कभी भी एजेंट तक नहीं पहुंचती है।"
 }
 ```
 
@@ -367,7 +367,7 @@ useDbSync({
 
 ```an-diagram title="सोर्स टैगिंग सेल्फ-रिफ़ेच घबराहट को रोकता है" summary="एक टैब अपने स्वयं के TAB_ID से मुद्रित सिंक घटनाओं को अनदेखा करता है, लेकिन फिर भी एजेंट और अन्य-टैब लिखने पर प्रतिक्रिया करता है।"
 {
-  "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">This tab writes<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Server stores source<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">no refetch, no flicker</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">UI updates live</small></div></div>",
+  "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">यह टैब लिखता है<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>सर्वर स्रोत सहेजता है<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">कोई refetch नहीं, कोई flicker नहीं</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">UI लाइव अपडेट होती है</small></div></div>",
   "css": ".diagram-jitter{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jitter .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-jitter .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

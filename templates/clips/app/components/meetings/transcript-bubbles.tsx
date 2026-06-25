@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconNotes } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef } from "react";
 
@@ -63,6 +64,7 @@ export function TranscriptBubbles({
   onSeek,
   registerScrollTo,
 }: TranscriptBubblesProps) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const liveEndRef = useRef<HTMLDivElement>(null);
   const userPausedRef = useRef(false);
@@ -116,16 +118,16 @@ export function TranscriptBubbles({
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
           </span>
-          Listening…
+          {t("transcriptBubbles.listening")}
         </div>
       );
     }
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-sm text-muted-foreground gap-2 px-6">
         <IconNotes className="h-6 w-6 text-muted-foreground/50" />
-        <span>No transcript yet.</span>
+        <span>{t("transcriptBubbles.noTranscript")}</span>
         <span className="text-xs">
-          The live transcript will appear here once notes start.
+          {t("transcriptBubbles.liveTranscriptDescription")}
         </span>
       </div>
     );
@@ -150,7 +152,9 @@ export function TranscriptBubbles({
                     "text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 px-1",
                   )}
                 >
-                  {isMe ? "Me" : "Them"}
+                  {isMe
+                    ? t("transcriptBubbles.me")
+                    : t("transcriptBubbles.them")}
                 </div>
                 {group.segments.map(({ seg, index }) => {
                   const clickable = !!recordingId;

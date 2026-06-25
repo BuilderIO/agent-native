@@ -215,7 +215,7 @@ lo interpreta.
 
 ```an-diagram title="Reanudación en turnos, procesos y despliegues" summary="Cada turno separa un resumeState opaco en SQL; el siguiente turno lo devuelve a createSession en lugar de reproducir el historial de chat."
 {
-  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Turn N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opaque · SQL harness session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Turn N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
+  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Turno N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opaco · sesión de arnés SQL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Turno N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
   "css": ".diagram-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-resume .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -267,7 +267,7 @@ se traduce a la transmisión estándar `AgentChatEvent` con
 Carga útil `mcpApp` para widgets nativos), `approval-request`, `file-change`,
 `compaction`, `usage`, `error` y `done`. Porque los resultados de la herramienta fluyen a través del
 misma traducción, los widgets nativos con acción declarada aún se muestran - ver
-[Native Chat UI](/docs/native-chat-ui).
+[Native Interfaz de chat](/docs/native-chat-ui).
 
 ## Ejecuciones en segundo plano y el UI {#background-runs}
 
@@ -341,7 +341,7 @@ una implementación de este contrato, no la abstracción pública.
 
 ## Documentos relacionados {#related-docs}
 
-- [Native Chat UI](/docs/native-chat-ui): pon tu propio agente detrás del chat UI con `AgentChatRuntime`.
+- [Native Interfaz de chat](/docs/native-chat-ui): pon tu propio agente detrás del chat UI con `AgentChatRuntime`.
 - [Agent Surfaces](/docs/agent-surfaces): elige sin cabeza, chat, sidecar o aplicación completa.
 - [Agent-Native Code UI](/docs/code-agents-ui): la superficie del espacio de trabajo de codificación reutilizable.
 - [Custom Agents & Teams](/docs/agent-teams): ejecuciones en segundo plano y delegación de subagente.

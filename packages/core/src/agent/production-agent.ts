@@ -121,6 +121,7 @@ import {
   readBackgroundRunClaim,
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
+  UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
 } from "./run-store.js";
 import {
   classifyToolCallJournal,
@@ -162,6 +163,14 @@ export { PROVIDER_TO_ENV };
  * well within the foreground's ~40s soft-timeout.
  */
 export const BACKGROUND_CLAIM_GRACE_MS = 15_000;
+/**
+ * Safety margin subtracted from the unclaimed-reaper grace when deciding how
+ * long the foreground may keep waiting for a slow-but-live worker to claim. The
+ * foreground recovers the run inline this many ms BEFORE `reapUnclaimedBackgroundRun`
+ * would error an unclaimed row, so the foreground always wins the race to claim
+ * and the two never collide — see `resolveBackgroundDispatchOutcome`.
+ */
+export const BACKGROUND_REAPER_SAFETY_MARGIN_MS = 2_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
 
 export type BackgroundDispatchOutcome =
@@ -171,6 +180,23 @@ export type BackgroundDispatchOutcome =
       action: "inline";
       reason: "dispatch-failed" | "worker-never-claimed" | "no-row";
     };
+
+/**
+ * `diag_stage` is persisted as a JSON payload (`{ stage, detail?, at }`) by
+ * `recordRunDiagnostic`. Extract the bare stage name so it can be compared to
+ * `RUN_DIAG_STAGE` constants. Falls back to the raw value when it is not JSON
+ * (defensive — legacy rows or tests may store a bare stage).
+ */
+function parseRunDiagStage(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { stage?: unknown };
+    if (parsed && typeof parsed.stage === "string") return parsed.stage;
+  } catch {
+    // Not JSON — treat the raw value as the stage name.
+  }
+  return typeof raw === "string" ? raw : null;
+}
 
 /**
  * Decide what the foreground should do after attempting a durable background
@@ -193,10 +219,25 @@ export async function resolveBackgroundDispatchOutcome(opts: {
   backgroundRowInserted: boolean;
   runId: string;
   graceMs: number;
+  /**
+   * The unclaimed-run reaper's grace (`UNCLAIMED_BACKGROUND_RUN_GRACE_MS`). When
+   * provided, the foreground may keep waiting PAST `graceMs` while the worker is
+   * provably alive and still in setup — but it recovers inline before the run has
+   * been unclaimed this long (minus the safety margin), so it always claims
+   * before the reaper can fire. Omit to disable the extension (behaves exactly
+   * like the base grace).
+   */
+  reaperGraceMs?: number;
+  /** Margin subtracted from `reaperGraceMs` (default `BACKGROUND_REAPER_SAFETY_MARGIN_MS`). */
+  reaperSafetyMarginMs?: number;
   pollIntervalMs: number;
-  readClaim: (
-    runId: string,
-  ) => Promise<{ dispatchMode: string | null; status: string | null } | null>;
+  readClaim: (runId: string) => Promise<{
+    dispatchMode: string | null;
+    status: string | null;
+    diagStage?: string | null;
+    /** COALESCE(heartbeat_at, started_at) — the reaper's liveness basis. */
+    lastLivenessAt?: number | null;
+  } | null>;
   claim: (runId: string) => Promise<boolean>;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -205,8 +246,32 @@ export async function resolveBackgroundDispatchOutcome(opts: {
   const sleep =
     opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
+  // Pre-claim diag stages that prove the worker is ALIVE and executing: it
+  // reached the route, passed HMAC auth, and is grinding through handler setup
+  // (system prompt build / action loading) on its way to `claimBackgroundRun`.
+  // A dead handoff — the generated wrapper never reached the route — never
+  // records these, so it is NOT eligible for the extended grace.
+  const ALIVE_IN_SETUP: ReadonlySet<string> = new Set([
+    RUN_DIAG_STAGE.authPassed,
+    RUN_DIAG_STAGE.workerEntered,
+  ]);
+  // Pre-claim diag stages that prove the worker DIED before claiming — stop
+  // waiting and recover inline immediately instead of burning the rest of the
+  // grace on a worker that already failed.
+  const DIED_BEFORE_CLAIM: ReadonlySet<string> = new Set([
+    RUN_DIAG_STAGE.authFailed,
+    RUN_DIAG_STAGE.routeThrew,
+    RUN_DIAG_STAGE.workerThrew,
+  ]);
+
   if (opts.dispatched) {
-    const deadline = now() + opts.graceMs;
+    // One now() at entry + one per iteration (so callers/tests that model a
+    // stepping clock stay deterministic).
+    const startedAt = now();
+    const baseDeadline = startedAt + opts.graceMs;
+    const reaperGraceMs = opts.reaperGraceMs;
+    const reaperMargin =
+      opts.reaperSafetyMarginMs ?? BACKGROUND_REAPER_SAFETY_MARGIN_MS;
     for (;;) {
       const claim = await opts.readClaim(opts.runId).catch(() => null);
       if (
@@ -216,7 +281,34 @@ export async function resolveBackgroundDispatchOutcome(opts: {
       ) {
         return { action: "stream" };
       }
-      if (now() >= deadline) break;
+      // `diag_stage` is stored as JSON ({stage, detail?, at}); compare on the
+      // bare stage name, not the raw payload.
+      const stage = parseRunDiagStage(claim?.diagStage);
+      // Worker recorded a pre-claim death — no point waiting out the grace.
+      if (stage && DIED_BEFORE_CLAIM.has(stage)) break;
+      const elapsedNow = now();
+      // The unclaimed-reaper errors any still-`background` row once it has been
+      // unclaimed for `reaperGraceMs`, measured from the row's OWN liveness
+      // (COALESCE(heartbeat_at, started_at)) — NOT from when we began polling.
+      // Recover inline just before that point so the foreground claims the run
+      // first; anchoring to the row's liveness makes this immune to dispatch
+      // latency between insertRun and the start of polling.
+      const reaperWillFireSoon =
+        reaperGraceMs != null &&
+        claim?.lastLivenessAt != null &&
+        elapsedNow - claim.lastLivenessAt >= reaperGraceMs - reaperMargin;
+      if (reaperWillFireSoon) break;
+      // ADAPTIVE GRACE: past the base window, keep polling ONLY while the worker
+      // is provably alive and still in setup (heavy cold start). A dead handoff
+      // never recorded an ALIVE_IN_SETUP stage, so it recovers inline at the base
+      // grace; the reaper-anchored break above bounds how long a live worker can
+      // extend. The extension is enabled only when a reaper grace was provided.
+      const aliveInSetup =
+        reaperGraceMs != null &&
+        claim?.status === "running" &&
+        !!stage &&
+        ALIVE_IN_SETUP.has(stage);
+      if (elapsedNow >= baseDeadline && !aliveInSetup) break;
       await sleep(opts.pollIntervalMs);
     }
   }
@@ -3780,6 +3872,14 @@ export function createProductionAgentHandler(
   };
 
   return defineEventHandler(async (event) => {
+    // Diagnostic-only setup-timing instrumentation. Captures wall-clock offsets
+    // from handler entry through the work done BEFORE startRun so a slow pre-run
+    // setup phase is visible in the run diagnostics. Never alters control flow.
+    const setupT0 = Date.now();
+    const setupMarks: Record<string, number> = {};
+    const setupMark = (k: string) => {
+      setupMarks[k] = Date.now() - setupT0;
+    };
     if (getMethod(event) !== "POST") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -3820,6 +3920,7 @@ export function createProductionAgentHandler(
       scope,
       trackInRunsTray,
     } = body;
+    setupMark("bodyParsed");
 
     // Durable-background marker. Present ONLY when this handler was re-entered
     // as the Netlify background worker via the `_process-run` self-dispatch
@@ -4062,6 +4163,7 @@ export function createProductionAgentHandler(
       });
     }
 
+    setupMark("prepDone");
     // Run all independent pre-send steps in parallel. Each of these hits
     // the DB or invokes an action; running them sequentially was the
     // single biggest contributor to pre-LLM latency.
@@ -4073,6 +4175,7 @@ export function createProductionAgentHandler(
 
     let systemPromptError: any = null;
     const systemPromptPromise = (async (): Promise<string> => {
+      const sysPromptStart = Date.now();
       try {
         return typeof options.systemPrompt === "function"
           ? await options.systemPrompt(event)
@@ -4080,10 +4183,13 @@ export function createProductionAgentHandler(
       } catch (error) {
         systemPromptError = error;
         return "";
+      } finally {
+        setupMarks.sysPromptMs = Date.now() - sysPromptStart;
       }
     })();
 
     const screenContextPromise = (async (): Promise<string> => {
+      const screenStart = Date.now();
       try {
         const viewScreenAction = resolvedActions["view-screen"];
         if (viewScreenAction) {
@@ -4113,6 +4219,8 @@ export function createProductionAgentHandler(
         }
       } catch {
         // DB not ready or no navigation state — skip silently
+      } finally {
+        setupMarks.screenMs = Date.now() - screenStart;
       }
       return "";
     })();
@@ -4309,6 +4417,7 @@ export function createProductionAgentHandler(
       loopSettingsPromise,
       enrichedMessagePromise,
     ]);
+    setupMark("ctxAll");
 
     if (systemPromptError) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -4336,6 +4445,7 @@ export function createProductionAgentHandler(
       availableRequestTools,
       options.initialToolNames,
     );
+    setupMark("actions");
     const requestSystemPrompt =
       requestMode === "plan"
         ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
@@ -4446,6 +4556,7 @@ export function createProductionAgentHandler(
         // Keep the body-derived messages — never drop the run.
       }
     }
+    setupMark("depsThread");
 
     // Persist the user's turn exactly once. The foreground POST does this
     // before dispatching; the background worker must NOT repeat it (it re-enters
@@ -4538,6 +4649,7 @@ export function createProductionAgentHandler(
         backgroundRowInserted,
         runId,
         graceMs: BACKGROUND_CLAIM_GRACE_MS,
+        reaperGraceMs: UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
         pollIntervalMs: BACKGROUND_CLAIM_POLL_MS,
         readClaim: readBackgroundRunClaim,
         claim: claimBackgroundRun,
@@ -4854,6 +4966,16 @@ export function createProductionAgentHandler(
       await updateRunHeartbeat(runId).catch(() => {});
     }
 
+    // DIAGNOSTIC-ONLY: build the pre-startRun setup-timing breakdown now (so the
+    // marks reflect the work done BEFORE the loop), but EMIT it from inside
+    // startRun's callback below — the run row does not exist until startRun
+    // inserts it, so a pre-startRun write would no-op on the inline path.
+    setupMark("preStart");
+    const setupDetail =
+      Object.entries(setupMarks)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(" ") + ` total=${Date.now() - setupT0}`;
+
     startRun(
       runId,
       effectiveThreadId,
@@ -4867,11 +4989,25 @@ export function createProductionAgentHandler(
 
         // DIAGNOSTIC: the agent loop body actually started running. For a
         // background worker, a run that is claimed but never reaches this stage
-        // died between claiming and loop start. Best-effort, background only.
+        // died between claiming and loop start. The pre-startRun setup-timing
+        // breakdown rides along here so it persists now that the run row exists
+        // (startRun inserted it), WITHOUT adding a separate DB hop to the
+        // run-start path: on the worker it is folded into this same
+        // already-awaited worker_started write (one hop, correctly ordered, no
+        // clobber); on the inline path there is no later diag stage to overwrite,
+        // so it is fire-and-forget to keep run-start non-blocking. Best-effort.
         if (isBackgroundWorker) {
-          await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerStarted).catch(
-            () => {},
-          );
+          await recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.workerStarted,
+            setupDetail,
+          ).catch(() => {});
+        } else {
+          void recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.setupTimings,
+            setupDetail,
+          ).catch(() => {});
         }
 
         // Notify listeners that a run has started (used by agent teams)

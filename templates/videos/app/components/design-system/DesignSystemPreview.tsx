@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+
 import { cn } from "@/lib/utils";
 
 import type { DesignSystemData } from "../../../shared/api";
@@ -11,6 +13,7 @@ export function DesignSystemPreview({
   data,
   className,
 }: DesignSystemPreviewProps) {
+  const t = useT();
   const swatches = [
     { label: "Primary", color: data.colors.primary },
     { label: "Secondary", color: data.colors.secondary },
@@ -29,7 +32,7 @@ export function DesignSystemPreview({
       {/* Color swatches */}
       <div className="p-4 border-b border-border">
         <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-3">
-          Colors
+          {t("raw.designPreview.colors")}
         </div>
         <div className="flex items-center gap-3">
           {swatches.map((s) => (
@@ -49,7 +52,7 @@ export function DesignSystemPreview({
       {/* Typography sample */}
       <div className="p-4 border-b border-border">
         <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-3">
-          Typography
+          {t("raw.designPreview.typography")}
         </div>
         <div
           style={{
@@ -60,7 +63,7 @@ export function DesignSystemPreview({
             lineHeight: 1.2,
           }}
         >
-          {data.typography.headingFont} Heading
+          {data.typography.headingFont} {t("raw.designPreview.headingSample")}
         </div>
         <div
           style={{
@@ -72,16 +75,16 @@ export function DesignSystemPreview({
             lineHeight: 1.5,
           }}
         >
-          Body text rendered in {data.typography.bodyFont} at weight{" "}
-          {data.typography.bodyWeight}. This is how paragraph content will
-          appear.
+          {t("raw.designPreview.bodyTextPrefix")} {data.typography.bodyFont}{" "}
+          {t("raw.designPreview.bodyTextMiddle")} {data.typography.bodyWeight}.{" "}
+          {t("raw.designPreview.bodyTextSuffix")}
         </div>
       </div>
 
       {/* Mini composition preview */}
       <div className="p-4">
         <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-3">
-          Composition Preview
+          {t("raw.designPreview.compositionPreview")}
         </div>
         <div
           className="rounded-lg overflow-hidden"
@@ -107,7 +110,7 @@ export function DesignSystemPreview({
               marginBottom: "6px",
             }}
           >
-            SECTION
+            {t("raw.designPreview.section")}
           </div>
           <div
             style={{
@@ -119,7 +122,7 @@ export function DesignSystemPreview({
               letterSpacing: "-0.5px",
             }}
           >
-            Composition Title
+            {t("raw.designPreview.compositionTitle")}
           </div>
           <div
             style={{
@@ -131,8 +134,7 @@ export function DesignSystemPreview({
               lineHeight: 1.5,
             }}
           >
-            Supporting text appears here with your brand styling applied
-            consistently across all compositions.
+            {t("raw.designPreview.supportingText")}
           </div>
           {/* Accent bar */}
           <div
@@ -151,7 +153,7 @@ export function DesignSystemPreview({
       {data.logos.length > 0 && (
         <div className="p-4 border-t border-border">
           <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-3">
-            Logos
+            {t("raw.designPreview.logos")}
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             {data.logos.map((logo, i) => (

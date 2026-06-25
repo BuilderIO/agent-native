@@ -1,0 +1,36 @@
+# Existing non-English catalog values that still exactly match English.
+# Keep this file sorted. Remove entries as catalogs get translated.
+# Format: relative/catalog/locale|key|English source string
+templates/calendar/app/i18n/ar-SA|bookingLinks.googleMeet|Google Meet
+templates/calendar/app/i18n/ar-SA|eventForm.googleMeet|Google Meet
+templates/calendar/app/i18n/de-DE|bookingLinks.googleMeet|Google Meet
+templates/calendar/app/i18n/de-DE|eventForm.googleMeet|Google Meet
+templates/calendar/app/i18n/fr-FR|bookingLinks.googleMeet|Google Meet
+templates/calendar/app/i18n/fr-FR|eventForm.googleMeet|Google Meet
+templates/calendar/app/i18n/hi-IN|bookingLinks.googleMeet|Google Meet
+templates/calendar/app/i18n/hi-IN|eventForm.googleMeet|Google Meet
+templates/calendar/app/i18n/ja-JP|bookingLinks.googleMeet|Google Meet
+templates/calendar/app/i18n/ja-JP|eventForm.googleMeet|Google Meet
+templates/calendar/app/i18n/ko-KR|bookingLinks.googleMeet|Google Meet
+templates/calendar/app/i18n/ko-KR|eventForm.googleMeet|Google Meet
+templates/calendar/app/i18n/pt-BR|bookingLinks.googleMeet|Google Meet
+templates/calendar/app/i18n/pt-BR|eventForm.googleMeet|Google Meet
+templates/calendar/app/i18n/zh-CN|bookingLinks.googleMeet|Google Meet
+templates/calendar/app/i18n/zh-CN|eventForm.googleMeet|Google Meet
+templates/clips/app/i18n/ar-SA|downloadRoute.clipsDesktop|Clips Desktop
+templates/clips/app/i18n/ar-SA|sharePage.agentNativeClips|Agent-Native Clips
+templates/clips/app/i18n/de-DE|downloadRoute.clipsDesktop|Clips Desktop
+templates/clips/app/i18n/de-DE|sharePage.agentNativeClips|Agent-Native Clips
+templates/clips/app/i18n/es-ES|downloadRoute.clipsDesktop|Clips Desktop
+templates/clips/app/i18n/es-ES|sharePage.agentNativeClips|Agent-Native Clips
+templates/clips/app/i18n/fr-FR|downloadRoute.clipsDesktop|Clips Desktop
+templates/clips/app/i18n/fr-FR|sharePage.agentNativeClips|Agent-Native Clips
+templates/clips/app/i18n/hi-IN|downloadRoute.clipsDesktop|Clips Desktop
+templates/clips/app/i18n/hi-IN|sharePage.agentNativeClips|Agent-Native Clips
+templates/clips/app/i18n/ja-JP|downloadRoute.clipsDesktop|Clips Desktop
+templates/clips/app/i18n/ja-JP|sharePage.agentNativeClips|Agent-Native Clips
+templates/clips/app/i18n/ko-KR|downloadRoute.clipsDesktop|Clips Desktop
+templates/clips/app/i18n/ko-KR|sharePage.agentNativeClips|Agent-Native Clips
+templates/clips/app/i18n/pt-BR|downloadRoute.clipsDesktop|Clips Desktop
+templates/clips/app/i18n/pt-BR|sharePage.agentNativeClips|Agent-Native Clips
+templates/clips/app/i18n/zh-CN|sharePage.agentNativeClips|Agent-Native Clips

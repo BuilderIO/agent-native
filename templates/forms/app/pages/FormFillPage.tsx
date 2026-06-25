@@ -1,4 +1,4 @@
-import { Turnstile, PoweredByBadge } from "@agent-native/core/client";
+import { Turnstile, PoweredByBadge, useT } from "@agent-native/core/client";
 import type { FormField, FormSettings } from "@shared/types";
 import { IconCircleCheck, IconRefresh } from "@tabler/icons-react";
 import { useState, useMemo, useEffect } from "react";
@@ -32,6 +32,7 @@ function safeRedirectUrl(value: unknown): string | null {
 }
 
 export function FormFillPage() {
+  const t = useT();
   const params = useParams();
   const slug = params["*"] || "";
   const { data: form, isLoading, error } = usePublicForm(slug);
@@ -178,7 +179,7 @@ export function FormFillPage() {
           }
         },
         onError: (err: any) => {
-          toast.error(err?.error || "Failed to submit form");
+          toast.error(err?.error || t("publicForm.failedSubmit"));
         },
       },
     );
@@ -211,9 +212,11 @@ export function FormFillPage() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="text-center">
-          <h1 className="text-2xl font-semibold mb-2">Form not found</h1>
+          <h1 className="text-2xl font-semibold mb-2">
+            {t("publicForm.formNotFound")}
+          </h1>
           <p className="text-muted-foreground mb-4">
-            This form may have been removed or is no longer accepting responses.
+            {t("publicForm.removedOrClosed")}
           </p>
           <Button
             variant="outline"
@@ -222,7 +225,7 @@ export function FormFillPage() {
             className="gap-2"
           >
             <IconRefresh className="h-3.5 w-3.5" />
-            Try Again
+            {t("publicForm.tryAgain")}
           </Button>
         </div>
         {!embedded && <PoweredByBadge />}
@@ -237,7 +240,9 @@ export function FormFillPage() {
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600/10">
             <IconCircleCheck className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
           </div>
-          <h1 className="text-2xl font-semibold mb-2">Response submitted</h1>
+          <h1 className="text-2xl font-semibold mb-2">
+            {t("publicForm.responseSubmitted")}
+          </h1>
           <p className="text-muted-foreground">
             {settings.successMessage ||
               "Thank you! Your response has been recorded."}
@@ -304,7 +309,7 @@ export function FormFillPage() {
 
             {visibleFields.length === 0 && (
               <p className="text-center text-muted-foreground py-8">
-                This form has no fields yet.
+                {t("publicForm.noFields")}
               </p>
             )}
           </div>

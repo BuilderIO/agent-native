@@ -133,7 +133,7 @@ if (url?.searchParams) {
       "id": "hero-title",
       "selector": "[data-block-id='hero-title']",
       "label": "Hero title",
-      "text": "Q3 launch plan"
+      "text": "إطلاق الربع الثالث plan"
     }
   ],
   "capturedAt": 1780332977027
@@ -226,7 +226,7 @@ await setClientAppState(
 ```an-callout
 {
   "tone": "info",
-  "body": "**Keep `navigation` and `selection` small.** Store IDs plus short labels, not whole records. `view-screen` fetches the source of truth on demand, so stale or bulky state never reaches the agent."
+  "body": "**احتفظ بـ `navigation` و`selection` صغيرين.** معرفات المتجر بالإضافة إلى التسميات القصيرة، وليس السجلات الكاملة. `view-screen` يجلب مصدر الحقيقة عند الطلب، لذلك لا تصل الحالة القديمة أو الضخمة إلى الوكيل أبدًا."
 }
 ```
 
@@ -271,7 +271,7 @@ function askAgentAboutSelection(selection: {
 
 `sendToAgentChat()` هو برنامج تضمين المتصفح المدعوم لمسار الدردشة المرسلة والذي يُرى أحيانًا داخليًا باسم `agentNative.submitChat`. يجب أن يستدعي التطبيق UI المجمّع بدلاً من نشر `agentNative.submitChat` مباشرة لأن المجمّع يتعامل مع الأشرطة الجانبية المحلية، وتوجيه Builder/الإطار، وتوجيه مضيف التطبيق MCP، ومعرفات علامات التبويب، وتوجيه طلب التعليمات البرمجية.
 
-استخدم `agentChat.submit()` أو `agentChat.prefill()` لسياقات العقدة/البرنامج النصي حيث لا يوجد شريط جانبي للمتصفح. بشكل عام، يجب ألا يقوم الخادم actions باستدعاء `sendToAgentChat()` للمتصفح فقط؛ إذا كان الإجراء يحتاج إلى UI المفتوح ليطلب من الوكيل شيئًا ما، فاكتب طلبًا صغيرًا في `application_state` ودع جسر UI يرسله من المتصفح.
+استخدم `agentChat.submit()` أو `agentChat.prefill()` لسياقات العقدة/البرنامج النصي حيث لا يوجد شريط جانبي للمتصفح. بشكل عام, يجب ألا يقوم الخادم actions باستدعاء `sendToAgentChat()` للمتصفح فقط؛ إذا كان الإجراء يحتاج إلى UI المفتوح ليطلب من الوكيل شيئًا ما، فاكتب طلبًا صغيرًا في `application_state` ودع جسر UI يرسله من المتصفح.
 
 ### العناصر التي تم النقر عليها في المطالبة {#clicked-items-in-prompt}
 

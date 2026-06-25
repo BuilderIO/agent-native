@@ -30,7 +30,7 @@ Cada aplicación se crea con `APP_BASE_PATH=/<name>` y `VITE_APP_BASE_PATH=/<nam
 
 ```an-diagram title="Un origen, muchas aplicaciones" summary="Cada aplicación de espacio de trabajo se crea con su propia ruta base y se monta bajo un prefijo de ruta en un único origen, por lo que el inicio de sesión y la aplicación cruzada A2A son del mismo origen y gratuitos."
 {
-  "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">zero-config cross-app A2A</span></div></div>",
+  "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">A2A entre apps sin configuración</span></div></div>",
   "css": ".diagram-ws{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-ws .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-ws .diagram-row{display:flex;align-items:center;gap:8px}.diagram-ws .wins{display:flex;flex-direction:column;gap:8px;align-items:flex-start}"
 }
 ```
@@ -85,7 +85,7 @@ El resultado es autónomo: copie `.output/` a cualquier entorno y ejecútelo.
 
 ```an-diagram title="Construir para implementar" summary="Un árbol de origen se basa en un valor preestablecido Nitro; la misma salida autónoma se ejecuta en Node, Vercel, Netlify, Cloudflare, AWS o Deno. Cada instancia apunta al mismo DATABASE_URL persistente."
 {
-  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>App source</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Persistent DATABASE_URL<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
+  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>Fuente de la app</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>DATABASE_URL persistente<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
   "css": ".diagram-deploy{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-deploy .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-deploy .diagram-arrow{font-size:22px;line-height:1}.diagram-deploy .diagram-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}"
 }
 ```
@@ -137,8 +137,8 @@ RUN pnpm build
 FROM node:24-slim
 WORKDIR /app
 COPY --from=build /app/.output .output
-# data/ is a runtime-created SQLite directory — do not copy a dev DB into prod.
-# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+# data/ es un directorio SQLite creado en tiempo de ejecución; no copie una base de datos de desarrollo en prod.
+# Para producción, configure DATABASE_URL en una instancia alojada de Postgres o Turso.
 RUN mkdir -p /app/data
 ENV PORT=3000
 EXPOSE 3000

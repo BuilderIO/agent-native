@@ -332,7 +332,7 @@ function App() {
 | ------------------ | ------------------ | -------------------------------------------------------------------------------------------------------------- |
 | `queryClient`      | `QueryClient?`     | Cliente de consulta React para invalidação de cache                                                            |
 | `queryKeys`        | `string[]?`        | Obsoleto e ignorado; mantido para sites de chamada antigos                                                     |
-| `pollUrl`          | `string?`          | Poll endpoint URL. Padrão: `"/_agent-native/poll"`                                                             |
+| `pollUrl`          | `string?`          | Polling endpoint URL. Padrão: `"/_agent-native/poll"`                                                          |
 | `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only                         |
 | `interval`         | `number?`          | Intervalo de pesquisa em ms. Padrão: `2000`                                                                    |
 | `fallbackInterval` | `number?`          | Intervalo de pesquisa de fallback quando SSE não está disponível. Padrão: `15000`                              |
@@ -378,7 +378,7 @@ function DashboardView({ id }) {
 
 ```an-diagram title="Dois caminhos para uma nova busca" summary="Uma mutação local invalida instantaneamente seus próprios caches; uma gravação remota chega a esta guia por meio de SSE ou o tick de votação como substituto."
 {
-  "html": "<div class=\"diagram-latency\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill ok\">This tab</span><strong>useActionMutation</strong><small class=\"diagram-muted\">fires source: \"action\" on success &rarr; instant local refetch</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Agent · webhook · other tab</span><strong>Remote write</strong><small class=\"diagram-muted\">SSE push, or the ~2s polling tick as fallback &rarr; version bumps &rarr; background refetch</small></div></div></div>",
+  "html": "<div class=\"diagram-latency\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill ok\">Esta aba</span><strong>useActionMutation</strong><small class=\"diagram-muted\">fires source: \"action\" on success &rarr; instant local refetch</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Agente · webhook · outra aba</span><strong>Escrita remota</strong><small class=\"diagram-muted\">SSE push, or the ~2s polling tick as fallback &rarr; version bumps &rarr; background refetch</small></div></div></div>",
   "css": ".diagram-latency .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-latency .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px}"
 }
 ```

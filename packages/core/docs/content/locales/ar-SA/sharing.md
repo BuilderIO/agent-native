@@ -74,7 +74,7 @@ description: "المشاركة بأسلوب Google-Docs، المضمنة في إ
 
 - محدد الرؤية (`Private` / `Organization` / `Public link`).
 - الإكمال التلقائي "إضافة أشخاص أو فرق" — ابحث عن المستخدمين في المؤسسة أو الصق بريدًا إلكترونيًا.
-- مربع اختيار `Notify people` بنمط محرّر مستندات Google لمنح البريد الإلكتروني الفردية.
+- مربع اختيار `إشعار people` بنمط محرّر مستندات Google لمنح البريد الإلكتروني الفردية.
 - قائمة المنح الحالية مع منتقي الأدوار وعنصر تحكم الإزالة.
 - زر نسخ الارتباط الذي يحترم الرؤية الحالية.
 
@@ -127,7 +127,7 @@ export const decks = table("decks", {
 export const deckShares = createSharesTable("deck_shares");
 ```
 
-```an-schema title="Resource + companion shares table" summary="Coarse visibility lives on the resource; each fine-grained grant is a row in the shares table."
+```an-schema title="جدول المشاركات + الموارد المرافقة" summary="Coarse visibility lives on the resource; each fine-grained grant is a row in the shares table."
 {
   "entities": [
     {
@@ -137,9 +137,9 @@ export const deckShares = createSharesTable("deck_shares");
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "title", "type": "text", "nullable": false },
-        { "name": "owner_email", "type": "text", "nullable": false, "note": "The single source of truth for ownership." },
+        { "name": "owner_email", "type": "text", "nullable": false, "note": "المصدر الوحيد للحقيقة للملكية." },
         { "name": "org_id", "type": "text", "nullable": true },
-        { "name": "visibility", "type": "enum", "nullable": false, "note": "private | org | public" }
+        { "name": "visibility", "type": "enum", "nullable": false, "note": "خاص | منظمة | عام" }
       ]
     },
     {
@@ -149,9 +149,9 @@ export const deckShares = createSharesTable("deck_shares");
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "resource_id", "type": "text", "fk": "decks.id", "nullable": false },
-        { "name": "principal_type", "type": "enum", "note": "user | org" },
+        { "name": "principal_type", "type": "enum", "note": "المستخدم | ORG" },
         { "name": "principal_id", "type": "text", "note": "email (user) or org id (org)" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" },
+        { "name": "role", "type": "enum", "note": "عارض | محرر | admin" },
         { "name": "created_by", "type": "text" },
         { "name": "created_at", "type": "text" }
       ]
@@ -209,7 +209,7 @@ registerShareableResource({
 
 ## الضمانات الأمنية {#security}
 
-مشاركة الرحلات على نموذج تحديد نطاق البيانات الأوسع لإطار العمل - الوصول إلى القائمة/القراءة/الكتابة إلى الجداول القابلة للملكية يمر عبر `accessFilter()` / `resolveAccess()` / `assertAccess()`، وتكون الموارد ذات العلامات `org_id` غير مرئية عبر المؤسسات. راجع [Security → Data Scoping](/docs/security#data-scoping) للتعرف على المسار الكامل وحارس CI وسطح التهديد.
+مشاركة الرحلات على نموذج تحديد نطاق البيانات الأوسع لإطار العمل - الوصول إلى القائمة/القراءة/الكتابة إلى الجداول القابلة للملكية يمر عبر `accessFilter()` / `resolveAccess()` / `assertAccess()`, وتكون الموارد ذات العلامات `org_id` غير مرئية عبر المؤسسات. راجع [Security → Data Scoping](/docs/security#data-scoping) للتعرف على المسار الكامل وحارس CI وسطح التهديد.
 
 ## انظر أيضًا {#see-also}
 

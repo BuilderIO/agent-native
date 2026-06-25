@@ -58,7 +58,7 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 المحادثة بينما يحتفظ Agent-Native بالملحن والنص وبطاقات الأدوات و
 عرض القطعة الأصلية. الموصلات أعلاه هي سطح API؛ وقت التشغيل
 يتم تدريس أشكال العقود والأحداث في
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+[Native واجهة الدردشة — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
 إذا كنت تختار بين الوكلاء مقطوعي الرأس، والدردشة الغنية، والعربة الجانبية المضمنة، و
 أشكال التطبيق الكاملة، راجع [Agent Surfaces](/docs/agent-surfaces).
 
@@ -96,7 +96,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 للحصول على نقطة نهاية إحضار الوكيل الخاص بك، أنشئ `AgentChatRuntime` باستخدام أحد
 الموصلات أعلاه وتمريرها إلى `<AssistantChat runtime={...} />`. انظر
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+[Native واجهة الدردشة — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
 لاستخدام الموصل، ودفق الأحداث الذي تمت تسويته، ومتى يجب الوصول إليه
 `createHttpAgentChatRuntime()` مقابل موصل خاص بالبروتوكول.
 
@@ -151,7 +151,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 داخل الدردشة بدلاً من JSON العادي. تتضمن المخرجات المدمجة القابلة لإعادة الاستخدام
 `DataTableWidget`، و`DataChartWidget`، و`DataWidgetResult`؛ يتم تصديرها
 من `@agent-native/core/client/chat` وإدخال العميل الجذر. انظر
-[Native Chat UI](/docs/native-chat-ui) لعقد نتيجة الإجراء.
+[Native واجهة الدردشة](/docs/native-chat-ui) لعقد نتيجة الإجراء.
 
 | API                              | استخدم عندما                                                                     |
 | -------------------------------- | -------------------------------------------------------------------------------- |
@@ -198,20 +198,20 @@ import {
 
 ## محرر منسق {#rich-editor}
 
-استخدم `@agent-native/core/client/editor` عندما تحتاج إلى محرر تخفيض السعر المشترك
+استخدم `@agent-native/core/client/editor` عندما تحتاج إلى محرر Markdown المشترك
 السطح الذي تستخدمه الخطط والمحتوى والموارد والمستندات التعاونية
 التجارب.
 
-| API                              | استخدم عندما                                                                                       |
-| -------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `<SharedRichEditor>`             | أنت بحاجة إلى المحرر الحالي القابل للتكوين مع تسلسل تخفيض السعر، وYjs الاختيارية، وإضافات التطبيق. |
-| `<RichMarkdownEditor>`           | أنت بحاجة إلى الاسم المستعار المتوافق مع الإصدارات السابقة للمحرر الغني المشترك.                   |
-| `createSharedEditorExtensions()` | أنت تقوم بإنشاء محرر Tiptap الخاص بك ولكنك تريد مخطط إطار العمل ولهجات تخفيض السعر.                |
-| `<SlashCommandMenu>`             | تحتاج إلى أمر الشرطة المائلة المشترك UI لسطح Tiptap مخصص.                                          |
-| `<BubbleToolbar>`                | تحتاج إلى شريط أدوات التحديد المشترك للعلامات والروابط وactions المضمنة المخصصة.                   |
-| `createRegistryBlockNode()`      | تحتاج إلى عقد كتلة مدعومة بالتسجيل داخل محرر غني.                                                  |
-| `uploadEditorImage()`            | تريد إجراء تحميل صورة إطار العمل خلف كتلة الصور المشتركة للمحرر.                                   |
-| `useCollabReconcile()`           | أنت تقوم بربط سطح محرر مخصص بمستند Yjs مع الحفاظ على تخفيض السعر كحالة محفوظة.                     |
+| API                              | استخدم عندما                                                                                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `<SharedRichEditor>`             | أنت بحاجة إلى المحرر الحالي القابل للتكوين مع تسلسل Markdown، وYjs الاختيارية، وإضافات التطبيق. |
+| `<RichMarkdownEditor>`           | أنت بحاجة إلى الاسم المستعار المتوافق مع الإصدارات السابقة للمحرر الغني المشترك.                |
+| `createSharedEditorExtensions()` | أنت تقوم بإنشاء محرر Tiptap الخاص بك ولكنك تريد مخطط إطار العمل ولهجات Markdown.                |
+| `<SlashCommandMenu>`             | تحتاج إلى أمر الشرطة المائلة المشترك UI لسطح Tiptap مخصص.                                       |
+| `<BubbleToolbar>`                | تحتاج إلى شريط أدوات التحديد المشترك للعلامات والروابط وactions المضمنة المخصصة.                |
+| `createRegistryBlockNode()`      | تحتاج إلى عقد كتلة مدعومة بالتسجيل داخل محرر غني.                                               |
+| `uploadEditorImage()`            | تريد إجراء تحميل صورة إطار العمل خلف كتلة الصور المشتركة للمحرر.                                |
+| `useCollabReconcile()`           | أنت تقوم بربط سطح محرر مخصص بمستند Yjs مع الحفاظ على Markdown كحالة محفوظة.                     |
 
 المحرر الأساسي الذي يتم التحكم فيه هو مجرد تخفيض للداخل وتخفيض للخارج:
 

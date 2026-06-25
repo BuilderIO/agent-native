@@ -15,20 +15,20 @@ L'ordre de résolution du fournisseur est :
 
 1. **Fournisseurs enregistrés par l'utilisateur** : fournisseurs personnalisés enregistrés via `registerFileUploadProvider()`
 2. **Fournisseur Builder.io** — intégré, s'active automatiquement lorsque Builder.io est connecté
-3. **SQL fallback** — stocke les fichiers en base64 dans la base de données (bien pour le développement, pas pour la production)
+3. **secours SQL** — stocke les fichiers en base64 dans la base de données (bien pour le développement, pas pour la production)
 
 ```an-diagram title="Ordre de résolution du fournisseur" summary="uploadFile() sélectionne le premier fournisseur configuré dans l'ordre. La solution de secours SQL existe toujours, donc les téléchargements fonctionnent sans configuration."
 {
-  "html": "<div class=\"diagram-upload\"><div class=\"diagram-box\" data-rough>uploadFile()<br><small class=\"diagram-muted\">POST /_agent-native/file-upload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-step\"><span class=\"diagram-pill accent\">1</span><div class=\"diagram-node\">User-registered<br><small class=\"diagram-muted\">registerFileUploadProvider() — S3, R2, GCS…</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><div class=\"diagram-node\">Builder.io<br><small class=\"diagram-muted\">auto when connected — CDN-served</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill warn\">3</span><div class=\"diagram-node\">SQL fallback<br><small class=\"diagram-muted\">base64 in DB — dev only</small></div></div></div></div>",
+  "html": "<div class=\"diagram-upload\"><div class=\"diagram-box\" data-rough>uploadFile()<br><small class=\"diagram-muted\">POST /_agent-native/file-upload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-step\"><span class=\"diagram-pill accent\">1</span><div class=\"diagram-node\">Enregistré par l’utilisateur<br><small class=\"diagram-muted\">registerFileUploadProvider() — S3, R2, GCS…</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><div class=\"diagram-node\">Builder.io<br><small class=\"diagram-muted\">automatique une fois connecté — servi par CDN</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill warn\">3</span><div class=\"diagram-node\">secours SQL<br><small class=\"diagram-muted\">base64 en BD — dev seulement</small></div></div></div></div>",
   "css": ".diagram-upload{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-upload .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-upload .diagram-step{display:flex;align-items:center;gap:8px}.diagram-upload .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
 
-```an-api title="The upload endpoint" method="POST" path="/_agent-native/file-upload"
+```an-api title="Le point de terminaison de téléchargement" method="POST" path="/_agent-native/file-upload"
 {
   "method": "POST",
   "path": "/_agent-native/file-upload",
-  "summary": "Upload a file through the active provider and get back a public URL.",
+  "summary": "Téléchargez un fichier via le fournisseur actif et récupérez un URL public.",
   "description": "Dispatches to the first configured provider in resolution order. Check the active provider at `GET /_agent-native/file-upload/status`.",
   "request": { "contentType": "multipart/form-data" },
   "responses": [
@@ -117,6 +117,6 @@ const result = await uploadFile({
 if (result) {
   // Provider handled it — result.url is the public URL
 } else {
-  // No provider configured — handle SQL fallback yourself, or skip
+  // No provider configured — handle secours SQL yourself, or skip
 }
 ```

@@ -5,7 +5,7 @@ description: "Markieren Sie benutzerdefinierte Agenten, verbundene Agenten und D
 
 # Agentenerwähnungen
 
-Geben Sie `@` in den Chat-Composer ein, um benutzerdefinierte Agenten, verbundene Agenten, Dateien und Ressourcen zu erwähnen.
+Geben Sie `@` in den Chat-Verfassenr ein, um benutzerdefinierte Agenten, verbundene Agenten, Dateien und Ressourcen zu erwähnen.
 
 ## Übersicht {#overview}
 
@@ -15,7 +15,7 @@ So orchestrieren Sie Multi-Agent-Workflows von einem einzigen Chat aus. Bitten S
 
 ## Agenten erwähnen {#mentioning-agents}
 
-So erwähnen Sie einen Agenten im Chat Composer:
+So erwähnen Sie einen Agenten im Chat Verfassenr:
 
 1. Geben Sie `@` ein, um das Erwähnungs-Popover zu öffnen
 2. Durchsuchen oder durchsuchen Sie die Liste der verfügbaren Agenten
@@ -31,7 +31,7 @@ In beiden Fällen sieht Ihr Hauptagent die Antwort und kann darauf verweisen ode
 
 ```an-diagram title="Wohin eine @-Erwähnung führt" summary="Der Server unterteilt jede Erwähnung nach Typ: Benutzerdefinierte Agenten werden lokal ausgeführt, verbundene Agenten gehen über A2A – beide Antworten werden in den Kontext des Hauptagenten zurückgeführt."
 {
-  "html": "<div class=\"diagram-mention\"><div class=\"diagram-node\">@-mention<br><small class=\"diagram-muted\">in the composer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Server resolves</span><small class=\"diagram-muted\">extract refs by type</small></div><div class=\"diagram-col\"><div class=\"row\"><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\">Custom agent<br><small class=\"diagram-muted\">agents/*.md &middot; runs local</small></div></div><div class=\"row\"><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\">Connected agent<br><small class=\"diagram-muted\">A2A peer &middot; remote call</small></div></div></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box diagram-accent\">&lt;agent-response&gt;<br><small class=\"diagram-muted\">injected into main agent</small></div></div>",
+  "html": "<div class=\"diagram-mention\"><div class=\"diagram-node\">@-mention<br><small class=\"diagram-muted\">in the composer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Server löst auf</span><small class=\"diagram-muted\">extract refs by type</small></div><div class=\"diagram-col\"><div class=\"row\"><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\">Benutzerdefinierter Agent<br><small class=\"diagram-muted\">agents/*.md &middot; runs local</small></div></div><div class=\"row\"><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\">Verbundener Agent<br><small class=\"diagram-muted\">A2A peer &middot; remote call</small></div></div></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box diagram-accent\">&lt;agent-response&gt;<br><small class=\"diagram-muted\">injected into main agent</small></div></div>",
   "css": ".diagram-mention{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-mention .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-mention .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mention .row{display:flex;align-items:center;gap:8px}.diagram-mention .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -125,7 +125,7 @@ Vorlagen können benutzerdefinierte Erwähnungsanbieter registrieren, um domäne
   "language": "ts",
   "code": "import type { MentionProvider } from \"@agent-native/core/server\";\n\nconst contactsProvider: MentionProvider = {\n  id: \"contacts\",\n  label: \"Contacts\",\n\n  // Search for mentionable items\n  async search(query: string) {\n    const contacts = await db.query.contacts.findMany({\n      where: like(contacts.name, `%${query}%`),\n      limit: 10,\n    });\n    return contacts.map((c) => ({\n      id: c.id,\n      label: c.name,\n      description: c.email,\n      type: \"contact\",\n    }));\n  },\n\n  // Resolve a mention into context for the agent\n  async resolve(id: string) {\n    const contact = await db.query.contacts.findFirst({\n      where: eq(contacts.id, id),\n    });\n    return {\n      type: \"context\",\n      text: `Contact: ${contact.name} (${contact.email})`,\n    };\n  },\n};",
   "annotations": [
-    { "lines": "4-5", "label": "Identity", "note": "`id` namespaces the provider; `label` is the section heading shown in the `@` popover." },
+    { "lines": "4-5", "label": "Identität", "note": "`id` namespaces the provider; `label` is the section heading shown in the `@` popover." },
     { "lines": "8-9", "label": "search", "note": "Runs as the user types after `@`. Return up to a handful of matches as `{ id, label, description, type }`." },
     { "lines": "23-24", "label": "resolve", "note": "Called when the message is sent. Turns a picked id into `{ type: \"context\", text }` that is injected into the agent's context." }
   ]

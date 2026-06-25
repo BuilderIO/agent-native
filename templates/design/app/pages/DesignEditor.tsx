@@ -20,6 +20,7 @@ import {
   usePresence,
   useFollowUser,
   LiveCursorOverlay,
+  useT,
   type CollabUser,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
@@ -305,6 +306,7 @@ function buildAuthoritativeTweakSelections(
 }
 
 export default function DesignEditor() {
+  const t = useT();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -427,14 +429,12 @@ export default function DesignEditor() {
     rememberPendingGenerationForRetry();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
-    setGenerationIssue(
-      "Generation may have stopped before creating files. Check the agent message or try again.",
-    );
+    setGenerationIssue(t("designEditor.generationMayHaveStopped"));
     if (!staleToastShownRef.current) {
       staleToastShownRef.current = true;
-      toast.info("Generation may have stopped before creating files.");
+      toast.info(t("designEditor.generationMayHaveStoppedToast"));
     }
-  }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry]);
+  }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry, t]);
   const handleGenerationComplete = useCallback(() => {
     clearGenerationCompleteTimer();
     generationCompleteTimerRef.current = window.setTimeout(() => {
@@ -450,11 +450,11 @@ export default function DesignEditor() {
         hasOutput
           ? null
           : preservedForRetry
-            ? "Generation stopped before creating files. Try again to continue from the same prompt."
-            : "Generation stopped before creating files. Check the agent message or try again.",
+            ? t("designEditor.generationStoppedRetry")
+            : t("designEditor.generationStoppedCheckAgent"),
       );
     }, 4000);
-  }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry]);
+  }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry, t]);
   const {
     generating,
     submit: agentSubmit,
@@ -1043,7 +1043,7 @@ export default function DesignEditor() {
           if (!prev) return prev;
           try {
             const iframe = document.querySelector<HTMLIFrameElement>(
-              'iframe[title="Design Preview"]',
+              "iframe[data-design-preview-iframe]",
             );
             const doc = iframe?.contentDocument;
             if (doc && (!prev.selector || !doc.querySelector(prev.selector))) {
@@ -1059,7 +1059,7 @@ export default function DesignEditor() {
           if (!prev) return prev;
           try {
             const iframe = document.querySelector<HTMLIFrameElement>(
-              'iframe[title="Design Preview"]',
+              "iframe[data-design-preview-iframe]",
             );
             const doc = iframe?.contentDocument;
             if (doc && (!prev.selector || !doc.querySelector(prev.selector))) {
@@ -1792,22 +1792,24 @@ export default function DesignEditor() {
                 ? result.prompt
                 : "";
           if (!text) {
-            toast.error("Could not create coding handoff");
+            toast.error(t("designEditor.toasts.codingHandoffError"));
             return;
           }
           try {
             await navigator.clipboard.writeText(text);
-            toast.success("Coding handoff copied");
+            toast.success(t("designEditor.toasts.codingHandoffCopied"));
           } catch {
-            toast.error("Clipboard blocked");
+            toast.error(t("designEditor.toasts.clipboardBlocked"));
           }
         },
         onError: (error) => {
-          toast.error(error.message || "Could not create coding handoff");
+          toast.error(
+            error.message || t("designEditor.toasts.codingHandoffError"),
+          );
         },
       },
     );
-  }, [createCodingHandoffMutation, id]);
+  }, [createCodingHandoffMutation, id, t]);
 
   const triggerBlobDownload = useCallback((blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -1835,27 +1837,27 @@ export default function DesignEditor() {
     exportHtmlMutation.mutate({ id } as any, {
       onSuccess: (result: any) => {
         if (typeof result?.html !== "string") {
-          toast.error("Could not create HTML download");
+          toast.error(t("designEditor.toasts.htmlCreateError"));
           return;
         }
         triggerBlobDownload(
           new Blob([result.html], { type: "text/html;charset=utf-8" }),
           result.filename || fallbackExportName("html"),
         );
-        toast.success("HTML downloaded");
+        toast.success(t("designEditor.toasts.htmlDownloaded"));
       },
       onError: (error) => {
-        toast.error(error.message || "Could not export HTML");
+        toast.error(error.message || t("designEditor.toasts.htmlExportError"));
       },
     });
-  }, [exportHtmlMutation, fallbackExportName, id, triggerBlobDownload]);
+  }, [exportHtmlMutation, fallbackExportName, id, t, triggerBlobDownload]);
 
   const handleDownloadZip = useCallback(() => {
     if (!id) return;
     exportZipMutation.mutate({ id } as any, {
       onSuccess: (result: any) => {
         if (typeof result?.zipBase64 !== "string") {
-          toast.error("Could not create ZIP download");
+          toast.error(t("designEditor.toasts.zipCreateError"));
           return;
         }
         const binary = window.atob(result.zipBase64);
@@ -1867,21 +1869,21 @@ export default function DesignEditor() {
           new Blob([bytes], { type: "application/zip" }),
           result.filename || fallbackExportName("zip"),
         );
-        toast.success("ZIP downloaded");
+        toast.success(t("designEditor.toasts.zipDownloaded"));
       },
       onError: (error) => {
-        toast.error(error.message || "Could not export ZIP");
+        toast.error(error.message || t("designEditor.toasts.zipExportError"));
       },
     });
-  }, [exportZipMutation, fallbackExportName, id, triggerBlobDownload]);
+  }, [exportZipMutation, fallbackExportName, id, t, triggerBlobDownload]);
 
   const handleDownloadPng = useCallback(async () => {
     const iframe = document.querySelector<HTMLIFrameElement>(
-      'iframe[title="Design Preview"]',
+      "iframe[data-design-preview-iframe]",
     );
     const doc = iframe?.contentDocument;
     if (!doc?.documentElement) {
-      toast.error("Open a screen before exporting PNG");
+      toast.error(t("designEditor.toasts.openScreenPng"));
       return;
     }
     try {
@@ -1908,11 +1910,11 @@ export default function DesignEditor() {
       canvas.toBlob((blob) => {
         try {
           if (!blob) {
-            toast.error("Could not create PNG download");
+            toast.error(t("designEditor.toasts.pngCreateError"));
             return;
           }
           triggerBlobDownload(blob, fallbackExportName("png"));
-          toast.success("PNG downloaded");
+          toast.success(t("designEditor.toasts.pngDownloaded"));
         } catch (callbackError) {
           // `triggerBlobDownload` does DOM mutation + `URL.createObjectURL`,
           // either of which can throw inside this async callback — outside
@@ -1922,25 +1924,27 @@ export default function DesignEditor() {
           toast.error(
             callbackError instanceof Error
               ? callbackError.message
-              : "Could not save PNG",
+              : t("designEditor.toasts.pngSaveError"),
           );
         }
       }, "image/png");
     } catch (error) {
       console.error("PNG export failed:", error);
       toast.error(
-        error instanceof Error ? error.message : "Could not export PNG",
+        error instanceof Error
+          ? error.message
+          : t("designEditor.toasts.pngExportError"),
       );
     }
-  }, [fallbackExportName, triggerBlobDownload]);
+  }, [fallbackExportName, t, triggerBlobDownload]);
 
   const handleDownloadSvg = useCallback(async () => {
     const iframe = document.querySelector<HTMLIFrameElement>(
-      'iframe[title="Design Preview"]',
+      "iframe[data-design-preview-iframe]",
     );
     const doc = iframe?.contentDocument;
     if (!doc?.documentElement) {
-      toast.error("Open a screen before exporting SVG");
+      toast.error(t("designEditor.toasts.openScreenSvg"));
       return;
     }
 
@@ -2008,7 +2012,7 @@ export default function DesignEditor() {
           ?.replace(/&/g, "&amp;")
           .replace(/"/g, "&quot;")
           .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;") || "Design export";
+          .replace(/>/g, "&gt;") || t("designEditor.designExport");
       const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${safeTitle}">
   <title>${safeTitle}</title>
@@ -2021,16 +2025,18 @@ ${serializedHtml}
         new Blob([svg], { type: "image/svg+xml;charset=utf-8" }),
         fallbackExportName("svg"),
       );
-      toast.success("SVG downloaded");
+      toast.success(t("designEditor.toasts.svgDownloaded"));
     } catch (error) {
       console.error("SVG export failed:", error);
       toast.error(
-        error instanceof Error ? error.message : "Could not export SVG",
+        error instanceof Error
+          ? error.message
+          : t("designEditor.toasts.svgExportError"),
       );
     } finally {
       setSvgExporting(false);
     }
-  }, [design?.title, fallbackExportName, triggerBlobDownload]);
+  }, [design?.title, fallbackExportName, t, triggerBlobDownload]);
 
   const zoomLabel = `${Math.round(zoom)}%`;
 
@@ -2046,14 +2052,14 @@ ${serializedHtml}
   if (!design) {
     return (
       <div className="flex-1 bg-background flex flex-col items-center justify-center gap-4">
-        <p className="text-muted-foreground">Design not found</p>
+        <p className="text-muted-foreground">{t("designEditor.notFound")}</p>
         <Button
           variant="outline"
           onClick={() => navigate("/")}
           className="cursor-pointer"
         >
           <IconArrowLeft className="w-4 h-4" />
-          Back to designs
+          {t("designEditor.backToDesigns")}
         </Button>
       </div>
     );
@@ -2086,7 +2092,7 @@ ${serializedHtml}
               size="icon"
               className="h-7 w-7 cursor-pointer md:hidden"
               onClick={openMobileSidebar}
-              aria-label="Open navigation"
+              aria-label={t("navigation.openNavigation")}
             >
               <IconMenu2 className="w-4 h-4" />
             </Button>
@@ -2121,7 +2127,7 @@ ${serializedHtml}
                 setTitleDraft(design.title);
                 setTitleEditing(true);
               }}
-              title="Click to rename"
+              title={t("designEditor.clickToRename")}
               className="max-w-[38vw] cursor-text truncate rounded px-1 -mx-1 text-left text-sm font-medium text-foreground/90 hover:bg-accent/50 sm:max-w-[240px]"
             >
               {design.title}
@@ -2142,14 +2148,14 @@ ${serializedHtml}
                       onClick={handleCommentTabClick}
                     >
                       <IconMessage className="w-3 h-3" />
-                      Comment
+                      {t("designEditor.modes.comment")}
                     </TabsTrigger>
                     <TabsTrigger
                       value="edit"
                       className="h-6 px-2 text-xs gap-1"
                     >
                       <IconPencil className="w-3 h-3" />
-                      Edit
+                      {t("designEditor.modes.edit")}
                     </TabsTrigger>
                     <TabsTrigger
                       value="draw"
@@ -2157,7 +2163,7 @@ ${serializedHtml}
                       disabled={!activeFile || viewMode === "overview"}
                     >
                       <IconBrush className="w-3 h-3" />
-                      Draw
+                      {t("designEditor.modes.draw")}
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
@@ -2171,12 +2177,14 @@ ${serializedHtml}
                       className="h-7 w-7 cursor-pointer"
                       onClick={handleUndo}
                       disabled={!canUndo}
-                      aria-label="Undo"
+                      aria-label={t("designEditor.undo")}
                     >
                       <IconArrowBackUp className="w-3.5 h-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Undo (⌘Z)</TooltipContent>
+                  <TooltipContent>
+                    {t("designEditor.undoShortcut")}
+                  </TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -2186,12 +2194,14 @@ ${serializedHtml}
                       className="h-7 w-7 cursor-pointer"
                       onClick={handleRedo}
                       disabled={!canRedo}
-                      aria-label="Redo"
+                      aria-label={t("designEditor.redo")}
                     >
                       <IconArrowForwardUp className="w-3.5 h-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Redo (⇧⌘Z)</TooltipContent>
+                  <TooltipContent>
+                    {t("designEditor.redoShortcut")}
+                  </TooltipContent>
                 </Tooltip>
 
                 <div className="w-px h-5 bg-accent mx-1" />
@@ -2209,15 +2219,17 @@ ${serializedHtml}
                   onClick={handleViewModeToggle}
                   aria-label={
                     viewMode === "overview"
-                      ? "Return to current screen"
-                      : "Open screen overview"
+                      ? t("designEditor.returnToCurrentScreen")
+                      : t("designEditor.openScreenOverview")
                   }
                 >
                   <IconLayoutGrid className="w-3.5 h-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {viewMode === "overview" ? "Current screen" : "Screen overview"}
+                {viewMode === "overview"
+                  ? t("designEditor.currentScreen")
+                  : t("designEditor.screenOverview")}
               </TooltipContent>
             </Tooltip>
 
@@ -2247,7 +2259,9 @@ ${serializedHtml}
                         </Button>
                       </DropdownMenuTrigger>
                     </TooltipTrigger>
-                    <TooltipContent>Device preview</TooltipContent>
+                    <TooltipContent>
+                      {t("designEditor.devicePreview")}
+                    </TooltipContent>
                   </Tooltip>
                   <DropdownMenuContent align="end" className="w-44">
                     <DropdownMenuRadioGroup
@@ -2258,19 +2272,19 @@ ${serializedHtml}
                     >
                       <DropdownMenuRadioItem value="none">
                         <IconViewportWide className="mr-2 h-4 w-4" />
-                        Responsive
+                        {t("designEditor.devices.responsive")}
                       </DropdownMenuRadioItem>
                       <DropdownMenuRadioItem value="desktop">
                         <IconDeviceDesktop className="mr-2 h-4 w-4" />
-                        Desktop
+                        {t("designEditor.devices.desktop")}
                       </DropdownMenuRadioItem>
                       <DropdownMenuRadioItem value="tablet">
                         <IconDeviceTablet className="mr-2 h-4 w-4" />
-                        Tablet
+                        {t("designEditor.devices.tablet")}
                       </DropdownMenuRadioItem>
                       <DropdownMenuRadioItem value="mobile">
                         <IconDeviceMobile className="mr-2 h-4 w-4" />
-                        Mobile
+                        {t("designEditor.devices.mobile")}
                       </DropdownMenuRadioItem>
                     </DropdownMenuRadioGroup>
                   </DropdownMenuContent>
@@ -2291,16 +2305,16 @@ ${serializedHtml}
                         </Button>
                       </DropdownMenuTrigger>
                     </TooltipTrigger>
-                    <TooltipContent>Zoom</TooltipContent>
+                    <TooltipContent>{t("designEditor.zoom")}</TooltipContent>
                   </Tooltip>
                   <DropdownMenuContent align="end" className="w-40">
                     <DropdownMenuItem onClick={handleZoomOut}>
                       <IconZoomOut className="mr-2 h-4 w-4" />
-                      Zoom out
+                      {t("designEditor.zoomOut")}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={handleZoomIn}>
                       <IconZoomIn className="mr-2 h-4 w-4" />
-                      Zoom in
+                      {t("designEditor.zoomIn")}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     {ZOOM_PRESETS.map((preset) => (
@@ -2348,7 +2362,7 @@ ${serializedHtml}
                       </Button>
                     </DropdownMenuTrigger>
                   </TooltipTrigger>
-                  <TooltipContent>More</TooltipContent>
+                  <TooltipContent>{t("designEditor.more")}</TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuItem
@@ -2356,39 +2370,41 @@ ${serializedHtml}
                     disabled={!activeFile || viewMode === "overview"}
                   >
                     <IconPin className="mr-2 h-4 w-4" />
-                    {pinMode ? "Stop pinning comments" : "Pin comment"}
+                    {pinMode
+                      ? t("designEditor.stopPinningComments")
+                      : t("designEditor.pinComment")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                    Export
+                    {t("designEditor.export")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem
                     onClick={handleDownloadHtml}
                     disabled={!activeFile || exportHtmlMutation.isPending}
                   >
                     <IconCode className="mr-2 h-4 w-4" />
-                    Download HTML
+                    {t("designEditor.downloadHtml")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={handleDownloadPng}
                     disabled={!activeFile}
                   >
                     <IconPhoto className="mr-2 h-4 w-4" />
-                    Download PNG
+                    {t("designEditor.downloadPng")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={handleDownloadSvg}
                     disabled={!activeFile || svgExporting}
                   >
                     <IconCode className="mr-2 h-4 w-4" />
-                    Download SVG
+                    {t("designEditor.downloadSvg")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={handleDownloadZip}
                     disabled={!activeFile || exportZipMutation.isPending}
                   >
                     <IconArchive className="mr-2 h-4 w-4" />
-                    Download ZIP
+                    {t("designEditor.downloadZip")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={handleCopyCodingHandoff}
@@ -2397,7 +2413,7 @@ ${serializedHtml}
                     }
                   >
                     <IconCode className="mr-2 h-4 w-4" />
-                    Copy coding handoff
+                    {t("designEditor.copyCodingHandoff")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -2481,10 +2497,12 @@ ${serializedHtml}
             >
               <div className="min-w-0">
                 <span className="block truncate text-sm font-medium text-foreground/90">
-                  {pendingVariants.prompt ?? "Pick a direction"}
+                  {pendingVariants.prompt ?? t("designEditor.pickDirection")}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {pendingVariants.variants.length} variations
+                  {t("designEditor.variations", {
+                    count: pendingVariants.variants.length,
+                  })}
                 </span>
               </div>
               <Button
@@ -2494,7 +2512,7 @@ ${serializedHtml}
                 onClick={handleVariantsDismiss}
               >
                 <IconX className="w-3.5 h-3.5" />
-                Close
+                {t("designEditor.close")}
               </Button>
             </div>
             <div className="flex-1 overflow-hidden">
@@ -2560,7 +2578,7 @@ ${serializedHtml}
                   designId={id}
                   designTitle={design?.title}
                   commentContextId={`${id}:${activeFile.id}`}
-                  commentContextLabel={`${design?.title ?? "Design"} / ${prettyScreenName(activeFile.filename)}`}
+                  commentContextLabel={`${design?.title ?? t("navigation.brand")} / ${prettyScreenName(activeFile.filename)}`}
                   onPrototypeNavigate={(screen) => {
                     if (!screen) return;
                     const norm = (s: string) =>
@@ -2597,14 +2615,13 @@ ${serializedHtml}
                   <>
                     <Spinner className="mx-auto mb-3 size-6 text-foreground/30" />
                     <p className="text-sm text-muted-foreground">
-                      Generating design...
+                      {t("designEditor.generating")}
                     </p>
                   </>
                 ) : (
                   <>
                     <p className="text-sm text-muted-foreground mb-3">
-                      {generationIssue ??
-                        "No files yet. Ask the agent to generate a design."}
+                      {generationIssue ?? t("designEditor.noFiles")}
                     </p>
                     {retryablePrompt ? (
                       <p className="text-xs text-muted-foreground/70 mb-4 max-w-sm mx-auto italic">
@@ -2619,7 +2636,7 @@ ${serializedHtml}
                           onClick={handleRetryGeneration}
                         >
                           <IconRefresh className="w-3.5 h-3.5" />
-                          Try again
+                          {t("designEditor.tryAgain")}
                         </Button>
                       ) : null}
                       <Button
@@ -2633,7 +2650,9 @@ ${serializedHtml}
                         }}
                       >
                         <IconPlus className="w-3.5 h-3.5" />
-                        {retryablePrompt ? "New prompt" : "Generate Design"}
+                        {retryablePrompt
+                          ? t("designEditor.newPrompt")
+                          : t("designEditor.generateDesign")}
                       </Button>
                     </div>
                   </>
@@ -2651,12 +2670,18 @@ ${serializedHtml}
                 size="icon"
                 className="absolute bottom-4 right-4 z-[70] size-9 cursor-pointer rounded-full bg-background/95 shadow-lg backdrop-blur"
                 onClick={() => setTweaksVisible((visible) => !visible)}
-                aria-label={tweaksVisible ? "Hide tweaks" : "Show tweaks"}
+                aria-label={
+                  tweaksVisible
+                    ? t("designEditor.hideTweaks")
+                    : t("designEditor.showTweaks")
+                }
               >
                 <IconAdjustmentsHorizontal className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="left">Tweaks</TooltipContent>
+            <TooltipContent side="left">
+              {t("designEditor.tweaks")}
+            </TooltipContent>
           </Tooltip>
         )}
 
@@ -2694,8 +2719,8 @@ ${serializedHtml}
       <PromptPopover
         open={showPrompt}
         onOpenChange={handlePromptOpenChange}
-        title="Generate design"
-        placeholder="Describe what you want to build..."
+        title={t("designEditor.generateDesign")}
+        placeholder={t("designEditor.generatePlaceholder")}
         onSubmit={(
           prompt: string,
           files: UploadedFile[],
@@ -2748,8 +2773,8 @@ ${serializedHtml}
       <PromptPopover
         open={showTweakPrompt}
         onOpenChange={handleTweakPromptOpenChange}
-        title="What tweaks do you want?"
-        placeholder="Accent options, density, radius, dark mode..."
+        title={t("designEditor.tweaksPromptTitle")}
+        placeholder={t("designEditor.tweaksPlaceholder")}
         onSubmit={handleTweakPromptSubmit}
         anchorRef={tweakPromptAnchorRef}
       />

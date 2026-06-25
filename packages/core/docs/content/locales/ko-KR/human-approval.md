@@ -20,8 +20,8 @@ description: "결과가 높은 작업이 실행되기 전에 에이전트를 일
   "language": "ts",
   "code": "export default defineAction({\n  description: \"Send an email via Gmail.\",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});",
   "annotations": [
-    { "lines": "10", "label": "The whole gate", "note": "One flag. With it truthy and the call unapproved, the loop stops before `run` — the model never reaches the side effect on its own." },
-    { "lines": "11-13", "label": "run() is untouched", "note": "The handler stays the same. Approval is enforced by the loop around it, not by anything inside `run`." }
+    { "lines": "10", "label": "문 전체", "note": "깃발 하나. 진실이고 호출이 승인되지 않은 상태에서 루프는 `run` 이전에 중지됩니다. 모델은 자체적으로 부작용에 도달하지 않습니다." },
+    { "lines": "11-13", "label": "run() is untouched", "note": "핸들러는 동일하게 유지됩니다. 승인은 `run` 내부의 어떤 것이 아니라 주변 루프에 의해 시행됩니다." }
   ]
 }
 ```
@@ -74,7 +74,7 @@ description: "결과가 높은 작업이 실행되기 전에 에이전트를 일
 
 ```an-diagram title="승인 중단" summary="게이트 호출은 run()이 실행되기 전에 차례를 일시 중지합니다. 승인은 통화 키를 가지고 있는 차례를 재발행합니다. 그래야만 부작용이 발생합니다."
 {
-  "html": "<div class=\"diagram-approve\"><div class=\"diagram-box\" data-rough>Agent calls send-email</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel warn\" data-rough><strong>Gate truthy, call not yet approved</strong><small class=\"diagram-muted\">loop emits tool_start + approval_required { tool, input, approvalKey }</small><span class=\"diagram-pill warn\">turn pauses &mdash; run() did NOT execute</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Human clicks Approve in chat<br><small class=\"diagram-muted\">client re-issues the turn with approvedToolCalls: [approvalKey]</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel ok\" data-rough><span class=\"diagram-pill ok\">Gate sees the key &rarr; run() executes &rarr; email sends</span></div></div>",
+  "html": "<div class=\"diagram-approve\"><div class=\"diagram-box\" data-rough>에이전트가 send-email 호출</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel warn\" data-rough><strong>Gate가 참, 호출은 아직 미승인</strong><small class=\"diagram-muted\">loop emits tool_start + approval_required { tool, input, approvalKey }</small><span class=\"diagram-pill warn\">turn pauses &mdash; run() did NOT execute</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>사람이 채팅에서 승인 클릭<br><small class=\"diagram-muted\">클라이언트가 approvedToolCalls: [approvalKey]로 턴 재발행</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel ok\" data-rough><span class=\"diagram-pill ok\">Gate sees the key &rarr; run() executes &rarr; email sends</span></div></div>",
   "css": ".diagram-approve{display:flex;flex-direction:column;align-items:center;gap:8px}.diagram-approve .diagram-panel{display:flex;flex-direction:column;gap:6px;align-items:center;padding:12px 16px;text-align:center}.diagram-approve .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

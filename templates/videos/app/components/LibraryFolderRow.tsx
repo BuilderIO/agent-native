@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconChevronRight,
   IconFolder,
@@ -41,6 +42,7 @@ export function LibraryFolderRow({
   onDropComposition,
   onRemoveFromFolder,
 }: LibraryFolderRowProps) {
+  const t = useT();
   const [expanded, setExpanded] = useState(true);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(folder.name);
@@ -176,7 +178,7 @@ export function LibraryFolderRow({
                   <IconPencil className="h-3 w-3" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Rename folder</TooltipContent>
+              <TooltipContent>{t("raw.folders.rename")}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -187,7 +189,7 @@ export function LibraryFolderRow({
                   <IconTrash className="h-3 w-3" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Delete folder</TooltipContent>
+              <TooltipContent>{t("raw.folders.delete")}</TooltipContent>
             </Tooltip>
           </div>
         )}
@@ -198,7 +200,7 @@ export function LibraryFolderRow({
         <div className="ml-4 mt-0.5 pb-0.5 space-y-0.5">
           {compositions.length === 0 ? (
             <div className="text-[10px] text-muted-foreground/40 px-2 py-2 italic">
-              Drag videos here
+              {t("raw.folders.dragVideosHere")}
             </div>
           ) : (
             compositions.map((comp) => (
@@ -219,7 +221,9 @@ export function LibraryFolderRow({
                       <IconX className="h-2.5 w-2.5" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Remove from folder</TooltipContent>
+                  <TooltipContent>
+                    {t("raw.folders.removeFromFolder")}
+                  </TooltipContent>
                 </Tooltip>
               </div>
             ))

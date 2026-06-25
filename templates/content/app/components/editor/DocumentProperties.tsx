@@ -2,6 +2,7 @@ import {
   emailToName,
   useActionMutation,
   useSession,
+  useT,
 } from "@agent-native/core/client";
 import type {
   AddContentDatabaseSourceFieldPropertyRequest,
@@ -101,10 +102,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  applySourceFieldPropertyToDatabaseResponse,
-  contentDatabaseQueryKey,
-} from "@/hooks/use-content-database";
+import { applySourceFieldPropertyToDatabaseResponse } from "@/hooks/use-content-database";
 import {
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
@@ -116,10 +114,22 @@ import { cn } from "@/lib/utils";
 
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 
+type TFunction = ReturnType<typeof useT>;
+
+function tWithFallback(
+  t: TFunction | undefined,
+  key: string,
+  fallback: string,
+  options?: Record<string, unknown>,
+) {
+  if (!t) return fallback;
+  const value = t(key, options);
+  return value === key ? fallback : value;
+}
+
 interface DocumentPropertiesProps {
   documentId: string;
   canEdit: boolean;
-  databaseDocumentId?: string;
   popoversPortalled?: boolean;
 }
 
@@ -236,12 +246,15 @@ function formatDateTime(value: string) {
   }).format(date);
 }
 
-function formatPropertyDateDisplayValue(value: DocumentProperty["value"]) {
+function formatPropertyDateDisplayValue(
+  value: DocumentProperty["value"],
+  t?: TFunction,
+) {
   const includeTime = documentPropertyDateIncludesTime(value);
   const formatter = includeTime ? formatDateTime : formatDate;
   const start = documentPropertyDatePart(value, "start");
   const end = documentPropertyDatePart(value, "end");
-  if (!start) return "Empty";
+  if (!start) return tWithFallback(t, "editor.properties.empty", "Empty");
   return end ? `${formatter(start)} - ${formatter(end)}` : formatter(start);
 }
 
@@ -255,27 +268,30 @@ function optionById(property: DocumentProperty, id: string | null) {
   );
 }
 
-export function displayValue(property: DocumentProperty) {
+export function displayValue(property: DocumentProperty, t?: TFunction) {
   const value = property.value;
   const type = property.definition.type;
+  const empty = tWithFallback(t, "editor.properties.empty", "Empty");
 
   if (value === null || value === undefined || value === "") {
-    return <span className="text-muted-foreground/70">Empty</span>;
+    return <span className="text-muted-foreground/70">{empty}</span>;
   }
 
   if (type === "checkbox") {
     return value ? (
       <span className="inline-flex items-center gap-1.5 text-foreground">
         <IconCheck className="size-3.5" />
-        Checked
+        {tWithFallback(t, "editor.properties.checked", "Checked")}
       </span>
     ) : (
-      <span className="text-muted-foreground/70">Unchecked</span>
+      <span className="text-muted-foreground/70">
+        {tWithFallback(t, "editor.properties.unchecked", "Unchecked")}
+      </span>
     );
   }
 
   if (type === "date") {
-    return <span>{formatPropertyDateDisplayValue(value)}</span>;
+    return <span>{formatPropertyDateDisplayValue(value, t)}</span>;
   }
 
   if (type === "created_time" || type === "last_edited_time") {
@@ -285,7 +301,7 @@ export function displayValue(property: DocumentProperty) {
   if (type === "person") {
     const people = personItems(value);
     if (people.length === 0) {
-      return <span className="text-muted-foreground/70">Empty</span>;
+      return <span className="text-muted-foreground/70">{empty}</span>;
     }
     return (
       <span className="inline-flex max-w-full flex-wrap gap-1">
@@ -307,7 +323,7 @@ export function displayValue(property: DocumentProperty) {
   if (type === "files_media") {
     const items = filesMediaItems(value);
     if (items.length === 0) {
-      return <span className="text-muted-foreground/70">Empty</span>;
+      return <span className="text-muted-foreground/70">{empty}</span>;
     }
     return (
       <span className="inline-flex max-w-full flex-wrap gap-1">
@@ -321,13 +337,20 @@ export function displayValue(property: DocumentProperty) {
   if (type === "relation") {
     const items = relationItems(value);
     if (items.length === 0) {
-      return <span className="text-muted-foreground/70">Empty</span>;
+      return <span className="text-muted-foreground/70">{empty}</span>;
     }
     return (
       <span className="inline-flex max-w-full items-center gap-1.5 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
         <IconLink className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate">
-          {items.length} page{items.length === 1 ? "" : "s"}
+          {tWithFallback(
+            t,
+            items.length === 1
+              ? "editor.properties.pageCount_one"
+              : "editor.properties.pageCount_other",
+            `${items.length} page${items.length === 1 ? "" : "s"}`,
+            { count: items.length },
+          )}
         </span>
       </span>
     );
@@ -344,7 +367,7 @@ export function displayValue(property: DocumentProperty) {
 
   if (type === "multi_select" && Array.isArray(value)) {
     if (value.length === 0)
-      return <span className="text-muted-foreground/70">Empty</span>;
+      return <span className="text-muted-foreground/70">{empty}</span>;
     return (
       <span className="inline-flex flex-wrap gap-1">
         {value.map((id) => {
@@ -625,16 +648,16 @@ export function dateInputValueForOffset(baseDate: Date, offsetDays: number) {
   return `${year}-${month}-${day}`;
 }
 
-function scalarPlaceholder(type: DocumentPropertyType) {
+function scalarPlaceholder(type: DocumentPropertyType, t: TFunction) {
   switch (type) {
     case "number":
       return "0";
     case "date":
-      return "Select a date";
+      return t("editor.properties.selectDate");
     case "person":
-      return "Person or email";
+      return t("editor.properties.personOrEmail");
     case "place":
-      return "City, venue, or address";
+      return t("editor.properties.cityVenueOrAddress");
     case "url":
       return "https://example.com";
     case "email":
@@ -642,16 +665,16 @@ function scalarPlaceholder(type: DocumentPropertyType) {
     case "phone":
       return "+1 (555) 123-4567";
     default:
-      return "Empty";
+      return t("editor.properties.empty");
   }
 }
 
 export function DocumentProperties({
   documentId,
   canEdit,
-  databaseDocumentId = documentId,
   popoversPortalled = true,
 }: DocumentPropertiesProps) {
+  const t = useT();
   const { data, isLoading } = useDocumentProperties(documentId);
   // Blocks fields are rendered as body content (below the database/title), not
   // as scalar property rows in this panel — exclude them here.
@@ -669,7 +692,7 @@ export function DocumentProperties({
       {isLoading ? (
         <div className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-3.5" />
-          Loading properties
+          {t("editor.properties.loadingProperties")}
         </div>
       ) : visibleProperties.length > 0 ? (
         <div className="grid gap-0.5">
@@ -680,6 +703,7 @@ export function DocumentProperties({
               documentId={documentId}
               canEdit={canEdit}
               popoversPortalled={popoversPortalled}
+              t={t}
             />
           ))}
         </div>
@@ -688,15 +712,14 @@ export function DocumentProperties({
       {canEdit && hiddenProperties.length > 0 ? (
         <HiddenPropertiesMenu
           documentId={documentId}
-          databaseDocumentId={databaseDocumentId}
           properties={hiddenProperties}
+          t={t}
         />
       ) : null}
 
       {canEdit && databaseId ? (
         <AddProperty
           documentId={documentId}
-          databaseDocumentId={databaseDocumentId}
           popoversPortalled={popoversPortalled}
         />
       ) : null}
@@ -715,17 +738,14 @@ function isPropertyVisible(property: DocumentProperty) {
 
 function HiddenPropertiesMenu({
   documentId,
-  databaseDocumentId,
   properties,
+  t,
 }: {
   documentId: string;
-  databaseDocumentId: string;
   properties: DocumentProperty[];
+  t: TFunction;
 }) {
-  const configure = useConfigureDocumentProperty(
-    documentId,
-    databaseDocumentId,
-  );
+  const configure = useConfigureDocumentProperty(documentId);
 
   async function showProperty(property: DocumentProperty) {
     await configure.mutateAsync({
@@ -746,7 +766,7 @@ function HiddenPropertiesMenu({
           className="mt-1 flex h-8 items-center gap-2 rounded px-1 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
         >
           <IconEyeOff className="size-4" />
-          Hidden properties
+          {t("editor.properties.hiddenProperties")}
           <span className="text-xs text-muted-foreground/70">
             {properties.length}
           </span>
@@ -768,7 +788,9 @@ function HiddenPropertiesMenu({
               <span className="min-w-0 flex-1 truncate">
                 {property.definition.name}
               </span>
-              <span className="ml-2 text-xs text-muted-foreground">Show</span>
+              <span className="ml-2 text-xs text-muted-foreground">
+                {t("editor.properties.show")}
+              </span>
             </DropdownMenuItem>
           );
         })}
@@ -782,16 +804,18 @@ function PropertyRow({
   documentId,
   canEdit,
   popoversPortalled,
+  t,
 }: {
   property: DocumentProperty;
   documentId: string;
   canEdit: boolean;
   popoversPortalled: boolean;
+  t: TFunction;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
   const value = (
     <div className="min-w-0 flex-1 truncate text-left text-sm">
-      {displayValue(property)}
+      {displayValue(property, t)}
     </div>
   );
 
@@ -843,6 +867,7 @@ export function PropertyManagementPopover({
   sourceField?: ContentDatabaseSource["fields"][number] | null;
   sourceAttached?: boolean;
 }) {
+  const t = useT();
   const configure = useConfigureDocumentProperty(documentId);
   const duplicate = useDuplicateDocumentProperty(documentId);
   const remove = useDeleteDocumentProperty(documentId);
@@ -987,7 +1012,9 @@ export function PropertyManagementPopover({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            aria-label={`Property menu for ${property.definition.name}`}
+            aria-label={t("editor.properties.propertyMenuFor", {
+              name: property.definition.name,
+            })}
             className={cn(
               "flex min-w-0 items-center gap-2 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               triggerClassName,
@@ -1017,7 +1044,7 @@ export function PropertyManagementPopover({
             <Input
               ref={propertyNameInputRef}
               value={name}
-              aria-label="Property name"
+              aria-label={t("editor.properties.propertyName")}
               onChange={(event) => setName(event.target.value)}
               onBlur={() => void renameProperty()}
               onKeyDown={(event) => {
@@ -1033,9 +1060,9 @@ export function PropertyManagementPopover({
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <Icon className="mr-2 size-4 text-muted-foreground" />
-              <span className="flex-1">Type</span>
+              <span className="flex-1">{t("editor.properties.type")}</span>
               <span className="mr-2 text-muted-foreground">
-                {DOCUMENT_PROPERTY_TYPE_LABELS[property.definition.type]}
+                {t(`editor.propertyTypes.${property.definition.type}`)}
               </span>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="max-h-80 w-56 overflow-auto">
@@ -1054,7 +1081,7 @@ export function PropertyManagementPopover({
                   >
                     <TypeIcon className="mr-2 size-4 text-muted-foreground" />
                     <span className="flex-1">
-                      {DOCUMENT_PROPERTY_TYPE_LABELS[propertyType]}
+                      {t(`editor.propertyTypes.${propertyType}`)}
                     </span>
                     {selected ? (
                       <IconCheck className="size-4 text-muted-foreground" />
@@ -1068,13 +1095,13 @@ export function PropertyManagementPopover({
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <IconEye className="mr-2 size-4 text-muted-foreground" />
-              <span className="flex-1">Visibility</span>
+              <span className="flex-1">
+                {t("editor.properties.visibility")}
+              </span>
               <span className="mr-2 text-muted-foreground">
-                {
-                  DOCUMENT_PROPERTY_VISIBILITY_LABELS[
-                    property.definition.visibility
-                  ]
-                }
+                {t(
+                  `editor.propertyVisibility.${property.definition.visibility}`,
+                )}
               </span>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="w-56">
@@ -1087,7 +1114,7 @@ export function PropertyManagementPopover({
                   }}
                 >
                   <span className="flex-1">
-                    {DOCUMENT_PROPERTY_VISIBILITY_LABELS[visibility]}
+                    {t(`editor.propertyVisibility.${visibility}`)}
                   </span>
                   {property.definition.visibility === visibility ? (
                     <IconCheck className="size-4 text-muted-foreground" />
@@ -1100,7 +1127,7 @@ export function PropertyManagementPopover({
           {typeNeedsOptions ? (
             <div className="grid gap-2 px-1 py-2">
               <div className="px-1 text-xs font-medium text-muted-foreground">
-                Options
+                {t("editor.properties.options")}
               </div>
               <div className="grid gap-1">
                 {(property.definition.options.options ?? []).map((option) => (
@@ -1125,7 +1152,7 @@ export function PropertyManagementPopover({
               >
                 <Input
                   value={newOption}
-                  placeholder="Add option"
+                  placeholder={t("editor.properties.addOption")}
                   onChange={(event) => setNewOption(event.target.value)}
                   onKeyDown={(event) => event.stopPropagation()}
                   className="h-8"
@@ -1136,7 +1163,7 @@ export function PropertyManagementPopover({
                   variant="secondary"
                   disabled={!newOption.trim() || configure.isPending}
                 >
-                  Add
+                  {t("editor.properties.add")}
                 </Button>
               </form>
             </div>
@@ -1146,7 +1173,9 @@ export function PropertyManagementPopover({
             <>
               <DropdownMenuSeparator />
               <div className="grid gap-1 px-2 py-1.5 text-xs">
-                <div className="font-medium text-foreground">Source</div>
+                <div className="font-medium text-foreground">
+                  {t("editor.properties.source")}
+                </div>
                 {sourceField ? (
                   <>
                     <div className="min-w-0 break-words text-muted-foreground">
@@ -1155,15 +1184,15 @@ export function PropertyManagementPopover({
                     </div>
                     <div className="text-muted-foreground">
                       {sourceField.readOnly
-                        ? "Read-only"
+                        ? t("editor.properties.readOnly")
                         : sourceField.writeOwner === "source"
-                          ? "Source-owned"
-                          : "Local edits allowed"}
+                          ? t("editor.properties.sourceOwned")
+                          : t("editor.properties.localEditsAllowed")}
                     </div>
                   </>
                 ) : (
                   <div className="text-muted-foreground">
-                    Not mapped to Builder.
+                    {t("editor.properties.notMappedToBuilder")}
                   </div>
                 )}
               </div>
@@ -1179,7 +1208,7 @@ export function PropertyManagementPopover({
             }}
           >
             <IconCopy className="mr-2 size-4 text-muted-foreground" />
-            Duplicate property
+            {t("editor.properties.duplicateProperty")}
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={remove.isPending}
@@ -1191,7 +1220,7 @@ export function PropertyManagementPopover({
             }}
           >
             <IconTrash className="mr-2 size-4" />
-            Delete property
+            {t("editor.properties.deleteProperty")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -1199,25 +1228,29 @@ export function PropertyManagementPopover({
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete property?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("editor.properties.deletePropertyQuestion")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes "{property.definition.name}" and its values from
-              every document in this workspace.
+              {t("editor.properties.deletePropertyDescription", {
+                name: property.definition.name,
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {isOnlyBlocksField ? (
             <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-800 dark:text-yellow-200">
-              This is the only blocks property present in this object type. This
-              will delete the main content (body) for all objects of this type.
+              {t("editor.properties.onlyBlocksPropertyWarning")}
             </div>
           ) : null}
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>
+              {t("editor.properties.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => void deleteProperty()}
             >
-              Delete property
+              {t("editor.properties.deleteProperty")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1239,6 +1272,7 @@ function PropertyOptionSettingsRow({
   onColorChange: (color: DocumentPropertyOptionColor) => void;
   onRemove: () => void;
 }) {
+  const t = useT();
   const [draftName, setDraftName] = useState(option.name);
 
   useEffect(() => {
@@ -1266,7 +1300,9 @@ function PropertyOptionSettingsRow({
         <Input
           value={draftName}
           disabled={disabled}
-          aria-label={`Rename option ${option.name}`}
+          aria-label={t("editor.properties.renameOption", {
+            name: option.name,
+          })}
           onChange={(event) => setDraftName(event.target.value)}
           onBlur={submitRename}
           onKeyDown={(event) => {
@@ -1291,7 +1327,7 @@ function PropertyOptionSettingsRow({
             className="h-7 rounded px-1.5 text-xs text-muted-foreground"
           >
             <IconPalette className="mr-1.5 size-3.5" />
-            Color
+            {t("editor.properties.color")}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="w-44">
             {OPTION_COLORS.map((color) => (
@@ -1309,7 +1345,9 @@ function PropertyOptionSettingsRow({
                     OPTION_COLOR_CLASSES[color],
                   )}
                 />
-                <span className="flex-1 capitalize">{color}</span>
+                <span className="flex-1 capitalize">
+                  {t(`editor.propertyOptionColors.${color}`)}
+                </span>
                 {option.color === color ? (
                   <IconCheck className="size-4 text-muted-foreground" />
                 ) : null}
@@ -1319,12 +1357,14 @@ function PropertyOptionSettingsRow({
         </DropdownMenuSub>
         <button
           type="button"
-          aria-label={`Remove option ${option.name}`}
+          aria-label={t("editor.properties.removeOption", {
+            name: option.name,
+          })}
           disabled={disabled}
           className="h-7 rounded px-1.5 text-xs text-muted-foreground hover:text-destructive disabled:opacity-50"
           onClick={onRemove}
         >
-          Remove
+          {t("editor.properties.remove")}
         </button>
       </div>
     </div>
@@ -1342,6 +1382,7 @@ export function PropertyValuePopover({
   children: React.ReactNode;
   portalled?: boolean;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   return (
@@ -1349,7 +1390,9 @@ export function PropertyValuePopover({
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={`Edit ${property.definition.name}`}
+          aria-label={t("editor.properties.editProperty", {
+            name: property.definition.name,
+          })}
           className="flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {children}
@@ -1444,6 +1487,7 @@ function PersonValueEditor({
   documentId: string;
   onDone: () => void;
 }) {
+  const t = useT();
   const mutation = useSetDocumentProperty(documentId);
   const { session } = useSession();
   const [people, setPeople] = useState(() => personItems(property.value));
@@ -1528,7 +1572,9 @@ function PersonValueEditor({
             <PersonPill value={person} />
             <button
               type="button"
-              aria-label={`Remove ${personLabel(person)}`}
+              aria-label={t("editor.properties.removePerson", {
+                name: personLabel(person),
+              })}
               className="text-muted-foreground hover:text-foreground"
               onClick={() => removePerson(person)}
             >
@@ -1538,9 +1584,15 @@ function PersonValueEditor({
         ))}
         <input
           ref={inputRef}
-          aria-label={`Add ${property.definition.name} person`}
+          aria-label={t("editor.properties.addPropertyPerson", {
+            name: property.definition.name,
+          })}
           value={query}
-          placeholder={people.length === 0 ? "Search or add person" : "Add"}
+          placeholder={
+            people.length === 0
+              ? t("editor.properties.searchOrAddPerson")
+              : t("editor.properties.add")
+          }
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
@@ -1564,12 +1616,14 @@ function PersonValueEditor({
                 {currentUserEmail}
               </span>
             </span>
-            <span className="text-xs text-muted-foreground">Me</span>
+            <span className="text-xs text-muted-foreground">
+              {t("editor.properties.me")}
+            </span>
           </button>
         ) : null}
         {filteredPeople.length > 0 && query.trim() ? (
           <div className="px-2 pt-1 text-xs text-muted-foreground">
-            Selected
+            {t("editor.properties.selected")}
           </div>
         ) : null}
         {query.trim()
@@ -1591,7 +1645,9 @@ function PersonValueEditor({
             onClick={() => addPerson(query)}
           >
             <IconPlus className="size-4 text-muted-foreground" />
-            <span>Add "{query.trim()}"</span>
+            <span>
+              {t("editor.properties.addQuoted", { value: query.trim() })}
+            </span>
           </button>
         ) : null}
       </div>
@@ -1603,10 +1659,10 @@ function PersonValueEditor({
           onClick={() => void clear()}
           disabled={mutation.isPending}
         >
-          Clear
+          {t("editor.properties.clear")}
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={onDone}>
-          Cancel
+          {t("editor.properties.cancel")}
         </Button>
         <Button
           type="button"
@@ -1614,7 +1670,7 @@ function PersonValueEditor({
           disabled={mutation.isPending}
           onClick={() => void save()}
         >
-          Save
+          {t("editor.properties.save")}
         </Button>
       </div>
     </form>
@@ -1630,6 +1686,7 @@ function FilesMediaValueEditor({
   documentId: string;
   onDone: () => void;
 }) {
+  const t = useT();
   const mutation = useSetDocumentProperty(documentId);
   const [items, setItems] = useState(() => filesMediaItems(property.value));
   const [linkValue, setLinkValue] = useState("");
@@ -1691,7 +1748,12 @@ function FilesMediaValueEditor({
       }
       setItems((current) => [...current, ...uploadedUrls]);
       toast.success(
-        uploadedUrls.length === 1 ? "Image uploaded" : "Images uploaded",
+        t(
+          uploadedUrls.length === 1
+            ? "editor.properties.imageUploaded_one"
+            : "editor.properties.imageUploaded_other",
+          { count: uploadedUrls.length },
+        ),
       );
     } catch (error) {
       toast.error(imageUploadErrorMessage(error));
@@ -1716,7 +1778,7 @@ function FilesMediaValueEditor({
       <div className="grid max-h-48 gap-1 overflow-auto">
         {items.length === 0 ? (
           <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-            No files or media
+            {t("editor.properties.noFilesOrMedia")}
           </div>
         ) : (
           items.map((item) => (
@@ -1732,12 +1794,16 @@ function FilesMediaValueEditor({
                   {filesMediaLabel(item)}
                 </div>
                 <div className="truncate text-xs text-muted-foreground">
-                  {filesMediaKind(item)}
+                  {t(
+                    `editor.properties.filesMediaKinds.${filesMediaKind(item).toLowerCase()}`,
+                  )}
                 </div>
               </div>
               <button
                 type="button"
-                aria-label={`Remove ${filesMediaLabel(item)}`}
+                aria-label={t("editor.properties.removeFileOrMedia", {
+                  name: filesMediaLabel(item),
+                })}
                 className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
                 onClick={() => removeItem(item)}
               >
@@ -1750,9 +1816,11 @@ function FilesMediaValueEditor({
       <div className="flex gap-1">
         <Input
           ref={linkInputRef}
-          aria-label={`Add ${property.definition.name} link`}
+          aria-label={t("editor.properties.addPropertyLink", {
+            name: property.definition.name,
+          })}
           value={linkValue}
-          placeholder="Paste file or media link"
+          placeholder={t("editor.properties.pasteFileOrMediaLink")}
           onChange={(event) => setLinkValue(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
@@ -1770,7 +1838,7 @@ function FilesMediaValueEditor({
           disabled={!linkValue.trim() || mutation.isPending}
         >
           <IconPlus className="size-3.5" />
-          Add
+          {t("editor.properties.add")}
         </Button>
       </div>
       <input
@@ -1790,7 +1858,7 @@ function FilesMediaValueEditor({
           disabled={mutation.isPending || uploading}
         >
           <IconUpload className="size-3.5" />
-          Upload
+          {t("editor.properties.upload")}
         </Button>
         <Button
           type="button"
@@ -1799,17 +1867,17 @@ function FilesMediaValueEditor({
           onClick={() => void clear()}
           disabled={mutation.isPending || uploading}
         >
-          Clear
+          {t("editor.properties.clear")}
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={onDone}>
-          Cancel
+          {t("editor.properties.cancel")}
         </Button>
         <Button
           type="submit"
           size="sm"
           disabled={mutation.isPending || uploading}
         >
-          Save
+          {t("editor.properties.save")}
         </Button>
       </div>
     </form>
@@ -1825,6 +1893,7 @@ function DateValueEditor({
   documentId: string;
   onDone: () => void;
 }) {
+  const t = useT();
   const mutation = useSetDocumentProperty(documentId);
   const [includeTime, setIncludeTime] = useState(
     documentPropertyDateIncludesTime(property.value),
@@ -1904,7 +1973,7 @@ function DateValueEditor({
           }
         >
           <IconCalendar className="size-3.5" />
-          Today
+          {t("editor.properties.today")}
         </Button>
         <Button
           type="button"
@@ -1922,19 +1991,21 @@ function DateValueEditor({
           }
         >
           <IconCalendar className="size-3.5" />
-          Tomorrow
+          {t("editor.properties.tomorrow")}
         </Button>
       </div>
       <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-        Start
+        {t("editor.properties.start")}
         <Input
           ref={dateValueInputRef}
-          aria-label={`Edit ${property.definition.name} start date`}
+          aria-label={t("editor.properties.editStartDate", {
+            name: property.definition.name,
+          })}
           autoFocus
           name="property-start-value"
           type={includeTime ? "datetime-local" : "date"}
           value={startValue}
-          placeholder="Select a date"
+          placeholder={t("editor.properties.selectDate")}
           onChange={(event) => setStartValue(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
@@ -1945,14 +2016,16 @@ function DateValueEditor({
         />
       </label>
       <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-        End
+        {t("editor.properties.end")}
         <div className="flex gap-1">
           <Input
-            aria-label={`Edit ${property.definition.name} end date`}
+            aria-label={t("editor.properties.editEndDate", {
+              name: property.definition.name,
+            })}
             name="property-end-value"
             type={includeTime ? "datetime-local" : "date"}
             value={endValue}
-            placeholder="Optional"
+            placeholder={t("editor.properties.optional")}
             onChange={(event) => setEndValue(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
@@ -1969,7 +2042,7 @@ function DateValueEditor({
             onClick={() => setEndValue("")}
             disabled={!endValue || mutation.isPending}
           >
-            Clear
+            {t("editor.properties.clear")}
           </Button>
         </div>
       </label>
@@ -2001,7 +2074,7 @@ function DateValueEditor({
             }
           }}
         />
-        Include time
+        {t("editor.properties.includeTime")}
       </label>
       <div className="flex justify-end gap-2">
         <Button
@@ -2011,13 +2084,13 @@ function DateValueEditor({
           onClick={() => void clear()}
           disabled={mutation.isPending}
         >
-          Clear
+          {t("editor.properties.clear")}
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={onDone}>
-          Cancel
+          {t("editor.properties.cancel")}
         </Button>
         <Button type="submit" size="sm" disabled={mutation.isPending}>
-          Save
+          {t("editor.properties.save")}
         </Button>
       </div>
     </form>
@@ -2033,6 +2106,7 @@ function ScalarValueEditor({
   documentId: string;
   onDone: () => void;
 }) {
+  const t = useT();
   const mutation = useSetDocumentProperty(documentId);
   const type = property.definition.type;
   const inputType =
@@ -2094,12 +2168,14 @@ function ScalarValueEditor({
     >
       <Input
         ref={scalarValueInputRef}
-        aria-label={`Edit ${property.definition.name} value`}
+        aria-label={t("editor.properties.editValue", {
+          name: property.definition.name,
+        })}
         autoFocus
         name="property-value"
         type={inputType}
         value={value}
-        placeholder={scalarPlaceholder(type)}
+        placeholder={scalarPlaceholder(type, t)}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
@@ -2116,13 +2192,13 @@ function ScalarValueEditor({
           onClick={() => void clear()}
           disabled={mutation.isPending}
         >
-          Clear
+          {t("editor.properties.clear")}
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={onDone}>
-          Cancel
+          {t("editor.properties.cancel")}
         </Button>
         <Button type="submit" size="sm" disabled={mutation.isPending}>
-          Save
+          {t("editor.properties.save")}
         </Button>
       </div>
     </form>
@@ -2138,6 +2214,7 @@ function CheckboxValueEditor({
   documentId: string;
   onDone: () => void;
 }) {
+  const t = useT();
   const mutation = useSetDocumentProperty(documentId);
   const checked = Boolean(property.value);
 
@@ -2162,7 +2239,7 @@ function CheckboxValueEditor({
       >
         {checked ? <IconCheck className="size-3" /> : null}
       </span>
-      {checked ? "Uncheck" : "Check"}
+      {checked ? t("editor.properties.uncheck") : t("editor.properties.check")}
     </button>
   );
 }
@@ -2176,6 +2253,7 @@ function OptionValueEditor({
   documentId: string;
   onDone: () => void;
 }) {
+  const t = useT();
   const setValue = useSetDocumentProperty(documentId);
   const configure = useConfigureDocumentProperty(documentId);
   const options = property.definition.options.options ?? [];
@@ -2257,8 +2335,10 @@ function OptionValueEditor({
           ref={optionSearchInputRef}
           autoFocus
           value={optionQuery}
-          placeholder="Search or create option"
-          aria-label={`Search ${property.definition.name} options`}
+          placeholder={t("editor.properties.searchOrCreateOption")}
+          aria-label={t("editor.properties.searchPropertyOptions", {
+            name: property.definition.name,
+          })}
           onChange={(event) => setOptionQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -2280,7 +2360,7 @@ function OptionValueEditor({
       <div className="max-h-52 overflow-auto">
         {filteredOptions.length === 0 && !canCreateOption ? (
           <div className="px-2 py-3 text-sm text-muted-foreground">
-            No matching options
+            {t("editor.properties.noMatchingOptions")}
           </div>
         ) : null}
         {filteredOptions.map((option) => {
@@ -2310,7 +2390,7 @@ function OptionValueEditor({
           onClick={() => void addOption()}
         >
           <IconPlus className="mr-1.5 size-3.5" />
-          Create &ldquo;{optionQuery.trim()}&rdquo;
+          {t("editor.properties.createQuoted", { value: optionQuery.trim() })}
         </Button>
       ) : null}
       <Button
@@ -2325,7 +2405,7 @@ function OptionValueEditor({
           )
         }
       >
-        Clear value
+        {t("editor.properties.clearValue")}
       </Button>
     </div>
   );
@@ -2333,25 +2413,21 @@ function OptionValueEditor({
 
 export function AddProperty({
   documentId,
-  databaseDocumentId = documentId,
   variant = "default",
-  label = "Add property",
+  label,
   popoversPortalled = true,
   source,
   sources,
 }: {
   documentId: string;
-  databaseDocumentId?: string;
   variant?: "default" | "header" | "icon";
   label?: string;
   popoversPortalled?: boolean;
   source?: ContentDatabaseSource | null;
   sources?: ContentDatabaseSource[];
 }) {
-  const configure = useConfigureDocumentProperty(
-    documentId,
-    databaseDocumentId,
-  );
+  const t = useT();
+  const configure = useConfigureDocumentProperty(documentId);
   const queryClient = useQueryClient();
   const addSourceFieldProperty = useActionMutation<
     ContentDatabaseSourceFieldPropertyResponse,
@@ -2359,7 +2435,7 @@ export function AddProperty({
   >("add-content-database-source-field-property", {
     onSuccess: (data) => {
       queryClient.setQueriesData<ContentDatabaseResponse>(
-        { queryKey: contentDatabaseQueryKey(databaseDocumentId) },
+        { queryKey: ["action", "get-content-database"] },
         (current) => applySourceFieldPropertyToDatabaseResponse(current, data),
       );
       queryClient.invalidateQueries({
@@ -2412,7 +2488,7 @@ export function AddProperty({
   }
 
   async function add(type: DocumentPropertyType) {
-    const label = DOCUMENT_PROPERTY_TYPE_LABELS[type];
+    const label = t(`editor.propertyTypes.${type}`);
     await configure.mutateAsync({
       documentId,
       name: label,
@@ -2444,7 +2520,7 @@ export function AddProperty({
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={label}
+          aria-label={label ?? t("editor.properties.addProperty")}
           className={cn(
             "flex h-8 items-center gap-2 rounded text-muted-foreground hover:bg-muted/50 hover:text-foreground",
             variant === "icon" && "size-7 justify-center px-0",
@@ -2453,7 +2529,9 @@ export function AddProperty({
           )}
         >
           <IconPlus className="size-4" />
-          {variant === "default" || variant === "header" ? label : null}
+          {variant === "default" || variant === "header"
+            ? (label ?? t("editor.properties.addProperty"))
+            : null}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -2468,8 +2546,8 @@ export function AddProperty({
               ref={addPropertySearchInputRef}
               autoFocus
               value={typeQuery}
-              placeholder="Search property types"
-              aria-label="Search property types"
+              placeholder={t("editor.properties.searchPropertyTypes")}
+              aria-label={t("editor.properties.searchPropertyTypes")}
               onChange={(event) => setTypeQuery(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && firstFilteredPropertyType) {
@@ -2491,13 +2569,17 @@ export function AddProperty({
                 className="mb-1 border-b border-border pb-1"
               >
                 <div className="truncate px-2 py-1 text-xs font-medium text-muted-foreground">
-                  From {group.source.sourceName}
+                  {t("editor.properties.fromSource", {
+                    name: group.source.sourceName,
+                  })}
                 </div>
                 {group.fields.map((field) => (
                   <button
                     key={field.id}
                     type="button"
-                    aria-label={`Source field ${field.sourceFieldLabel}`}
+                    aria-label={t("editor.properties.sourceField", {
+                      name: field.sourceFieldLabel,
+                    })}
                     disabled={addSourceFieldProperty.isPending}
                     className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
                     onClick={() => void addFromSourceField(field.id)}
@@ -2508,8 +2590,8 @@ export function AddProperty({
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {group.source.metadata.federation?.role === "secondary"
-                        ? "Federated"
-                        : "Source"}
+                        ? t("editor.properties.federated")
+                        : t("editor.properties.source")}
                     </span>
                   </button>
                 ))}
@@ -2517,7 +2599,7 @@ export function AddProperty({
             ))}
             {filteredPropertyTypes.length === 0 ? (
               <div className="px-2 py-3 text-sm text-muted-foreground">
-                No matching property types
+                {t("editor.properties.noMatchingPropertyTypes")}
               </div>
             ) : null}
             {filteredPropertyTypes.map((type) => {
@@ -2526,18 +2608,20 @@ export function AddProperty({
                 <button
                   key={type}
                   type="button"
-                  aria-label={`Add ${DOCUMENT_PROPERTY_TYPE_LABELS[type]} property`}
+                  aria-label={t("editor.properties.addPropertyType", {
+                    type: t(`editor.propertyTypes.${type}`),
+                  })}
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
                   disabled={configure.isPending}
                   onClick={() => void add(type)}
                 >
                   <Icon className="size-4 text-muted-foreground" />
                   <span className="flex-1">
-                    {DOCUMENT_PROPERTY_TYPE_LABELS[type]}
+                    {t(`editor.propertyTypes.${type}`)}
                   </span>
                   {isComputedPropertyType(type) ? (
                     <span className="text-xs text-muted-foreground">
-                      Computed
+                      {t("editor.properties.computed")}
                     </span>
                   ) : null}
                 </button>

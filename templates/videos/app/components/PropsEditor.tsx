@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+
 import type { CompositionEntry } from "@/remotion/registry";
 
 type PropsEditorProps = {
@@ -180,6 +182,8 @@ export function PropsEditor({
   props,
   onPropsChange,
 }: PropsEditorProps) {
+  const t = useT();
+
   const handleChange = (key: string, value: any) => {
     onPropsChange({ ...props, [key]: value });
   };
@@ -194,10 +198,10 @@ export function PropsEditor({
       ) : (
         <div className="text-center py-6 px-4 bg-muted/30 rounded-lg border border-dashed border-border">
           <p className="text-xs text-muted-foreground">
-            No properties to configure
+            {t("raw.props.emptyTitle")}
           </p>
           <p className="text-xs text-muted-foreground/60 mt-1">
-            Add to the video by asking the agent to create something
+            {t("raw.props.emptyDescription")}
           </p>
         </div>
       )}

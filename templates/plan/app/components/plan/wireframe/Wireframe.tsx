@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import type {
   PlanDiagramBlock,
   PlanLegacyWireframeBlock,
@@ -581,6 +582,7 @@ export function SketchDiagram({
   data: PlanDiagramBlock["data"];
   compact?: boolean;
 }) {
+  const t = useT();
   if (data.html?.trim()) {
     return <HtmlDiagram data={data} compact={compact} />;
   }
@@ -601,7 +603,7 @@ export function SketchDiagram({
   if (nodes.length === 0) {
     return (
       <div className="rounded-[12px] border border-plan-line bg-plan-block p-4 text-sm text-plan-muted">
-        Diagram content is empty.
+        {t("plansPage.wireframe.emptyDiagram")}
       </div>
     );
   }

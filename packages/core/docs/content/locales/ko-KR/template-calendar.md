@@ -10,7 +10,7 @@ description: "Google Calendar 동기화 및 Calendly 스타일 예약 링크가 
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>May 3-9, 2026</strong><div style='flex:1'></div><button class='primary'>New Event</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>Sun 3</strong><strong>Mon 4</strong><strong>Tue 5</strong><strong>Wed 6</strong><strong>Thu 7</strong><strong>Fri 8</strong><strong>Sat 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>All-hands</div><div class='wf-box'>Eng standup</div><div class='wf-box'>Eng standup</div><div class='wf-box'>Eng standup</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>Design review</div><div></div><div class='wf-box'>Design crit</div><div class='wf-box'>Roadmap</div><div class='wf-box'>Friday demo</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>Focus block</div><div></div><div></div><div class='wf-box'>All-hands</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>Skip-level</div><div></div><div></div><div></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>2026년 5월 3-9일</strong><div style='flex:1'></div><button class='primary'>새 이벤트</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>일 3</strong><strong>월 4</strong><strong>화 5</strong><strong>수 6</strong><strong>목 7</strong><strong>금 8</strong><strong>토 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>전체 회의</div><div class='wf-box'>엔지니어링 스탠드업</div><div class='wf-box'>엔지니어링 스탠드업</div><div class='wf-box'>엔지니어링 스탠드업</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>디자인 리뷰</div><div></div><div class='wf-box'>디자인 크리틱</div><div class='wf-box'>Roadmap</div><div class='wf-box'>금요일 데모</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>집중 블록</div><div></div><div></div><div class='wf-box'>전체 회의</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>스킵레벨</div><div></div><div></div><div></div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ description: "Google Calendar 동기화 및 Calendly 스타일 예약 링크가 
 
 ```an-diagram title="예약 요청 흐름 방식" summary="달력을 클릭하거나 상담원에게 문의하면 동일한 작업이 Google Calendar에서 실시간으로 읽혀지고 동일한 보기에 다시 작성됩니다."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">You click<br><small class=\"diagram-muted\">drag, toolbar, shortcuts</small></div><div class=\"diagram-node\">에이전트에게 요청<br><small class=\"diagram-muted\">\"find a 1-hour slot next week\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-events · check-availability · create-event</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Google Calendar<br><small class=\"diagram-muted\">live, multi-account</small></div><div class=\"diagram-box\">SQL<br><small class=\"diagram-muted\">bookings · availability</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">Calendar view updates live</div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">클릭합니다<br><small class=\"diagram-muted\">드래그, 툴바, 단축키</small></div><div class=\"diagram-node\">에이전트에게 요청<br><small class=\"diagram-muted\">\"find a 1-hour slot next week\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-events · check-availability · create-event</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Google Calendar<br><small class=\"diagram-muted\">실시간, 다중 계정</small></div><div class=\"diagram-box\">SQL<br><small class=\"diagram-muted\">예약 · 가능 시간</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">캘린더 보기가 실시간으로 업데이트됩니다</div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -111,7 +111,7 @@ pnpm dev
 - `booking_slug_redirects` — 링크 이름이 변경될 때 이전 슬러그를 기억하여 기존 공개 URL가 계속 작동하도록 합니다.
 - `booking_link_shares` — 예약 링크에 대한 공유 부여.
 
-```an-schema title="Calendar data model" summary="Only non-event data is stored locally — events live in Google Calendar. Booking links use ownableColumns so the sharing system applies."
+```an-schema title="캘린더 데이터 모델" summary="이벤트가 아닌 데이터만 로컬에 저장됩니다. 이벤트는 Google Calendar에 실시간으로 저장됩니다. 예약 링크는 ownableColumns를 사용하므로 공유 시스템이 적용됩니다."
 {
   "entities": [
     {
@@ -126,7 +126,7 @@ pnpm dev
         { "name": "duration", "type": "int", "note": "primary duration in minutes" },
         { "name": "durations", "type": "json", "nullable": true, "note": "alternative durations" },
         { "name": "customFields", "type": "json", "nullable": true },
-        { "name": "conferencing", "type": "string", "note": "Google Meet / Zoom / custom" },
+        { "name": "conferencing", "type": "string", "note": "Google Meet / Zoom / 맞춤" },
         { "name": "color", "type": "string", "nullable": true },
         { "name": "isActive", "type": "bool", "note": "pause without deleting" }
       ]
@@ -134,7 +134,7 @@ pnpm dev
     {
       "id": "bookings",
       "name": "bookings",
-      "note": "Confirmed appointments from public booking pages",
+      "note": "공개 예약 페이지에서 확정된 약속",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "slug", "type": "string", "fk": "booking_links.slug" },
@@ -146,13 +146,13 @@ pnpm dev
         { "name": "customFields", "type": "json", "nullable": true, "note": "custom field responses" },
         { "name": "meetingLink", "type": "string", "nullable": true },
         { "name": "cancelToken", "type": "string", "note": "powers /booking/manage/{token}" },
-        { "name": "status", "type": "enum", "note": "confirmed | cancelled" }
+        { "name": "status", "type": "enum", "note": "확인됨 | 취소" }
       ]
     },
     {
       "id": "booking_slug_redirects",
       "name": "booking_slug_redirects",
-      "note": "Keeps old public URLs working after a link is renamed",
+      "note": "링크 이름이 변경된 후에도 이전 공개 URLs가 계속 작동합니다.",
       "fields": [
         { "name": "oldSlug", "type": "string", "pk": true },
         { "name": "linkId", "type": "id", "fk": "booking_links.id" }
@@ -161,12 +161,12 @@ pnpm dev
     {
       "id": "booking_link_shares",
       "name": "booking_link_shares",
-      "note": "Share grants for booking links",
+      "note": "예약 링크에 대한 보조금 공유",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "linkId", "type": "id", "fk": "booking_links.id" },
         { "name": "principal", "type": "string", "note": "user or org" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+        { "name": "role", "type": "enum", "note": "뷰어 | 편집자 | 관리자" }
       ]
     }
   ],

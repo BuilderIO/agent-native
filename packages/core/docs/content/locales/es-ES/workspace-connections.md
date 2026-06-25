@@ -18,7 +18,7 @@ Las conexiones del espacio de trabajo son el marco primitivo para los metadatos 
 
 ```an-diagram title="Conéctese una vez, otorgue aplicaciones, reutilice credenciales" summary="Una conexión contiene metadatos del proveedor (nunca secretos) y referencias de credenciales que apuntan a la bóveda. Las subvenciones por aplicación lo desbloquean. Las aplicaciones leen un único estado de preparación."
 {
-  "html": "<div class=\"diagram-conn\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Connection</span><div class=\"diagram-box\" data-rough>named provider account<br><small class=\"diagram-muted\">provider, label, status, scopes, config &middot; never stores secret values</small></div><div class=\"diagram-muted\">credentialRef &rarr; pointer to a vault secret</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill\">Grant</span><div class=\"diagram-box\" data-rough>per-app permission<br><small class=\"diagram-muted\">no grant = no credential access</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Readiness</span><small class=\"diagram-muted\">what the app sees</small><div class=\"sev-row\"><span class=\"diagram-pill ok\">connected</span><span class=\"diagram-pill warn\">needs_grant</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">needs_credentials</span><span class=\"diagram-pill warn\">needs_attention</span></div><div class=\"sev-row\"><span class=\"diagram-pill\">not_configured</span></div></div></div>",
+  "html": "<div class=\"diagram-conn\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Connection</span><div class=\"diagram-box\" data-rough>named provider account<br><small class=\"diagram-muted\">provider, label, estado, permisos, configuración &middot; never stores secret values</small></div><div class=\"diagram-muted\">credentialRef &rarr; pointer to a vault secret</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill\">Grant</span><div class=\"diagram-box\" data-rough>per-app permission<br><small class=\"diagram-muted\">no grant = no credential access</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Readiness</span><small class=\"diagram-muted\">what the app sees</small><div class=\"sev-row\"><span class=\"diagram-pill ok\">connected</span><span class=\"diagram-pill warn\">needs_grant</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">needs_credentials</span><span class=\"diagram-pill warn\">needs_attention</span></div><div class=\"sev-row\"><span class=\"diagram-pill\">not_configured</span></div></div></div>",
   "css": ".diagram-conn{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-conn .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-conn .diagram-arrow{font-size:22px;line-height:1}.diagram-conn .sev-row{display:flex;gap:8px;flex-wrap:wrap}"
 }
 ```
@@ -58,32 +58,32 @@ await upsertWorkspaceConnectionGrant({
 });
 ```
 
-```an-schema title="The connection model" summary="A connection records safe provider metadata and credentialRefs (pointers, not secrets). Each grant unlocks one app — one connection, many grants."
+```an-schema title="El modelo de conexión" summary="A connection records safe provider metadata and credentialRefs (pointers, not secrets). Each grant unlocks one app — one connection, many grants."
 {
   "entities": [
     {
       "id": "conn",
       "name": "workspace_connections",
-      "note": "Named provider account. Never stores secret values.",
+      "note": "Cuenta de proveedor designada. Nunca almacena valores secretos.",
       "fields": [
         { "name": "id", "type": "string", "pk": true, "note": "e.g. acme-slack" },
-        { "name": "provider", "type": "string", "note": "stable provider id, e.g. slack" },
+        { "name": "provider", "type": "string", "note": "ID de proveedor estable, p. flojo" },
         { "name": "label", "type": "string" },
         { "name": "accountId", "type": "string", "nullable": true },
         { "name": "accountLabel", "type": "string", "nullable": true },
         { "name": "status", "type": "string", "note": "e.g. connected" },
         { "name": "scopes", "type": "string[]", "nullable": true },
-        { "name": "config", "type": "json", "nullable": true, "note": "safe, non-secret config" },
+        { "name": "config", "type": "json", "nullable": true, "note": "configuración segura y no secreta" },
         { "name": "credentialRefs", "type": "json", "nullable": true, "note": "pointers to vault keys, e.g. { key, scope }" }
       ]
     },
     {
       "id": "grant",
       "name": "workspace_connection_grants",
-      "note": "Per-app permission to use a connection.",
+      "note": "Permiso por aplicación para usar una conexión.",
       "fields": [
         { "name": "connectionId", "type": "string", "fk": "conn.id" },
-        { "name": "appId", "type": "string", "note": "e.g. brain, analytics" }
+        { "name": "appId", "type": "string", "note": "p.ej. cerebro, analítica" }
       ]
     }
   ],
@@ -208,7 +208,7 @@ Los metadatos del proveedor de conexión del espacio de trabajo responden: "¿Qu
 
 ```an-diagram title="Almacén de conexión versus bóveda" summary="La bóveda posee el valor secreto. La conexión posee los metadatos del proveedor más credentialRefs (punteros). En el momento de la ejecución, la aplicación resuelve la referencia a través de una conexión otorgada y lee el valor de la bóveda."
 {
-  "html": "<div class=\"diagram-vault\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Connection store</span><div class=\"diagram-box\" data-rough>provider account + metadata<br><small class=\"diagram-muted\">status, scopes, config</small></div><div class=\"diagram-box\" data-rough>credentialRef<br><small class=\"diagram-muted\">{ key: SLACK_BOT_TOKEN, scope: org }</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">App action</span><small class=\"diagram-muted\">resolves at execution time through a granted ref</small><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Vault</span><div class=\"diagram-box\" data-rough>secret value<br><small class=\"diagram-muted\">never returned to the agent or UI</small></div></div></div>",
+  "html": "<div class=\"diagram-vault\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Almacén de conexiones</span><div class=\"diagram-box\" data-rough>provider account + metadata<br><small class=\"diagram-muted\">estado, permisos, configuración</small></div><div class=\"diagram-box\" data-rough>credentialRef<br><small class=\"diagram-muted\">{ key: SLACK_BOT_TOKEN, scope: org }</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Acción de app</span><small class=\"diagram-muted\">resolves at execution time through a granted ref</small><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Vault</span><div class=\"diagram-box\" data-rough>secret value<br><small class=\"diagram-muted\">nunca se devuelve al agente ni a la UI</small></div></div></div>",
   "css": ".diagram-vault{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-vault .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-vault .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-vault .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

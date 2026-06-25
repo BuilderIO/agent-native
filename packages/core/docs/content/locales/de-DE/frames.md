@@ -22,7 +22,7 @@ zu Ihrer App in jedem Fall über denselben actions und Anwendungsstatus.
 
 ```an-diagram title="Drei Frames, eine Laufzeit" summary="Ihre App und das Agent-Panel sind in jedem Frame gleich; nur die Hülle um sie herum ändert sich."
 {
-  "html": "<div class=\"diagram-frames\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Embedded panel</span><small class=\"diagram-muted\">ships in every app · dev + prod</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Local dev frame</span><small class=\"diagram-muted\">app in an iframe + panel + CLI terminal</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Builder.io cloud frame</span><small class=\"diagram-muted\">hosted: collaboration · visual edit · parallel runs</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Same runtime<br><small class=\"diagram-muted\">your app · actions · application state</small></div></div>",
+  "html": "<div class=\"diagram-frames\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Eingebettetes Panel</span><small class=\"diagram-muted\">in jeder App enthalten · Dev + Prod</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Lokaler Dev-Frame</span><small class=\"diagram-muted\">App in iframe + Panel + CLI-Terminal</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Builder.io-Cloud-Frame</span><small class=\"diagram-muted\">gehostet: Zusammenarbeit · visuelle Bearbeitung · parallele Läufe</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Gleiche Runtime<br><small class=\"diagram-muted\">deine App · Aktionen · Anwendungszustand</small></div></div>",
   "css": ".diagram-frames{display:flex;flex-direction:column;gap:10px;align-items:stretch}.diagram-frames .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.diagram-frames .diagram-arrow{font-size:22px;line-height:1;align-self:center}"
 }
 ```
@@ -36,7 +36,7 @@ Komponente in Entwicklung und Produktion.
 - Exportiert als `AgentPanel` von `@agent-native/core/client`, mit einem
   Nur-Produktionsvariante `ProductionAgentPanel`.
 - Stellt die vollständige Chat-/CLI-/Workspace-Oberfläche bereit, sodass die Agenteneingabe aktiviert bleibt
-  der gemeinsam genutzte Composer-Stack, der überall sonst im Framework verwendet wird.
+  der gemeinsam genutzte Verfassenr-Stack, der überall sonst im Framework verwendet wird.
 - Liest `application_state.navigation` in jeder Runde, sodass es bereits weiß, welches
   Sehen Sie sich an, in welcher Position Sie sich befinden und was ausgewählt ist – Sie müssen „dies“ nicht noch einmal erklären.
 

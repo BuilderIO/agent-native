@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/blocks";
 import {
   uploadEditorImage,
+  useT,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
 import { imageDataSchema, type PlanBlock } from "@shared/plan-content";
@@ -99,6 +100,7 @@ function UnknownBlockPlaceholder({
   originalType: string;
   errorSummary: string;
 }) {
+  const t = useT();
   return (
     <section
       className="plan-block"
@@ -112,13 +114,12 @@ function UnknownBlockPlaceholder({
             Invalid {originalType} block
           </div>
           <p className="mt-1 leading-5">
-            This generated block did not match the Plan schema, so it was left
-            out while the rest of the recap stayed visible.
+            {t("raw.document.invalidBlockDescription")}
           </p>
           {errorSummary && (
             <details className="mt-2">
               <summary className="cursor-pointer text-xs opacity-70 hover:opacity-90">
-                Validation details
+                {t("raw.document.validationDetails")}
               </summary>
               <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded border border-plan-line bg-plan-bg/60 p-2 font-mono text-xs opacity-80">
                 {errorSummary}
@@ -182,6 +183,7 @@ function PlanBlockViewInner({
   planId,
   collabUser,
 }: PlanBlockViewProps) {
+  const t = useT();
   const unknownBlock = parseUnknownBlockMarker(block);
   if (unknownBlock) {
     return (
@@ -811,6 +813,7 @@ function CustomHtmlBlock({
   block: Extract<PlanBlock, { type: "custom-html" }>;
   onChange?: (block: PlanBlock) => Promise<void> | void;
 }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [html, setHtml] = useState(block.data.html);
   const [css, setCss] = useState(block.data.css ?? "");
@@ -867,13 +870,13 @@ function CustomHtmlBlock({
             value={html}
             onChange={(event) => setHtml(event.target.value)}
             className="min-h-48 font-mono text-sm"
-            placeholder="HTML fragment"
+            placeholder={t("raw.document.htmlFragment")}
           />
           <Textarea
             value={css}
             onChange={(event) => setCss(event.target.value)}
             className="min-h-32 font-mono text-sm"
-            placeholder="Optional CSS"
+            placeholder={t("raw.document.optionalCss")}
           />
           <div className="flex justify-end gap-2">
             <Button
@@ -1046,6 +1049,7 @@ function ImageBlock({
   editingDisabled?: boolean;
   planId?: string | null;
 }) {
+  const t = useT();
   const blockRegistry = useOptionalBlockRegistry();
   const ctx = blockRegistry?.ctx;
   const src = block.data.url ?? imageSrcForAsset(block.data.assetId);
@@ -1070,17 +1074,17 @@ function ImageBlock({
     setEditOpen(open);
   };
 
-  // Auto-focus the "Describe a change…" prompt once the edit popover mounts. The
+  // Auto-focus the block edit prompt once the edit popover mounts. The
   // popover portals out and the deferred/guarded open can race Radix's own
   // auto-focus, so focus it explicitly (a few retries to win the open animation).
   useEffect(() => {
     if (!editOpen) return;
-    const focusPrompt = () =>
-      document
-        .querySelector<HTMLTextAreaElement>(
-          ".an-block-edit-popover textarea[placeholder^='Describe a change']",
-        )
-        ?.focus();
+    const focusPrompt = () => {
+      const prompt = document.querySelector<HTMLTextAreaElement>( // i18n-ignore DOM selector, not UI copy
+        ".an-block-edit-popover textarea[data-plan-block-edit-prompt]",
+      );
+      prompt?.focus();
+    };
     const timers = [40, 140, 280].map((ms) =>
       window.setTimeout(focusPrompt, ms),
     );
@@ -1093,7 +1097,7 @@ function ImageBlock({
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
     if (!file) return;
-    const toastId = toast.loading("Replacing image…");
+    const toastId = toast.loading(t("raw.document.replacingImage"));
     try {
       const { src: nextSrc, alt: nextAlt } = await uploadEditorImage(file);
       commitData({
@@ -1101,10 +1105,10 @@ function ImageBlock({
         url: nextSrc,
         alt: block.data.alt || nextAlt || "image",
       });
-      toast.success("Image replaced.", { id: toastId });
+      toast.success(t("raw.document.imageReplaced"), { id: toastId });
     } catch (error) {
       console.error("Image replace failed:", error);
-      toast.error("Could not replace the image.", { id: toastId });
+      toast.error(t("raw.document.replaceImageFailed"), { id: toastId });
     }
   }
 

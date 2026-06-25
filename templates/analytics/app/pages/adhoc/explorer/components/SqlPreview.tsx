@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconChevronRight, IconCopy, IconCheck } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -10,6 +11,7 @@ interface SqlPreviewProps {
 }
 
 export function SqlPreview({ sql }: SqlPreviewProps) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -31,7 +33,7 @@ export function SqlPreview({ sql }: SqlPreviewProps) {
             expanded && "rotate-90",
           )}
         />
-        SQL Query
+        {t("explorer.sqlQuery")}
       </button>
       {expanded && (
         <div className="relative border-t">

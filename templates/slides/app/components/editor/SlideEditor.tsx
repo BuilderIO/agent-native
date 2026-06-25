@@ -4,6 +4,7 @@ import {
   agentNativePath,
   sendToAgentChat,
   usePinchZoom,
+  useT,
   useAvatarUrl,
   type CollabUser,
 } from "@agent-native/core/client";
@@ -404,7 +405,7 @@ function rectsIntersect(
 ): boolean {
   return !(
     a.right < b.left ||
-    a.left > b.right ||
+    a.left > b.right || // i18n-ignore geometry comparison
     a.bottom < b.top ||
     a.top > b.bottom
   );
@@ -516,6 +517,7 @@ export default function SlideEditor({
   onInlineEditStart,
   presentUsers = [],
 }: SlideEditorProps) {
+  const t = useT();
   const content = typeof slide.content === "string" ? slide.content : "";
   const isHtmlSlide =
     content.includes('class="fmd-slide"') ||
@@ -1299,10 +1301,6 @@ export default function SlideEditor({
       // then run the existing single-select / style-editing flow.
       if (multiSelection.size > 0) clearMultiSelection();
 
-      // Read-only viewers can't replace images or restyle elements — don't
-      // open the image overlay or enter style-editing mode on a plain click.
-      if (readOnly) return;
-
       showImageOverlay(target);
 
       // Send style-editing postMessage with a unique selector for the clicked element
@@ -1320,20 +1318,18 @@ export default function SlideEditor({
       multiSelection,
       applyMultiSelection,
       clearMultiSelection,
-      readOnly,
     ],
   );
 
   const handleSlideContextMenu = useCallback(
     (e: React.MouseEvent) => {
-      if (readOnly) return;
       const target = e.target as HTMLElement;
       if (target.tagName === "IMG" || target.closest(".fmd-img-placeholder")) {
         e.preventDefault();
         showImageOverlay(target);
       }
     },
-    [showImageOverlay, readOnly],
+    [showImageOverlay],
   );
 
   // --- Pending visual updates ---
@@ -1414,12 +1410,12 @@ export default function SlideEditor({
                       className="h-6 w-6 cursor-pointer"
                       onClick={canvasZoomOut}
                       disabled={canvasZoom <= MIN_CANVAS_ZOOM}
-                      aria-label="Zoom out"
+                      aria-label={t("raw.zoomOut")}
                     >
                       <IconZoomOut className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Zoom out</TooltipContent>
+                  <TooltipContent>{t("raw.zoomOut")}</TooltipContent>
                 </Tooltip>
                 <span className="w-11 text-center text-xs tabular-nums text-muted-foreground">
                   {canvasZoom}%
@@ -1435,12 +1431,12 @@ export default function SlideEditor({
                         canvasZoom >=
                         CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1]
                       }
-                      aria-label="Zoom in"
+                      aria-label={t("raw.zoomIn")}
                     >
                       <IconZoomIn className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Zoom in</TooltipContent>
+                  <TooltipContent>{t("raw.zoomIn")}</TooltipContent>
                 </Tooltip>
                 <div className="mx-0.5 h-4 w-px bg-border" />
                 <Tooltip>
@@ -1450,12 +1446,12 @@ export default function SlideEditor({
                       size="icon"
                       className="h-6 w-6 cursor-pointer"
                       onClick={fitCanvasToScreen}
-                      aria-label="Fit slide to screen"
+                      aria-label={t("raw.fitSlideToScreen")}
                     >
                       <IconMaximize className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Fit to screen</TooltipContent>
+                  <TooltipContent>{t("raw.fitToScreen")}</TooltipContent>
                 </Tooltip>
               </div>
               <div
@@ -1475,10 +1471,6 @@ export default function SlideEditor({
                     style={{ width: canvasWidth, maxWidth: canvasWidth }}
                   >
                     <div
-                      // `data-editable` gates all hover affordances (text
-                      // outline, image pointer/glow) in global.css. Read-only
-                      // viewers can't edit, so they shouldn't see editable cues.
-                      data-editable={readOnly ? undefined : "true"}
                       className="slide-image-clickable relative"
                       onClick={handleSlideClick}
                       onContextMenu={handleSlideContextMenu}
@@ -1486,29 +1478,22 @@ export default function SlideEditor({
                       onPointerDown={handleSlidePointerDown}
                       onDragOver={handleSlideDragOver}
                       onDrop={handleSlideDrop}
-                      onMouseEnter={
-                        readOnly ? undefined : () => setIsHoveringText(true)
-                      }
-                      onMouseLeave={
-                        readOnly ? undefined : () => setIsHoveringText(false)
-                      }
+                      onMouseEnter={() => setIsHoveringText(true)}
+                      onMouseLeave={() => setIsHoveringText(false)}
                     >
                       <SlideRenderer
                         slide={slide}
-                        className={`shadow-2xl shadow-black/40 ${isHoveringText && !readOnly ? "ring-2 ring-[#609FF8]/60" : ""}`}
+                        className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
                         designSystem={designSystem}
                         aspectRatio={aspectRatio}
                         onOverflowChange={handleOverflowChange}
                       />
-                      {/* Double-click hint — only shown for editable HTML slides that support inline editing */}
-                      {isHoveringText &&
-                        !editingEl &&
-                        isHtmlSlide &&
-                        !readOnly && (
-                          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded bg-black/60 px-2 py-0.5 text-xs text-white/40 pointer-events-none select-none">
-                            Double-click any text to edit
-                          </div>
-                        )}
+                      {/* Double-click hint — only shown for HTML slides that support inline editing */}
+                      {isHoveringText && !editingEl && isHtmlSlide && (
+                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded bg-black/60 px-2 py-0.5 text-xs text-white/40 pointer-events-none select-none">
+                          {t("raw.doubleClickEdit")}
+                        </div>
+                      )}
                       {agentActive && (
                         <div className="absolute top-2 right-2 z-10 pointer-events-none">
                           <AgentPresenceChip active={agentActive} />

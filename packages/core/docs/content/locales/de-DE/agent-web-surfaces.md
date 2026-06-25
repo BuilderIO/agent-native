@@ -21,7 +21,7 @@ Durch das Festlegen von `publicMcp: true` wird zusätzlich der optierte actions 
 
 ```an-diagram title="Was für eine öffentliche Route veröffentlicht" summary="Ein öffentlicher Weg fächert sich in agentenfreundliche Darstellungen auf. Das Lesen der Route erfolgt getrennt vom Aufrufen von Tools – der Tool-Zugriff bleibt optional."
 {
-  "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>Public route<br><small class=\"diagram-muted\">derived from route access settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">.md mirror</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">Tools stay private</span><small class=\"diagram-muted\">publicMcp + publicAgent.expose required</small></div></div>",
+  "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>Öffentliche Route<br><small class=\"diagram-muted\">derived from route access settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">.md mirror</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">Tools bleiben privat</span><small class=\"diagram-muted\">publicMcp + publicAgent.expose required</small></div></div>",
   "css": ".diagram-web{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-web .diagram-arrow{font-size:22px;line-height:1}.diagram-web .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.diagram-web .gate{display:flex;flex-direction:column;gap:4px;align-items:flex-start}"
 }
 ```
@@ -89,8 +89,8 @@ Um eine Aktion über ein öffentliches Agentenprotokoll verfügbar zu machen, mu
   "language": "ts",
   "code": "export default defineAction({\n  description: \"Search published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"Search published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});",
   "annotations": [
-    { "lines": "4", "label": "Explicit opt-in", "note": "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are." },
-    { "lines": "5-7", "label": "Self-describe safety", "note": "Mark it read-only, declare whether it needs auth, and flag whether it is consequential. Public MCP excludes consequential/write actions unless policy explicitly allows them." }
+    { "lines": "4", "label": "Explizites Opt-in", "note": "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are." },
+    { "lines": "5-7", "label": "Beschreiben Sie sich selbst als Sicherheit", "note": "Markieren Sie es als schreibgeschützt, geben Sie an, ob eine Authentifizierung erforderlich ist, und kennzeichnen Sie, ob es folgenreich ist. Öffentliche MCP schließen Folgehandlungen gemäß /write aus, es sei denn, die Richtlinien erlauben dies ausdrücklich." }
   ]
 }
 ```
@@ -122,7 +122,7 @@ const files = buildAgentWebStaticFiles({
       path: "/docs",
       title: "Docs",
       description: "Start here.",
-      markdown: "# Docs\n\nStart here.\n",
+      markdown: "# Dokumente\n\nStart hier.\n",
       markdownPath: "/docs/getting-started.md",
       lastmod: new Date(),
     },

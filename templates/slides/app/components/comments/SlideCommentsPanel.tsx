@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconX,
   IconCheck,
@@ -60,6 +61,7 @@ function CommentItem({
   comment: SlideComment;
   onDelete: () => void;
 }) {
+  const t = useT();
   const [hovered, setHovered] = useState(false);
   return (
     <div
@@ -87,7 +89,7 @@ function CommentItem({
                     <IconTrash size={11} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Delete comment</TooltipContent>
+                <TooltipContent>{t("comments.deleteComment")}</TooltipContent>
               </Tooltip>
             )}
           </div>
@@ -114,6 +116,7 @@ function PendingCommentInput({
   onDone: () => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -138,7 +141,7 @@ function PendingCommentInput({
       onDone();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Could not save this comment.",
+        err instanceof Error ? err.message : t("comments.saveCommentFailed"),
       );
     }
   };
@@ -161,7 +164,7 @@ function PendingCommentInput({
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
           if (e.key === "Escape") onCancel();
         }}
-        placeholder="Add a comment..."
+        placeholder={t("comments.addCommentPlaceholder")}
         rows={3}
         className="w-full bg-transparent text-foreground/90 text-[12px] px-3 py-2 outline-none resize-none placeholder:text-muted-foreground"
       />
@@ -174,7 +177,7 @@ function PendingCommentInput({
           onClick={onCancel}
           className="text-[11px] text-muted-foreground hover:text-foreground/80 px-2 py-1 rounded"
         >
-          Cancel
+          {t("comments.cancel")}
         </button>
         <button
           type="button"
@@ -182,7 +185,9 @@ function PendingCommentInput({
           disabled={!text.trim() || createComment.isPending}
           className="text-[11px] bg-[#609FF8] text-black font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-[#7AB2FA]"
         >
-          {createComment.isPending ? "Saving..." : "Comment"}
+          {createComment.isPending
+            ? t("comments.saving")
+            : t("comments.comment")}
         </button>
       </div>
     </div>
@@ -201,6 +206,7 @@ function ReplyInput({
   threadId: string;
   onDone: () => void;
 }) {
+  const t = useT();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -225,7 +231,7 @@ function ReplyInput({
       onDone();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Could not save this reply.",
+        err instanceof Error ? err.message : t("comments.saveReplyFailed"),
       );
     }
   };
@@ -243,7 +249,7 @@ function ReplyInput({
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
           if (e.key === "Escape") onDone();
         }}
-        placeholder="Reply..."
+        placeholder={t("comments.replyPlaceholder")}
         rows={2}
         className="w-full bg-transparent text-foreground/90 text-[12px] px-3 py-2 outline-none resize-none placeholder:text-muted-foreground"
       />
@@ -256,7 +262,7 @@ function ReplyInput({
           onClick={onDone}
           className="text-[11px] text-muted-foreground hover:text-foreground/80 px-2 py-1 rounded"
         >
-          Cancel
+          {t("comments.cancel")}
         </button>
         <button
           type="button"
@@ -264,7 +270,7 @@ function ReplyInput({
           disabled={!text.trim() || createComment.isPending}
           className="text-[11px] bg-[#609FF8] text-black font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-[#7AB2FA]"
         >
-          Reply
+          {t("comments.reply")}
         </button>
       </div>
     </div>
@@ -281,6 +287,7 @@ function ThreadCard({
   deckId: string;
   slideId: string;
 }) {
+  const t = useT();
   const [replyOpen, setReplyOpen] = useState(false);
   const [showReplies, setShowReplies] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -334,7 +341,9 @@ function ThreadCard({
                         <IconCheck size={11} />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Resolve thread</TooltipContent>
+                    <TooltipContent>
+                      {t("comments.resolveThread")}
+                    </TooltipContent>
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -347,7 +356,9 @@ function ThreadCard({
                         <IconTrash size={11} />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Delete comment</TooltipContent>
+                    <TooltipContent>
+                      {t("comments.deleteComment")}
+                    </TooltipContent>
                   </Tooltip>
                 </>
               )}
@@ -369,8 +380,9 @@ function ThreadCard({
             size={11}
             className={`transition-transform ${showReplies ? "rotate-180" : ""}`}
           />
-          {showReplies ? "Hide" : `${replies.length}`}{" "}
-          {replies.length === 1 ? "reply" : "replies"}
+          {showReplies
+            ? t("comments.hideReplies")
+            : t("comments.replyCount", { count: replies.length })}
         </button>
       )}
 
@@ -395,7 +407,7 @@ function ThreadCard({
               onClick={() => setReplyOpen(true)}
               className="text-[11px] text-muted-foreground hover:text-foreground/80"
             >
-              Reply
+              {t("comments.reply")}
             </button>
           )}
         </div>
@@ -422,8 +434,8 @@ export function SlideCommentsPanel({
   onPendingDone,
   onClose,
 }: SlideCommentsPanelProps) {
-  const commentsQuery = useSlideComments(deckId, slideId);
-  const threads: CommentThread[] = commentsQuery.data ?? [];
+  const t = useT();
+  const { data: threads = [] } = useSlideComments(deckId, slideId);
   const [showResolved, setShowResolved] = useState(false);
   const [addingComment, setAddingComment] = useState(false);
 
@@ -443,7 +455,7 @@ export function SlideCommentsPanel({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
         <span className="text-[13px] font-medium text-foreground/80">
-          Comments
+          {t("comments.title")}
         </span>
         <div className="flex items-center gap-1">
           {!showInput && deckId && slideId && (
@@ -456,7 +468,7 @@ export function SlideCommentsPanel({
                   <IconMessageCircle size={14} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Add comment</TooltipContent>
+              <TooltipContent>{t("comments.addComment")}</TooltipContent>
             </Tooltip>
           )}
           <Tooltip>
@@ -468,7 +480,7 @@ export function SlideCommentsPanel({
                 <IconX size={14} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Close</TooltipContent>
+            <TooltipContent>{t("comments.close")}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -509,8 +521,8 @@ export function SlideCommentsPanel({
             className="w-full text-[11px] text-muted-foreground hover:text-foreground/70 py-1"
           >
             {showResolved
-              ? "Hide resolved"
-              : `Show ${resolvedThreads.length} resolved`}
+              ? t("comments.hideResolved")
+              : t("comments.showResolved", { count: resolvedThreads.length })}
           </button>
         )}
 
@@ -528,10 +540,10 @@ export function SlideCommentsPanel({
                 className="mx-auto mb-2 text-muted-foreground/60"
               />
               <p className="text-[12px] text-muted-foreground">
-                No comments yet
+                {t("comments.noCommentsYet")}
               </p>
               <p className="text-[11px] text-muted-foreground/70 mt-1">
-                Click to add a comment
+                {t("comments.clickToAddComment")}
               </p>
             </button>
           ) : (
@@ -541,10 +553,10 @@ export function SlideCommentsPanel({
                 className="mx-auto mb-2 text-muted-foreground/60"
               />
               <p className="text-[12px] text-muted-foreground">
-                No comments yet
+                {t("comments.noCommentsYet")}
               </p>
               <p className="text-[11px] text-muted-foreground/70 mt-1">
-                Select a slide to add one
+                {t("comments.selectSlideToAdd")}
               </p>
             </div>
           ))}

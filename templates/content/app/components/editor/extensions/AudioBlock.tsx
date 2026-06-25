@@ -1,4 +1,4 @@
-import { sendToAgentChat } from "@agent-native/core/client";
+import { sendToAgentChat, useT } from "@agent-native/core/client";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
@@ -56,8 +56,6 @@ interface AudioResizeState {
 }
 
 const MIN_AUDIO_WIDTH = 260;
-const AUDIO_TRANSCRIPT_PLACEHOLDER_LABEL = "Transcribing audio...";
-
 function createTranscriptPlaceholder(label: string): string {
   const id =
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -91,7 +89,13 @@ function audioDownloadName(src: string): string {
   return "audio";
 }
 
-async function downloadAudio(src: string) {
+async function downloadAudio(
+  src: string,
+  copy: {
+    started: string;
+    opened: string;
+  },
+) {
   const filename = audioDownloadName(src);
 
   try {
@@ -106,7 +110,7 @@ async function downloadAudio(src: string) {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-    toast.success("Audio download started.");
+    toast.success(copy.started);
   } catch {
     const anchor = document.createElement("a");
     anchor.href = src;
@@ -116,16 +120,22 @@ async function downloadAudio(src: string) {
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
-    toast.info("Opened audio in a new tab.");
+    toast.info(copy.opened);
   }
 }
 
-async function copyAudio(src: string) {
+async function copyAudio(
+  src: string,
+  copy: {
+    copied: string;
+    failed: string;
+  },
+) {
   try {
     await navigator.clipboard.writeText(src);
-    toast.success("Copied audio URL.");
+    toast.success(copy.copied);
   } catch {
-    toast.error("Could not copy audio.");
+    toast.error(copy.failed);
   }
 }
 
@@ -138,6 +148,7 @@ export function AudioBlock({
   extension,
   getPos,
 }: NodeViewProps) {
+  const t = useT();
   const [isHovered, setIsHovered] = useState(false);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
@@ -218,7 +229,7 @@ export function AudioBlock({
       : 0;
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
-    options.onAudioComment("Audio", offsetTop);
+    options.onAudioComment(t("editor.media.audio"), offsetTop);
   }
 
   function openReplacePanel() {
@@ -243,7 +254,7 @@ export function AudioBlock({
     if (typeof position !== "number") return null;
     const insertAt = position + node.nodeSize;
     const placeholderText = createTranscriptPlaceholder(
-      AUDIO_TRANSCRIPT_PLACEHOLDER_LABEL,
+      t("editor.media.transcribingAudio"),
     );
 
     const inserted = editor
@@ -251,7 +262,7 @@ export function AudioBlock({
       .focus()
       .insertContentAt(
         insertAt,
-        `<details open><summary>Transcript</summary><p>${placeholderText}</p></details>`,
+        `<details open><summary>${t("editor.media.transcript")}</summary><p>${placeholderText}</p></details>`,
       )
       .setNodeSelection(insertAt)
       .scrollIntoView()
@@ -263,18 +274,18 @@ export function AudioBlock({
   function handleTranscribe() {
     const documentId = options.documentId;
     if (!documentId) {
-      toast.error("Could not find the current document.");
+      toast.error(t("editor.media.currentDocumentMissing"));
       return;
     }
 
     const placeholderText = insertTranscriptPlaceholder();
     if (!placeholderText) {
-      toast.error("Could not add a transcript block.");
+      toast.error(t("editor.media.transcriptBlockFailed"));
       return;
     }
     setMoreMenuOpen(false);
     sendToAgentChat({
-      message: "Transcribe this audio and add the transcript below it.",
+      message: t("editor.media.transcribeAudioPrompt"),
       context: [
         "The user clicked Transcribe on an audio block in Content.",
         `Document ID: ${documentId}`,
@@ -286,7 +297,7 @@ export function AudioBlock({
       ].join("\n"),
       submit: true,
     });
-    toast.success("Transcription started.");
+    toast.success(t("editor.media.transcriptionStarted"));
   }
 
   function handleLightboxViewportPointerDown(
@@ -302,7 +313,7 @@ export function AudioBlock({
     const closeBuffer = 4 * (Number.isFinite(rootFontSize) ? rootFontSize : 16);
     const isFarOutsideAudio =
       event.clientX < audioRect.left - closeBuffer ||
-      event.clientX > audioRect.right + closeBuffer ||
+      event.clientX > audioRect.right + closeBuffer || // i18n-ignore non-copy geometry expression
       event.clientY < audioRect.top - closeBuffer ||
       event.clientY > audioRect.bottom + closeBuffer;
 
@@ -385,12 +396,12 @@ export function AudioBlock({
     event.currentTarget.value = "";
     if (!file) return;
 
-    const toastId = toast.loading("Uploading audio...");
+    const toastId = toast.loading(t("editor.media.uploadingAudio"));
     try {
       const nextSrc = await uploadAudioFile(file);
       updateAttributes({ src: nextSrc });
       setSourcePanelOpen(false);
-      toast.success("Audio added", { id: toastId });
+      toast.success(t("editor.media.audioAdded"), { id: toastId });
     } catch (error) {
       toast.error(audioUploadErrorMessage(error), { id: toastId });
     }
@@ -407,7 +418,7 @@ export function AudioBlock({
         throw new Error("Invalid protocol");
       }
     } catch {
-      toast.error("Paste a valid audio URL.");
+      toast.error(t("editor.media.pasteValidAudioUrl"));
       return;
     }
 
@@ -431,7 +442,7 @@ export function AudioBlock({
             className="media-source-panel__tab"
             onClick={() => setSourceTab("upload")}
           >
-            Upload
+            {t("editor.media.upload")}
           </button>
           <button
             type="button"
@@ -440,7 +451,7 @@ export function AudioBlock({
             className="media-source-panel__tab"
             onClick={() => setSourceTab("link")}
           >
-            Link
+            {t("editor.media.link")}
           </button>
         </div>
 
@@ -452,7 +463,7 @@ export function AudioBlock({
               className="w-full"
               onClick={() => fileInputRef.current?.click()}
             >
-              Upload file
+              {t("editor.media.uploadFile")}
             </Button>
           </div>
         ) : (
@@ -462,13 +473,15 @@ export function AudioBlock({
               type="url"
               value={audioUrl}
               onChange={(event) => setAudioUrl(event.target.value)}
-              placeholder="Paste the audio link..."
+              placeholder={t("editor.media.pasteAudioLink")}
             />
             <Button type="submit" className="w-full">
-              {replace ? "Replace audio" : "Embed audio"}
+              {replace
+                ? t("editor.media.replaceAudio")
+                : t("editor.media.embedAudio")}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
-              Works with direct audio links from the web
+              {t("editor.media.audioLinkHint")}
             </p>
           </form>
         )}
@@ -503,7 +516,11 @@ export function AudioBlock({
             }}
           >
             <IconMusic size={20} />
-            <span>{isUploading ? "Uploading audio..." : "Add audio"}</span>
+            <span>
+              {isUploading
+                ? t("editor.media.uploadingAudio")
+                : t("editor.media.addAudio")}
+            </span>
           </button>
 
           <input
@@ -564,7 +581,7 @@ export function AudioBlock({
               type="button"
               className="media-block__resize-handle media-block__resize-handle--left"
               data-visible={controlsVisible ? "true" : undefined}
-              aria-label="Resize audio from left"
+              aria-label={t("editor.media.resizeAudioFromLeft")}
               aria-hidden={!controlsVisible}
               tabIndex={controlsVisible ? 0 : -1}
               onPointerDown={(event) => handleResizePointerDown(event, "left")}
@@ -573,7 +590,7 @@ export function AudioBlock({
               type="button"
               className="media-block__resize-handle media-block__resize-handle--right"
               data-visible={controlsVisible ? "true" : undefined}
-              aria-label="Resize audio from right"
+              aria-label={t("editor.media.resizeAudioFromRight")}
               aria-hidden={!controlsVisible}
               tabIndex={controlsVisible ? 0 : -1}
               onPointerDown={(event) => handleResizePointerDown(event, "right")}
@@ -601,12 +618,12 @@ export function AudioBlock({
                     type="button"
                     onClick={handleComment}
                     className="media-block__toolbar-btn"
-                    aria-label="Comment on audio"
+                    aria-label={t("editor.media.commentOnAudio")}
                   >
                     <IconMessageCircle size={16} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Comment</TooltipContent>
+                <TooltipContent>{t("editor.comment")}</TooltipContent>
               </Tooltip>
 
               <Tooltip>
@@ -615,26 +632,31 @@ export function AudioBlock({
                     type="button"
                     onClick={openLightbox}
                     className="media-block__toolbar-btn"
-                    aria-label="Expand audio"
+                    aria-label={t("editor.media.expandAudio")}
                   >
                     <IconArrowsMaximize size={16} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Expand</TooltipContent>
+                <TooltipContent>{t("editor.media.expand")}</TooltipContent>
               </Tooltip>
 
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => void downloadAudio(src)}
+                    onClick={() =>
+                      void downloadAudio(src, {
+                        started: t("editor.media.audioDownloadStarted"),
+                        opened: t("editor.media.openedAudioInNewTab"),
+                      })
+                    }
                     className="media-block__toolbar-btn"
-                    aria-label="Download audio"
+                    aria-label={t("editor.media.downloadAudio")}
                   >
                     <IconDownload size={16} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Download</TooltipContent>
+                <TooltipContent>{t("editor.media.download")}</TooltipContent>
               </Tooltip>
 
               <Popover open={moreMenuOpen} onOpenChange={setMoreMenuOpen}>
@@ -642,9 +664,9 @@ export function AudioBlock({
                   <button
                     type="button"
                     className="media-block__toolbar-btn"
-                    aria-label="More audio actions"
+                    aria-label={t("editor.media.moreAudioActions")}
                     data-media-dropdown-trigger
-                    title="More"
+                    title={t("editor.media.more")}
                     onPointerDown={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -663,7 +685,9 @@ export function AudioBlock({
                   sideOffset={8}
                   role="menu"
                 >
-                  <div className="media-block__dropdown-label">Audio</div>
+                  <div className="media-block__dropdown-label">
+                    {t("editor.media.audio")}
+                  </div>
                   <div className="media-block__dropdown-group">
                     <button
                       type="button"
@@ -677,7 +701,7 @@ export function AudioBlock({
                       >
                         <IconFileText size={18} />
                       </span>
-                      <span>Transcribe</span>
+                      <span>{t("editor.media.transcribe")}</span>
                     </button>
                     <button
                       type="button"
@@ -694,7 +718,7 @@ export function AudioBlock({
                       >
                         <IconRefresh size={18} />
                       </span>
-                      <span>Replace</span>
+                      <span>{t("editor.media.replace")}</span>
                     </button>
                     <button
                       type="button"
@@ -702,7 +726,10 @@ export function AudioBlock({
                       role="menuitem"
                       onClick={() => {
                         setMoreMenuOpen(false);
-                        void copyAudio(src);
+                        void copyAudio(src, {
+                          copied: t("editor.media.copiedAudioUrl"),
+                          failed: t("editor.media.couldNotCopyAudio"),
+                        });
                       }}
                     >
                       <span
@@ -711,7 +738,7 @@ export function AudioBlock({
                       >
                         <IconCopy size={18} />
                       </span>
-                      <span>Copy audio</span>
+                      <span>{t("editor.media.copyAudio")}</span>
                     </button>
                   </div>
                   <div
@@ -733,7 +760,7 @@ export function AudioBlock({
                     >
                       <IconTrash size={18} />
                     </span>
-                    <span>Delete</span>
+                    <span>{t("editor.media.delete")}</span>
                   </button>
                 </PopoverContent>
               </Popover>
@@ -751,7 +778,9 @@ export function AudioBlock({
               aria-describedby={undefined}
               onOpenAutoFocus={(event) => event.preventDefault()}
             >
-              <DialogTitle className="sr-only">Audio preview</DialogTitle>
+              <DialogTitle className="sr-only">
+                {t("editor.media.audioPreview")}
+              </DialogTitle>
               <div
                 className="media-lightbox__viewport"
                 onPointerDown={handleLightboxViewportPointerDown}
@@ -765,12 +794,20 @@ export function AudioBlock({
                 />
               </div>
 
-              <div className="media-lightbox__toolbar" aria-label="Audio view">
+              <div
+                className="media-lightbox__toolbar"
+                aria-label={t("editor.media.audioView")}
+              >
                 <button
                   type="button"
                   className="media-lightbox__toolbar-btn"
-                  aria-label="Download audio"
-                  onClick={() => void downloadAudio(src)}
+                  aria-label={t("editor.media.downloadAudio")}
+                  onClick={() =>
+                    void downloadAudio(src, {
+                      started: t("editor.media.audioDownloadStarted"),
+                      opened: t("editor.media.openedAudioInNewTab"),
+                    })
+                  }
                 >
                   <IconDownload size={17} />
                 </button>
@@ -778,7 +815,7 @@ export function AudioBlock({
                 <button
                   type="button"
                   className="media-lightbox__toolbar-btn"
-                  aria-label="Close audio preview"
+                  aria-label={t("editor.media.closeAudioPreview")}
                   onClick={() => handleLightboxOpenChange(false)}
                 >
                   <IconArrowsMinimize size={17} />

@@ -14,7 +14,7 @@ description: "MDX के लिए ओपन-सोर्स ओब्सीड�
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Q3 Roadmap</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>Engineering wiki</span><span class='wf-pill'>Reading list</span><span class='wf-pill'>Weekly sync</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Roadmap</h1><div style='flex:1'></div><button>साझा करें</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>Launch goals</h2><p style='margin:0'>Ship the onboarding flow, reduce setup time, and document owner handoffs.</p><div class='wf-box'>At a glance · owner, window, status</div><div class='wf-box'>Top objectives</div><div class='wf-box'>Workstreams table</div></div></main></div>"
+  "html": "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Q3 रोडमैप</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>इंजीनियरिंग wiki</span><span class='wf-pill'>रीडिंग लिस्ट</span><span class='wf-pill'>साप्ताहिक sync</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 रोडमैप</h1><div style='flex:1'></div><button>साझा करें</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>लॉन्च लक्ष्य</h2><p style='margin:0'>onboarding flow शिप करें, setup time घटाएं, और owner handoffs दस्तावेज़ करें.</p><div class='wf-box'>एक नज़र में · owner, window, status</div><div class='wf-box'>मुख्य उद्देश्य</div><div class='wf-box'>वर्कस्ट्रीम तालिका</div></div></main></div>"
 }
 ```
 
@@ -22,7 +22,7 @@ description: "MDX के लिए ओपन-सोर्स ओब्सीड�
 
 ```an-diagram title="दस्तावेज़ एक, संपादक अनेक" summary="आप और एजेंट दोनों एक ही Yjs पाइपलाइन के माध्यम से लिखते हैं। SQL विहित स्टोर है; स्थानीय फ़ाइलें और Notion वैकल्पिक सिंक सतहें हैं।"
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">You type<br><small class=\"diagram-muted\">slash menu, toolbar</small></div><div class=\"diagram-node\">Agent edits<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">live, conflict-free merge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">canonical SQL store</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Local .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Notion pages<br><small class=\"diagram-muted\">pull · push</small></div></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">आप टाइप करते हैं<br><small class=\"diagram-muted\">स्लैश मेनू, टूलबार</small></div><div class=\"diagram-node\">एजेंट संपादन<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">लाइव, conflict-free merge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">कैनॉनिकल SQL स्टोर</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">स्थानीय .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Notion पेज<br><small class=\"diagram-muted\">pull · push</small></div></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -257,7 +257,7 @@ export const ImpactCounterInputs = {
 - **`document_property_values`** — प्रति-दस्तावेज़ संपत्ति मान (`property_id` → `value_json`).
 - **`document_shares`** - `createSharesTable` के माध्यम से प्रति-उपयोगकर्ता और प्रति-संगठन अनुदान बनाया गया।
 
-```an-schema title="Content data model" summary="Nine tables in server/db/schema.ts. documents is the page tree; the rest hang off it for versions, comments, Notion sync, inline databases, and sharing."
+```an-schema title="सामग्री डेटा मॉडल" summary="Nine tables in server/db/schema.ts. documents is the page tree; the rest hang off it for versions, comments, Notion sync, inline databases, and sharing."
 {
   "entities": [
     {
@@ -272,7 +272,7 @@ export const ImpactCounterInputs = {
         { "name": "icon", "type": "string", "nullable": true },
         { "name": "position", "type": "int", "note": "sibling ordering" },
         { "name": "is_favorite", "type": "bool" },
-        { "name": "visibility", "type": "enum", "note": "private | org | public" },
+        { "name": "visibility", "type": "enum", "note": "निजी | संगठन | सार्वजनिक" },
         { "name": "owner_email", "type": "string" },
         { "name": "org_id", "type": "id", "nullable": true }
       ]
@@ -280,7 +280,7 @@ export const ImpactCounterInputs = {
     {
       "id": "document_versions",
       "name": "document_versions",
-      "note": "Full title/content snapshots for version history",
+      "note": "संस्करण इतिहास के लिए पूर्ण title/content स्नैपशॉट",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -291,7 +291,7 @@ export const ImpactCounterInputs = {
     {
       "id": "document_comments",
       "name": "document_comments",
-      "note": "Threaded comments with quoted-text anchors",
+      "note": "उद्धृत-पाठ एंकर के साथ थ्रेडेड टिप्पणियाँ",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -299,13 +299,13 @@ export const ImpactCounterInputs = {
         { "name": "parent_id", "type": "id", "fk": "document_comments.id", "nullable": true },
         { "name": "quoted_text", "type": "string", "nullable": true },
         { "name": "resolved", "type": "bool" },
-        { "name": "notion_comment_id", "type": "string", "nullable": true, "note": "bidirectional Notion sync" }
+        { "name": "notion_comment_id", "type": "string", "nullable": true, "note": "द्विदिशात्मक Notion सिंक" }
       ]
     },
     {
       "id": "document_sync_links",
       "name": "document_sync_links",
-      "note": "One row per Notion-linked document",
+      "note": "प्रति Notion-लिंक किए गए दस्तावेज़ में एक पंक्ति",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -317,7 +317,7 @@ export const ImpactCounterInputs = {
     {
       "id": "content_databases",
       "name": "content_databases",
-      "note": "Inline database objects attached to a document",
+      "note": "किसी दस्तावेज़ से जुड़ी इनलाइन डेटाबेस ऑब्जेक्ट",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -338,7 +338,7 @@ export const ImpactCounterInputs = {
     {
       "id": "document_property_definitions",
       "name": "document_property_definitions",
-      "note": "Column definitions for inline databases",
+      "note": "इनलाइन डेटाबेस के लिए कॉलम परिभाषाएँ",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "name", "type": "string" },
@@ -350,7 +350,7 @@ export const ImpactCounterInputs = {
     {
       "id": "document_property_values",
       "name": "document_property_values",
-      "note": "Per-document property values",
+      "note": "प्रति-दस्तावेज़ संपत्ति मान",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -366,7 +366,7 @@ export const ImpactCounterInputs = {
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
         { "name": "principal", "type": "string" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+        { "name": "role", "type": "enum", "note": "दर्शक | संपादक | व्यवस्थापक" }
       ]
     }
   ],
@@ -374,7 +374,7 @@ export const ImpactCounterInputs = {
     { "from": "documents", "to": "documents", "kind": "1-n", "label": "has children" },
     { "from": "documents", "to": "document_versions", "kind": "1-n", "label": "has snapshots" },
     { "from": "documents", "to": "document_comments", "kind": "1-n", "label": "has comments" },
-    { "from": "documents", "to": "document_sync_links", "kind": "1-1", "label": "links to Notion" },
+    { "from": "documents", "to": "document_sync_links", "kind": "1-1", "label": "Notion से लिंक" },
     { "from": "documents", "to": "content_databases", "kind": "1-n", "label": "hosts databases" },
     { "from": "content_databases", "to": "content_database_items", "kind": "1-n", "label": "has rows" },
     { "from": "document_property_definitions", "to": "document_property_values", "kind": "1-n", "label": "has values" },

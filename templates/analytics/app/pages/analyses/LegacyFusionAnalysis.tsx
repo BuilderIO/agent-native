@@ -1,4 +1,4 @@
-import { captureError } from "@agent-native/core/client";
+import { captureError, useT } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
   IconChecks,
@@ -139,6 +139,7 @@ export default function LegacyFusionAnalysis({
 }: {
   analysis: AnalysisLike;
 }) {
+  const t = useT();
   const payload = parseLegacyFusionPayload(analysis.resultData);
 
   useEffect(() => {
@@ -169,13 +170,10 @@ export default function LegacyFusionAnalysis({
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <IconAlertTriangle className="h-5 w-5" />
-            Legacy Fusion payload missing
+            {t("legacyFusion.payloadMissingTitle")}
           </CardTitle>
           <CardDescription className="text-amber-900">
-            This migrated analysis is a legacy React dashboard, but its compact
-            dashboard payload is not present in SQL. Sentry has captured this
-            state so the migration can be repaired instead of silently showing a
-            text placeholder.
+            {t("legacyFusion.payloadMissingDescription")}
           </CardDescription>
         </CardHeader>
       </Card>
@@ -202,11 +200,12 @@ function parseLegacyFusionPayload(
 }
 
 function ClosedLostDashboard({ data }: { data: ClosedLostPayload }) {
+  const t = useT();
   const deals = data.deals ?? [];
   const totalValue = sumBy(deals, (deal) => deal.amount);
   const stageData = data.stageData?.length
     ? data.stageData
-    : summarizeStages(deals);
+    : summarizeStages(deals, t("legacyFusion.unknown"));
   const topDeals = [...deals]
     .sort((a, b) => valueOf(b.amount) - valueOf(a.amount))
     .slice(0, 12);
@@ -222,9 +221,9 @@ function ClosedLostDashboard({ data }: { data: ClosedLostPayload }) {
   return (
     <div className="space-y-6">
       <DashboardHero
-        eyebrow="Fusion closed lost"
-        title="Loss reasons, stage leakage, and re-engagement paths"
-        description="Migrated from the legacy Fusion dashboard with compact Gong, HubSpot, Slack, and business-pain evidence preserved in SQL."
+        eyebrow={t("legacyFusion.closedLostEyebrow")}
+        title={t("legacyFusion.closedLostTitle")}
+        description={t("legacyFusion.closedLostDescription")}
         icon={IconTrendingDown}
         generatedAt={data.generatedAt}
       />
@@ -232,60 +231,81 @@ function ClosedLostDashboard({ data }: { data: ClosedLostPayload }) {
       <MetricGrid>
         <MetricCard
           icon={IconDatabase}
-          label="Closed-lost deals"
+          label={t("legacyFusion.closedLostDeals")}
           value={formatNumber(
             getMetric(data.summary, "totalDeals") ?? deals.length,
           )}
-          detail={`${formatNumber(getMetric(data.summary, "dealsWithCalls") ?? 0)} with Gong coverage`}
+          detail={t("legacyFusion.withGongCoverage", {
+            count: formatNumber(getMetric(data.summary, "dealsWithCalls") ?? 0),
+          })}
         />
         <MetricCard
           icon={IconCurrencyDollar}
-          label="Lost pipeline"
+          label={t("legacyFusion.lostPipeline")}
           value={formatCurrency(totalValue)}
-          detail={`${formatCurrency(deals.length ? totalValue / deals.length : 0)} average deal`}
+          detail={t("legacyFusion.averageDeal", {
+            amount: formatCurrency(
+              deals.length ? totalValue / deals.length : 0,
+            ),
+          })}
         />
         <MetricCard
           icon={IconMessageCircle}
-          label="Customer evidence"
+          label={t("legacyFusion.customerEvidence")}
           value={formatNumber(
             getMetric(data.summary, "totalCallsMatched") ?? 0,
           )}
-          detail={`${formatNumber(getMetric(data.summary, "transcriptsFetched") ?? 0)} transcripts, ${formatNumber(getMetric(data.summary, "emailsFetched") ?? 0)} emails`}
+          detail={t("legacyFusion.evidenceDetail", {
+            transcripts: formatNumber(
+              getMetric(data.summary, "transcriptsFetched") ?? 0,
+            ),
+            emails: formatNumber(getMetric(data.summary, "emailsFetched") ?? 0),
+          })}
         />
         <MetricCard
           icon={IconRefresh}
-          label="Re-engage candidates"
+          label={t("legacyFusion.reengageCandidates")}
           value={formatNumber(reEngageDeals.length)}
-          detail="Ranked by deal size and explicit revisit signals"
+          detail={t("legacyFusion.reengageDetail")}
         />
       </MetricGrid>
 
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList className="flex h-auto flex-wrap justify-start gap-1">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="themes">Loss themes</TabsTrigger>
-          <TabsTrigger value="pain">Business pain</TabsTrigger>
-          <TabsTrigger value="reengage">Re-engage</TabsTrigger>
+          <TabsTrigger value="overview">
+            {t("legacyFusion.overview")}
+          </TabsTrigger>
+          <TabsTrigger value="themes">
+            {t("legacyFusion.lossThemes")}
+          </TabsTrigger>
+          <TabsTrigger value="pain">
+            {t("legacyFusion.businessPain")}
+          </TabsTrigger>
+          <TabsTrigger value="reengage">
+            {t("legacyFusion.reengage")}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
           <TwoColumn>
             <SectionCard
-              title="Stage leakage"
-              description="Where closed-lost value reached before the opportunity stopped."
+              title={t("legacyFusion.stageLeakage")}
+              description={t("legacyFusion.stageLeakageDescription")}
             >
               <BarList
                 rows={stageData.map((stage) => ({
                   label: stage.stage,
                   value: stage.deals,
-                  detail: `${formatCurrency(stage.value)} pipeline`,
+                  detail: t("legacyFusion.pipeline", {
+                    amount: formatCurrency(stage.value),
+                  }),
                   percent: percentage(stage.value, totalValue),
                 }))}
               />
             </SectionCard>
             <SectionCard
-              title="Largest losses"
-              description="Highest-value closed-lost opportunities in the preserved dataset."
+              title={t("legacyFusion.largestLosses")}
+              description={t("legacyFusion.largestLossesDescription")}
             >
               <DealTable
                 deals={topDeals}
@@ -302,21 +322,21 @@ function ClosedLostDashboard({ data }: { data: ClosedLostPayload }) {
         <TabsContent value="pain" className="space-y-4">
           <TwoColumn>
             <SectionCard
-              title="Operational pains"
-              description="Recurring day-to-day friction across lost deals."
+              title={t("legacyFusion.operationalPains")}
+              description={t("legacyFusion.operationalPainsDescription")}
             >
               <ThemeStack themes={topPains} />
             </SectionCard>
             <SectionCard
-              title="Business pains"
-              description="Economic and strategic impact attached to the same accounts."
+              title={t("legacyFusion.businessPains")}
+              description={t("legacyFusion.businessPainsDescription")}
             >
               <ThemeStack themes={businessPains} />
             </SectionCard>
           </TwoColumn>
           <SectionCard
-            title="Pain by deal"
-            description="Compact evidence preserved from the business-pain enrichment file."
+            title={t("legacyFusion.painByDeal")}
+            description={t("legacyFusion.painByDealDescription")}
           >
             <PainDealTable deals={painDeals.slice(0, 12)} />
           </SectionCard>
@@ -324,8 +344,8 @@ function ClosedLostDashboard({ data }: { data: ClosedLostPayload }) {
 
         <TabsContent value="reengage" className="space-y-4">
           <SectionCard
-            title="Best re-engagement paths"
-            description="Deals with revisit language, delayed timing, inherited-pipeline cleanup, or post-security reopen signals."
+            title={t("legacyFusion.bestReengagementPaths")}
+            description={t("legacyFusion.bestReengagementPathsDescription")}
           >
             <DealTable
               deals={reEngageDeals}
@@ -339,6 +359,7 @@ function ClosedLostDashboard({ data }: { data: ClosedLostPayload }) {
 }
 
 function ClosedWonDashboard({ data }: { data: ClosedWonPayload }) {
+  const t = useT();
   const deals = data.deals ?? [];
   const totalValue = sumBy(deals, (deal) => deal.amount);
   const topDeals = [...deals]
@@ -347,16 +368,16 @@ function ClosedWonDashboard({ data }: { data: ClosedWonPayload }) {
   const personas = data.personas ?? [];
   const personaCompanies = countBy(
     personas,
-    (persona) => persona.company || "Unknown",
+    (persona) => persona.company || t("legacyFusion.unknown"),
   );
   const winThemes = data.winThemes ?? [];
 
   return (
     <div className="space-y-6">
       <DashboardHero
-        eyebrow="Fusion closed won"
-        title="What turned technical interest into signed new business"
-        description="Migrated from the legacy Fusion closed-won dashboard with compact deal, Gong, Slack, email, and persona evidence preserved in SQL."
+        eyebrow={t("legacyFusion.closedWonEyebrow")}
+        title={t("legacyFusion.closedWonTitle")}
+        description={t("legacyFusion.closedWonDescription")}
         icon={IconTrophy}
         generatedAt={data.generatedAt}
       />
@@ -364,47 +385,66 @@ function ClosedWonDashboard({ data }: { data: ClosedWonPayload }) {
       <MetricGrid>
         <MetricCard
           icon={IconChecks}
-          label="Closed-won deals"
+          label={t("legacyFusion.closedWonDeals")}
           value={formatNumber(
             getMetric(data.summary, "totalDeals") ?? deals.length,
           )}
-          detail={`${formatNumber(getMetric(data.summary, "dealsWithCalls") ?? 0)} with Gong coverage`}
+          detail={t("legacyFusion.withGongCoverage", {
+            count: formatNumber(getMetric(data.summary, "dealsWithCalls") ?? 0),
+          })}
         />
         <MetricCard
           icon={IconCurrencyDollar}
-          label="Won ARR"
+          label={t("legacyFusion.wonArr")}
           value={formatCurrency(totalValue)}
-          detail={`${formatCurrency(deals.length ? totalValue / deals.length : 0)} average deal`}
+          detail={t("legacyFusion.averageDeal", {
+            amount: formatCurrency(
+              deals.length ? totalValue / deals.length : 0,
+            ),
+          })}
         />
         <MetricCard
           icon={IconMessageCircle}
-          label="Evidence captured"
+          label={t("legacyFusion.evidenceCaptured")}
           value={formatNumber(
             getMetric(data.summary, "totalCallsMatched") ?? 0,
           )}
-          detail={`${formatNumber(getMetric(data.summary, "emailsFetched") ?? 0)} emails, ${formatNumber(getMetric(data.summary, "slackMessagesFound") ?? 0)} Slack messages`}
+          detail={t("legacyFusion.evidenceCapturedDetail", {
+            emails: formatNumber(getMetric(data.summary, "emailsFetched") ?? 0),
+            slack: formatNumber(
+              getMetric(data.summary, "slackMessagesFound") ?? 0,
+            ),
+          })}
         />
         <MetricCard
           icon={IconUsers}
-          label="Buyer personas"
+          label={t("legacyFusion.buyerPersonas")}
           value={formatNumber(personas.length)}
-          detail={`${formatNumber(personaCompanies.length)} company/persona groups`}
+          detail={t("legacyFusion.personaGroups", {
+            count: formatNumber(personaCompanies.length),
+          })}
         />
       </MetricGrid>
 
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList className="flex h-auto flex-wrap justify-start gap-1">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="themes">Win themes</TabsTrigger>
-          <TabsTrigger value="pain">Pain themes</TabsTrigger>
-          <TabsTrigger value="coverage">Coverage</TabsTrigger>
+          <TabsTrigger value="overview">
+            {t("legacyFusion.overview")}
+          </TabsTrigger>
+          <TabsTrigger value="themes">
+            {t("legacyFusion.winThemes")}
+          </TabsTrigger>
+          <TabsTrigger value="pain">{t("legacyFusion.painThemes")}</TabsTrigger>
+          <TabsTrigger value="coverage">
+            {t("legacyFusion.coverage")}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
           <TwoColumn>
             <SectionCard
-              title="Won deals"
-              description="Closed-won Fusion opportunities ranked by ARR."
+              title={t("legacyFusion.wonDeals")}
+              description={t("legacyFusion.wonDealsDescription")}
             >
               <DealTable
                 deals={topDeals}
@@ -412,14 +452,16 @@ function ClosedWonDashboard({ data }: { data: ClosedWonPayload }) {
               />
             </SectionCard>
             <SectionCard
-              title="Persona coverage"
-              description="Buyer and stakeholder company coverage from the preserved persona map."
+              title={t("legacyFusion.personaCoverage")}
+              description={t("legacyFusion.personaCoverageDescription")}
             >
               <BarList
                 rows={personaCompanies.slice(0, 8).map(([label, count]) => ({
                   label,
                   value: count,
-                  detail: `${formatNumber(count)} contacts`,
+                  detail: t("legacyFusion.contacts", {
+                    count: formatNumber(count),
+                  }),
                   percent: percentage(count, personas.length),
                 }))}
               />
@@ -434,14 +476,14 @@ function ClosedWonDashboard({ data }: { data: ClosedWonPayload }) {
         <TabsContent value="pain" className="space-y-4">
           <TwoColumn>
             <SectionCard
-              title="Operational themes"
-              description="The workflow frictions that opened the buying motion."
+              title={t("legacyFusion.operationalThemes")}
+              description={t("legacyFusion.operationalThemesDescription")}
             >
               <ThemeStack themes={data.operationalThemes ?? []} />
             </SectionCard>
             <SectionCard
-              title="Business themes"
-              description="The executive-level stakes attached to those frictions."
+              title={t("legacyFusion.businessThemes")}
+              description={t("legacyFusion.businessThemesDescription")}
             >
               <ThemeStack themes={data.businessThemes ?? []} />
             </SectionCard>
@@ -450,8 +492,8 @@ function ClosedWonDashboard({ data }: { data: ClosedWonPayload }) {
 
         <TabsContent value="coverage" className="space-y-4">
           <SectionCard
-            title="Evidence coverage by deal"
-            description="Gong, email, Slack, contact, and persona coverage preserved from the matched dataset."
+            title={t("legacyFusion.evidenceCoverageByDeal")}
+            description={t("legacyFusion.evidenceCoverageByDealDescription")}
           >
             <DealTable
               deals={topDeals}
@@ -484,6 +526,7 @@ function DashboardHero({
   icon: TablerIcon;
   generatedAt?: string;
 }) {
+  const t = useT();
   return (
     <section className="rounded-lg border bg-gradient-to-br from-background via-background to-muted/60 p-5">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -502,7 +545,9 @@ function DashboardHero({
         {generatedAt && (
           <div className="flex shrink-0 items-center gap-2 rounded-md border bg-background px-3 py-2 text-xs text-muted-foreground">
             <IconRefresh className="h-4 w-4" />
-            Data refreshed {formatShortDate(generatedAt)}
+            {t("legacyFusion.dataRefreshed", {
+              date: formatShortDate(generatedAt),
+            })}
           </div>
         )}
       </div>
@@ -585,7 +630,9 @@ function BarList({
     percent: number;
   }>;
 }) {
-  if (!rows.length) return <EmptyState label="No rows available" />;
+  const t = useT();
+  if (!rows.length)
+    return <EmptyState label={t("legacyFusion.noRowsAvailable")} />;
   return (
     <div className="space-y-3">
       {rows.map((row) => (
@@ -608,20 +655,26 @@ function ThemeGrid({
   themes: Array<PainTheme | WinTheme>;
   variant: "loss" | "win";
 }) {
-  if (!themes.length) return <EmptyState label="No themes available" />;
+  const t = useT();
+  if (!themes.length)
+    return <EmptyState label={t("legacyFusion.noThemesAvailable")} />;
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       {themes.map((theme, index) => {
-        const title = getThemeTitle(theme);
+        const title = getThemeTitle(theme, t("legacyFusion.untitledTheme"));
         const detail = getThemeDetail(theme);
         const examples = getThemeExamples(theme);
         const metric =
           "value" in theme && theme.value
             ? formatCurrency(theme.value)
             : "dealCount" in theme && theme.dealCount
-              ? `${formatNumber(theme.dealCount)} deals`
+              ? t("legacyFusion.deals", {
+                  count: formatNumber(theme.dealCount),
+                })
               : "deals" in theme && typeof theme.deals === "number"
-                ? `${formatNumber(theme.deals)} deals`
+                ? t("legacyFusion.deals", {
+                    count: formatNumber(theme.deals),
+                  })
                 : null;
         return (
           <SectionCard
@@ -654,11 +707,13 @@ function ThemeGrid({
 }
 
 function ThemeStack({ themes }: { themes: Array<PainTheme | WinTheme> }) {
-  if (!themes.length) return <EmptyState label="No themes available" />;
+  const t = useT();
+  if (!themes.length)
+    return <EmptyState label={t("legacyFusion.noThemesAvailable")} />;
   return (
     <div className="space-y-4">
       {themes.slice(0, 6).map((theme, index) => {
-        const title = getThemeTitle(theme);
+        const title = getThemeTitle(theme, t("legacyFusion.untitledTheme"));
         const detail = getThemeDetail(theme);
         const count =
           "dealCount" in theme && theme.dealCount
@@ -703,7 +758,20 @@ function DealTable({
     | "contacts"
   >;
 }) {
-  if (!deals.length) return <EmptyState label="No deals available" />;
+  const t = useT();
+  const columnLabels = {
+    deal: t("legacyFusion.deal"),
+    amount: t("legacyFusion.amount"),
+    stage: t("legacyFusion.stage"),
+    reason: t("legacyFusion.reason"),
+    closeDate: t("legacyFusion.closed"),
+    calls: t("legacyFusion.calls"),
+    emails: t("legacyFusion.emails"),
+    slack: t("legacyFusion.slack"),
+    contacts: t("legacyFusion.contactsColumn"),
+  } as const;
+  if (!deals.length)
+    return <EmptyState label={t("legacyFusion.noDealsAvailable")} />;
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[640px] text-sm">
@@ -724,7 +792,7 @@ function DealTable({
             >
               {columns.map((column) => (
                 <td key={column} className="max-w-[320px] px-2 py-3 align-top">
-                  {renderDealCell(deal, column)}
+                  {renderDealCell(deal, column, t("legacyFusion.unknown"))}
                 </td>
               ))}
             </tr>
@@ -736,16 +804,24 @@ function DealTable({
 }
 
 function PainDealTable({ deals }: { deals: PainDeal[] }) {
-  if (!deals.length) return <EmptyState label="No pain rows available" />;
+  const t = useT();
+  if (!deals.length)
+    return <EmptyState label={t("legacyFusion.noPainRowsAvailable")} />;
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[720px] text-sm">
         <thead>
           <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-            <th className="px-2 py-2 font-medium">Deal</th>
-            <th className="px-2 py-2 font-medium">Amount</th>
-            <th className="px-2 py-2 font-medium">Operational pain</th>
-            <th className="px-2 py-2 font-medium">Business pain</th>
+            <th className="px-2 py-2 font-medium">{t("legacyFusion.deal")}</th>
+            <th className="px-2 py-2 font-medium">
+              {t("legacyFusion.amount")}
+            </th>
+            <th className="px-2 py-2 font-medium">
+              {t("legacyFusion.operationalPain")}
+            </th>
+            <th className="px-2 py-2 font-medium">
+              {t("legacyFusion.businessPain")}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -761,10 +837,12 @@ function PainDealTable({ deals }: { deals: PainDeal[] }) {
                 {formatCurrency(deal.amount)}
               </td>
               <td className="max-w-[360px] px-2 py-3 align-top text-muted-foreground">
-                {deal.operationalPain || deal.assessedPainSummary || "Unknown"}
+                {deal.operationalPain ||
+                  deal.assessedPainSummary ||
+                  t("legacyFusion.unknown")}
               </td>
               <td className="max-w-[360px] px-2 py-3 align-top text-muted-foreground">
-                {deal.businessPain || "Unknown"}
+                {deal.businessPain || t("legacyFusion.unknown")}
               </td>
             </tr>
           ))}
@@ -782,21 +860,19 @@ function EmptyState({ label }: { label: string }) {
   );
 }
 
-const columnLabels = {
-  deal: "Deal",
-  amount: "Amount",
-  stage: "Stage",
-  reason: "Reason",
-  closeDate: "Closed",
-  calls: "Calls",
-  emails: "Emails",
-  slack: "Slack",
-  contacts: "Contacts",
-} as const;
-
 function renderDealCell(
   deal: LegacyDeal,
-  column: keyof typeof columnLabels,
+  column:
+    | "deal"
+    | "amount"
+    | "stage"
+    | "reason"
+    | "closeDate"
+    | "calls"
+    | "emails"
+    | "slack"
+    | "contacts",
+  unknown: string,
 ): ReactNode {
   switch (column) {
     case "deal":
@@ -804,15 +880,15 @@ function renderDealCell(
     case "amount":
       return formatCurrency(deal.amount);
     case "stage":
-      return deal.furthestStage || "Unknown";
+      return deal.furthestStage || unknown;
     case "reason":
       return (
         <span className="line-clamp-3 text-muted-foreground">
-          {deal.primaryReason || deal.closedLostReason || "Unknown"}
+          {deal.primaryReason || deal.closedLostReason || unknown}
         </span>
       );
     case "closeDate":
-      return deal.closeDate ? formatShortDate(deal.closeDate) : "Unknown";
+      return deal.closeDate ? formatShortDate(deal.closeDate) : unknown;
     case "calls":
       return formatNumber(deal.gongCallCount ?? deal.matchedCallCount ?? 0);
     case "emails":
@@ -839,13 +915,13 @@ function getMetric(
   return undefined;
 }
 
-function summarizeStages(deals: LegacyDeal[]) {
+function summarizeStages(deals: LegacyDeal[], unknown: string) {
   const byStage = new Map<
     string,
     { stage: string; deals: number; value: number }
   >();
   for (const deal of deals) {
-    const stage = deal.furthestStage || "Unknown";
+    const stage = deal.furthestStage || unknown;
     const existing = byStage.get(stage) ?? { stage, deals: 0, value: 0 };
     existing.deals += 1;
     existing.value += valueOf(deal.amount);
@@ -871,11 +947,11 @@ function isLikelyReEngage(deal: LegacyDeal): boolean {
   ].some((token) => text.includes(token));
 }
 
-function getThemeTitle(theme: PainTheme | WinTheme): string {
+function getThemeTitle(theme: PainTheme | WinTheme, fallback: string): string {
   if ("title" in theme && theme.title) return theme.title;
   if ("theme" in theme && theme.theme) return theme.theme;
   if ("pain" in theme && theme.pain) return theme.pain;
-  return "Untitled theme";
+  return fallback;
 }
 
 function getThemeDetail(theme: PainTheme | WinTheme): string {

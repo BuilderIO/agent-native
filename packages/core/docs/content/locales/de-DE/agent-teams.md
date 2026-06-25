@@ -22,7 +22,7 @@ Der Status des Subagenten wird in der Tabelle `application_state` SQL (unter `ag
 
 ```an-diagram title="Orchestrator und Spezialisten" summary="Der Hauptchat wird an Unteragenten delegiert, die in ihren eigenen Threads ausgeführt werden und als Inline-Chips Rückmeldung geben."
 {
-  "html": "<div class=\"at-orc\"><div class=\"diagram-card main\"><span class=\"diagram-pill accent\">Main chat</span><small class=\"diagram-muted\">orchestrator &mdash; reads your request, delegates</small></div><div class=\"at-fan\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"at-subs\"><div class=\"diagram-box\">Code review<br><small class=\"diagram-muted\">own thread &amp; prompt</small></div><div class=\"diagram-box\">BigQuery analysis<br><small class=\"diagram-muted\">own tools</small></div><div class=\"diagram-box\">Email in voice<br><small class=\"diagram-muted\">own context</small></div></div></div><div class=\"diagram-pill\">each appears inline as a live chip &#8635;</div></div>",
+  "html": "<div class=\"at-orc\"><div class=\"diagram-card main\"><span class=\"diagram-pill accent\">Hauptchat</span><small class=\"diagram-muted\">orchestrator &mdash; reads your request, delegates</small></div><div class=\"at-fan\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"at-subs\"><div class=\"diagram-box\">Code-Review<br><small class=\"diagram-muted\">own thread &amp; prompt</small></div><div class=\"diagram-box\">BigQuery-Analyse<br><small class=\"diagram-muted\">own tools</small></div><div class=\"diagram-box\">E-Mail per Sprache<br><small class=\"diagram-muted\">own context</small></div></div></div><div class=\"diagram-pill\">each appears inline as a live chip &#8635;</div></div>",
   "css": ".at-orc{display:flex;flex-direction:column;align-items:center;gap:12px}.at-orc .diagram-card{padding:14px 18px;display:flex;flex-direction:column;gap:4px;align-items:center}.at-orc .at-fan{display:flex;flex-direction:column;align-items:center;gap:8px}.at-orc .diagram-arrow{font-size:22px}.at-orc .at-subs{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.at-orc .diagram-box{text-align:center}"
 }
 ```
@@ -44,7 +44,7 @@ Drei Möglichkeiten, einen Subagenten zu starten, von der geringsten bis zur exp
 
 ### 1. `@mention` ein benutzerdefinierter Agent {#mention}
 
-Der Benutzer gibt `@agent-name` im Chat-Composer ein. Ein Dropdown-Menü mit Workspace-Subagenten wird angezeigt. Wenn Sie eines auswählen, wird ein Chip eingefügt. Beim Senden delegiert der Hauptagent die Nachricht an diesen Unteragenten.
+Der Benutzer gibt `@agent-name` im Chat-Verfassenr ein. Ein Dropdown-Menü mit Workspace-Subagenten wird angezeigt. Wenn Sie eines auswählen, wird ein Chip eingefügt. Beim Senden delegiert der Hauptagent die Nachricht an diesen Unteragenten.
 
 Benutzerdefinierte Agenten befinden sich im Arbeitsbereich von `agents/<slug>.md` – einer Markdown-Datei mit YAML-Frontmatter. Informationen zum Format finden Sie unter [Custom Agents](/docs/workspace#custom-agents).
 
@@ -140,7 +140,7 @@ Der Chat der obersten Ebene hat die Tiefe `0`. Ein von ihm erzeugter Subagent is
 
 ```an-diagram title="Delegations-Tiefenschutz (Standardobergrenze 2)" summary="Jedes Level kann bis zur Obergrenze um eins tiefer spawnen; ein Spawn darüber hinaus wird serverseitig abgelehnt."
 {
-  "html": "<div class=\"at-depth\"><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 0</span><strong>Top-level chat</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 1</span><strong>Sub-agent</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card warn\"><span class=\"diagram-pill warn\">depth 2</span><strong>Sub-agent's sub-agent</strong><small class=\"diagram-muted\">at the cap &mdash; may NOT spawn</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">depth 3</span><strong>Refused</strong><small class=\"diagram-muted\">server-side error</small></div></div>",
+  "html": "<div class=\"at-depth\"><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 0</span><strong>Top-Level-Chat</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 1</span><strong>Sub-Agent</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card warn\"><span class=\"diagram-pill warn\">depth 2</span><strong>Sub-Agent des Sub-Agenten</strong><small class=\"diagram-muted\">at the cap &mdash; may NOT spawn</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">depth 3</span><strong>Refused</strong><small class=\"diagram-muted\">server-side error</small></div></div>",
   "css": ".at-depth{display:flex;flex-direction:column;gap:8px}.at-depth .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.at-depth .rung-1,.at-depth .diagram-card:nth-child(2){margin-inline-start:24px}.at-depth .diagram-card:nth-child(3){margin-inline-start:48px}.at-depth .diagram-card:nth-child(4){margin-inline-start:72px}"
 }
 ```
@@ -159,7 +159,7 @@ Die Durchsetzung erfolgt in der Umgebung: Jeder Subagent läuft in einem `AsyncL
 | ungültig / `>16`  | Ein nicht ganzzahliger / negativer / NaN-Wert fällt auf `2` zurück; Alles über `16` wird an `16` geklemmt, sodass ein Tippfehler niemals den Schutz deaktivieren kann. |
 
 ```bash
-AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # sub-agents allowed, but they can't sub-delegate
+AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # Unteragenten sind zulässig, sie können jedoch keine Unterdelegationen durchführen
 ```
 
 Wenn ein Subagent die Obergrenze erreicht oder unterschreitet, fügt das Framework eine Zeile in seinen Laufzeitkontext ein, die ihm mitteilt, wie tief er sitzt und ob er weiter delegieren darf, damit das Modell sein Budget angemessen ausgibt.

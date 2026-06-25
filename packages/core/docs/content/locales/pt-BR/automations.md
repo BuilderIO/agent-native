@@ -11,7 +11,7 @@ As automações estendem o [recurring jobs](/docs/recurring-jobs) com **gatilhos
 
 ```an-diagram title="Quando X acontecer, faça Y" summary="Um evento é acionado no barramento, uma condição opcional de linguagem natural o bloqueia e o agente executa o corpo de automação com acesso total à ferramenta."
 {
-  "html": "<div class=\"auto-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Event</span><small class=\"diagram-muted\"><code>calendar.booking.created</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Condition</span><small class=\"diagram-muted\">Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">Agent runs the body</span><small class=\"diagram-muted\">actions &middot; web-request &middot; MCP &middot; sub-agents</small></div></div>",
+  "html": "<div class=\"auto-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Event</span><small class=\"diagram-muted\"><code>calendar.booking.created</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Condition</span><small class=\"diagram-muted\">Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">Agente executa o body</span><small class=\"diagram-muted\">actions &middot; web-request &middot; MCP &middot; sub-agents</small></div></div>",
   "css": ".auto-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.auto-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px;min-width:180px}.auto-flow .diagram-arrow{font-size:22px}"
 }
 ```
@@ -45,10 +45,10 @@ O terceiro caminho — escrever o arquivo `jobs/<name>.md` manualmente via `reso
   "language": "markdown",
   "code": "---\nschedule: \"\"\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: \"attendee email ends with @builder.io\"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}.",
   "annotations": [
-    { "lines": "2", "label": "No cron", "note": "Event triggers set `schedule` to `\"\"` — the cron field stays empty." },
-    { "lines": "4-5", "label": "The trigger", "note": "`triggerType: event` plus the `event` name subscribes this automation to the bus." },
-    { "lines": "6", "label": "Gate", "note": "An optional natural-language `condition`, evaluated by Haiku against the payload before dispatch." },
-    { "lines": "12", "label": "Server-side secret", "note": "`${keys.SLACK_WEBHOOK}` is resolved server-side — the raw value never enters the agent's context." }
+    { "lines": "2", "label": "Sem cron", "note": "Event triggers set `schedule` to `\"\"` — the cron field stays empty." },
+    { "lines": "4-5", "label": "O gatilho", "note": "`triggerType: event` mais o nome `event` inscreve esta automação no barramento." },
+    { "lines": "6", "label": "Portão", "note": "Um `condition` de linguagem natural opcional, avaliado por Haiku em relação à carga útil antes do envio." },
+    { "lines": "12", "label": "Segredo do lado do servidor", "note": "`${keys.SLACK_WEBHOOK}` is resolved server-side — the raw value never enters the agent's context." }
   ]
 }
 ```
@@ -194,11 +194,11 @@ Ferramenta adicional: `web-request` — saída HTTP com substituição `${keys.N
 | `/_agent-native/secrets/adhoc`         | POST   | Criar ou atualizar uma chave ad hoc     |
 | `/_agent-native/secrets/adhoc/:name`   | DELETE | Excluir uma chave ad hoc                |
 
-```an-api title="Fire a test event"
+```an-api title="Disparar um evento de teste"
 {
   "method": "POST",
   "path": "/_agent-native/automations/fire-test",
-  "summary": "Emit a test.event.fired event to validate event-triggered automations",
+  "summary": "Emita um evento test.event.fired para validar automações acionadas por evento",
   "description": "Confirm an automation's wiring and condition without waiting for a real provider event. Equivalent to the `manage-automations` action `fire-test`.",
   "responses": [
     { "status": "200", "description": "Event emitted; matching automations are dispatched through the normal condition + ownership path." }
@@ -210,7 +210,7 @@ Ferramenta adicional: `web-request` — saída HTTP com substituição `${keys.N
 
 ```an-diagram title="O caminho de expedição" summary="Desde um evento disparado até uma execução completa do agente, controlado pelo escopo de propriedade e pela condição de linguagem natural."
 {
-  "html": "<div class=\"disp\"><div class=\"diagram-box accent\">event fired on the bus</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">match</span><small class=\"diagram-muted\">load enabled automations subscribed to this event name</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">scope</span><small class=\"diagram-muted\">keep only those owned by the event's owner (or shared)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">condition</span><small class=\"diagram-muted\">Haiku yes/no on the payload &mdash; false &rarr; <code>skipped</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">run</span><small class=\"diagram-muted\"><code>runAgentLoop</code> with body as prompt, payload as context, 5-min timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">record</span><small class=\"diagram-muted\">write <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code></small></div></div>",
+  "html": "<div class=\"disp\"><div class=\"diagram-box accent\">event fired on the bus</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">match</span><small class=\"diagram-muted\">load enabled automations subscribed to this event name</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">scope</span><small class=\"diagram-muted\">keep only those owned by the event's owner (or shared)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">condition</span><small class=\"diagram-muted\">Haiku yes/no on the payload &mdash; false &rarr; <code>skipped</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">run</span><small class=\"diagram-muted\"><code>runAgentLoop</code> com body como prompt, payload como contexto e timeout de 5 min</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">record</span><small class=\"diagram-muted\">write <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code></small></div></div>",
   "css": ".disp{display:flex;flex-direction:column;gap:6px;max-width:540px}.disp .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.disp .diagram-box{align-self:flex-start}.disp .diagram-arrow{font-size:18px;align-self:center}"
 }
 ```

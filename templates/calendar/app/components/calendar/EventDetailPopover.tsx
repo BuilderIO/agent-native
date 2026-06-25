@@ -1,4 +1,4 @@
-import { sendToAgentChat } from "@agent-native/core/client";
+import { sendToAgentChat, useT } from "@agent-native/core/client";
 import type {
   CalendarEvent,
   FindTimeSlot,
@@ -160,16 +160,19 @@ function extractMeetingLink(event: CalendarEvent): {
   return null;
 }
 
-function getMeetingLabel(type: "zoom" | "meet" | "teams" | "link"): string {
+function getMeetingLabel(
+  type: "zoom" | "meet" | "teams" | "link",
+  t: ReturnType<typeof useT>,
+): string {
   switch (type) {
     case "zoom":
-      return "Join Zoom";
+      return t("eventForm.joinZoom");
     case "meet":
-      return "Join Meet";
+      return t("eventForm.joinMeet");
     case "teams":
-      return "Join Teams";
+      return t("eventForm.joinTeams");
     default:
-      return "Join Meeting";
+      return t("eventForm.joinMeeting");
   }
 }
 
@@ -181,10 +184,14 @@ function getMeetingType(url: string): "zoom" | "meet" | "teams" | "link" {
 }
 
 function MeetingLinkSkeleton({ provider }: { provider: "meet" | "zoom" }) {
+  const t = useT();
   return (
     <div
       role="status"
-      aria-label={`Adding ${provider === "zoom" ? "Zoom" : "Google Meet"} link`}
+      aria-label={t("eventForm.addingMeetingLink", {
+        provider:
+          provider === "zoom" ? t("eventForm.zoom") : t("eventForm.googleMeet"),
+      })}
       className="relative flex w-full items-center justify-center rounded-xl bg-[#4965E0] px-4 py-2"
     >
       <Skeleton className="mr-2 h-5 w-5 rounded-full bg-white/25" />
@@ -341,6 +348,7 @@ export function EventDetailPopover({
   onDraftCreate,
   onDraftDiscard,
 }: EventDetailPopoverProps) {
+  const t = useT();
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(defaultOpen);
   const [editingTitle, setEditingTitle] = useState(
@@ -624,19 +632,25 @@ export function EventDetailPopover({
 
   const handleDraftDescription = useCallback(() => {
     sendToAgentChat({
-      message: `Draft a concise calendar event description for "${event.title}".`,
-      context: `Event id: ${event.id}
-Title: ${event.title}
-When: ${event.start} to ${event.end}
-Timezone: ${event.startTimeZone || getLocalTimezone()}
-Location: ${event.location || "(none)"}
-Attendees: ${(event.attendees ?? []).map((attendee) => attendee.email).join(", ") || "(none)"}
-Current description: ${event.description || "(empty)"}
-
-Write a short, useful meeting description. If I ask you to apply it, update this event with the update-event action.`,
+      message: t("eventForm.ai.descriptionMessage", {
+        title: event.title,
+      }),
+      context: t("eventForm.ai.existingDescriptionContext", {
+        id: event.id,
+        title: event.title,
+        start: event.start,
+        end: event.end,
+        timezone: event.startTimeZone || getLocalTimezone(),
+        location: event.location || t("eventForm.ai.none"),
+        attendees:
+          (event.attendees ?? [])
+            .map((attendee) => attendee.email)
+            .join(", ") || t("eventForm.ai.none"),
+        description: event.description || t("eventForm.ai.empty"),
+      }),
       submit: true,
     });
-  }, [event]);
+  }, [event, t]);
 
   const handleAddGoogleMeet = useCallback(() => {
     if (!event.id || updateEvent.isPending) return;
@@ -664,8 +678,8 @@ Write a short, useful meeting description. If I ask you to apply it, update this
           ...guestNotification,
         },
         {
-          onSuccess: () => toast("Google Meet added"),
-          onError: () => toast.error("Failed to add Google Meet"),
+          onSuccess: () => toast(t("eventForm.googleMeetAdded")),
+          onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
           onSettled: () => setPendingVideoProvider(null),
         },
       );
@@ -700,10 +714,12 @@ Write a short, useful meeting description. If I ask you to apply it, update this
             ...guestNotification,
           },
           {
-            onSuccess: () => toast("Zoom added"),
+            onSuccess: () => toast(t("eventForm.zoomAdded")),
             onError: (error) =>
               toast.error(
-                error instanceof Error ? error.message : "Failed to add Zoom",
+                error instanceof Error
+                  ? error.message
+                  : t("eventForm.zoomAddFailed"),
               ),
             onSettled: () => setPendingVideoProvider(null),
           },
@@ -713,15 +729,17 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     }
 
     if (zoomStatus.data?.configured === false) {
-      toast.error("Zoom is not configured for this deployment.");
+      toast.error(t("eventForm.zoomNotConfiguredDeployment"));
       return;
     }
 
     connectZoom.mutate(undefined, {
-      onSuccess: () => toast("Zoom connection opened"),
+      onSuccess: () => toast(t("eventForm.zoomConnectionOpened")),
       onError: (error) =>
         toast.error(
-          error instanceof Error ? error.message : "Could not connect Zoom",
+          error instanceof Error
+            ? error.message
+            : t("eventForm.zoomConnectFailed"),
         ),
     });
   }, [
@@ -769,8 +787,8 @@ Write a short, useful meeting description. If I ask you to apply it, update this
       ) {
         const label =
           meetingLink.type === "zoom"
-            ? "Zoom"
-            : getMeetingLabel(meetingLink.type);
+            ? t("eventForm.zoom")
+            : getMeetingLabel(meetingLink.type, t);
         updates.description = event.description?.trim()
           ? `${event.description.trim()}\n\n${label}: ${meetingLink.url}`
           : `${label}: ${meetingLink.url}`;
@@ -879,7 +897,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
       masterEvent.data?.startTimeZone || event.startTimeZone || editTimezone,
     );
     if (!recurrence) {
-      toast.error("Custom repeat schedules must be edited in Google Calendar.");
+      toast.error(t("eventForm.customRepeatGoogleCalendar"));
       return;
     }
     saveField({ recurrence, scope: "all" });
@@ -994,9 +1012,9 @@ Write a short, useful meeting description. If I ask you to apply it, update this
   const locationIsMeetingLink =
     meetingLink && event.location?.includes(meetingLink.url);
   const recurrenceText = recurrenceLoading
-    ? "Loading repeat..."
+    ? t("eventForm.loadingRepeat")
     : formatRecurrenceText(recurrenceRules) ||
-      (isRecurringEvent ? "Repeats" : null);
+      (isRecurringEvent ? t("eventForm.repeats") : null);
   // Show the browser's local timezone offset (this is what the user sees times in)
   const localOffsetMinutes = -new Date().getTimezoneOffset();
   const localOffsetSign = localOffsetMinutes >= 0 ? "+" : "-";
@@ -1113,7 +1131,9 @@ Write a short, useful meeting description. If I ask you to apply it, update this
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
             <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              <span>{isDraft ? "Draft event" : "Event"}</span>
+              <span>
+                {isDraft ? t("eventForm.draftEvent") : t("eventForm.event")}
+              </span>
             </div>
             <div className="flex items-center gap-0.5">
               {!isDraft && (
@@ -1129,7 +1149,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
-                    <p>Open in sidebar</p>
+                    <p>{t("eventForm.openInSidebar")}</p>
                   </TooltipContent>
                 </Tooltip>
               )}
@@ -1193,7 +1213,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                     }
                     setIsEditingTitle(false);
                   }}
-                  placeholder="Add title"
+                  placeholder={t("eventForm.addTitle")}
                   className="w-full text-lg font-semibold text-foreground leading-tight mb-4 bg-transparent border-none outline-none placeholder:text-muted-foreground/50 focus:ring-0"
                 />
               ) : (
@@ -1228,7 +1248,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           );
                         }}
                         className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
-                        aria-label="Start date"
+                        aria-label={t("eventForm.startDate")}
                       />
                       <input
                         type="date"
@@ -1238,7 +1258,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           setEditEndDate(e.target.value || editDate)
                         }
                         className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
-                        aria-label="End date"
+                        aria-label={t("eventForm.endDate")}
                       />
                     </div>
                     <div className="flex items-center gap-2">
@@ -1268,7 +1288,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                     {isRecurringEvent && !isDraft && (
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-muted-foreground">
-                          Apply to
+                          {t("eventForm.applyTo")}
                         </span>
                         <Select
                           value={editTimeScope}
@@ -1280,8 +1300,12 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="single">This event</SelectItem>
-                            <SelectItem value="all">All events</SelectItem>
+                            <SelectItem value="single">
+                              {t("eventForm.thisEvent")}
+                            </SelectItem>
+                            <SelectItem value="all">
+                              {t("eventForm.allEvents")}
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -1307,14 +1331,14 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           setEditingField(null);
                         }}
                       >
-                        Cancel
+                        {t("eventForm.cancel")}
                       </Button>
                       <Button
                         size="sm"
                         className="h-6 text-xs"
                         onClick={handleSaveTime}
                       >
-                        Save
+                        {t("eventForm.save")}
                       </Button>
                     </div>
                   </div>
@@ -1331,7 +1355,9 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                   <div className="text-sm">
                     {event.allDay ? (
                       <div>
-                        <span className="text-foreground">All day</span>
+                        <span className="text-foreground">
+                          {t("eventForm.allDay")}
+                        </span>
                         <span className="text-muted-foreground ml-2 text-xs">
                           {formatEventDateRange(
                             event.start,
@@ -1376,7 +1402,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                     onClick={() => setFindTimeOpen(true)}
                   >
                     <IconCalendarTime className="h-3.5 w-3.5" />
-                    Find a time
+                    {t("eventForm.findTime")}
                   </Button>
                 </div>
               )}
@@ -1385,7 +1411,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                 <FindTimeTakeover
                   open={findTimeOpen}
                   onOpenChange={setFindTimeOpen}
-                  title="Find a time"
+                  title={t("eventForm.findTime")}
                   subtitle={event.title}
                   date={editDate || toDateInputValue(event.start)}
                   timezone={findTimeTimezone}
@@ -1422,15 +1448,27 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">Does not repeat</SelectItem>
-                        <SelectItem value="daily">Daily</SelectItem>
-                        <SelectItem value="weekdays">Every weekday</SelectItem>
-                        <SelectItem value="weekly">Weekly</SelectItem>
-                        <SelectItem value="monthly">Monthly</SelectItem>
-                        <SelectItem value="yearly">Yearly</SelectItem>
+                        <SelectItem value="none">
+                          {t("eventForm.doesNotRepeat")}
+                        </SelectItem>
+                        <SelectItem value="daily">
+                          {t("eventForm.daily")}
+                        </SelectItem>
+                        <SelectItem value="weekdays">
+                          {t("eventForm.everyWeekday")}
+                        </SelectItem>
+                        <SelectItem value="weekly">
+                          {t("eventForm.weekly")}
+                        </SelectItem>
+                        <SelectItem value="monthly">
+                          {t("eventForm.monthly")}
+                        </SelectItem>
+                        <SelectItem value="yearly">
+                          {t("eventForm.yearly")}
+                        </SelectItem>
                         {editRecurrencePreset === "custom" && (
                           <SelectItem value="custom" disabled>
-                            Custom schedule
+                            {t("eventForm.customSchedule")}
                           </SelectItem>
                         )}
                       </SelectContent>
@@ -1447,7 +1485,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           setEditingField(null);
                         }}
                       >
-                        Cancel
+                        {t("eventForm.cancel")}
                       </Button>
                       <Button
                         size="sm"
@@ -1455,7 +1493,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                         onClick={handleSaveRecurrence}
                         disabled={editRecurrencePreset === "custom"}
                       >
-                        Save
+                        {t("eventForm.save")}
                       </Button>
                     </div>
                   </div>
@@ -1494,7 +1532,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                 <div className="flex items-start gap-3">
                   <IconUser className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground/60">
-                    No guests
+                    {t("eventForm.noGuests")}
                   </span>
                 </div>
               </div>
@@ -1510,7 +1548,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                       (attendee) => attendee.email,
                     )}
                     onAdd={handleAddAttendee}
-                    placeholder="Add guests"
+                    placeholder={t("eventForm.addGuests")}
                     variant="inline"
                     showChips={false}
                     showAddButton
@@ -1542,7 +1580,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                     className="flex items-center justify-center w-full rounded-xl bg-[#4965E0] hover:bg-[#5A75F0] text-white font-semibold py-2 px-4 text-[15px] relative"
                   >
                     <IconVideo className="h-5 w-5 mr-2 opacity-80" />
-                    <span>{getMeetingLabel(meetingLink.type)}</span>
+                    <span>{getMeetingLabel(meetingLink.type, t)}</span>
                     <span className="absolute right-4 hidden items-center gap-1 opacity-50 sm:flex">
                       <kbd className="text-xs font-normal">
                         {shortcutModifierLabel()}
@@ -1554,12 +1592,20 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                   </a>
                   {(meetingLink.pin || meetingLink.passcode) && (
                     <div className="mt-1.5 text-xs text-muted-foreground/60">
-                      {meetingLink.pin && <span>PIN: {meetingLink.pin}</span>}
+                      {meetingLink.pin && (
+                        <span>
+                          {t("eventForm.pin", { pin: meetingLink.pin })}
+                        </span>
+                      )}
                       {meetingLink.pin && meetingLink.passcode && (
                         <span className="mx-1">&middot;</span>
                       )}
                       {meetingLink.passcode && (
-                        <span>Passcode: {meetingLink.passcode}</span>
+                        <span>
+                          {t("eventForm.passcode", {
+                            passcode: meetingLink.passcode,
+                          })}
+                        </span>
                       )}
                     </div>
                   )}
@@ -1577,16 +1623,16 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                     )}
                     <span className="text-[15px] font-semibold">
                       {pendingConferenceProvider === "zoom"
-                        ? "Zoom"
-                        : "Google Meet"}
+                        ? t("eventForm.zoom")
+                        : t("eventForm.googleMeet")}
                     </span>
                     <button
                       type="button"
                       onClick={handleRemovePendingConference}
                       aria-label={`Remove ${
                         pendingConferenceProvider === "zoom"
-                          ? "Zoom"
-                          : "Google Meet"
+                          ? t("eventForm.zoom")
+                          : t("eventForm.googleMeet")
                       }`}
                       className="ml-auto rounded-md p-1 text-white/70 transition-colors hover:bg-white/15 hover:text-white"
                     >
@@ -1594,7 +1640,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                     </button>
                   </div>
                   <p className="mt-1.5 text-xs text-muted-foreground/60">
-                    Conferencing link is added when you save the event.
+                    {t("eventForm.conferencingLinkOnSave")}
                   </p>
                 </div>
               </>
@@ -1622,7 +1668,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           e.stopPropagation();
                         }}
                         onBlur={handleSaveMeetingLink}
-                        placeholder="Paste meeting link (Zoom, Meet, Teams...)"
+                        placeholder={t("eventForm.pasteMeetingLink")}
                         className="flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
                       />
                     </div>
@@ -1642,7 +1688,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           onClick={handleAddGoogleMeet}
                         >
                           <IconVideo className="h-3.5 w-3.5" />
-                          Meet
+                          {t("eventForm.meet")}
                         </Button>
                         <Button
                           type="button"
@@ -1655,7 +1701,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           onClick={handleAddZoom}
                         >
                           <IconBrandZoom className="h-3.5 w-3.5" />
-                          Zoom
+                          {t("eventForm.zoom")}
                         </Button>
                         <Button
                           type="button"
@@ -1665,7 +1711,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           onClick={() => setEditingField("meetingLink")}
                         >
                           <IconPlus className="h-3.5 w-3.5" />
-                          Paste link
+                          {t("eventForm.pasteLink")}
                         </Button>
                       </div>
                     )}
@@ -1683,7 +1729,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                     <div className="mb-2 flex items-center gap-3">
                       <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <span className="text-sm font-medium text-foreground">
-                        Attachments
+                        {t("eventForm.attachments")}
                       </span>
                     </div>
                     <AttachmentControls
@@ -1703,14 +1749,14 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           setEditingField(null);
                         }}
                       >
-                        Cancel
+                        {t("eventForm.cancel")}
                       </Button>
                       <Button
                         size="sm"
                         className="h-6 text-xs"
                         onClick={handleSaveAttachments}
                       >
-                        Save
+                        {t("eventForm.save")}
                       </Button>
                     </div>
                   </div>
@@ -1750,7 +1796,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                       }}
                     >
                       <IconPlus className="h-4 w-4" />
-                      Add attachment
+                      {t("eventForm.addAttachment")}
                     </button>
                   </div>
                 ) : (
@@ -1763,7 +1809,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                     }}
                   >
                     <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground/40" />
-                    Add attachment
+                    {t("eventForm.addAttachment")}
                   </button>
                 )}
               </>
@@ -1791,7 +1837,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                     e.stopPropagation();
                   }}
                   onBlur={handleSaveLocation}
-                  placeholder="Add location"
+                  placeholder={t("eventForm.addLocation")}
                   className="flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
                 />
               </div>
@@ -1836,10 +1882,10 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                       rel="noopener noreferrer"
                       className="block max-w-full truncate text-sm text-primary hover:underline"
                     >
-                      {getMeetingLabel(meetingLink.type)}
+                      {getMeetingLabel(meetingLink.type, t)}
                     </a>
                     <div className="text-xs text-muted-foreground">
-                      Saved as this event's video link
+                      {t("eventForm.savedAsVideoLink")}
                     </div>
                   </div>
                 </div>
@@ -1853,7 +1899,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                   >
                     <IconMapPin className="h-4 w-4 shrink-0 text-muted-foreground/40" />
                     <span className="text-sm text-muted-foreground/40">
-                      Add location
+                      {t("eventForm.addLocation")}
                     </span>
                   </div>
                 )}
@@ -1870,7 +1916,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
               >
                 <IconMapPin className="h-4 w-4 shrink-0 text-muted-foreground/40" />
                 <span className="text-sm text-muted-foreground/40">
-                  Add location
+                  {t("eventForm.addLocation")}
                 </span>
               </div>
             ) : null}
@@ -1892,7 +1938,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           onClick={handleDraftDescription}
                         >
                           <IconMessage className="h-3 w-3" />
-                          Ask AI
+                          {t("eventForm.askAi")}
                         </Button>
                       )}
                       {isOverlay ? (
@@ -1935,7 +1981,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                   <div className="mb-2 flex items-center gap-3">
                     <IconBell className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="text-sm font-medium text-foreground">
-                      Event alerts
+                      {t("eventForm.eventAlerts")}
                     </span>
                   </div>
                   <ReminderControls
@@ -1957,14 +2003,14 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                         setEditingField(null);
                       }}
                     >
-                      Cancel
+                      {t("eventForm.cancel")}
                     </Button>
                     <Button
                       size="sm"
                       className="h-6 text-xs"
                       onClick={handleSaveReminders}
                     >
-                      Save
+                      {t("eventForm.save")}
                     </Button>
                   </div>
                 </div>
@@ -1993,7 +2039,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                   <div className="grid grid-cols-3 gap-2">
                     <div className="space-y-1">
                       <span className="text-[10px] text-muted-foreground">
-                        Show as
+                        {t("eventForm.showAs")}
                       </span>
                       <Select
                         value={availabilityValue}
@@ -2006,14 +2052,18 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="opaque">Busy</SelectItem>
-                          <SelectItem value="transparent">Free</SelectItem>
+                          <SelectItem value="opaque">
+                            {t("eventForm.busy")}
+                          </SelectItem>
+                          <SelectItem value="transparent">
+                            {t("eventForm.free")}
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1">
                       <span className="text-[10px] text-muted-foreground">
-                        Visibility
+                        {t("eventForm.visibility")}
                       </span>
                       <Select
                         value={visibilityValue}
@@ -2026,15 +2076,21 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="default">Default</SelectItem>
-                          <SelectItem value="public">Public</SelectItem>
-                          <SelectItem value="private">Private</SelectItem>
+                          <SelectItem value="default">
+                            {t("eventForm.default")}
+                          </SelectItem>
+                          <SelectItem value="public">
+                            {t("eventForm.public")}
+                          </SelectItem>
+                          <SelectItem value="private">
+                            {t("eventForm.private")}
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1">
                       <span className="text-[10px] text-muted-foreground">
-                        Alerts
+                        {t("eventForm.alerts")}
                       </span>
                       <Select
                         value={reminderValue}
@@ -2047,14 +2103,22 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="default">Default</SelectItem>
-                          <SelectItem value="none">None</SelectItem>
-                          <SelectItem value="0">At start</SelectItem>
+                          <SelectItem value="default">
+                            {t("eventForm.default")}
+                          </SelectItem>
+                          <SelectItem value="none">
+                            {t("eventForm.none")}
+                          </SelectItem>
+                          <SelectItem value="0">
+                            {t("eventForm.atStart")}
+                          </SelectItem>
                           <SelectItem value="10">10 min</SelectItem>
                           <SelectItem value="30">30 min</SelectItem>
                           <SelectItem value="60">1 hour</SelectItem>
                           <SelectItem value="1440">1 day</SelectItem>
-                          <SelectItem value="custom">Custom...</SelectItem>
+                          <SelectItem value="custom">
+                            {t("eventForm.customEllipsis")}
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -2074,7 +2138,9 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                 <div className="flex items-center gap-3 px-4 py-1.5 text-sm text-muted-foreground">
                   <div className="h-4 w-4 shrink-0" />
                   <span>
-                    {event.transparency === "transparent" ? "Free" : "Busy"}
+                    {event.transparency === "transparent"
+                      ? t("eventForm.free")
+                      : t("eventForm.busy")}
                     {event.visibility && event.visibility !== "default"
                       ? ` · ${event.visibility} visibility`
                       : ""}
@@ -2094,7 +2160,9 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                     style={{ backgroundColor: event.ownerColor }}
                   />
                   <span className="text-sm text-muted-foreground">
-                    Viewing {ownerLabel}'s calendar
+                    {t("eventForm.viewingOwnerCalendar", {
+                      owner: ownerLabel,
+                    })}
                   </span>
                 </div>
               </>
@@ -2117,7 +2185,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                   handleOpenChange(false);
                 }}
               >
-                {isDraft ? "Discard" : "Delete"}
+                {isDraft ? t("eventForm.discard") : t("eventForm.delete")}
               </Button>
               {event.htmlLink && !isDraft && (
                 <Button
@@ -2132,7 +2200,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                     rel="noopener noreferrer"
                   >
                     <IconExternalLink className="h-3.5 w-3.5" />
-                    Google Calendar
+                    {t("eventForm.googleCalendar")}
                   </a>
                 </Button>
               )}
@@ -2142,7 +2210,9 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                   className="ml-auto text-xs"
                   onClick={handleCreateDraft}
                 >
-                  {event.attendees?.length ? "Create and send" : "Create event"}
+                  {event.attendees?.length
+                    ? t("eventForm.createAndSend")
+                    : t("eventForm.createEvent")}
                 </Button>
               )}
             </div>

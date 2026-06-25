@@ -19,16 +19,16 @@ El orden de resolución del proveedor es:
 
 ```an-diagram title="Orden de resolución del proveedor" summary="uploadFile() elige el primer proveedor configurado en orden. El respaldo SQL siempre existe, por lo que las cargas funcionan sin configuración."
 {
-  "html": "<div class=\"diagram-upload\"><div class=\"diagram-box\" data-rough>uploadFile()<br><small class=\"diagram-muted\">POST /_agent-native/file-upload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-step\"><span class=\"diagram-pill accent\">1</span><div class=\"diagram-node\">User-registered<br><small class=\"diagram-muted\">registerFileUploadProvider() — S3, R2, GCS…</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><div class=\"diagram-node\">Builder.io<br><small class=\"diagram-muted\">auto when connected — CDN-served</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill warn\">3</span><div class=\"diagram-node\">SQL fallback<br><small class=\"diagram-muted\">base64 in DB — dev only</small></div></div></div></div>",
+  "html": "<div class=\"diagram-upload\"><div class=\"diagram-box\" data-rough>uploadFile()<br><small class=\"diagram-muted\">POST /_agent-native/file-upload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-step\"><span class=\"diagram-pill accent\">1</span><div class=\"diagram-node\">Registrado por el usuario<br><small class=\"diagram-muted\">registerFileUploadProvider() — S3, R2, GCS…</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><div class=\"diagram-node\">Builder.io<br><small class=\"diagram-muted\">automático al conectar — servido por CDN</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill warn\">3</span><div class=\"diagram-node\">respaldo SQL<br><small class=\"diagram-muted\">base64 en BD — solo desarrollo</small></div></div></div></div>",
   "css": ".diagram-upload{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-upload .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-upload .diagram-step{display:flex;align-items:center;gap:8px}.diagram-upload .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
 
-```an-api title="The upload endpoint" method="POST" path="/_agent-native/file-upload"
+```an-api title="El punto final de carga" method="POST" path="/_agent-native/file-upload"
 {
   "method": "POST",
   "path": "/_agent-native/file-upload",
-  "summary": "Upload a file through the active provider and get back a public URL.",
+  "summary": "Cargue un archivo a través del proveedor activo y obtenga un URL público.",
   "description": "Dispatches to the first configured provider in resolution order. Check the active provider at `GET /_agent-native/file-upload/status`.",
   "request": { "contentType": "multipart/form-data" },
   "responses": [
@@ -117,6 +117,6 @@ const result = await uploadFile({
 if (result) {
   // Provider handled it — result.url is the public URL
 } else {
-  // No provider configured — handle SQL fallback yourself, or skip
+  // No provider configured — handle respaldo SQL yourself, or skip
 }
 ```

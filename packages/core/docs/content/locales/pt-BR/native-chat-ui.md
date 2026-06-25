@@ -19,7 +19,7 @@ uma rota in-line do seu aplicativo.
 
 ```an-diagram title="O caminho de renderização nativo" summary="Uma ação retorna JSON; o tempo de execução corresponde a um discriminante de widget explícito ou chatUI.renderer; AssistantChat monta um componente React real. Sem iframe, sem execução de HTML."
 {
-  "html": "<div class=\"diagram-render\"><div class=\"diagram-node\">Action runs<br><small class=\"diagram-muted\">returns structured JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Match</span><small class=\"diagram-muted\">explicit widget &middot; chatUI.renderer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;AssistantChat&gt;<br><small class=\"diagram-muted\">mounts a React widget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill ok\">DataTable</div><div class=\"diagram-pill ok\">DataChart</div><div class=\"diagram-pill ok\">DataInsights</div></div></div>",
+  "html": "<div class=\"diagram-render\"><div class=\"diagram-node\">Ação executa<br><small class=\"diagram-muted\">retorna JSON estruturado</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Match</span><small class=\"diagram-muted\">explicit widget &middot; chatUI.renderer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;AssistantChat&gt;<br><small class=\"diagram-muted\">monta um widget React</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill ok\">DataTable</div><div class=\"diagram-pill ok\">DataChart</div><div class=\"diagram-pill ok\">DataInsights</div></div></div>",
   "css": ".diagram-render{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-render .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-render .col{display:flex;flex-direction:column;gap:6px;padding:12px}.diagram-render .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -100,7 +100,7 @@ export default defineAction({
 ```an-callout
 {
   "tone": "success",
-  "body": "The renderer only takes over when the action declares `chatUI` **or** the result carries an explicit known `widget` discriminant. It never shape-infers arbitrary objects and never executes HTML or JavaScript from tool results — so a native widget can't become an injection vector."
+  "body": "O renderizador só assume o controle quando a ação declara `chatUI` **ou** o resultado carrega um discriminante `widget` conhecido explícito. Ele nunca infere objetos arbitrários e nunca executa HTML ou JavaScript a partir dos resultados da ferramenta - portanto, um widget nativo não pode se tornar um vetor de injeção."
 }
 ```
 
@@ -211,7 +211,7 @@ descrito abaixo.
 
 ```an-diagram title="O tempo de execução BYO mantém o shell de bate-papo Agent-Native" summary="Seu agente externo transmite eventos normalizados por meio de um conector; Agent-Native mantém o compositor, a transcrição, os cartões de ferramentas, as aprovações e os widgets nativos."
 {
-  "html": "<div class=\"diagram-byo\"><div class=\"diagram-box\" data-rough>Your agent<br><small class=\"diagram-muted\">OpenAI &middot; Claude &middot; Vercel AI &middot; AG-UI &middot; HTTP</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">connector</span><small class=\"diagram-muted\">normalized message-* / tool-* events</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill\">&lt;AssistantChat runtime=&hellip; /&gt;</div><small class=\"diagram-muted\">composer &middot; transcript &middot; tool cards</small><small class=\"diagram-muted\">approvals &middot; native widgets</small></div></div>",
+  "html": "<div class=\"diagram-byo\"><div class=\"diagram-box\" data-rough>Seu agente<br><small class=\"diagram-muted\">OpenAI &middot; Claude &middot; Vercel AI &middot; AG-UI &middot; HTTP</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">connector</span><small class=\"diagram-muted\">eventos message-* / tool-* normalizados</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill\">&lt;AssistantChat runtime=&hellip; /&gt;</div><small class=\"diagram-muted\">composer &middot; transcript &middot; tool cards</small><small class=\"diagram-muted\">approvals &middot; native widgets</small></div></div>",
   "css": ".diagram-byo{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-byo .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-byo .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-byo .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

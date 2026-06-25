@@ -74,7 +74,7 @@ description: "Google Docs 风格的共享，内置于框架中。每个用户创
 
 - 可见性选择器（`Private` / `Organization` / `Public link`）。
 - “添加人员或团队”自动完成 - 搜索组织中的用户或粘贴电子邮件。
-- 用于个人电子邮件授权的 Google 文档样式 `Notify people` 复选框。
+- 用于个人电子邮件授权的 Google 文档样式 `通知 people` 复选框。
 - 包含角色选择器和删除控件的当前授权列表。
 - 尊重当前可见性的复制链接按钮。
 
@@ -127,7 +127,7 @@ export const decks = table("decks", {
 export const deckShares = createSharesTable("deck_shares");
 ```
 
-```an-schema title="Resource + companion shares table" summary="Coarse visibility lives on the resource; each fine-grained grant is a row in the shares table."
+```an-schema title="资源+同伴分享表" summary="Coarse visibility lives on the resource; each fine-grained grant is a row in the shares table."
 {
   "entities": [
     {
@@ -137,9 +137,9 @@ export const deckShares = createSharesTable("deck_shares");
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "title", "type": "text", "nullable": false },
-        { "name": "owner_email", "type": "text", "nullable": false, "note": "The single source of truth for ownership." },
+        { "name": "owner_email", "type": "text", "nullable": false, "note": "所有权的唯一事实来源。" },
         { "name": "org_id", "type": "text", "nullable": true },
-        { "name": "visibility", "type": "enum", "nullable": false, "note": "private | org | public" }
+        { "name": "visibility", "type": "enum", "nullable": false, "note": "私人|组织|民众" }
       ]
     },
     {
@@ -149,9 +149,9 @@ export const deckShares = createSharesTable("deck_shares");
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "resource_id", "type": "text", "fk": "decks.id", "nullable": false },
-        { "name": "principal_type", "type": "enum", "note": "user | org" },
+        { "name": "principal_type", "type": "enum", "note": "用户 |组织" },
         { "name": "principal_id", "type": "text", "note": "email (user) or org id (org)" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" },
+        { "name": "role", "type": "enum", "note": "观众|编辑|行政" },
         { "name": "created_by", "type": "text" },
         { "name": "created_at", "type": "text" }
       ]

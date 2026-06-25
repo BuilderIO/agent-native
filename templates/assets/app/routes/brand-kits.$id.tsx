@@ -5,9 +5,9 @@ import {
   getBrowserTabId,
   readClientAppState,
   sendToAgentChat,
+  useT,
   useActionMutation,
   useActionQuery,
-  useT,
 } from "@agent-native/core/client";
 import {
   IconCheck,
@@ -743,12 +743,12 @@ export function BrandKitDetailRoute({
         queryKey: ["app-state"],
         refetchType: "active",
       });
-      toast.success("Added to References.");
+      toast.success(t("brandKitDetail.addedToReferences"));
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Could not add asset to References.",
+          : t("brandKitDetail.couldNotAddToReferences"),
       );
     } finally {
       setReferencePromoting(key, false);
@@ -770,12 +770,12 @@ export function BrandKitDetailRoute({
         queryKey: ["action", "get-library", { id: libraryId }],
         refetchType: "active",
       });
-      toast.success("Removed from References.");
+      toast.success(t("brandKitDetail.removedFromReferences"));
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Could not remove asset from References.",
+          : t("brandKitDetail.couldNotRemoveFromReferences"),
       );
     } finally {
       setReferencePromoting(key, false);
@@ -903,12 +903,14 @@ export function BrandKitDetailRoute({
     setUploading(true);
     let keepPending = false;
     const toastId = toast.loading(
-      `Uploading ${selectedFiles.length} asset${selectedFiles.length === 1 ? "" : "s"}...`,
+      t("brandKitDetail.uploadProgress", { count: selectedFiles.length }),
       {
         description:
           uploadChunks.length > 1
-            ? `Processing in ${uploadChunks.length} batches.`
-            : "Processing previews and saving them to the brand kit.",
+            ? t("brandKitDetail.processingBatches", {
+                count: uploadChunks.length,
+              })
+            : t("brandKitDetail.processingPreviews"),
       },
     );
     try {
@@ -1023,7 +1025,9 @@ export function BrandKitDetailRoute({
       navigate("/library");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not archive brand kit.",
+        error instanceof Error
+          ? error.message
+          : t("brandKitDetail.couldNotArchiveBrandKit"),
       );
     }
   }
@@ -1040,7 +1044,7 @@ export function BrandKitDetailRoute({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Could not duplicate brand kit.",
+          : t("brandKitDetail.couldNotDuplicateBrandKit"),
       );
     }
   }
@@ -1082,12 +1086,15 @@ export function BrandKitDetailRoute({
         activeAssetId: outputIds[0],
         assetIds: outputIds,
         runIds: [run.id],
-        feedback: "Needs design refinement.",
+        feedback: t("brandKitDetail.needsDesignRefinement"),
       },
       {
-        onSuccess: () => toast.success("Handoff session created."),
+        onSuccess: () =>
+          toast.success(t("brandKitDetail.handoffSessionCreated")),
         onError: (error: Error) => {
-          toast.error(error.message || "Could not create handoff.");
+          toast.error(
+            error.message || t("brandKitDetail.couldNotCreateHandoff"),
+          );
         },
       },
     );
@@ -1307,7 +1314,7 @@ export function BrandKitDetailRoute({
           <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-primary bg-primary/5 backdrop-blur-[1px]">
             <IconUpload className="h-10 w-10 text-primary" />
             <span className="text-base font-semibold text-primary">
-              Drop to upload
+              {t("brandKitDetail.dropToUpload")}
             </span>
           </div>
         )}
@@ -1386,9 +1393,15 @@ export function BrandKitDetailRoute({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All media</SelectItem>
-                      <SelectItem value="image">Images</SelectItem>
-                      <SelectItem value="video">Videos</SelectItem>
+                      <SelectItem value="all">
+                        {t("brandKitDetail.allMedia")}
+                      </SelectItem>
+                      <SelectItem value="image">
+                        {t("brandKitDetail.images")}
+                      </SelectItem>
+                      <SelectItem value="video">
+                        {t("brandKitDetail.videos")}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1428,11 +1441,10 @@ export function BrandKitDetailRoute({
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <h3 className="text-sm font-semibold">
-                          Handoff sessions
+                          {t("brandKitDetail.handoffSessions")}
                         </h3>
                         <p className="text-xs text-muted-foreground">
-                          Shared context for designers to continue a candidate
-                          without the original chat thread.
+                          {t("brandKitDetail.handoffSessionsDescription")}
                         </p>
                       </div>
                     </div>
@@ -1472,10 +1484,11 @@ export function BrandKitDetailRoute({
             ) : (
               <div className="flex min-h-[260px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
                 <IconMessageCircle className="h-10 w-10 text-muted-foreground" />
-                <h3 className="mt-4 text-base font-semibold">No runs yet</h3>
+                <h3 className="mt-4 text-base font-semibold">
+                  {t("brandKitDetail.noRunsYet")}
+                </h3>
                 <p className="mt-2 max-w-md text-sm text-muted-foreground">
-                  Generate from this brand kit to capture prompt, output,
-                  references, and settings.
+                  {t("brandKitDetail.noRunsDescription")}
                 </p>
               </div>
             )}
@@ -1484,7 +1497,7 @@ export function BrandKitDetailRoute({
           <TabsContent value="settings">
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
               <div className="space-y-4 rounded-lg border border-border p-4">
-                <Label>Style description</Label>
+                <Label>{t("brandKitDetail.styleDescription")}</Label>
                 <Textarea
                   value={styleDescriptionDraft}
                   onChange={(event) =>
@@ -1502,7 +1515,7 @@ export function BrandKitDetailRoute({
                   className="min-h-40"
                 />
                 <Separator />
-                <Label>Custom instructions</Label>
+                <Label>{t("brandKitDetail.customInstructions")}</Label>
                 <Textarea
                   value={customInstructionsDraft}
                   onChange={(event) =>
@@ -1514,13 +1527,17 @@ export function BrandKitDetailRoute({
                       customInstructions: customInstructionsDraft,
                     })
                   }
-                  placeholder="Preferences the agent should apply whenever it uses this brand kit."
+                  placeholder={t(
+                    "brandKitDetail.customInstructionsPlaceholder",
+                  )}
                   className="min-h-28"
                 />
                 <Separator />
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium">Palette</div>
+                    <div className="text-sm font-medium">
+                      {t("brandKitDetail.palette")}
+                    </div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {(library.styleBrief?.palette ?? []).map(
                         (color: string) => (
@@ -1547,14 +1564,14 @@ export function BrandKitDetailRoute({
                           },
                         });
                       }}
-                      placeholder="#111827, #f8fafc, #2563eb"
+                      placeholder={"#111827, #f8fafc, #2563eb"}
                       className="mt-3 h-9 max-w-md text-xs"
                     />
                   </div>
                   <Button variant="outline" onClick={analyzeBrand}>
                     {library.settings?.brandAnalysis?.analyzedAt
-                      ? "Refresh brand"
-                      : "Analyze brand"}
+                      ? t("brandKitDetail.refreshBrand")
+                      : t("brandKitDetail.analyzeBrand")}
                   </Button>
                 </div>
               </div>
@@ -1564,10 +1581,11 @@ export function BrandKitDetailRoute({
                   presets={generationPresets}
                 />
                 <div className="rounded-lg border border-border p-4">
-                  <h3 className="text-sm font-semibold">Agent usage</h3>
+                  <h3 className="text-sm font-semibold">
+                    {t("brandKitDetail.agentUsage")}
+                  </h3>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Other agents can call Assets over A2A with this brand kit
-                    ID.
+                    {t("brandKitDetail.agentUsageDescription")}
                   </p>
                   <code className="mt-3 block rounded-md bg-muted p-3 text-xs">
                     {library.id}
@@ -1608,7 +1626,7 @@ type LaneGalleryItem = {
   showBusyOverlay?: boolean;
   deleting?: boolean;
   preview: ReactNode;
-  thumbnail: ReactNode;
+  thumbnail: ReactNode; // i18n-ignore structural preview slot name
   menu?: ReactNode;
   primaryActions?: ReactNode;
   onToggle?: (checked: boolean) => void;
@@ -1627,6 +1645,7 @@ function RunCard({
   onCreateHandoff: () => void;
   rerunning?: boolean;
 }) {
+  const t = useT();
   const settings = (run.settingsUsed ?? {}) as Record<string, unknown>;
   const referenceSelection = (run.referenceSelection ?? {}) as Record<
     string,
@@ -1676,7 +1695,7 @@ function RunCard({
           </div>
           <div>
             <div className="text-xs font-medium text-muted-foreground">
-              Prompt
+              {t("brandKitDetail.prompt")}
             </div>
             <p className="mt-1 line-clamp-3 text-sm leading-relaxed text-foreground">
               {prompt}
@@ -1692,7 +1711,7 @@ function RunCard({
               onClick={onCreateHandoff}
             >
               <IconMessageCircle className="h-4 w-4" />
-              Handoff
+              {t("brandKitDetail.handoff")}
             </Button>
           ) : null}
           <Button
@@ -1704,20 +1723,23 @@ function RunCard({
           >
             <IconRefresh className="h-4 w-4" />
             {mediaType === "video" && run.status !== "completed"
-              ? "Refresh"
-              : "Rerun this"}
+              ? t("brandKitDetail.refresh")
+              : t("brandKitDetail.rerunThis")}
           </Button>
         </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <RunFact label="Model" value={String(settings.model ?? run.model)} />
         <RunFact
-          label="Aspect"
+          label={t("brandKitDetail.model")}
+          value={String(settings.model ?? run.model)}
+        />
+        <RunFact
+          label={t("brandKitDetail.aspect")}
           value={String(settings.aspectRatio ?? run.aspectRatio)}
         />
         <RunFact
-          label="Size"
+          label={t("brandKitDetail.size")}
           value={
             mediaType === "video"
               ? `${String(settings.durationSeconds ?? run.durationSeconds ?? "?")}s ${String(settings.resolution ?? run.resolution ?? run.imageSize)}`
@@ -1725,15 +1747,15 @@ function RunCard({
           }
         />
         <RunFact
-          label="Refs"
+          label={t("brandKitDetail.refs")}
           value={`${selectedReferenceIds.length} ${String(referenceSelection.mode ?? "selected")}`}
         />
         <RunFact
-          label="Grounding"
+          label={t("brandKitDetail.grounding")}
           value={String(settings.groundingMode ?? run.groundingMode)}
         />
         <RunFact
-          label="Categories"
+          label={t("brandKitDetail.categories")}
           value={categories.length ? categories.join(", ") : "auto"}
         />
       </div>
@@ -1741,7 +1763,7 @@ function RunCard({
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         <div className="rounded-md border bg-muted/20 p-3">
           <div className="text-xs font-medium text-muted-foreground">
-            Output
+            {t("brandKitDetail.output")}
           </div>
           {outputIds.length ? (
             <div className="mt-2 flex flex-wrap gap-2">
@@ -1764,24 +1786,26 @@ function RunCard({
             </div>
           ) : (
             <p className="mt-2 text-xs text-muted-foreground">
-              {run.error || "No output captured yet."}
+              {run.error || t("brandKitDetail.noOutputCaptured")}
             </p>
           )}
           {provider ? (
             <p className="mt-2 text-xs text-muted-foreground">
-              Provider: {String(provider)}
+              {t("brandKitDetail.providerLabel", {
+                provider: String(provider),
+              })}
             </p>
           ) : null}
         </div>
 
         <div className="rounded-md border bg-muted/20 p-3">
           <div className="text-xs font-medium text-muted-foreground">
-            References
+            {t("brandKitDetail.references")}
           </div>
           <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
             {selectedReferenceIds.length
               ? selectedReferenceIds.map(shortId).join(", ")
-              : "None selected"}
+              : t("brandKitDetail.noneSelected")}
           </p>
         </div>
       </div>
@@ -1789,7 +1813,7 @@ function RunCard({
       {run.compiledPrompt ? (
         <details className="mt-3 rounded-md border bg-background">
           <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground">
-            Compiled prompt
+            {t("brandKitDetail.compiledPrompt")}
           </summary>
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap border-t px-3 py-2 text-xs leading-relaxed text-muted-foreground">
             {run.compiledPrompt}
@@ -1934,6 +1958,7 @@ function SessionCard({
   continuing?: boolean;
   onContinue: () => void;
 }) {
+  const t = useT();
   const preset = presets.find((item) => item.id === session.presetId);
   const sessionItems = Array.isArray(session.items) ? session.items : [];
   const assetItems = sessionItems.filter((item: any) => item.assetId);
@@ -1946,7 +1971,9 @@ function SessionCard({
             <Badge variant="outline">{session.status}</Badge>
           </div>
           <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-            {session.feedbackSummary || session.brief || "No feedback yet."}
+            {session.feedbackSummary ||
+              session.brief ||
+              t("brandKitDetail.noFeedbackYet")}
           </p>
         </div>
         <Button
@@ -1960,7 +1987,7 @@ function SessionCard({
           ) : (
             <IconMessageCircle className="h-4 w-4" />
           )}
-          Continue
+          {t("brandKitDetail.continue")}
         </Button>
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -1973,7 +2000,7 @@ function SessionCard({
             }
           >
             {item.assetId === session.activeAssetId
-              ? `${item.label} active`
+              ? `${item.label} ${t("brandKitDetail.active")}`
               : item.label}
           </Badge>
         ))}
@@ -1982,7 +2009,9 @@ function SessionCard({
         ) : null}
         {!assetItems.length && session.activeAssetId ? (
           <Badge variant="outline">
-            active {shortId(session.activeAssetId)}
+            {t("brandKitDetail.activeAsset", {
+              id: shortId(session.activeAssetId),
+            })}
           </Badge>
         ) : null}
       </div>
@@ -2032,12 +2061,14 @@ function GenerationPresetsPanel({
       },
       {
         onSuccess: () => {
-          toast.success("Generation preset created.");
+          toast.success(t("brandKitDetail.generationPresetCreated"));
           reset();
           setOpen(false);
         },
         onError: (error: Error) => {
-          toast.error(error.message || "Could not create preset.");
+          toast.error(
+            error.message || t("brandKitDetail.couldNotCreatePreset"),
+          );
         },
       },
     );
@@ -2047,13 +2078,15 @@ function GenerationPresetsPanel({
     <div className="rounded-lg border border-border p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold">Generation presets</h3>
+          <h3 className="text-sm font-semibold">
+            {t("brandKitDetail.generationPresets")}
+          </h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Reusable deliverable rules for social images, heroes, and diagrams.
+            {t("brandKitDetail.generationPresetsDescription")}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-          New
+          {t("brandKitDetail.new")}
         </Button>
       </div>
       <div className="mt-3 space-y-2">
@@ -2077,7 +2110,7 @@ function GenerationPresetsPanel({
               variant="ghost"
               size="icon"
               className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-              aria-label={`Delete ${preset.title}`}
+              aria-label={`${t("brandKitDetail.delete")} ${preset.title}`}
               onClick={() => setConfirmPresetId(preset.id)}
             >
               <IconTrash className="h-4 w-4" />
@@ -2086,7 +2119,7 @@ function GenerationPresetsPanel({
         ))}
         {!presets.length ? (
           <p className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
-            No presets yet.
+            {t("brandKitDetail.noPresetsYet")}
           </p>
         ) : null}
       </div>
@@ -2099,14 +2132,15 @@ function GenerationPresetsPanel({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete generation preset?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("brandKitDetail.deleteGenerationPreset")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Existing runs keep their captured prompt and settings. New
-              generations will no longer offer this preset.
+              {t("brandKitDetail.deleteGenerationPresetDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("brandKitDetail.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={!confirmPresetId || deletePreset.isPending}
@@ -2118,10 +2152,15 @@ function GenerationPresetsPanel({
                   {
                     onSuccess: () => {
                       setConfirmPresetId(null);
-                      toast.success("Generation preset deleted.");
+                      toast.success(
+                        t("brandKitDetail.generationPresetDeleted"),
+                      );
                     },
                     onError: (error: Error) => {
-                      toast.error(error.message || "Could not delete preset.");
+                      toast.error(
+                        error.message ||
+                          t("brandKitDetail.couldNotDeletePreset"),
+                      );
                     },
                   },
                 );
@@ -2136,25 +2175,24 @@ function GenerationPresetsPanel({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>New generation preset</DialogTitle>
+            <DialogTitle>{t("brandKitDetail.newGenerationPreset")}</DialogTitle>
             <DialogDescription>
-              Save the output format, aspect ratio, and text rules for repeated
-              image work.
+              {t("brandKitDetail.newGenerationPresetDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="preset-title">Name</Label>
+              <Label htmlFor="preset-title">{t("brandKitDetail.name")}</Label>
               <Input
                 id="preset-title"
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
-                placeholder="LinkedIn announcement"
+                placeholder={t("brandKitDetail.campaignLaunch")}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-2">
-                <Label>Category</Label>
+                <Label>{t("brandKitDetail.category")}</Label>
                 <Select
                   value={category}
                   onValueChange={(value) => setCategory(value as ImageCategory)}
@@ -2172,7 +2210,7 @@ function GenerationPresetsPanel({
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label>Aspect ratio</Label>
+                <Label>{t("brandKitDetail.aspectRatio")}</Label>
                 <Select
                   value={aspectRatio}
                   onValueChange={(value) =>
@@ -2193,7 +2231,9 @@ function GenerationPresetsPanel({
               </div>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="preset-template">Prompt template</Label>
+              <Label htmlFor="preset-template">
+                {t("brandKitDetail.promptTemplate")}
+              </Label>
               <Textarea
                 id="preset-template"
                 value={promptTemplate}
@@ -2202,7 +2242,9 @@ function GenerationPresetsPanel({
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="preset-text-policy">Text policy</Label>
+              <Label htmlFor="preset-text-policy">
+                {t("brandKitDetail.textPolicy")}
+              </Label>
               <Textarea
                 id="preset-text-policy"
                 value={textPolicy}
@@ -2212,10 +2254,10 @@ function GenerationPresetsPanel({
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
-              Cancel
+              {t("brandKitDetail.cancel")}
             </Button>
             <Button disabled={!title.trim()} onClick={submit}>
-              Create
+              {t("brandKitDetail.create")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2262,6 +2304,7 @@ function AssetPreview({
   asset: any;
   fit?: "cover" | "contain";
 }) {
+  const t = useT();
   const [sourceIndex, setSourceIndex] = useState(0);
   const [unavailable, setUnavailable] = useState(false);
   const sources = assetPreviewSources(asset, "thumbnail");
@@ -2287,7 +2330,7 @@ function AssetPreview({
           }
         />
         <div className="absolute bottom-2 left-2 rounded-md bg-background/90 px-2 py-1 text-[11px] font-medium text-foreground shadow-sm">
-          Video
+          {t("brandKitDetail.video")}
         </div>
       </div>
     );
@@ -2298,7 +2341,7 @@ function AssetPreview({
       <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-muted/40 text-muted-foreground">
         <IconPhoto className="h-6 w-6" />
         <span className="px-3 text-center text-xs font-medium">
-          Preview unavailable
+          {t("brandKitDetail.previewUnavailable")}
         </span>
       </div>
     );
@@ -2628,8 +2671,8 @@ function AssetSwimlaneBoard({
       selected: selectedIds.has(asset.id),
       deleting: deletingIds.has(asset.id),
       busy,
-      preview: <AssetPreview asset={asset} fit="contain" />,
-      thumbnail: <AssetPreview asset={asset} />,
+      preview: <AssetPreview asset={asset} fit="contain" />, // i18n-ignore structural preview slot name
+      thumbnail: <AssetPreview asset={asset} />, // i18n-ignore structural preview slot name
       onToggle: (checked) => toggleAsset(asset.id, checked),
       menu: (
         <AssetActionsMenu
@@ -2797,7 +2840,7 @@ function AssetSwimlaneBoard({
                 handleDeleteConfirmed();
               }}
             >
-              Delete
+              {t("brandKitDetail.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2890,7 +2933,7 @@ function AssetSwimlaneBoard({
                   ) : (
                     <IconPhotoPlus className="h-4 w-4" />
                   )}
-                  Add to References
+                  {t("brandKitDetail.addToReferences")}
                 </Button>
               ) : null}
               {selectedReferenceAssets.length > 0 ? (
@@ -2908,7 +2951,7 @@ function AssetSwimlaneBoard({
                   ) : (
                     <IconX className="h-4 w-4" />
                   )}
-                  Remove from References
+                  {t("brandKitDetail.removeFromReferences")}
                 </Button>
               ) : null}
               <Button
@@ -2917,7 +2960,7 @@ function AssetSwimlaneBoard({
                 size="sm"
                 onClick={() => onSelectedIdsChange(new Set())}
               >
-                Clear
+                {t("brandKitDetail.clear")}
               </Button>
               <Button
                 type="button"
@@ -3274,6 +3317,7 @@ function SwimLane({
   action?: ReactNode;
   empty: ReactNode;
 }) {
+  const t = useT();
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const itemIds = items.map((item) => item.id).join("\n");
   const activeItem =
@@ -3345,7 +3389,9 @@ function SwimLane({
                           : "border-border/80 hover:border-foreground/30",
                         item.deleting ? "opacity-60" : "",
                       ].join(" ")}
-                      aria-label={`Show ${item.title}`}
+                      aria-label={t("brandKitDetail.showItem", {
+                        title: item.title,
+                      })}
                       aria-pressed={active}
                     >
                       {item.thumbnail}
@@ -3384,7 +3430,9 @@ function SwimLane({
                       onCheckedChange={(checked) =>
                         activeItem.onToggle?.(checked === true)
                       }
-                      aria-label={`Select ${activeItem.title}`}
+                      aria-label={t("brandKitDetail.selectItem", {
+                        title: activeItem.title,
+                      })}
                       className="mt-0.5"
                     />
                   ) : null}
@@ -3403,7 +3451,7 @@ function SwimLane({
                   {activeItem.status ? (
                     <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
                       <div className="text-[10px] font-medium uppercase text-muted-foreground">
-                        Status
+                        {t("brandKitDetail.status")}
                       </div>
                       <div className="mt-0.5 truncate">{activeItem.status}</div>
                     </div>
@@ -3411,7 +3459,7 @@ function SwimLane({
                   {activeItem.metadata ? (
                     <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
                       <div className="text-[10px] font-medium uppercase text-muted-foreground">
-                        Type
+                        {t("brandKitDetail.type")}
                       </div>
                       <div className="mt-0.5 truncate">
                         {activeItem.metadata}
@@ -3428,7 +3476,7 @@ function SwimLane({
           <div className="flex shrink-0 items-center gap-2">
             {activeItem?.href ? (
               <Button asChild variant="outline" size="sm" className="flex-1">
-                <Link to={activeItem.href}>Open</Link>
+                <Link to={activeItem.href}>{t("brandKitDetail.open")}</Link>
               </Button>
             ) : null}
             {action ? <div className="shrink-0">{action}</div> : null}

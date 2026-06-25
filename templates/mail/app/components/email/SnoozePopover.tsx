@@ -20,36 +20,36 @@ interface SnoozePopoverProps {
 }
 
 // Compute preset snooze times
-function getPresets(): Array<{ label: string; date: Date }> {
+function getPresets(): Array<{ labelKey: string; date: Date }> {
   const now = new Date();
-  const presets: Array<{ label: string; date: Date }> = [];
+  const presets: Array<{ labelKey: string; date: Date }> = [];
 
   // Later today: now + 4 hours, or 6pm if past that
   const laterToday = new Date(now);
   laterToday.setHours(Math.max(now.getHours() + 4, 18), 0, 0, 0);
   if (laterToday.getDate() === now.getDate()) {
-    presets.push({ label: "Later today", date: laterToday });
+    presets.push({ labelKey: "mail.snooze.laterToday", date: laterToday });
   }
 
   // Tomorrow morning: 8am
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(8, 0, 0, 0);
-  presets.push({ label: "Tomorrow", date: tomorrow });
+  presets.push({ labelKey: "mail.snooze.tomorrow", date: tomorrow });
 
   // This weekend: Saturday 8am (or next Saturday)
   const weekend = new Date(now);
   const daysUntilSat = (6 - now.getDay() + 7) % 7 || 7;
   weekend.setDate(now.getDate() + daysUntilSat);
   weekend.setHours(8, 0, 0, 0);
-  presets.push({ label: "This weekend", date: weekend });
+  presets.push({ labelKey: "mail.snooze.thisWeekend", date: weekend });
 
   // Next week: Monday 8am
   const nextWeek = new Date(now);
   const daysUntilMon = (1 - now.getDay() + 7) % 7 || 7;
   nextWeek.setDate(now.getDate() + daysUntilMon);
   nextWeek.setHours(8, 0, 0, 0);
-  presets.push({ label: "Next week", date: nextWeek });
+  presets.push({ labelKey: "mail.snooze.nextWeek", date: nextWeek });
 
   return presets;
 }
@@ -129,7 +129,7 @@ export function SnoozePopover({
     snoozeEmail
       .mutateAsync({ emailId, runAt })
       .catch((err: any) =>
-        toast.error(err?.message || "Couldn't snooze — check the server logs."),
+        toast.error(err?.message || t("mail.toasts.couldNotSnooze")),
       );
   };
 
@@ -150,7 +150,7 @@ export function SnoozePopover({
           <div className="grid grid-cols-2 gap-1.5">
             {presets.map((preset) => (
               <button
-                key={preset.label}
+                key={preset.labelKey}
                 onClick={() => handlePreset(preset.date)}
                 className={cn(
                   "text-left px-2.5 py-1.5 rounded-md text-xs transition-colors",
@@ -160,7 +160,7 @@ export function SnoozePopover({
                     : "text-foreground/80",
                 )}
               >
-                <div className="font-medium">{preset.label}</div>
+                <div className="font-medium">{t(preset.labelKey)}</div>
                 <div className="text-muted-foreground text-[10px]">
                   {formatDate(preset.date)}
                 </div>

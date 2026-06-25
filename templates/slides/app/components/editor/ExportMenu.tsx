@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client";
+import { appBasePath, useT } from "@agent-native/core/client";
 import {
   IconDownload,
   IconFileTypePdf,
@@ -35,6 +35,7 @@ export function ExportMenu({
   onShareLink,
   onShareTeam,
 }: ExportMenuProps) {
+  const t = useT();
   const triggerBlobDownload = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -73,7 +74,7 @@ export function ExportMenu({
     });
     if (!res.ok) {
       throw new Error(
-        await readErrorMessage(res, "Could not generate PPTX file."),
+        await readErrorMessage(res, t("editorExport.pptxFailed")),
       );
     }
     return {
@@ -92,11 +93,11 @@ export function ExportMenu({
     } catch (err) {
       console.error("Export failed:", err);
       toast({
-        title: "Export failed",
+        title: t("editorExport.exportFailed"),
         description:
           err instanceof Error
             ? err.message
-            : "Something went wrong exporting as PPTX.",
+            : t("editorExport.exportPptxError"),
         variant: "destructive",
       });
     }
@@ -107,18 +108,17 @@ export function ExportMenu({
       const { blob, filename } = await fetchPptxExport();
       triggerBlobDownload(blob, filename);
       toast({
-        title: "Downloaded for Google Slides",
-        description:
-          "Open Google Slides, choose File → Import slides, then select the downloaded .pptx.",
+        title: t("editorExport.googleSlidesDownloaded"),
+        description: t("editorExport.googleSlidesImportHint"),
       });
     } catch (err) {
       console.error("Export failed:", err);
       toast({
-        title: "Export failed",
+        title: t("editorExport.exportFailed"),
         description:
           err instanceof Error
             ? err.message
-            : "Something went wrong exporting to Google Slides.",
+            : t("editorExport.exportGoogleSlidesError"),
         variant: "destructive",
       });
     }
@@ -133,7 +133,7 @@ export function ExportMenu({
       });
       if (!res.ok) {
         throw new Error(
-          await readErrorMessage(res, "Could not generate HTML file."),
+          await readErrorMessage(res, t("editorExport.htmlFailed")),
         );
       }
       const blob = await res.blob();
@@ -145,11 +145,11 @@ export function ExportMenu({
     } catch (err) {
       console.error("Export failed:", err);
       toast({
-        title: "Export failed",
+        title: t("editorExport.exportFailed"),
         description:
           err instanceof Error
             ? err.message
-            : "Something went wrong exporting as HTML.",
+            : t("editorExport.exportHtmlError"),
         variant: "destructive",
       });
     }
@@ -160,49 +160,49 @@ export function ExportMenu({
       <DropdownMenuTrigger asChild>
         <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer whitespace-nowrap">
           <IconDownload className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">Export</span>
+          <span className="hidden md:inline">{t("editorExport.export")}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuLabel className="text-[11px] text-muted-foreground">
-          Export & Duplicate
+          {t("editorExport.exportAndDuplicate")}
         </DropdownMenuLabel>
         {onShareTeam && (
           <DropdownMenuItem onClick={onShareTeam} className="cursor-pointer">
             <IconShare2 className="w-4 h-4 mr-2" />
-            Share with team...
+            {t("editorExport.shareWithTeam")}
           </DropdownMenuItem>
         )}
         {onShareLink && (
           <DropdownMenuItem onClick={onShareLink} className="cursor-pointer">
             <IconShare2 className="w-4 h-4 mr-2" />
-            Public share link...
+            {t("editorExport.publicShareLink")}
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleExportHtml} className="cursor-pointer">
           <IconCode className="w-4 h-4 mr-2" />
-          Download as HTML
+          {t("editorExport.downloadHtml")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={onExportPdf} className="cursor-pointer">
           <IconFileTypePdf className="w-4 h-4 mr-2" />
-          Export as PDF
+          {t("editorExport.exportPdf")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={handleExportPptx} className="cursor-pointer">
           <IconDownload className="w-4 h-4 mr-2" />
-          Export as PPTX
+          {t("editorExport.exportPptx")}
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={handleExportGoogleSlides}
           className="cursor-pointer"
         >
           <IconBrandGoogle className="w-4 h-4 mr-2" />
-          Download for Google Slides
+          {t("editorExport.downloadGoogleSlides")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={onDuplicate} className="cursor-pointer">
           <IconCopy className="w-4 h-4 mr-2" />
-          Duplicate deck
+          {t("editorExport.duplicateDeck")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

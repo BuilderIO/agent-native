@@ -32,7 +32,7 @@ Uma caixa de texto envia um prompt, a IA retorna uma string e você a exibe. Tal
 
 Você vê isso em todos os lugares: "recursos de IA" que são basicamente um botão "Resumir" fixado em um produto SaaS. Eles parecem impressionantes em demos e quebram no momento em que a realidade fica confusa. Isso não é um produto; isso é um brinquedo.
 
-### Rung 2 — um bate-papo com ferramentas {#rung-two}
+### Degrau 2 — um bate-papo com ferramentas {#rung-two}
 
 Agora a IA pode _fazer coisas_. Possui ferramentas – “rascunhar e-mail”, “pesquisar contatos”, “executar consulta” – e uma interface de bate-papo onde funciona na sua frente, mostrando chamadas de ferramentas e resultados à medida que avança. Esta é a aparência interna de Claude, ChatGPT e Cursor.
 
@@ -52,7 +52,7 @@ Três coisas mudam quando você chega ao degrau 3:
 
 ```an-diagram title="O Princípio da Escada" summary="A maioria das equipes para na linha 1 ou 2. O agente nativo é a linha 3 – um aplicativo real e um agente real em uma superfície de ação compartilhada."
 {
-  "html": "<div class=\"diagram-ladder\"><div class=\"diagram-card rung rung-3\"><span class=\"diagram-pill accent\">Rung 3 · agent-native</span><strong>Agent + UI as equal partners</strong><small class=\"diagram-muted\">One action surface. Every agent tool is also a button; every button runs the same logic the agent uses.</small></div><div class=\"diagram-card rung rung-2\"><span class=\"diagram-pill\">Rung 2</span><strong>A chat with tools</strong><small class=\"diagram-muted\">The agent can act — but it is still just a chat window. No dashboards, lists, or shortcuts.</small></div><div class=\"diagram-card rung rung-1\"><span class=\"diagram-pill warn\">Rung 1</span><strong>A single LLM call</strong><small class=\"diagram-muted\">Prompt in, string out. Impressive in a demo; breaks the moment reality gets messy.</small></div></div>",
+  "html": "<div class=\"diagram-ladder\"><div class=\"diagram-card rung rung-3\"><span class=\"diagram-pill accent\">Degrau 3 · agent-native</span><strong>Agente + UI como parceiros iguais</strong><small class=\"diagram-muted\">One action surface. Every agent tool is also a button; every button runs the same logic the agent uses.</small></div><div class=\"diagram-card rung rung-2\"><span class=\"diagram-pill\">Degrau 2</span><strong>Um chat com ferramentas</strong><small class=\"diagram-muted\">O agente pode agir, mas ainda é só uma janela de chat. Sem dashboards, listas ou atalhos.</small></div><div class=\"diagram-card rung rung-1\"><span class=\"diagram-pill warn\">Degrau 1</span><strong>Uma única chamada LLM</strong><small class=\"diagram-muted\">Prompt in, string out. Impressive in a demo; breaks the moment reality gets messy.</small></div></div>",
   "css": ".diagram-ladder{display:flex;flex-direction:column;gap:14px}.diagram-ladder .rung{display:flex;flex-direction:column;gap:6px;padding:16px 18px}.diagram-ladder .rung-2{margin-inline-end:48px}.diagram-ladder .rung-1{margin-inline-end:96px}"
 }
 ```
@@ -91,7 +91,7 @@ Este é o princípio definidor.
 
 ```an-diagram title="Um sistema, duas maneiras de entrar" summary="O agente e a UI gravam nas mesmas ações e no mesmo banco de dados. O que quer que um faça, o outro vê."
 {
-  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">clicks, forms, shortcuts</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">natural language · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">banco de dados SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">UI updates live</div></div>",
+  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">cliques, formulários, atalhos</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">linguagem natural · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">banco de dados SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">A UI atualiza ao vivo</div></div>",
   "css": ".diagram-parity{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-parity .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-parity .diagram-arrow{font-size:22px;line-height:1}.diagram-parity .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -165,9 +165,9 @@ Se você estiver criando ou estendendo um aplicativo nativo do agente, este é o
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread\",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app's server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});",
   "annotations": [
-    { "lines": "5", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this as a tool." },
+    { "lines": "5", "label": "Superfície da ferramenta", "note": "O `description` é o que o agente lê para decidir quando chamar isso como ferramenta." },
     { "lines": "6", "label": "Contrato tipado", "note": "Um zod `schema` valida a entrada de **todas** as superfícies — agente, UI, HTTP, MCP e A2A." },
-    { "lines": "7-10", "label": "One implementation", "note": "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this." }
+    { "lines": "7-10", "label": "Uma implementação", "note": "O corpo `run` é a única fonte da verdade. O botão UI e a ferramenta do agente executam exatamente isso." }
   ]
 }
 ```

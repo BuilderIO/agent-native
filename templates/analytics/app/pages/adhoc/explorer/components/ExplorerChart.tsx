@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import {
@@ -48,6 +49,7 @@ export function ExplorerChart({
   isLoading,
   sql,
 }: ExplorerChartProps) {
+  const t = useT();
   const rows = result?.rows ?? [];
   const error = result?.error;
 
@@ -55,7 +57,7 @@ export function ExplorerChart({
     return (
       <Card>
         <CardContent className="flex items-center justify-center h-64 text-muted-foreground text-sm">
-          Add an event and select it to see results
+          {t("explorer.addEventToSeeResults")}
         </CardContent>
       </Card>
     );
@@ -76,7 +78,9 @@ export function ExplorerChart({
     return (
       <Card>
         <CardContent className="p-6">
-          <div className="text-destructive text-sm">Query error: {error}</div>
+          <div className="text-destructive text-sm">
+            {t("explorer.queryError", { message: error })}
+          </div>
         </CardContent>
       </Card>
     );
@@ -86,7 +90,7 @@ export function ExplorerChart({
     return (
       <Card>
         <CardContent className="flex items-center justify-center h-64 text-muted-foreground text-sm">
-          No data returned
+          {t("explorer.noDataReturned")}
         </CardContent>
       </Card>
     );
@@ -135,6 +139,7 @@ function MetricView({
 }
 
 function TableView({ rows }: { rows: Record<string, unknown>[] }) {
+  const t = useT();
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
 
@@ -177,7 +182,7 @@ function TableView({ rows }: { rows: Record<string, unknown>[] }) {
         {rows.length > PAGE_SIZE_OPTIONS[0] && (
           <div className="flex items-center justify-between px-3 py-2 border-t border-border text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
-              <span>Rows per page:</span>
+              <span>{t("common.rowsPerPage")}</span>
               <select
                 className="bg-background border border-border rounded px-1 py-0.5 text-xs"
                 value={pageSize}
@@ -196,7 +201,11 @@ function TableView({ rows }: { rows: Record<string, unknown>[] }) {
             <div className="flex items-center gap-1">
               <span>
                 {page * pageSize + 1}–
-                {Math.min((page + 1) * pageSize, rows.length)} of {rows.length}
+                {t("explorer.rowsRange", {
+                  start: page * pageSize + 1,
+                  end: Math.min((page + 1) * pageSize, rows.length),
+                  total: rows.length,
+                })}
               </span>
               <Button
                 variant="ghost"

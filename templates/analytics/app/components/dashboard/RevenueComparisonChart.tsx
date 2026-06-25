@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   Bar,
   CartesianGrid,
@@ -66,6 +67,7 @@ export function RevenueComparisonChart({
   isLoading,
   error,
 }: RevenueComparisonChartProps) {
+  const t = useT();
   // Flip churn_out to negative for display
   const chartData = data.map((d) => ({
     ...d,
@@ -84,7 +86,7 @@ export function RevenueComparisonChart({
           <p className="text-sm text-red-400 py-8 text-center">{error}</p>
         ) : data.length === 0 ? (
           <p className="text-sm text-muted-foreground py-8 text-center">
-            No data available
+            {t("common.noDataAvailable")}
           </p>
         ) : (
           <div className="h-[400px] w-full">

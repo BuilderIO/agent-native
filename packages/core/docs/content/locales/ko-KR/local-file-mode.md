@@ -48,7 +48,7 @@ SQL 행 또는 로컬 파일
 
 ```an-diagram title="동일한 행동, 두 가지 진실 소스" summary="UI와 에이전트는 두 모드에서 동일한 작업을 호출합니다. 작업 계층은 각 호출이 SQL 행 또는 repo 파일로 확인되는지 여부를 결정합니다."
 {
-  "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">Content UI</div><div class=\"diagram-node\">Agent + actions<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">Database mode</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">hosted · sharing · comments · history</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">Git review · coding-agent edits</small></div></div></div>",
+  "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">콘텐츠 UI</div><div class=\"diagram-node\">에이전트 + actions<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">데이터베이스 모드</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">호스팅 · 공유 · 댓글 · 기록</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">Git 리뷰 · 코딩 에이전트 편집</small></div></div></div>",
   "css": ".diagram-mode{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mode .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mode .diagram-arrow{font-size:22px;line-height:1}.diagram-mode .resolve{display:flex;gap:12px;flex-wrap:wrap}.diagram-mode .diagram-panel{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
 }
 ```
@@ -165,13 +165,13 @@ npx @agent-native/core@latest skills add content --mode local-files --scope proj
 
 ```mdx
 ---
-title: "Getting Started"
+title: "시작하기"
 icon: "sparkles"
 isFavorite: true
 updatedAt: "2026-06-12T20:00:00.000Z"
 ---
 
-# Getting Started
+# 시작하기
 
 Use <FrameworkTabs value="react" /> to show framework-specific code.
 ```
@@ -251,10 +251,10 @@ export const ImpactCounterInputs = {
 
 ```mdx
 ---
-title: "Launch Notes"
+title: "출시 노트"
 ---
 
-# Launch Notes
+# 출시 노트
 
 <ImpactCounter label="wins" />
 ```

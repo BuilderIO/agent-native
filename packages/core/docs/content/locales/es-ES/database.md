@@ -31,7 +31,7 @@ DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/my
 # Supabase Postgres
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
-# Plain Postgres
+# Postgres simple
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 
 # Turso (libSQL)
@@ -89,7 +89,7 @@ export const tasks = table("tasks", {
 
 La tabla `tasks` anterior define las mismas columnas en cada backend:
 
-```an-schema title="The tasks table" summary="Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
+```an-schema title="la tabla de tareas" summary="Definida una sola vez con los helpers del framework; el dialecto se elige en tiempo de ejecución a partir de DATABASE_URL."
 {
   "entities": [
     {
@@ -168,9 +168,9 @@ En lugar de enviarlos directamente, los cambios de esquema deben aplicarse media
   "language": "ts",
   "code": "import { runMigrations } from \"@agent-native/core/db\";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: \"my_app_migrations\" },\n);",
   "annotations": [
-    { "lines": "6-7", "label": "Additive only", "note": "`ADD COLUMN IF NOT EXISTS` is safe to re-run and never drops data. Renames look like drop+create to Drizzle, so add-then-migrate instead." },
-    { "lines": "13-16", "label": "Dialect gating", "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features." },
-    { "lines": "19", "label": "Per-app version table", "note": "Each app tracks its own applied versions so migrations are idempotent across restarts and instances." }
+    { "lines": "6-7", "label": "Sólo aditivo", "note": "Es seguro volver a ejecutar `ADD COLUMN IF NOT EXISTS` y nunca pierde datos. Los cambios de nombre se ven como soltar+crear a Drizzle, así que agregue y luego migre." },
+    { "lines": "13-16", "label": "Puerta de dialecto", "note": "Pase un objeto indexado por dialecto para ejecutar SQL diferente por backend. Haga que la otra clave sea un no-op (`SELECT 1`) para funciones exclusivas de Postgres o de SQLite." },
+    { "lines": "19", "label": "Tabla de versiones por aplicación", "note": "Cada aplicación rastrea sus propias versiones aplicadas, por lo que las migraciones son idempotentes entre reinicios e instancias." }
   ]
 }
 ```

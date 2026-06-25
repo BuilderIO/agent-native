@@ -20,16 +20,16 @@ Sie müssen den Agent-nativen Ansatz nicht von Grund auf neu erstellen. Der Agen
 | `<AgentSidebar>`      | Umschließt Ihr Root-App-Layout und fügt einen umschaltbaren Seitenbereich hinzu, der den vollständigen Agenten enthält. | Sie möchten, dass der Agent neben Ihrer App auf jedem Bildschirm verfügbar ist         |
 | `<AgentToggleButton>` | Öffnet/schließt `<AgentSidebar>` (fügen Sie es in Ihren Header ein)                                                     | Mit `<AgentSidebar>` koppeln                                                           |
 | `<AgentPanel>`        | Das Rohpanel selbst – Chat + CLI + Arbeitsbereichsregisterkarten                                                        | Sie möchten die volle Kontrolle über das Layout oder eine dedizierte Agentenseite      |
-| `<AgentChatSurface>`  | Eine vorverkabelte Panel-/Seiten-Chat-Oberfläche                                                                        | Sie möchten ohne den Seitenleisten-Wrapper chatten                                     |
+| `<AgentChatSurface>`  | Eine vorverkabelte Panel-/Seiten-Chat-Oberfläche                                                                        | Sie möchten ohne den Seitenleisten-Verpackung chatten                                  |
 | `<AssistantChat>`     | Chat-Renderer auf niedrigerer Ebene mit Komponisten-/Verlaufs-Hooks                                                     | Sie benötigen benutzerdefiniertes Chrom rund um die Standardkonversation UI            |
 | `sendToAgentChat()`   | Programmgesteuert eine Nachricht an den Chat senden                                                                     | Eine Schaltfläche, die die Arbeit dem Agenten übergibt, anstatt sie inline auszuführen |
-| `useActionMutation()` | Typsicherer Frontend-Wrapper um eine Aktion                                                                             | UI muss den gleichen Vorgang ausführen, den ein Agent-Tool ausführen würde             |
+| `useActionMutation()` | Typsicherer Frontend-Verpackung um eine Aktion                                                                          | UI muss den gleichen Vorgang ausführen, den ein Agent-Tool ausführen würde             |
 
 Alle diese werden aus `@agent-native/core/client` exportiert.
 
-```an-diagram title="Das Montierungsmodell" summary="<AgentSidebar> umschließt Ihr vorhandenes Layout. Ihre Routen werden im Hauptbereich gerendert; Das Agentenpanel wird daneben montiert. <AgentPanel> ist das gleiche Panel ohne den Wrapper."
+```an-diagram title="Das Montierungsmodell" summary="<AgentSidebar> umschließt Ihr vorhandenes Layout. Ihre Routen werden im Hauptbereich gerendert; Das Agentenpanel wird daneben montiert. <AgentPanel> ist das gleiche Panel ohne den Verpackung."
 {
-  "html": "<div class=\"diagram-mount\"><div class=\"diagram-box sidebar\" data-rough><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><div class=\"inner\"><div class=\"diagram-node main\">Your app<br><small class=\"diagram-muted\">children: header + &lt;Outlet/&gt;</small></div><div class=\"diagram-node panel\">Agent panel<br><small class=\"diagram-muted\">chat &middot; CLI &middot; workspace</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card alt\"><span class=\"diagram-pill\">&lt;AgentPanel&gt;</span><small class=\"diagram-muted\">same panel, no wrapper &mdash; you own the layout</small></div></div>",
+  "html": "<div class=\"diagram-mount\"><div class=\"diagram-box sidebar\" data-rough><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><div class=\"inner\"><div class=\"diagram-node main\">Ihre App<br><small class=\"diagram-muted\">children: header + &lt;Outlet/&gt;</small></div><div class=\"diagram-node panel\">Agentenbereich<br><small class=\"diagram-muted\">chat &middot; CLI &middot; workspace</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card alt\"><span class=\"diagram-pill\">&lt;AgentPanel&gt;</span><small class=\"diagram-muted\">same panel, no wrapper &mdash; you own the layout</small></div></div>",
   "css": ".diagram-mount{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mount .sidebar{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-mount .inner{display:flex;gap:10px}.diagram-mount .main{flex:2}.diagram-mount .panel{flex:1}.diagram-mount .alt{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-mount .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -44,13 +44,13 @@ Kinder bleiben im Haupt-App-Bereich. Der Agenten-Chat ist der Seitenbereich.
 {
   "filename": "app/root.tsx",
   "language": "tsx",
-  "code": "import { Outlet } from \"react-router\";\nimport { AgentSidebar, AgentToggleButton } from \"@agent-native/core/client\";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText=\"How can I help?\"\n      suggestions={[\n        \"Summarize my inbox\",\n        \"Draft a reply to the latest email\",\n        \"Show me yesterday's signup numbers\",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position=\"right\"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}",
+  "code": "import { Outlet } from \"react-router\";\nimport { AgentSidebar, AgentToggleButton } from \"@agent-native/core/client\";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText=\"Wie kann ich helfen?\"\n      suggestions={[\n        \"Summarize my inbox\",\n        \"Draft a reply to the latest email\",\n        \"Show me yesterday's signup numbers\",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position=\"right\"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}",
   "annotations": [
-    { "lines": "6", "label": "Wrapper", "note": "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area." },
-    { "lines": "8-12", "label": "Starter prompts", "note": "`suggestions` render as clickable chips on the empty chat." },
-    { "lines": "13", "label": "Context-aware chips", "note": "`dynamicSuggestions` merges screen-aware prompts (e.g. \"Summarize this selection\") with your static ones. On by default." },
-    { "lines": "18-20", "label": "Toggle button", "note": "Put `<AgentToggleButton />` anywhere in your header to open and close the panel." },
-    { "lines": "22-24", "label": "Your app", "note": "`<Outlet/>` (your routes) renders in the main area, untouched." }
+    { "lines": "6", "label": "Verpackung", "note": "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area." },
+    { "lines": "8-12", "label": "Starter-Eingabeaufforderungen", "note": "`suggestions` werden als anklickbare Chips im leeren Chat gerendert." },
+    { "lines": "13", "label": "Kontextsensitive Chips", "note": "`dynamicSuggestions` merges screen-aware prompts (e.g. \"Summarize this selection\") with your static ones. On by default." },
+    { "lines": "18-20", "label": "Umschalttaste", "note": "Put `<AgentToggleButton />` anywhere in your header to open and close the panel." },
+    { "lines": "22-24", "label": "Ihre App", "note": "`<Outlet/>` (your routes) renders in the main area, untouched." }
   ]
 }
 ```
@@ -84,7 +84,7 @@ export default function AgentRoute() {
 }
 ```
 
-`<AgentPanel>` bietet Ihnen die Rohregisterkarten (Chat / CLI / Arbeitsbereich) ohne den Seitenleisten-Wrapper, die Schaltfläche zum Reduzieren oder jegliche Statuspersistenz. Platzieren Sie es, wo immer Sie wollen; Sie kümmern sich um das Layout.
+`<AgentPanel>` bietet Ihnen die Rohregisterkarten (Chat / CLI / Arbeitsbereich) ohne den Seitenleisten-Verpackung, die Schaltfläche zum Reduzieren oder jegliche Statuspersistenz. Platzieren Sie es, wo immer Sie wollen; Sie kümmern sich um das Layout.
 
 ### Ausgewählte Requisiten
 
@@ -166,7 +166,7 @@ Laufzeit, actions und SQL-gestützter Status:
 - **Besitzen Sie Chrome rund um die Standardlaufzeit.** Verwenden Sie `<AgentChatSurface>` für
   eine dedizierte Chat-Route oder `<AssistantChat>`, wenn Sie benutzerdefinierte Header wünschen
   Tabs und leere Zustände rund um die Standardkonversation. Die vollständige Ebenenkarte –
-  jede Komponente, jeder Hook, jeder Composer und jeder Adapter mit Importpfaden – lebt in
+  jede Komponente, jeder Hook, jeder Verfassenr und jeder Adapter mit Importpfaden – lebt in
   [Component API](/docs/components#agent-chat-ui).
 - **Bringen Sie Ihre eigene Agent-Laufzeit mit.** Wenn ein Agent, den Sie anderswo erstellt haben, dies tun sollte
   treiben Sie die Konversation voran, während Agent-Native den Komponisten, das Transkript und das Tool behält
@@ -174,7 +174,7 @@ Laufzeit, actions und SQL-gestützter Status:
   `<AssistantChat runtime={...} />`. Die Anschlüsse
   (`createHttpAgentChatRuntime()` und OpenAI / Claude / Vercel AI / AG-UI
   Helfer) und der Veranstaltungsvertrag sind in
-  [Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+  [Native Chat-Oberfläche — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
 
 Welche Ebene Sie auch wählen, behalten Sie den von actions und SQL unterstützten App-Status als Vertrag bei.
 und vermeiden Sie es, vom Produkt UI aus direkt auf `/_agent-native/agent-chat` zu posten. Wenn ein
@@ -257,4 +257,4 @@ Der Benutzer sieht in der Kopfzeile eine Chat-Schaltfläche, kann diese öffnen 
 - [**Actions**](/docs/actions) – `defineAction()` und `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) – Auswahl, Navigation, Ansichtsbildschirm
 - [**Workspace**](/docs/workspace) – was die Registerkarte „Arbeitsbereich“ enthält (skills, Speicher, MCP-Server, geplante Jobs)
-- [**Voice Input**](/docs/voice-input) – das Mikrofon im Chat Composer
+- [**Voice Input**](/docs/voice-input) – das Mikrofon im Chat Verfassenr

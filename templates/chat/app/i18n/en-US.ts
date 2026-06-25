@@ -52,6 +52,13 @@ const messages = {
     settings: "Settings",
     team: "Team",
   },
+  pages: {
+    databaseTitle: "Database",
+    observabilityPageTitle: "Agent Observability",
+    teamTitle: "Team",
+    teamCreateOrgDescription:
+      "Create an organization to invite teammates and share this app.",
+  },
   root: {
     commandActions: "Actions",
     commandAppearance: "Appearance",

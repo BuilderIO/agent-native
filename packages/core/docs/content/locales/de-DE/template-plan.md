@@ -395,14 +395,14 @@ Schema befindet sich in `templates/plan/server/db/schema.ts`. Kerntabellen:
 | `plan_guest_mints` | Ratenbegrenzungsdatensätze für die Ausstellung von Gastsitzungen                                                                                                                                                            |
 | `plan_assets`      | Inline-Bild-Assets werden als Base64 gespeichert (Fallback, wenn kein Upload-Anbieter vorhanden ist)                                                                                                                        |
 
-```an-schema title="Plan data model" summary="One plan row owns ordered sections plus comments, events, versions, shares, and inline assets."
+```an-schema title="Plan Datenmodell" summary="Eine Planzeile enthält geordnete Abschnitte sowie Kommentare, Ereignisse, Versionen, Freigaben und Inline-Assets."
 {
   "entities": [
     { "id": "plans", "name": "plans", "note": "each plan or recap", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "title", "type": "text" },
       { "name": "brief", "type": "text", "nullable": true },
-      { "name": "kind", "type": "enum", "note": "plan | recap" },
+      { "name": "kind", "type": "enum", "note": "planen | rekapitulieren" },
       { "name": "status", "type": "text" },
       { "name": "source", "type": "text", "nullable": true },
       { "name": "hosted_plan_id", "type": "text", "nullable": true, "note": "hosted_plan_url paired" },
@@ -441,7 +441,7 @@ Schema befindet sich in `templates/plan/server/db/schema.ts`. Kerntabellen:
     { "id": "plan_shares", "name": "plan_shares", "note": "per-principal grants", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "plan_id", "type": "text", "fk": "plans.id" },
-      { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+      { "name": "role", "type": "enum", "note": "Zuschauer | Herausgeber | Administrator" }
     ] },
     { "id": "plan_guest_mints", "name": "plan_guest_mints", "note": "rate-limit records for guest session issuance", "fields": [
       { "name": "id", "type": "text", "pk": true }

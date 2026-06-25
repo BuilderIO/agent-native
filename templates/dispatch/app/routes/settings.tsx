@@ -15,10 +15,12 @@ import {
 import { Label } from "@agent-native/dispatch/components/ui/label";
 import { Link } from "react-router";
 
+import { messagesByLocale } from "@/i18n-data";
+
 import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
-  return [{ title: "Settings - Dispatch" }];
+  return [{ title: messagesByLocale["en-US"].routeTitles.settings }];
 }
 
 export default function SettingsRoute() {

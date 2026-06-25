@@ -12,7 +12,7 @@ description: "최초 실행 구성을 위한 설정 체크리스트 — API 키,
 
 ```an-diagram title="설정 체크리스트" summary="AI 엔진 연결만 필요합니다. 패널은 완료를 추적하고 필요한 모든 작업이 완료되면 자동으로 숨겨집니다."
 {
-  "html": "<div class=\"ob\"><div class=\"diagram-card\"><span class=\"diagram-pill warn\">required</span><strong>Connect an AI engine</strong><small class=\"diagram-muted\">Connect Builder (one click) or paste an LLM key</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Database</strong><small class=\"diagram-muted\">set <code>DATABASE_URL</code></small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Authentication</strong><small class=\"diagram-muted\">OAuth / access token</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Email delivery</strong><small class=\"diagram-muted\">Resend / SendGrid</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">all required done &rarr; panel auto-hides</div></div>",
+  "html": "<div class=\"ob\"><div class=\"diagram-card\"><span class=\"diagram-pill warn\">required</span><strong>AI 엔진 연결</strong><small class=\"diagram-muted\">Connect Builder (one click) or paste an LLM key</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Database</strong><small class=\"diagram-muted\">set <code>DATABASE_URL</code></small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Authentication</strong><small class=\"diagram-muted\">OAuth / access token</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>이메일 전달</strong><small class=\"diagram-muted\">Resend / SendGrid</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">all required done &rarr; panel auto-hides</div></div>",
   "css": ".ob{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ob .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 14px}.ob .diagram-arrow{font-size:22px}"
 }
 ```
@@ -100,11 +100,11 @@ description: "최초 실행 구성을 위한 설정 체크리스트 — API 키,
 | `POST /_agent-native/onboarding/reopen`             | 해제 해제(패널 다시 표시)      |
 | `GET /_agent-native/onboarding/dismissed`           | 읽기 취소 + allComplete 플래그 |
 
-```an-api title="List onboarding steps"
+```an-api title="온보딩 단계 나열"
 {
   "method": "GET",
   "path": "/_agent-native/onboarding/steps",
-  "summary": "List all registered steps with their completion status",
+  "summary": "등록된 모든 단계를 완료 상태와 함께 나열합니다.",
   "description": "Drives the sidebar checklist — returns each step's id, title, methods, required flag, and whether `isComplete` currently passes.",
   "responses": [
     { "status": "200", "description": "Array of steps with completion status for the current user/app." }
@@ -120,11 +120,11 @@ description: "최초 실행 구성을 위한 설정 체크리스트 — API 키,
   "language": "ts",
   "code": "import { defineNitroPlugin } from \"@agent-native/core/server\";\nimport { registerOnboardingStep } from \"@agent-native/core/onboarding\";\nimport { listOAuthAccounts } from \"@agent-native/core/oauth-tokens\";\n\nexport default defineNitroPlugin(() => {\n  registerOnboardingStep({\n    id: \"gmail\",\n    order: 100,\n    title: \"Connect Gmail\",\n    description: \"Grant read/send access so the agent can work with email.\",\n    methods: [\n      {\n        id: \"oauth\",\n        kind: \"link\",\n        primary: true,\n        label: \"Sign in with Google\",\n        payload: { url: \"/_agent-native/google/auth-url?scope=mail\", external: false },\n      },\n      {\n        id: \"delegate\",\n        kind: \"agent-task\",\n        label: \"Let the agent set it up\",\n        badge: \"beta\",\n        payload: { prompt: \"Walk me through connecting Gmail. Set env vars as needed.\" },\n      },\n    ],\n    isComplete: async () => {\n      const accounts = await listOAuthAccounts(\"google\");\n      return accounts.length > 0;\n    },\n  });\n});",
   "annotations": [
-    { "lines": "5", "label": "Auto-mounted", "note": "Register from a Nitro plugin — the framework handles rendering, completion tracking, and dismissal." },
-    { "lines": "7", "label": "Stable id", "note": "Re-registering with the same `id` after defaults load overrides a built-in step." },
-    { "lines": "12-19", "label": "Primary method", "note": "`primary: true` marks the big CTA. `kind: \"link\"` sends the user into the OAuth flow." },
-    { "lines": "20-26", "label": "Delegate path", "note": "`kind: \"agent-task\"` hands the setup to the agent chat with a prompt." },
-    { "lines": "28-31", "label": "Completion check", "note": "`isComplete` runs server-side. OAuth tokens live in the `oauth_tokens` store — check it, not `process.env.GMAIL_REFRESH_TOKEN`." }
+    { "lines": "5", "label": "자동 마운트", "note": "Nitro 플러그인에서 등록하세요. 프레임워크가 렌더링, 완료 추적 및 해제를 처리합니다." },
+    { "lines": "7", "label": "안정적인 ID", "note": "기본 로드 후 동일한 `id`을 다시 등록하면 기본 제공 단계가 재정의됩니다." },
+    { "lines": "12-19", "label": "기본 방법", "note": "`primary: true` marks the big CTA. `kind: \"link\"` sends the user into the OAuth flow." },
+    { "lines": "20-26", "label": "대리인 경로", "note": "`kind: \"agent-task\"` hands the setup to the agent chat with a prompt." },
+    { "lines": "28-31", "label": "완료 확인", "note": "`isComplete`은 서버측에서 실행됩니다. OAuth 토큰은 `oauth_tokens` 저장소에 있습니다. `process.env.GMAIL_REFRESH_TOKEN`가 아니라 확인하세요." }
   ]
 }
 ```
