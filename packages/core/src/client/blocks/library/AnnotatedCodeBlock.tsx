@@ -27,6 +27,7 @@ import {
 } from "./annotation-rail.js";
 import { CodeFilenameLabel } from "./code-filename-label.js";
 import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
+import { useBlockCopy } from "./block-copy.js";
 
 /**
  * "Explain this code" walkthrough block: a standard syntax-highlighted code
@@ -158,6 +159,7 @@ function AnnotatedCodeRead({
   summary,
   ctx,
 }: BlockReadProps<AnnotatedCodeData>) {
+  const copy = useBlockCopy();
   // On-hover popover (anchored to the right of the code) replaces the old
   // persistent rail: nothing is visible when idle. `codeRef` measures the code
   // block's right edge; `hover` carries the active index + captured geometry.
@@ -312,7 +314,11 @@ function AnnotatedCodeRead({
         tabIndex={isAnnotated ? 0 : undefined}
         role={isAnnotated ? "button" : undefined}
         aria-expanded={isAnnotated ? isActive : undefined}
-        aria-label={isAnnotated ? `Line ${lineNo} annotation` : undefined}
+        aria-label={
+          isAnnotated
+            ? copy.lineAnnotation.replace("{{line}}", String(lineNo))
+            : undefined
+        }
         className={cn(
           "relative flex w-full",
           isAnnotated && "cursor-pointer",
@@ -494,7 +500,10 @@ function AnnotatedCodeRead({
                   ···
                 </span>
                 <span className="flex-1 text-[11px] text-plan-muted/70">
-                  {hiddenCount} lines — click to expand
+                  {copy.hiddenLinesExpand.replace(
+                    "{{count}}",
+                    String(hiddenCount),
+                  )}
                 </span>
               </button>
             );

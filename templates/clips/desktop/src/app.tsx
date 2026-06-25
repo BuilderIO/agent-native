@@ -295,7 +295,7 @@ function installAuthFetchInterceptor(): void {
 }
 
 type ByokVoiceProvider = Extract<VoiceProvider, "gemini" | "groq">;
-type VoiceProviderMode = "native" | "builder" | "byok";
+type VoiceProviderMode = "native" | "whisper" | "builder" | "byok";
 type MacosPrivacyPane =
   | "camera"
   | "microphone"
@@ -368,6 +368,7 @@ function isByokVoiceProvider(value: VoiceProvider): value is ByokVoiceProvider {
 function voiceProviderMode(value: VoiceProvider): VoiceProviderMode {
   if (isByokVoiceProvider(value)) return "byok";
   if (value === "builder" || value === "builder-gemini") return "builder";
+  if (value === "whisper") return "whisper";
   return "native";
 }
 
@@ -378,6 +379,7 @@ function normalizeVoiceProvider(value: string): VoiceProvider {
   if (value === "macos-native" && !isMacPlatform()) return "browser";
   return value === "browser" ||
     value === "macos-native" ||
+    value === "whisper" ||
     value === "builder-gemini" ||
     value === "gemini" ||
     value === "groq"
@@ -2987,7 +2989,11 @@ function Setup({
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
-    if (enabled) triggerWhisperDownload();
+    if (enabled) {
+      triggerWhisperDownload();
+    } else if (voiceProvider === "whisper") {
+      onVoiceProviderChange(nativeVoiceProvider());
+    }
   }
 
   function setLaunchAtLoginEnabled(enabled: boolean) {
@@ -3223,6 +3229,7 @@ function Setup({
     native: isMacPlatform()
       ? "Uses macOS on-device speech recognition for the fastest free dictation."
       : "Uses the browser's built-in speech recognition when available.",
+    whisper: "Uses the local Whisper model for offline AI transcription.",
     builder:
       "Uses Builder.io for fast cleanup. No separate provider key needed.",
     byok: "Use your own provider key for cleanup.",
@@ -3245,6 +3252,9 @@ function Setup({
     setApiKeyMessage(null);
     if (mode === "native") {
       onVoiceProviderChange(nativeVoiceProvider());
+    } else if (mode === "whisper") {
+      onVoiceProviderChange("whisper");
+      if (!whisperModelEnabled) setWhisperModelEnabled(true);
     } else if (mode === "builder") {
       onVoiceProviderChange("builder-gemini");
     } else {
@@ -3333,6 +3343,7 @@ function Setup({
   const providerWarning: string | null = (() => {
     if (providerStatusLoading || !providerStatus) return null;
     if (selectedMode === "native") return null;
+    if (selectedMode === "whisper") return null;
     if (selectedMode === "builder") {
       return providerStatus.builder
         ? null
@@ -3357,6 +3368,8 @@ function Setup({
         ) : null}
         <h2>Settings</h2>
       </div>
+
+      <div className="setup-section-heading">General</div>
 
       <div className="setup-section">
         <SettingLabel
@@ -3418,6 +3431,23 @@ function Setup({
           />
         </div>
       </div>
+
+      <div className="setup-section-heading">Permissions</div>
+
+      <div className="setup-section">
+        <ReadinessPanel
+          mode="screen-camera"
+          cameraOn={true}
+          micOn={true}
+          includeVoicePaste={voiceEnabled}
+          includeFnMonitoring={fnShortcutSelected}
+          open={readinessOpen}
+          onOpenChange={setReadinessOpen}
+          onOpenPermission={openPrivacySettings}
+        />
+      </div>
+
+      <div className="setup-section-heading">Recording</div>
 
       <details className="setup-advanced">
         <summary className="setup-advanced-summary">Advanced recording</summary>
@@ -3502,18 +3532,25 @@ function Setup({
       </details>
 
       <div className="setup-section">
-        <div className="setup-toggle-row">
-          <SettingLabel
-            label="Voice dictation"
-            hint="Speak to type anywhere on your Mac. Turn off to disable globally and remove the keyboard shortcuts."
-          />
-          <Switch
-            on={voiceEnabled}
-            onChange={setVoiceEnabled}
-            label="Enable voice dictation"
-          />
-        </div>
+        <SettingLabel
+          label="Open Clips shortcut"
+          hint="Optional extra global shortcut for opening the tray popover. Cmd+Shift+L remains available."
+        />
+        <ShortcutRecorder
+          value={popoverCustomShortcut}
+          placeholder="Record shortcut"
+          onChange={onPopoverCustomShortcutChange}
+        />
+        <p className="setup-hint">
+          Use a modifier combination like Cmd+Shift+K. Leave empty to use only
+          Cmd+Shift+L.
+        </p>
+        {shortcutRegistrationError ? (
+          <p className="setup-warning">{shortcutRegistrationError}</p>
+        ) : null}
       </div>
+
+      <div className="setup-section-heading">Meetings</div>
 
       <div className="setup-section">
         <div className="setup-toggle-row">
@@ -3560,25 +3597,6 @@ function Setup({
           <div className="setup-section">
             <div className="setup-toggle-row">
               <SettingLabel
-                label="Whisper model"
-                hint="Local AI model for offline meeting transcription. Captures both your mic and other speakers — no API key required."
-              />
-              <Switch
-                on={whisperModelEnabled}
-                onChange={setWhisperModelEnabled}
-                label="Enable Whisper model"
-              />
-            </div>
-            <WhisperModelStatusRow
-              status={whisperStatus}
-              enabled={whisperModelEnabled}
-              onDownload={triggerWhisperDownload}
-            />
-          </div>
-
-          <div className="setup-section">
-            <div className="setup-toggle-row">
-              <SettingLabel
                 label="Meeting widget"
                 hint="Show the on-screen meeting widget near calendar start times, even when macOS notifications are hidden."
               />
@@ -3592,40 +3610,41 @@ function Setup({
         </>
       ) : null}
 
-      <div className="setup-section">
-        <SettingLabel
-          label="Open Clips shortcut"
-          hint="Optional extra global shortcut for opening the tray popover. Cmd+Shift+L remains available."
-        />
-        <ShortcutRecorder
-          value={popoverCustomShortcut}
-          placeholder="Record shortcut"
-          onChange={onPopoverCustomShortcutChange}
-        />
-        <p className="setup-hint">
-          Use a modifier combination like Cmd+Shift+K. Leave empty to use only
-          Cmd+Shift+L.
-        </p>
-        {shortcutRegistrationError ? (
-          <p className="setup-warning">{shortcutRegistrationError}</p>
-        ) : null}
-      </div>
+      <div className="setup-section-heading">Whisper</div>
 
       <div className="setup-section">
-        <SettingLabel
-          label="Privacy permissions"
-          hint="Open the exact Privacy & Security pane for each permission Clips can need."
+        <div className="setup-toggle-row">
+          <SettingLabel
+            label="Whisper model"
+            hint="Local AI model for offline transcription (dictation and meetings). No API key required."
+          />
+          <Switch
+            on={whisperModelEnabled}
+            onChange={setWhisperModelEnabled}
+            label="Enable Whisper model"
+          />
+        </div>
+        <WhisperModelStatusRow
+          status={whisperStatus}
+          enabled={whisperModelEnabled}
+          onDownload={triggerWhisperDownload}
         />
-        <ReadinessPanel
-          mode="screen-camera"
-          cameraOn={true}
-          micOn={true}
-          includeVoicePaste={voiceEnabled}
-          includeFnMonitoring={fnShortcutSelected}
-          open={readinessOpen}
-          onOpenChange={setReadinessOpen}
-          onOpenPermission={openPrivacySettings}
-        />
+      </div>
+
+      <div className="setup-section-heading">Dictation</div>
+
+      <div className="setup-section">
+        <div className="setup-toggle-row">
+          <SettingLabel
+            label="Voice dictation"
+            hint="Speak to type anywhere on your Mac. Turn off to disable globally and remove the keyboard shortcuts."
+          />
+          <Switch
+            on={voiceEnabled}
+            onChange={setVoiceEnabled}
+            label="Enable voice dictation"
+          />
+        </div>
       </div>
 
       {voiceEnabled ? (
@@ -3645,10 +3664,21 @@ function Setup({
               }
             >
               <option value="native">On-device (free, fast)</option>
+              <option value="whisper" disabled={!whisperModelEnabled}>
+                {whisperModelEnabled
+                  ? "Local Whisper (offline AI)"
+                  : "Local Whisper — enable Whisper model first"}
+              </option>
               <option value="builder">Builder.io</option>
               <option value="byok">Add your own key</option>
             </select>
             <p className="setup-hint">{providerHint[selectedMode]}</p>
+            {selectedMode === "whisper" && !whisperModelEnabled ? (
+              <p className="setup-warning">
+                Whisper model is disabled. Enable it in the Whisper section
+                above.
+              </p>
+            ) : null}
             {providerWarning ? (
               <p className="setup-warning">{providerWarning}</p>
             ) : null}
@@ -3697,9 +3727,10 @@ function Setup({
                   }}
                   placeholder={
                     providerStatus?.[byokProvider]
-                      ? "Paste a new key to rotate"
-                      : `Paste ${keyForByokProvider(byokProvider)}`
+                      ? "Key is saved — paste to rotate"
+                      : `Paste ${keyForByokProvider(byokProvider)} here`
                   }
+                  className="setup-key-input"
                 />
                 <button
                   type="button"
@@ -3733,7 +3764,7 @@ function Setup({
             </div>
           ) : null}
 
-          {selectedMode !== "native" ? (
+          {selectedMode !== "native" && selectedMode !== "whisper" ? (
             <div className="setup-section">
               <SettingLabel
                 label="Custom instructions"
@@ -3819,7 +3850,10 @@ function Setup({
           </div>
         </>
       ) : null}
-      <div className="setup-account">
+
+      <div className="setup-section-heading">Debug</div>
+
+      <div className="setup-account setup-account--no-border">
         <button
           type="button"
           className="link-button"
@@ -3906,10 +3940,8 @@ function WhisperModelStatusRow({
     return (
       <div className="whisper-status whisper-status-ready">
         <IconCircleCheck size={13} className="whisper-status-icon" />
-        <span>
-          Ready · {status.totalMb} MB
-          <span className="whisper-status-path">{status.path}</span>
-        </span>
+        <span>Ready · {status.totalMb} MB</span>
+        <span className="whisper-status-path">{status.path}</span>
       </div>
     );
   }

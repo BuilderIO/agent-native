@@ -25,7 +25,7 @@ agente da mesma maneira.
 
 ```an-diagram title="Dois comandos, uma superfície de revisão" summary="Ambos os comandos são publicados por meio do conector do Plano MCP hospedado na mesma superfície de anotação e comentário."
 {
-  "html": "<div class=\"diagram-plan\"><div class=\"diagram-col\"><div class=\"diagram-node\"><span class=\"diagram-pill accent\">/visual-plan</span><small class=\"diagram-muted\">before code — architecture, UI, refactor</small></div><div class=\"diagram-node\"><span class=\"diagram-pill\">/visual-recap</span><small class=\"diagram-muted\">after code — PR, commit, branch, diff</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Review surface<br><small class=\"diagram-muted\">diagrams · wireframes · annotated code · comments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-node\">Coding agent<br><small class=\"diagram-muted\">feedback handed back</small></div></div>",
+  "html": "<div class=\"diagram-plan\"><div class=\"diagram-col\"><div class=\"diagram-node\"><span class=\"diagram-pill accent\">/visual-plan</span><small class=\"diagram-muted\">antes do codigo: arquitetura, UI, refatoracao</small></div><div class=\"diagram-node\"><span class=\"diagram-pill\">/visual-recap</span><small class=\"diagram-muted\">depois do codigo: PR, commit, branch, diff</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Conector MCP do Plan<br><small class=\"diagram-muted\">plan.agent-native.com</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Superficie de revisao<br><small class=\"diagram-muted\">diagramas · wireframes · codigo anotado · comentarios</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-node\">Agente de codigo<br><small class=\"diagram-muted\">feedback devolvido</small></div></div>",
   "css": ".diagram-plan{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-plan .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-plan .diagram-arrow{font-size:22px;line-height:1}.diagram-plan .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}"
 }
 ```
@@ -33,7 +33,7 @@ agente da mesma maneira.
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Checkout redesign plan</h1><div style='flex:1'></div><button>Compartilhar</button><button class='primary'>Approve</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>Current wireframe</div><div class='wf-box'>Proposed wireframe</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>Implementation plan</strong><div class='wf-box'>Decision: keep existing checkout shell</div><div class='wf-box'>Annotated code walkthrough</div><div class='wf-box'>Open questions</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Pin on primary CTA</div><div class='wf-box'>Question for agent</div><div class='wf-box'>Resolved copy note</div><button class='primary'>Hand back feedback</button></aside></div>"
+  "html": "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Plano de redesenho do checkout</h1><div style='flex:1'></div><button>Compartilhar</button><button class='primary'>Aprovar</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>Wireframe atual</div><div class='wf-box'>Wireframe proposto</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>Plano de implementação</strong><div class='wf-box'>Decisão: manter o shell atual do checkout</div><div class='wf-box'>Passo a passo de código anotado</div><div class='wf-box'>Perguntas em aberto</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comentários</strong><div class='wf-box'>Pin no CTA principal</div><div class='wf-box'>Pergunta para o agente</div><div class='wf-box'>Nota de texto resolvida</div><button class='primary'>Devolver feedback</button></aside></div>"
 }
 ```
 
@@ -570,7 +570,8 @@ const riskCardServerBlock = defineBlock<RiskCardData>({
   Read: ServerReadStub,
   placement: ["block"],
   label: "Risk card",
-  description: "A markdown risk note with a low, medium, or high severity.",
+  description:
+    "Uma nota de risco em markdown com severidade baixa, média ou alta.",
 });
 
 export function registerPlanBlocks(registry: BlockRegistry): void {
@@ -622,7 +623,8 @@ const riskCardBlock = defineBlock<RiskCardData>({
   placement: ["block"],
   editSurface: "panel",
   label: "Risk card",
-  description: "A markdown risk note with a low, medium, or high severity.",
+  description:
+    "Uma nota de risco em markdown com severidade baixa, média ou alta.",
   empty: () => ({ severity: "medium", body: "Describe the risk." }),
 });
 

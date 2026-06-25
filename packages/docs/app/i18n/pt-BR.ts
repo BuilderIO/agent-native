@@ -20,6 +20,17 @@ const ptBR = {
     privacy: "Privacidade",
     terms: "Termos",
   },
+  feedback: {
+    label: "Comentários",
+    placeholder: "Conte o que deixaria esta documentação melhor.",
+  },
+  demoVideo: {
+    visualPlanningAria: "Demonstração de planejamento visual do Agent-Native",
+  },
+  docBlocks: {
+    blockLabel: "Bloco {{alias}}",
+    unknownBlockType: "tipo de bloco desconhecido",
+  },
   theme: {
     light: "claro",
     dark: "escuro",
@@ -105,7 +116,6 @@ const ptBR = {
     templates: {
       title: "Faça fork e personalize uma app completa",
       eyebrow: "100% grátis e open source",
-      body: "Quando um action precisa de telas, comece por uma app validada que você pode personalizar. Chat é o scaffold mínimo de app; templates de domínio adicionam workflows de produto, dados de exemplo e actions prontas para agent.",
       cta: "Ver todos os templates",
     },
     skills: {
@@ -1069,33 +1079,41 @@ const ptBR = {
     },
   },
   skillsPage: {
-    heroTitle: "Give your coding agent new superpowers",
+    metaTitle:
+      "Skills de agente - Visual Plan e Visual Recap para agentes de codigo",
+    metaDescription:
+      "Instale skills com apps Agent-Native para seu agente de codigo usar planejamento visual e recaps de PR.",
+    metaOgDescription:
+      "De comandos slash ao seu agente de codigo com apps Agent-Native que voce pode hospedar, inspecionar e customizar.",
+    metaKeywords:
+      "skills de agente, visual plan, visual recap, agente de codigo, Claude Code, Codex, revisao de PR, planejamento, agent-native",
+    heroTitle: "Dê novos superpoderes ao seu agente de codigo",
     heroBody:
-      "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation and visual PR recaps after changes land.",
-    sectionTitle: "App-backed skills for coding agents",
+      "Instale skills com apps Agent-Native que voce pode customizar por completo: planejamento visual antes da implementacao e recaps visuais de PR depois das mudancas.",
+    sectionTitle: "Skills com apps para agentes de codigo",
     sectionBody:
-      "Use hosted shareable app links, local files, or a self-hosted/custom app, and your agent gets instructions plus the matching MCP surface when one is required.",
+      "Use links de apps hospedados e compartilháveis, arquivos locais ou um app auto-hospedado/customizado; seu agente recebe instrucoes e a superficie MCP correspondente quando ela e necessaria.",
     ctaBody:
-      "Works with Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, and similar coding agents.",
-    readVisualPlansDocs: "Read the Visual Plans docs",
-    browseTemplates: "Browse templates",
+      "Funciona com Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code e agentes de codigo similares.",
+    readVisualPlansDocs: "Ler a documentacao do Visual Plans",
+    browseTemplates: "Explorar templates",
     visualPlan: {
       name: "Visual Plan",
-      tagline: "Review before code",
+      tagline: "Revise antes do codigo",
       description:
-        "Turns a coding task into a shareable plan with diagrams, file notes, and optional UI sketches.",
-      feature1: "See the implementation shape before changes land",
-      feature2: "Comment, revise, approve, or hand off",
-      videoAriaLabel: "Visual Plan skill demo video",
+        "Transforma uma tarefa de codigo em um plano compartilhavel com diagramas, notas de arquivos e esbocos opcionais de UI.",
+      feature1: "Veja o formato da implementacao antes das mudancas chegarem",
+      feature2: "Comente, revise, aprove ou transfira",
+      videoAriaLabel: "Video de demonstracao da skill Visual Plan",
     },
     visualRecap: {
       name: "Visual Recap",
-      tagline: "Review after changes",
+      tagline: "Revise depois das mudancas",
       description:
-        "Turns a PR or git diff into a shareable recap of what changed and why.",
-      feature1: "Summarizes schema, API, and file changes",
-      feature2: "Optionally posts one sticky PR comment",
-      videoAriaLabel: "Visual Recap skill demo video",
+        "Transforma um PR ou git diff em um recap compartilhavel do que mudou e por que.",
+      feature1: "Resume mudancas de schema, API e arquivos",
+      feature2: "Opcionalmente publica um comentario fixo no PR",
+      videoAriaLabel: "Video de demonstracao da skill Visual Recap",
     },
   },
   downloadPage: {
