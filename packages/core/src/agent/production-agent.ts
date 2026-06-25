@@ -4442,6 +4442,32 @@ export function createProductionAgentHandler(
       return filesContext;
     })();
 
+    // DIAGNOSTIC-ONLY: the background worker freezes between `env_config` and
+    // `context_all` when one of the parallel pre-send promises hangs (observed
+    // analytics-only; forms/others claim fine). A single diag field holds only
+    // the latest value, so accumulate the SETTLED set and re-emit it on each
+    // settle — the name MISSING from the last `presend:` breadcrumb is the
+    // hanging step. Each `.finally` runs when its promise settles (freeing its
+    // DB connection), so these persist even under connection-pool pressure.
+    const __psSettled = new Set<string>();
+    const __psMark = (name: string) => {
+      __psSettled.add(name);
+      workerStep("presend:" + [...__psSettled].sort().join("+"));
+    };
+    void systemPromptPromise
+      .finally(() => __psMark("sysprompt"))
+      .catch(() => {});
+    void screenContextPromise.finally(() => __psMark("screen")).catch(() => {});
+    void urlContextPromise.finally(() => __psMark("url")).catch(() => {});
+    void selectionContextPromise
+      .finally(() => __psMark("selection"))
+      .catch(() => {});
+    void filesContextPromise.finally(() => __psMark("files")).catch(() => {});
+    void loopSettingsPromise.finally(() => __psMark("loop")).catch(() => {});
+    void enrichedMessagePromise
+      .finally(() => __psMark("enrich"))
+      .catch(() => {});
+
     const [
       systemPrompt,
       screenBlock,
