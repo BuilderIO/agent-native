@@ -1,0 +1,155 @@
+#!/usr/bin/env tsx
+import { execFileSync } from "node:child_process";
+import { existsSync, rmSync } from "node:fs";
+import path from "node:path";
+
+type PrebuildMode = "dev" | "postinstall";
+
+interface PackageTarget {
+  id: string;
+  name: string;
+  dir: string;
+  expectedOutputs: string[];
+  tsBuildInfoFiles?: string[];
+}
+
+const targets: PackageTarget[] = [
+  {
+    id: "shared-app-config",
+    name: "@agent-native/shared-app-config",
+    dir: "packages/shared-app-config",
+    expectedOutputs: ["dist/index.js"],
+    tsBuildInfoFiles: [
+      "node_modules/.cache/tsbuildinfo/shared-app-config.tsbuildinfo",
+    ],
+  },
+  {
+    id: "core",
+    name: "@agent-native/core",
+    dir: "packages/core",
+    expectedOutputs: ["dist/index.js", "dist/cli/index.js"],
+    tsBuildInfoFiles: [
+      "node_modules/.cache/tsbuildinfo/core.tsbuildinfo",
+      "node_modules/.cache/tsbuildinfo/core-cli.tsbuildinfo",
+    ],
+  },
+  {
+    id: "code-agents-ui",
+    name: "@agent-native/code-agents-ui",
+    dir: "packages/code-agents-ui",
+    expectedOutputs: ["dist/index.js"],
+    tsBuildInfoFiles: [
+      "node_modules/.cache/tsbuildinfo/code-agents-ui.tsbuildinfo",
+    ],
+  },
+  {
+    id: "migrate",
+    name: "@agent-native/migrate",
+    dir: "packages/migrate",
+    expectedOutputs: ["dist/index.js"],
+    tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/migrate.tsbuildinfo"],
+  },
+  {
+    id: "pinpoint",
+    name: "@agent-native/pinpoint",
+    dir: "packages/pinpoint",
+    expectedOutputs: ["dist/index.js"],
+  },
+  {
+    id: "scheduling",
+    name: "@agent-native/scheduling",
+    dir: "packages/scheduling",
+    expectedOutputs: ["dist/index.js", "dist/server/providers/index.js"],
+    tsBuildInfoFiles: [
+      "node_modules/.cache/tsbuildinfo/scheduling.tsbuildinfo",
+    ],
+  },
+  {
+    id: "embedding",
+    name: "@agent-native/embedding",
+    dir: "packages/embedding",
+    expectedOutputs: ["dist/index.js"],
+    tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/embedding.tsbuildinfo"],
+  },
+  {
+    id: "dispatch",
+    name: "@agent-native/dispatch",
+    dir: "packages/dispatch",
+    expectedOutputs: ["dist/index.js", "dist/server/index.js"],
+    tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/dispatch.tsbuildinfo"],
+  },
+];
+
+const modeTargets: Record<PrebuildMode, string[]> = {
+  dev: ["core", "scheduling", "dispatch", "pinpoint"],
+  postinstall: [
+    "shared-app-config",
+    "core",
+    "code-agents-ui",
+    "migrate",
+    "pinpoint",
+    "scheduling",
+    "embedding",
+    "dispatch",
+  ],
+};
+
+function readMode(): PrebuildMode {
+  const raw = process.argv[2] ?? "dev";
+  if (raw === "dev" || raw === "postinstall") return raw;
+  console.error(
+    `[prebuild-workspace-packages] Unknown mode "${raw}". Use dev or postinstall.`,
+  );
+  process.exit(1);
+}
+
+function firstMissingOutput(target: PackageTarget): string | null {
+  for (const output of target.expectedOutputs) {
+    if (!existsSync(path.join(target.dir, output))) return output;
+  }
+  return null;
+}
+
+function clearStaleBuildInfo(target: PackageTarget): void {
+  const missingOutput = firstMissingOutput(target);
+  if (!missingOutput) return;
+
+  const removed: string[] = [];
+  for (const buildInfo of target.tsBuildInfoFiles ?? []) {
+    const buildInfoPath = path.join(target.dir, buildInfo);
+    if (!existsSync(buildInfoPath)) continue;
+    rmSync(buildInfoPath, { force: true });
+    removed.push(path.join(target.dir, buildInfo));
+  }
+
+  if (removed.length > 0) {
+    console.log(
+      `[prebuild-workspace-packages] ${target.name}: ${path.join(
+        target.dir,
+        missingOutput,
+      )} is missing; removed stale ${removed.join(", ")}`,
+    );
+  }
+}
+
+const mode = readMode();
+const selectedTargets = modeTargets[mode].map((id) => {
+  const target = targets.find((candidate) => candidate.id === id);
+  if (!target) throw new Error(`Unknown prebuild target: ${id}`);
+  return target;
+});
+
+for (const target of selectedTargets) {
+  clearStaleBuildInfo(target);
+}
+
+const filters = selectedTargets.flatMap((target) => ["--filter", target.name]);
+console.log(
+  `[prebuild-workspace-packages] Building ${selectedTargets
+    .map((target) => target.name)
+    .join(", ")}`,
+);
+execFileSync("pnpm", [...filters, "run", "build"], {
+  cwd: process.cwd(),
+  stdio: "inherit",
+});
