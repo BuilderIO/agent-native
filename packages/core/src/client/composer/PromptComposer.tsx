@@ -314,7 +314,7 @@ function ImagePreviewLightbox({
         type="button"
         onClick={onClose}
         aria-label="Close preview"
-        className="absolute right-4 top-4 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-white/30 bg-black/40 text-white hover:bg-black/60"
+        className="absolute end-4 top-4 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-white/30 bg-black/40 text-white hover:bg-black/60"
       >
         <IconX className="h-4 w-4" />
       </button>
@@ -371,7 +371,7 @@ function AttachmentChip({
               }
             }}
             aria-label={`Remove ${attachment.name}`}
-            className="absolute right-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground hover:text-foreground"
+            className="absolute end-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground hover:text-foreground"
           >
             <IconX className="h-3 w-3" />
           </span>
@@ -539,7 +539,7 @@ function PromptComposerInner({
 
   return (
     <AgentComposerFrame
-      className={cn("text-left", className)}
+      className={cn("text-start", className)}
       rootClassName={rootClassName}
       style={style}
       rootStyle={rootStyle}

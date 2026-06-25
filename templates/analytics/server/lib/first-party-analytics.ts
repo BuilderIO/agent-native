@@ -203,6 +203,36 @@ function urlParts(url: string | null): {
   }
 }
 
+export function resolveAnalyticsEventDimensions({
+  properties,
+  context,
+  hostname,
+}: {
+  properties: Record<string, unknown>;
+  context: Record<string, unknown>;
+  hostname: string | null;
+}): { app: string | null; template: string | null } {
+  const app =
+    asString(properties.app) ||
+    asString((properties as any).agent_native_app) ||
+    asString((properties as any).agentNativeApp) ||
+    asString((context as any).app) ||
+    asString((context as any).agent_native_app) ||
+    asString((context as any).agentNativeApp) ||
+    (hostname ? hostname.split(".")[0] : null);
+  const template =
+    asString(properties.template) ||
+    asString((properties as any).templateId) ||
+    asString((properties as any).agent_native_template) ||
+    asString((properties as any).agentNativeTemplate) ||
+    asString((context as any).template) ||
+    asString((context as any).templateId) ||
+    asString((context as any).agent_native_template) ||
+    asString((context as any).agentNativeTemplate) ||
+    app;
+  return { app, template };
+}
+
 export function parseAnalyticsTrackPayload(raw: unknown): {
   publicKey: string;
   events: IncomingAnalyticsEvent[];
@@ -279,14 +309,11 @@ export async function recordAnalyticsEvents(
       parts.hostname ||
       asString(properties.hostname) ||
       asString((context as any).hostname);
-    const app =
-      asString(properties.app) ||
-      asString((context as any).app) ||
-      (hostname ? hostname.split(".")[0] : null);
-    const template =
-      asString(properties.template) ||
-      asString((properties as any).templateId) ||
-      app;
+    const { app, template } = resolveAnalyticsEventDimensions({
+      properties,
+      context,
+      hostname,
+    });
     const signedIn =
       asString((properties as any).signed_in) ||
       asString((properties as any).signedIn) ||

@@ -79,7 +79,6 @@ import { ViewsMenu } from "./ViewsMenu";
 import BlankDashboard from "../BlankDashboard";
 import {
   clampDashboardColumns,
-  clampPanelWidth,
   DEFAULT_DASHBOARD_COLUMNS,
   type SqlDashboardConfig,
   type SqlPanel,
@@ -627,22 +626,6 @@ export default function SqlDashboardPage() {
       persist({
         ...dashboard,
         panels: dashboard.panels.filter((p) => p.id !== panelId),
-      });
-    },
-    [dashboard, persist],
-  );
-
-  const toggleWidth = useCallback(
-    (panelId: string, gridColumns: number) => {
-      if (!dashboard) return;
-      const max = clampDashboardColumns(gridColumns);
-      persist({
-        ...dashboard,
-        panels: dashboard.panels.map((p) => {
-          if (p.id !== panelId) return p;
-          const current = clampPanelWidth(p.width, max);
-          return { ...p, width: current >= max ? 1 : max };
-        }),
       });
     },
     [dashboard, persist],
@@ -1349,14 +1332,12 @@ export default function SqlDashboardPage() {
                       }
                     : panel;
                   const remoteEditor = remoteEditingPanels.get(panel.id);
-                  const span = clampPanelWidth(panel.width, group.columns);
                   return (
                     <div
                       key={panel.id}
                       className="dashboard-grid-cell relative h-full"
                       style={
                         {
-                          "--panel-span": span,
                           ...(remoteEditor
                             ? {
                                 outline: `2px solid ${remoteEditor.color}`,
@@ -1384,11 +1365,7 @@ export default function SqlDashboardPage() {
                           serializePanelSql(panel.sql),
                           vars,
                         )}
-                        gridColumns={group.columns}
                         onRemove={() => removePanel(panel.id)}
-                        onToggleWidth={() =>
-                          toggleWidth(panel.id, group.columns)
-                        }
                         onEdit={() => openEditPanel(panel)}
                         onSaveSql={(sql) => handleSavePanel({ ...panel, sql })}
                         editable={canEdit}

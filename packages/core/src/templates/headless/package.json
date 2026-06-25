@@ -6,6 +6,7 @@
     "action": "agent-native action",
     "agent": "agent-native agent",
     "script": "agent-native script",
+    "skills:update": "agent-native skills update scaffold --project",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

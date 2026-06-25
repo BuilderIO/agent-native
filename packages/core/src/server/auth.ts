@@ -263,6 +263,12 @@ export interface AuthOptions {
     cancelLabel?: string;
   };
   /**
+   * Optional email signup legal copy for the built-in login page.
+   * Leave unset to use Agent Native links only on `*.agent-native.com` hosts,
+   * pass false to suppress, or pass URLs for custom/self-hosted policies.
+   */
+  signupLegalNotice?: OnboardingHtmlOptions["signupLegalNotice"];
+  /**
    * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
    *
    * - `'auto'` — popup in normal browsers and Builder web iframes, redirect in
@@ -1013,6 +1019,7 @@ function getOnboardingHtmlOptions(
     googleOnly: options.googleOnly,
     marketing: options.marketing,
     googleSignInNotice: options.googleSignInNotice,
+    signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
@@ -1617,6 +1624,19 @@ function createAuthGuardFn(): (
     // verified by the same HMAC internal-token scheme plus an atomic SQL claim,
     // so it bypasses cookie/session auth (mirrors the integration processor).
     if (p === "/_agent-native/agent-teams/_process-run") {
+      return;
+    }
+
+    // Durable-background AGENT-CHAT processor. The foreground POST self-dispatches
+    // a long chat turn here (through the Netlify `-background` function, which
+    // rewrites its default url to this path); the route HMAC-verifies the
+    // dispatch (same internal-token scheme as agent-teams above) plus an atomic
+    // SQL claim. The self-dispatch carries ONLY a Bearer HMAC token and NO
+    // session cookie, so without this bypass the blanket 401-for-/_agent-native/*
+    // gate below blocks the worker before `prepareProcessRunRequest` ever runs —
+    // the run is never claimed, its heartbeat never starts, and it times out with
+    // no visible progress. Exact path only (mirrors agent-teams).
+    if (p === "/_agent-native/agent-chat/_process-run") {
       return;
     }
 

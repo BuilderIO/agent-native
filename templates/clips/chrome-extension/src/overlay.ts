@@ -281,11 +281,9 @@ function initToolbar(): void {
 
   const time = document.createElement("div");
   time.className = "toolbar-v-time";
-  const dot = document.createElement("span");
-  dot.className = "toolbar-v-dot";
   const clock = document.createElement("span");
   clock.textContent = "0:00";
-  time.append(dot, clock);
+  time.append(clock);
 
   const pauseBtn = makeBtn("toolbar-v-pause", "Pause", ICONS.pause, () => {
     if (state.phase === "paused") send("CLIPS_OVERLAY_RESUME");

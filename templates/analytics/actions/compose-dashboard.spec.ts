@@ -59,6 +59,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
 }));
 
 const { default: composeDashboard } = await import("./compose-dashboard");
+const { buildPanel } = await import("../server/lib/first-party-metric-catalog");
 
 const LARGE_METRICS = [
   "total-signups",
@@ -70,6 +71,10 @@ const LARGE_METRICS = [
   "total-template-clicks",
   "cli-copies-over-time",
   "pageviews-over-time",
+  "top-visited-urls",
+  "top-visited-clips",
+  "one-day-retention-by-template",
+  "seven-day-retention-by-template",
   "referred-signups-30d",
   "viral-signup-share-30d",
   "viral-coefficient-90d",
@@ -102,7 +107,7 @@ beforeEach(() => {
 });
 
 describe("compose-dashboard", () => {
-  it("builds a large dashboard (16 metrics) in one call with correct SQL", async () => {
+  it("builds a large dashboard (20 metrics) in one call with correct SQL", async () => {
     const result: any = await composeDashboard.run(
       {
         dashboardId: "big-compose",
@@ -122,7 +127,11 @@ describe("compose-dashboard", () => {
 
     const saved = store.get("big-compose")!;
     const panels = saved.config.panels as Array<Record<string, unknown>>;
-    expect(panels).toHaveLength(16);
+    expect(panels).toHaveLength(20);
+    expect(saved.config.filters).toEqual([
+      expect.objectContaining({ id: "timeRange", default: "90d" }),
+      expect.objectContaining({ id: "emailFilter", default: "all" }),
+    ]);
 
     // Each panel has the canonical first-party shape.
     for (const panel of panels) {
@@ -136,12 +145,80 @@ describe("compose-dashboard", () => {
 
     // Spot-check verbatim catalog SQL came through.
     const totalSignups = panels.find((p) => p.id === "total-signups")!;
-    expect(totalSignups.sql).toBe(
-      "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup'",
-    );
+    expect(totalSignups.sql).toContain("SELECT COUNT(*) AS signups");
+    expect(totalSignups.sql).toContain("{{timeRange}}");
+    expect((totalSignups.config as { yKey?: string }).yKey).toBe("signups");
+    const signupsByTemplate = panels.find(
+      (p) => p.id === "signups-by-template",
+    )!;
+    expect(signupsByTemplate.chartType).toBe("bar");
+    expect(signupsByTemplate.sql).toContain("GROUP BY COALESCE");
+    expect(signupsByTemplate.sql).toContain("ORDER BY count DESC");
+    expect(signupsByTemplate.sql).not.toContain("WITH RECURSIVE");
+    expect(signupsByTemplate.config).toMatchObject({
+      xKey: "template",
+      yKey: "count",
+    });
+    const pageviews = panels.find((p) => p.id === "pageviews-over-time")!;
+    expect(pageviews.sql).toContain("event_name = 'pageview'");
+    expect(pageviews.sql).toContain("{{timeRange}}");
+    expect(pageviews.sql).toContain("{{emailFilter}}");
+    const cliCopies = panels.find((p) => p.id === "cli-copies-over-time")!;
+    expect(cliCopies.sql).toContain("{{timeRange}}");
+    expect(cliCopies.sql).toContain("{{emailFilter}}");
+    const topUrls = panels.find((p) => p.id === "top-visited-urls")!;
+    expect(topUrls.sql).toContain("LIKE 'http://%'");
+    expect(topUrls.sql).toContain("LIKE 'https://%'");
+    expect(topUrls.sql).toContain("substr(path, 1, 2) != '//'");
+    expect(topUrls.sql).not.toContain("LIKE 'http%'");
     // Windowed metric retains its default 30d window when none requested.
     const referred = panels.find((p) => p.id === "referred-signups-30d")!;
     expect(referred.sql).toContain("interval '30 days'");
+  });
+
+  it("uses the canonical template fallback for active-user panels", () => {
+    for (const metric of ["dau-over-time", "wau-over-time"]) {
+      const panel = buildPanel(metric)!;
+      expect(panel.sql).toContain("properties::jsonb ->> 'templateId'");
+      expect(panel.sql).toContain(
+        "properties::jsonb ->> 'agentNativeTemplate'",
+      );
+      expect(panel.sql).toContain("properties::jsonb ->> 'agentNativeApp'");
+    }
+  });
+
+  it("adds shared filters when appending filtered panels to an existing dashboard", async () => {
+    store.set("existing-unfiltered", {
+      config: {
+        name: "Existing",
+        filters: [{ id: "region", label: "Region", type: "text" }],
+        panels: [
+          {
+            id: "sessions-by-app",
+            title: "Sessions",
+            chartType: "bar",
+            source: "first-party",
+            width: 2,
+            sql: "SELECT COALESCE(NULLIF(app, ''), 'unknown') AS app, COUNT(*) AS count FROM analytics_events WHERE event_name = 'session status' GROUP BY COALESCE(NULLIF(app, ''), 'unknown')",
+            config: {},
+          },
+        ],
+      },
+    });
+
+    await composeDashboard.run(
+      {
+        dashboardId: "existing-unfiltered",
+        metrics: ["total-signups"],
+      },
+      { userEmail: "alice@example.com", orgId: null, caller: "tool" },
+    );
+
+    expect(store.get("existing-unfiltered")!.config.filters).toEqual([
+      { id: "region", label: "Region", type: "text" },
+      expect.objectContaining({ id: "timeRange" }),
+      expect.objectContaining({ id: "emailFilter" }),
+    ]);
   });
 
   it("accepts a stringified JSON array of metrics (CLI/gateway shape)", async () => {

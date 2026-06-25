@@ -1,0 +1,63 @@
+const messages = {
+  agent: {
+    emptyState: "اسألني أي شيء عن رسائلك",
+    suggestionSummarize: "لخص رسائلي غير المقروءة",
+    suggestionReplies: "ما الذي يحتاج إلى ردي اليوم؟",
+    suggestionWidget: "أنشئ لي ويدجت مخصصا لصندوق الوارد",
+  },
+  settings: {
+    openAgentSettings: "فتح إعدادات الوكيل",
+    agentDescription:
+      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    agentTitle: "إعدادات الوكيل",
+    title: "الإعدادات",
+    general: "عام",
+    generalDescription: "اللغة وتفضيلات مستوى الحساب في Mail.",
+    languageTitle: "اللغة",
+    languageDescription:
+      "اختر لغة الواجهة لهذا الحساب. يتذكر Mail اختيارك عبر الأجهزة.",
+    languageLabel: "لغة الواجهة",
+    whatsNew: "ما الجديد",
+    whatsNewDescription:
+      "التغييرات الأخيرة الموجهة للمستخدمين في Agent-Native Mail.",
+    drafting: "الكتابة",
+    automations: "الأتمتة",
+    gmailFilters: "فلاتر Gmail",
+    aliases: "الأسماء المستعارة",
+    tracking: "التتبع",
+    slack: "Slack",
+    team: "الفريق",
+  },
+  notFound: {
+    message: "Page not found",
+    goToInbox: "Go to Inbox",
+  },
+  commandPalette: {
+    placeholder: "Type a command or ask AI...",
+    actions: "Actions",
+    compose: "Compose new email",
+    reply: "Reply to thread",
+    snooze: "Snooze email",
+    search: "Search emails",
+    refresh: "Refresh inbox",
+    reportSpam: "Report spam",
+    reportSpamBlock: "Report spam & block sender",
+    muteThread: "Mute thread",
+    navigate: "Navigate",
+    goToInbox: "Go to Inbox",
+    goToStarred: "Go to Starred",
+    goToSent: "Go to Sent",
+    goToDrafts: "Go to Drafts",
+    goToArchive: "Go to Archive",
+    goToTrash: "Go to Trash",
+    privacy: "Privacy",
+    imagesShowAll: "Images: Show all",
+    imagesBlockTrackers: "Images: Block known trackers",
+    imagesBlockAll: "Images: Block all remote images",
+    appearance: "Appearance",
+    toggleLight: "Toggle light mode",
+    toggleDark: "Toggle dark mode",
+  },
+};
+
+export default messages;

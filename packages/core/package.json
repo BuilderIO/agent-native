@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.72.4",
+  "version": "0.76.6",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -69,6 +69,7 @@
     "./client/route-state": "./dist/client/route-state.js",
     "./client/observability": "./dist/client/observability/index.js",
     "./client/onboarding": "./dist/client/onboarding/index.js",
+    "./client/i18n": "./dist/client/i18n.js",
     "./client/settings/useBuilderStatus": "./dist/client/settings/useBuilderStatus.js",
     "./embedding": "./dist/embedding/index.js",
     "./embedding/agent": "./dist/embedding/agent.js",
@@ -80,6 +81,9 @@
     "./scripts": "./dist/scripts/index.js",
     "./application-state": "./dist/application-state/index.js",
     "./settings": "./dist/settings/index.js",
+    "./localization": "./dist/localization/index.js",
+    "./localization/actions/get-localization-preference": "./dist/localization/actions/get-localization-preference.js",
+    "./localization/actions/set-localization-preference": "./dist/localization/actions/set-localization-preference.js",
     "./credentials": "./dist/credentials/index.js",
     "./event-bus": "./dist/event-bus/index.js",
     "./fetch-tool": "./dist/extensions/fetch-tool.js",
@@ -243,6 +247,7 @@
     "fzstd": "^0.1.1",
     "h3": "^2.0.1-rc.20",
     "highlight.js": "^11.11.1",
+    "i18next": "26.3.1",
     "isbot": "^5",
     "jiti": "^2.6.1",
     "jose": "^6.2.2",
@@ -256,6 +261,7 @@
     "p-limit": "^7.3.0",
     "pako": "^2.1.0",
     "prettier": "^3.8.3",
+    "react-i18next": "17.0.8",
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.1",
     "remark-gfm": "^4.0.1",

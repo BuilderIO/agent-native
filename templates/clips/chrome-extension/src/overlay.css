@@ -167,16 +167,6 @@ body {
 
 /* ---------- Toolbar (vertical left pill, desktop layout) ---------- */
 
-@keyframes rec-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
-  }
-}
-
 .toolbar-v {
   /* Fill the iframe so the (opaque) iframe canvas is fully covered by the pill —
      the iframe is clipped to this same 20px radius in styleFrame, so no canvas
@@ -235,26 +225,15 @@ body {
 }
 
 .toolbar-v-time {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  width: 40px;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
   font-size: 13px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.94);
-}
-
-.toolbar-v-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ef4444;
-  animation: rec-pulse 1.4s ease-in-out infinite;
-}
-
-.toolbar-v-paused .toolbar-v-dot {
-  background: #f59e0b;
-  animation: none;
 }
 
 .toolbar-v-pause {

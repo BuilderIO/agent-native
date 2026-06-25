@@ -1,0 +1,63 @@
+const messages = {
+  agent: {
+    emptyState: "Preguntame cualquier cosa sobre tus correos",
+    suggestionSummarize: "Resume mis correos no leidos",
+    suggestionReplies: "Que necesita mi respuesta hoy?",
+    suggestionWidget: "Crea un widget personalizado para mi bandeja",
+  },
+  settings: {
+    openAgentSettings: "Abrir ajustes del agente",
+    agentDescription:
+      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
+    agentTitle: "Ajustes del agente",
+    title: "Configuracion",
+    general: "General",
+    generalDescription: "Idioma y preferencias de cuenta para Mail.",
+    languageTitle: "Idioma",
+    languageDescription:
+      "Elige el idioma de la interfaz para esta cuenta. Mail lo recuerda en todos tus dispositivos.",
+    languageLabel: "Idioma de la interfaz",
+    whatsNew: "Novedades",
+    whatsNewDescription:
+      "Cambios recientes para usuarios en Agent-Native Mail.",
+    drafting: "Redaccion",
+    automations: "Automatizaciones",
+    gmailFilters: "Filtros de Gmail",
+    aliases: "Alias",
+    tracking: "Seguimiento",
+    slack: "Slack",
+    team: "Equipo",
+  },
+  notFound: {
+    message: "Page not found",
+    goToInbox: "Go to Inbox",
+  },
+  commandPalette: {
+    placeholder: "Type a command or ask AI...",
+    actions: "Actions",
+    compose: "Compose new email",
+    reply: "Reply to thread",
+    snooze: "Snooze email",
+    search: "Search emails",
+    refresh: "Refresh inbox",
+    reportSpam: "Report spam",
+    reportSpamBlock: "Report spam & block sender",
+    muteThread: "Mute thread",
+    navigate: "Navigate",
+    goToInbox: "Go to Inbox",
+    goToStarred: "Go to Starred",
+    goToSent: "Go to Sent",
+    goToDrafts: "Go to Drafts",
+    goToArchive: "Go to Archive",
+    goToTrash: "Go to Trash",
+    privacy: "Privacy",
+    imagesShowAll: "Images: Show all",
+    imagesBlockTrackers: "Images: Block known trackers",
+    imagesBlockAll: "Images: Block all remote images",
+    appearance: "Appearance",
+    toggleLight: "Toggle light mode",
+    toggleDark: "Toggle dark mode",
+  },
+};
+
+export default messages;

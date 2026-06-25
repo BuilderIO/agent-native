@@ -146,7 +146,7 @@ export function ShareCardHeader({
     <div
       className={cn(
         "min-w-0 border-b border-border px-4 pb-3 pt-3",
-        reserveCloseButton && "pr-12",
+        reserveCloseButton && "pe-12",
       )}
     >
       <div className="min-w-0 truncate text-sm font-semibold" title={title}>
@@ -201,7 +201,7 @@ export function GeneralAccessSelect({
             onValueChange={(v) => onChange(v as Visibility)}
             disabled={!canManage || isPending}
           >
-            <SelectTrigger className="h-8 border-0 -ml-2 bg-transparent px-2 shadow-none focus:ring-0 [&>span]:text-left">
+            <SelectTrigger className="h-8 border-0 -ms-2 bg-transparent px-2 shadow-none focus:ring-0 [&>span]:text-start">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

@@ -1,0 +1,63 @@
+const messages = {
+  agent: {
+    emptyState: "Frag mich alles zu deinen E-Mails",
+    suggestionSummarize: "Fasse meine ungelesenen E-Mails zusammen",
+    suggestionReplies: "Was braucht heute meine Antwort?",
+    suggestionWidget: "Baue ein eigenes Widget fur meinen Posteingang",
+  },
+  settings: {
+    openAgentSettings: "Agent-Einstellungen öffnen",
+    agentDescription:
+      "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
+    agentTitle: "Agent-Einstellungen",
+    title: "Einstellungen",
+    general: "Allgemein",
+    generalDescription: "Sprache und kontoweite Einstellungen fur Mail.",
+    languageTitle: "Sprache",
+    languageDescription:
+      "Wahle die Sprache der Oberflache fur dieses Konto. Mail merkt sie sich gerateubergreifend.",
+    languageLabel: "Sprache der Oberflache",
+    whatsNew: "Neuigkeiten",
+    whatsNewDescription:
+      "Aktuelle nutzerseitige Anderungen in Agent-Native Mail.",
+    drafting: "Entwurfe",
+    automations: "Automatisierungen",
+    gmailFilters: "Gmail-Filter",
+    aliases: "Aliasse",
+    tracking: "Tracking",
+    slack: "Slack",
+    team: "Team",
+  },
+  notFound: {
+    message: "Page not found",
+    goToInbox: "Go to Inbox",
+  },
+  commandPalette: {
+    placeholder: "Type a command or ask AI...",
+    actions: "Actions",
+    compose: "Compose new email",
+    reply: "Reply to thread",
+    snooze: "Snooze email",
+    search: "Search emails",
+    refresh: "Refresh inbox",
+    reportSpam: "Report spam",
+    reportSpamBlock: "Report spam & block sender",
+    muteThread: "Mute thread",
+    navigate: "Navigate",
+    goToInbox: "Go to Inbox",
+    goToStarred: "Go to Starred",
+    goToSent: "Go to Sent",
+    goToDrafts: "Go to Drafts",
+    goToArchive: "Go to Archive",
+    goToTrash: "Go to Trash",
+    privacy: "Privacy",
+    imagesShowAll: "Images: Show all",
+    imagesBlockTrackers: "Images: Block known trackers",
+    imagesBlockAll: "Images: Block all remote images",
+    appearance: "Appearance",
+    toggleLight: "Toggle light mode",
+    toggleDark: "Toggle dark mode",
+  },
+};
+
+export default messages;

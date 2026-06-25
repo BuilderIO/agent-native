@@ -314,31 +314,33 @@
 }
 
 /* The dashboard grid responds to the available content width — which shrinks
-   when the agent sidebar is open — not the viewport. Below the threshold it
-   stacks to one column (mobile layout); at/above it expands to the dashboard's
-   configured column count. Mirrors templates/macros/app/global.css. */
+   when the agent sidebar is open — not the viewport. Rows auto-fit like
+   Amplitude: a partial row stretches its cards across the available width. */
 .dashboard-grid-container {
   container: dashboard-grid / inline-size;
 }
 
 .dashboard-grid {
-  display: grid;
-  grid-auto-rows: auto;
+  --dashboard-grid-gap: 1rem;
+  display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
-  gap: 1rem;
-  grid-template-columns: minmax(0, 1fr);
+  gap: var(--dashboard-grid-gap);
 }
 
 .dashboard-grid > .dashboard-grid-cell {
-  grid-column: auto;
+  flex: 1 1 100%;
+  min-width: 0;
 }
 
 @container dashboard-grid (min-width: 768px) {
-  .dashboard-grid {
-    grid-template-columns: repeat(var(--dash-cols), minmax(0, 1fr));
-  }
-
   .dashboard-grid > .dashboard-grid-cell {
-    grid-column: span var(--panel-span);
+    flex-basis: max(
+      0px,
+      calc(
+        (100% - (var(--dash-cols) - 1) * var(--dashboard-grid-gap)) /
+          var(--dash-cols)
+      )
+    );
   }
 }

@@ -38,6 +38,10 @@ Read these local package docs before implementing advanced Agent Native
 features. Prefer this app's own `AGENTS.md` and `.agents/skills/` for
 app-specific rules, then use the corpus for reusable framework/template
 patterns.
+After updating `@agent-native/core`, run `pnpm skills:update` or
+`npx @agent-native/core@latest skills update scaffold --project` from the app
+root to refresh framework-provided `.agents/skills` and repair `CLAUDE.md` /
+`.claude/skills` compatibility links.
 
 ### Database Code
 
@@ -139,21 +143,22 @@ repackage, or proxy an action.
 
 Skills in `.agents/skills/` provide detailed guidance for each architectural rule. Read them before making changes.
 
-| Skill                 | When to read                                                                      |
-| --------------------- | --------------------------------------------------------------------------------- |
-| `agent-native-docs`   | Before using advanced Agent Native framework APIs or generated-app features       |
-| `adding-a-feature`    | **Read first when adding ANY new feature** — the four-area parity checklist       |
-| `real-time-sync`      | Before wiring data fetching for anything the agent can mutate (must auto-refresh) |
-| `storing-data`        | Before storing or reading any app state                                           |
-| `delegate-to-agent`   | Before adding LLM calls or AI delegation                                          |
-| `actions`             | Before creating or modifying actions                                              |
-| `self-modifying-code` | Before editing source, components, or styles                                      |
-| `capture-learnings`   | Before recording user preferences or corrections                                  |
-| `frontend-design`     | Before building or restyling any UI component, page, or layout                    |
-| `shadcn-ui`           | Before adding, updating, or debugging shadcn/ui components                        |
-| `agent-engines`       | Before switching LLM providers or registering a custom engine                     |
-| `notifications`       | Before surfacing alerts/progress to the user or adding channels                   |
-| `progress`            | Before running any task that takes more than a few seconds                        |
+| Skill                  | When to read                                                                      |
+| ---------------------- | --------------------------------------------------------------------------------- |
+| `agent-native-docs`    | Before using advanced Agent Native framework APIs or generated-app features       |
+| `adding-a-feature`     | **Read first when adding ANY new feature** — the four-area parity checklist       |
+| `real-time-sync`       | Before wiring data fetching for anything the agent can mutate (must auto-refresh) |
+| `storing-data`         | Before storing or reading any app state                                           |
+| `internationalization` | Before adding or editing visible UI copy, prompts, toasts, labels, or formatting  |
+| `delegate-to-agent`    | Before adding LLM calls or AI delegation                                          |
+| `actions`              | Before creating or modifying actions                                              |
+| `self-modifying-code`  | Before editing source, components, or styles                                      |
+| `capture-learnings`    | Before recording user preferences or corrections                                  |
+| `frontend-design`      | Before building or restyling any UI component, page, or layout                    |
+| `shadcn-ui`            | Before adding, updating, or debugging shadcn/ui components                        |
+| `agent-engines`        | Before switching LLM providers or registering a custom engine                     |
+| `notifications`        | Before surfacing alerts/progress to the user or adding channels                   |
+| `progress`             | Before running any task that takes more than a few seconds                        |
 
 ## When Adding Features
 

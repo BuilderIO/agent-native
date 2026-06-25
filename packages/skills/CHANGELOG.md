@@ -1,5 +1,120 @@
 # @agent-native/skills
 
+## 0.2.83
+
+### Patch Changes
+
+- Updated dependencies [c294aaa]
+- Updated dependencies [c294aaa]
+  - @agent-native/core@0.76.6
+
+## 0.2.82
+
+### Patch Changes
+
+- Updated dependencies [ba634f4]
+  - @agent-native/core@0.76.5
+
+## 0.2.81
+
+### Patch Changes
+
+- Updated dependencies [6067f27]
+  - @agent-native/core@0.76.4
+
+## 0.2.80
+
+### Patch Changes
+
+- Updated dependencies [57e72bb]
+  - @agent-native/core@0.76.3
+
+## 0.2.79
+
+### Patch Changes
+
+- Updated dependencies [93c06b0]
+  - @agent-native/core@0.76.2
+
+## 0.2.78
+
+### Patch Changes
+
+- Updated dependencies [50f32ff]
+- Updated dependencies [50f32ff]
+  - @agent-native/core@0.76.1
+
+## 0.2.77
+
+### Patch Changes
+
+- Updated dependencies [16356c2]
+- Updated dependencies [16356c2]
+  - @agent-native/core@0.76.0
+
+## 0.2.76
+
+### Patch Changes
+
+- Updated dependencies [25802f2]
+  - @agent-native/core@0.75.5
+
+## 0.2.75
+
+### Patch Changes
+
+- Updated dependencies [dbfbe42]
+  - @agent-native/core@0.75.4
+
+## 0.2.74
+
+### Patch Changes
+
+- Updated dependencies [8a00851]
+  - @agent-native/core@0.75.3
+
+## 0.2.73
+
+### Patch Changes
+
+- Updated dependencies [4b3543d]
+  - @agent-native/core@0.75.2
+
+## 0.2.72
+
+### Patch Changes
+
+- Updated dependencies [98b89e2]
+  - @agent-native/core@0.75.1
+
+## 0.2.71
+
+### Patch Changes
+
+- Updated dependencies [1272755]
+  - @agent-native/core@0.75.0
+
+## 0.2.70
+
+### Patch Changes
+
+- Updated dependencies [4a0d3c4]
+- Updated dependencies [4a0d3c4]
+- Updated dependencies [4a0d3c4]
+  - @agent-native/core@0.74.0
+
+## 0.2.69
+
+### Patch Changes
+
+- d684bbf: Add scaffold skill refresh commands for generated Agent Native apps and workspaces, plus public `@agent-native/skills` status/update forwarding.
+- Updated dependencies [d684bbf]
+- Updated dependencies [d684bbf]
+- Updated dependencies [d684bbf]
+- Updated dependencies [d684bbf]
+- Updated dependencies [d684bbf]
+  - @agent-native/core@0.73.0
+
 ## 0.2.68
 
 ### Patch Changes

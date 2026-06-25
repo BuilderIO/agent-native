@@ -303,7 +303,7 @@ function QueueList({
             key={draft.id}
             onClick={() => onSelect(draft.id)}
             className={cn(
-              "mb-1.5 w-full rounded-md border px-3 py-2.5 text-left transition-colors",
+              "mb-1.5 w-full rounded-md border px-3 py-2.5 text-start transition-colors",
               isActive
                 ? "border-primary/40 bg-primary/10"
                 : "border-border/20 bg-card/40 hover:border-border/50 hover:bg-accent/30",
@@ -488,7 +488,7 @@ function DraftDetail({
                 {sendDraft.isPending ? (
                   <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <IconSend className="h-3.5 w-3.5" />
+                  <IconSend className="h-3.5 w-3.5 rtl:-scale-x-100" />
                 )}
                 Send
               </Button>
@@ -718,7 +718,7 @@ export function DraftQueuePage() {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-          <aside className="h-[34dvh] shrink-0 border-b border-border/30 sm:h-auto sm:w-[340px] sm:border-b-0 sm:border-r">
+          <aside className="h-[34dvh] shrink-0 border-b border-border/30 sm:h-auto sm:w-[340px] sm:border-b-0 sm:border-e">
             <QueueList
               drafts={queue.drafts}
               selectedId={selectedId}

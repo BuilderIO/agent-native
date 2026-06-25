@@ -65,9 +65,10 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
-  AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   isAgentChatDurableBackgroundEnabled,
+  isInBackgroundFunctionRuntime,
+  resolveAgentChatProcessRunDispatchPath,
 } from "./durable-background.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -108,6 +109,9 @@ import {
   updateRunHeartbeat,
   updateRunStatusIfRunning,
   claimBackgroundRun,
+  readBackgroundRunClaim,
+  recordRunDiagnostic,
+  RUN_DIAG_STAGE,
 } from "./run-store.js";
 import {
   classifyToolCallJournal,
@@ -145,6 +149,96 @@ import {
 registerBuiltinEngines();
 
 export { PROVIDER_TO_ENV };
+
+/**
+ * Grace window + poll interval for the foreground circuit-breaker that confirms
+ * a background worker actually CLAIMED a 202-dispatched run before recovering
+ * inline. The grace is long enough for a cold-start worker to win the claim
+ * (~1-2s typical) and short enough to recover quickly within the foreground's
+ * ~40s soft-timeout.
+ */
+export const BACKGROUND_CLAIM_GRACE_MS = 8_000;
+export const BACKGROUND_CLAIM_POLL_MS = 400;
+
+export type BackgroundDispatchOutcome =
+  | { action: "stream" }
+  | { action: "subscribe" }
+  | {
+      action: "inline";
+      reason: "dispatch-failed" | "worker-never-claimed" | "no-row";
+    };
+
+/**
+ * Decide what the foreground should do after attempting a durable background
+ * dispatch. A Netlify async background function returns 202 the instant it
+ * ENQUEUES the invocation — that is NOT proof the worker executed. If the
+ * generated wrapper fails to import/hand off to the route, the worker never
+ * reaches `claimBackgroundRun` and the run is reaped as "worker never claimed".
+ *
+ * So after a successful dispatch we poll briefly for the worker to CLAIM the run:
+ *   - claimed within grace        → "stream"    (subscribe to the worker)
+ *   - dispatch failed OR no claim  → recover inline by atomically claiming the
+ *       run ourselves: if we win → "inline"; if a (delayed) worker already won
+ *       it → "subscribe" (never double-run).
+ *
+ * Pure except for the injected `readClaim`/`claim`/`now`/`sleep` deps, so each
+ * branch is unit-testable.
+ */
+export async function resolveBackgroundDispatchOutcome(opts: {
+  dispatched: boolean;
+  backgroundRowInserted: boolean;
+  runId: string;
+  graceMs: number;
+  pollIntervalMs: number;
+  readClaim: (
+    runId: string,
+  ) => Promise<{ dispatchMode: string | null; status: string | null } | null>;
+  claim: (runId: string) => Promise<boolean>;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<BackgroundDispatchOutcome> {
+  const now = opts.now ?? (() => Date.now());
+  const sleep =
+    opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  if (opts.dispatched) {
+    const deadline = now() + opts.graceMs;
+    for (;;) {
+      const claim = await opts.readClaim(opts.runId).catch(() => null);
+      if (
+        claim &&
+        ((claim.dispatchMode && claim.dispatchMode !== "background") ||
+          (claim.status && claim.status !== "running"))
+      ) {
+        return { action: "stream" };
+      }
+      if (now() >= deadline) break;
+      await sleep(opts.pollIntervalMs);
+    }
+  }
+
+  // Dispatch fast-failed OR no worker claimed within grace → recover inline.
+  if (!opts.backgroundRowInserted) {
+    // No row to reconcile (insert failed / non-duplicate) — run a fresh inline
+    // turn; `startRun` inserts the row.
+    return { action: "inline", reason: "no-row" };
+  }
+  let claimedInline = false;
+  try {
+    claimedInline = await opts.claim(opts.runId);
+  } catch {
+    claimedInline = false;
+  }
+  if (claimedInline) {
+    return {
+      action: "inline",
+      reason: opts.dispatched ? "worker-never-claimed" : "dispatch-failed",
+    };
+  }
+  // The atomic claim was lost: a (delayed) background worker already owns the
+  // run — subscribe to it, never run a second copy.
+  return { action: "subscribe" };
+}
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
@@ -3735,6 +3829,13 @@ export function createProductionAgentHandler(
         ? body[AGENT_CHAT_BACKGROUND_RUN_FIELD]!
         : null;
     const isBackgroundWorker = backgroundRunMarker !== null;
+    // Whether this worker is REALLY executing inside a 15-min Netlify
+    // `-background` function (proven by the runtime function name), not merely a
+    // `_process-run` re-entry that may have landed on the ~60s synchronous
+    // function. Only a true value unlocks the ~13-min soft-timeout budget; a
+    // worker on the 60s function keeps the 40s clamp and checkpoints cleanly.
+    const runsInBackgroundFunction =
+      isBackgroundWorker && isInBackgroundFunctionRuntime();
     // How many server-driven background continuations have already chained into
     // this logical turn (0 on the first chunk). Used to bound the chain.
     const backgroundContinuationCount =
@@ -4363,6 +4464,7 @@ export function createProductionAgentHandler(
     // change. With the flag OFF this whole branch is skipped and the inline
     // `startRun` path below runs exactly as before (byte-for-byte).
     if (dispatchToBackground) {
+      let backgroundRowInserted = false;
       try {
         // Insert the run row up front so /runs/active sees it immediately and
         // the slot stays held while the background function cold-starts. Mark
@@ -4370,6 +4472,7 @@ export function createProductionAgentHandler(
         await insertRun(runId, effectiveThreadId, effectiveTurnId, {
           dispatchMode: "background",
         });
+        backgroundRowInserted = true;
       } catch (err) {
         // A duplicate-PK collision means the row already exists (ret­ried POST);
         // any other failure means we can't safely hand off — fall back to the
@@ -4384,7 +4487,17 @@ export function createProductionAgentHandler(
       try {
         await fireInternalDispatch({
           event,
-          path: AGENT_CHAT_PROCESS_RUN_PATH,
+          // On hosted Netlify this resolves to the background function's DEFAULT
+          // url (/.netlify/functions/<name>, or per-app <app>-agent-background for
+          // workspaces) — the function declares NO custom config.path, so it keeps
+          // its default url, and `background: true` makes that url async (202,
+          // 15-min budget). The `server` /* catch-all already excludes /.netlify/*
+          // so it never shadows it. Off-Netlify this resolves to the framework
+          // `_process-run` route and the same in-process catch-all handles it
+          // inline. `fireInternalDispatch` strips the app base path for
+          // /.netlify/* targets so the request reaches the host-root function url;
+          // the Authorization Bearer HMAC is preserved either way.
+          path: resolveAgentChatProcessRunDispatchPath(),
           taskId: runId,
           body: {
             ...body,
@@ -4403,7 +4516,33 @@ export function createProductionAgentHandler(
         );
       }
 
-      if (dispatched) {
+      // ─── Circuit-breaker: a 202 only ENQUEUES the background invocation ─────
+      // It is NOT proof the worker executed. If the generated background-function
+      // wrapper fails to import `./main.mjs` or hand off to the Nitro
+      // `_process-run` route, the worker never reaches `claimBackgroundRun`: the
+      // row sits at `dispatch_mode='background'` until the reaper errors it
+      // ("worker never claimed the run"). `resolveBackgroundDispatchOutcome`
+      // polls briefly for the claim and decides:
+      //   - "stream":    a worker claimed the run → subscribe to it.
+      //   - "subscribe": a (delayed) worker already owns it → subscribe, NEVER
+      //                  run a second copy.
+      //   - "inline":    dispatch failed OR no worker claimed within grace → we
+      //                  atomically own the run; recover by running it inline so a
+      //                  dead worker degrades to a working synchronous turn.
+      const backgroundOutcome = await resolveBackgroundDispatchOutcome({
+        dispatched,
+        backgroundRowInserted,
+        runId,
+        graceMs: BACKGROUND_CLAIM_GRACE_MS,
+        pollIntervalMs: BACKGROUND_CLAIM_POLL_MS,
+        readClaim: readBackgroundRunClaim,
+        claim: claimBackgroundRun,
+      });
+
+      if (
+        backgroundOutcome.action === "stream" ||
+        backgroundOutcome.action === "subscribe"
+      ) {
         const stream = subscribeToRun(runId, 0);
         if (stream) {
           setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -4412,20 +4551,39 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "X-Run-Id", runId);
           return stream;
         }
-        // Subscription failed even though dispatch landed — surface an error
-        // rather than silently running inline (the background worker is already
-        // processing this runId, so an inline second run would double-execute).
+        // A background worker owns this run but we cannot subscribe — surface an
+        // error rather than risk a double-run by falling through to inline.
+        await updateRunStatusIfRunning(runId, "errored").catch(() => {});
         setResponseStatus(event, 500);
-        return { error: "Failed to subscribe to background run" };
+        return {
+          error:
+            backgroundOutcome.action === "stream"
+              ? "Failed to subscribe to background run"
+              : "Failed to dispatch background run",
+        };
       }
-      // Dispatch failed before any worker could claim the run. Fail loud: flip
-      // the row terminal so the held slot is released (and any reconnect sees a
-      // terminal status instead of spinning), then 500 so the client can retry.
-      // We do NOT silently fall through to inline here — that risks a later,
-      // delayed background delivery double-executing the same runId.
-      await updateRunStatusIfRunning(runId, "errored").catch(() => {});
-      setResponseStatus(event, 500);
-      return { error: "Failed to dispatch background run" };
+
+      // backgroundOutcome.action === "inline": we atomically own the run (or
+      // there was no row to reconcile), so falling through to the inline
+      // `startRun` path below cannot double-execute. `startRun` calls `insertRun`
+      // again, but its duplicate-PK collision is swallowed, so an existing
+      // `background-processing` row is reused — no double row.
+      if (backgroundOutcome.reason === "worker-never-claimed") {
+        // The async 202 landed but no worker claimed within grace — the generated
+        // wrapper never reached the route. Record it so the failure is visible on
+        // the run even though the user still gets a working (inline) turn.
+        console.error(
+          "[agent-chat] background worker did not claim the 202-dispatched run " +
+            "within grace; recovering inline:",
+          runId,
+        );
+        await recordRunDiagnostic(
+          runId,
+          RUN_DIAG_STAGE.foregroundInlineRecovery,
+          "202 dispatched but no worker claimed within the foreground grace window",
+        ).catch(() => {});
+      }
+      // Fall through to the inline `startRun` path below.
     }
 
     const trackedProgressOwner =
@@ -4534,6 +4692,30 @@ export function createProductionAgentHandler(
       isBackgroundWorker || baseHandleRunComplete
         ? async (run: ActiveRun) => {
             try {
+              // DIAGNOSTIC: a background worker that completed in an errored
+              // state threw inside the loop. Record it (with the last error
+              // event's message when available) so the failure cause is
+              // readable from the client. Skipped for clean completions and for
+              // recoverable soft-timeout boundaries (those chain a continuation
+              // below, they did not "throw").
+              if (
+                isBackgroundWorker &&
+                run.status === "errored" &&
+                !endsAtInternalContinuationBoundary(run)
+              ) {
+                const errEvent = [...run.events]
+                  .reverse()
+                  .find((e) => e.event.type === "error")?.event as
+                  | { error?: string; errorCode?: string }
+                  | undefined;
+                await recordRunDiagnostic(
+                  run.runId,
+                  RUN_DIAG_STAGE.workerThrew,
+                  errEvent?.errorCode || errEvent?.error
+                    ? `${errEvent.errorCode ?? ""} ${errEvent.error ?? ""}`.trim()
+                    : "run ended in errored state",
+                ).catch(() => {});
+              }
               // Persist the (partial) assistant turn to thread_data FIRST — the
               // server-driven continuation below rebuilds from it, so it must be
               // committed before we re-fire.
@@ -4550,6 +4732,23 @@ export function createProductionAgentHandler(
               // user-stopped runs do NOT chain.
               if (
                 shouldChainBackgroundContinuation({
+                  // Self-chain server-side for EVERY durable worker, not only the
+                  // ones inside a `-background` function. Server-driven
+                  // continuation is the whole point of durable background: the run
+                  // must survive the client disconnecting (closed tab), so it
+                  // cannot depend on the browser re-POSTing `auto_continue`. A
+                  // worker on the regular ~60s function — a Netlify routing miss,
+                  // or a non-Netlify host (Vercel/Cloudflare/Render/Fly) that
+                  // never emits a `-background` function — checkpoints at the 40s
+                  // soft-timeout and self-dispatches the next 40s chunk; a worker
+                  // in a real `-background` function chains ~13-min chunks. Only
+                  // the per-chunk BUDGET differs by function type (gated by
+                  // `runsInBackgroundFunction` at the startRun call below); the
+                  // continuation itself must stay server-driven on both. (The
+                  // self-chain is only reachable when the initial dispatch already
+                  // succeeded — a dispatch fast-fail degrades to the inline
+                  // foreground fallback, which is not a worker and rides the
+                  // connected client's auto_continue instead.)
                   isBackgroundWorker,
                   run,
                   continuationCount: backgroundContinuationCount,
@@ -4564,7 +4763,13 @@ export function createProductionAgentHandler(
                 try {
                   await fireInternalDispatch({
                     event,
-                    path: AGENT_CHAT_PROCESS_RUN_PATH,
+                    // Continuation chunks use the same path resolution as the
+                    // initial dispatch: on hosted Netlify the background
+                    // function's DEFAULT url (no custom config.path; async via
+                    // background:true; never shadowed because /.netlify/* is
+                    // excluded from the /* catch-all) so each chunk keeps the
+                    // 15-min budget; off-Netlify the in-process framework route.
+                    path: resolveAgentChatProcessRunDispatchPath(),
                     taskId: nextRunId,
                     body: {
                       ...body,
@@ -4601,6 +4806,17 @@ export function createProductionAgentHandler(
     // on entry so a slow cold-start doesn't leave the row looking stale to the
     // reaper before startRun's 1.5s heartbeat timer takes over.
     if (isBackgroundWorker) {
+      // DIAGNOSTIC: the re-entered handler recognized itself as the background
+      // worker. Record the runtime regime too — `isInBackgroundFunctionRuntime()`
+      // reads a globalThis marker set by the bg-fn entry, which may NOT be set in
+      // this isolate; recording the ACTUAL resolved value reveals whether the
+      // worker is on the 13-min `-background` budget or the 40s clamp. This is
+      // the proof the worker reached its own code (vs. dying at auth before it).
+      await recordRunDiagnostic(
+        runId,
+        RUN_DIAG_STAGE.workerEntered,
+        `runsInBackgroundFunction=${runsInBackgroundFunction} continuationCount=${backgroundContinuationCount}`,
+      ).catch(() => {});
       // A chained continuation chunk's runId was minted by the prior chunk and
       // never inserted, so insert its background row now (idempotently — a
       // duplicate Netlify delivery that already inserted it just PK-collides and
@@ -4615,8 +4831,16 @@ export function createProductionAgentHandler(
       if (!won) {
         // Already claimed by an earlier delivery — return a benign ack so
         // Netlify doesn't retry a successful handoff.
+        await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimLost).catch(
+          () => {},
+        );
         return { ok: true, skipped: "already-claimed" };
       }
+      // DIAGNOSTIC: this worker won the claim and now OWNS the run. If a run
+      // ever stalls at this stage it means the loop below failed to start.
+      await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimed).catch(
+        () => {},
+      );
       await updateRunHeartbeat(runId).catch(() => {});
     }
 
@@ -4630,6 +4854,15 @@ export function createProductionAgentHandler(
         };
 
         send({ type: "activity", label: "Starting agent" });
+
+        // DIAGNOSTIC: the agent loop body actually started running. For a
+        // background worker, a run that is claimed but never reaches this stage
+        // died between claiming and loop start. Best-effort, background only.
+        if (isBackgroundWorker) {
+          await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerStarted).catch(
+            () => {},
+          );
+        }
 
         // Notify listeners that a run has started (used by agent teams)
         if (options.onRunStart) {
@@ -5008,10 +5241,18 @@ export function createProductionAgentHandler(
       {
         softTimeoutMs: options.runSoftTimeoutMs,
         useHostedSoftTimeoutDefault: true,
-        // Inside the Netlify background function there is no ~60s wall, so lift
-        // the soft-timeout clamp to ~13min for THIS run only. Foreground runs
-        // never set this, so their 40s clamp is unchanged.
-        backgroundFunction: isBackgroundWorker,
+        // Lift the soft-timeout clamp to ~13min ONLY when this run is actually
+        // executing inside a real Netlify `-background` function (15-min budget,
+        // no ~60s wall). Being the `_process-run` worker (`isBackgroundWorker`)
+        // is NOT sufficient: if the `-background` function wasn't emitted, or
+        // Netlify routed the self-POST to the synchronous function, the worker
+        // landed on the regular ~60s `server` function — there it MUST keep the
+        // 40s clamp and checkpoint before the wall, or it overshoots the 60s
+        // hard kill and re-dispatches in a loop. `runsInBackgroundFunction`
+        // gates the 13-min budget on the proven runtime, not merely on "I'm the
+        // worker." Foreground runs never set this, so their 40s clamp is
+        // unchanged.
+        backgroundFunction: runsInBackgroundFunction,
         // Fold continuation runs of one logical turn onto a single durable
         // assistant message. Falls back to the runId (turn == run) when the
         // client doesn't supply a turnId.

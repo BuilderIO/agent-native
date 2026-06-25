@@ -661,7 +661,7 @@ function RecordingErrorCard({
           {friendlyMessage}
         </p>
         {showTechnicalDetails && (
-          <details className="mt-3 text-left text-xs text-muted-foreground">
+          <details className="mt-3 text-start text-xs text-muted-foreground">
             <summary className="cursor-pointer font-medium text-foreground">
               Technical details
             </summary>
@@ -673,7 +673,7 @@ function RecordingErrorCard({
       </div>
 
       {guidance && (
-        <div className="border-b border-border bg-muted/25 px-6 py-4 text-left">
+        <div className="border-b border-border bg-muted/25 px-6 py-4 text-start">
           <div className="text-xs font-medium text-foreground">
             What to check
           </div>
@@ -2107,9 +2107,9 @@ export default function RecordRoute() {
             void doCancel();
             navigate("/library");
           }}
-          className="fixed left-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="fixed start-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <IconArrowLeft className="h-5 w-5" />
+          <IconArrowLeft className="h-5 w-5 rtl:-scale-x-100" />
         </button>
       )}
 
@@ -2151,7 +2151,7 @@ export default function RecordRoute() {
               )}
             </div>
             {!isDesktopApp && (
-              <div className="mx-auto mt-4 w-full max-w-md xl:absolute xl:left-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
+              <div className="mx-auto mt-4 w-full max-w-md xl:absolute xl:start-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
                 <DesktopRecorderCallout />
               </div>
             )}

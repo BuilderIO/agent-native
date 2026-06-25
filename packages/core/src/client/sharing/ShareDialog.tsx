@@ -649,7 +649,7 @@ function CopyField({
 const selectContentClass =
   "z-[2100] min-w-[12rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md";
 const selectItemClass =
-  "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-sm py-2 pl-8 pr-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
+  "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-sm py-2 ps-8 pe-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
 
 function SelectItems({
   items,
@@ -664,7 +664,7 @@ function SelectItems({
           value={it.value}
           className={selectItemClass}
         >
-          <span className="absolute left-2 top-2 flex h-4 w-4 items-center justify-center">
+          <span className="absolute start-2 top-2 flex h-4 w-4 items-center justify-center">
             <Select.ItemIndicator>
               <IconCheck size={14} />
             </Select.ItemIndicator>
@@ -734,7 +734,7 @@ function VisibilitySelect(props: {
         aria-label="General access"
         className={cn(
           BUTTON_BASE,
-          "h-7 px-1 -ml-1 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
+          "h-7 px-1 -ms-1 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
         )}
       >
         <Select.Value>{current.label}</Select.Value>

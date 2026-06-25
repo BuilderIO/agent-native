@@ -8,6 +8,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useT } from "@agent-native/core/client";
 
 const themeOptions = [
   { value: "system", label: "System theme", icon: IconDeviceDesktop },
@@ -56,6 +57,7 @@ function nextTheme(theme: ThemeOption): ThemeOption {
 
 export function ThemeToggle({ className }: { className?: string }) {
   const { theme, setTheme } = useTheme();
+  const t = useT();
   const [mounted, setMounted] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState<ThemeOption>("system");
 
@@ -84,7 +86,7 @@ export function ThemeToggle({ className }: { className?: string }) {
         <Button
           variant="ghost"
           size="icon"
-          aria-label={activeOption.label}
+          aria-label={t(`theme.${activeOption.value}`)}
           onClick={handleClick}
           className={cn(
             "size-8 rounded-md text-sidebar-muted hover:text-sidebar-foreground",
@@ -94,7 +96,7 @@ export function ThemeToggle({ className }: { className?: string }) {
           <ActiveIcon size={14} />
         </Button>
       </TooltipTrigger>
-      <TooltipContent>{activeOption.label}</TooltipContent>
+      <TooltipContent>{t(`theme.${activeOption.value}`)}</TooltipContent>
     </Tooltip>
   );
 }

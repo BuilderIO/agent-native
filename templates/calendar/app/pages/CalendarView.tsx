@@ -72,6 +72,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   AgentToggleButton,
   agentNativePath,
+  LanguagePicker,
   NotificationsBell,
 } from "@agent-native/core/client";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -1415,6 +1416,7 @@ export default function CalendarView() {
                   emptyDescription="Calendar can pop browser alerts while this app is open. Clips desktop handles fuller meeting prompts with one-click notes."
                 />
               )}
+              <LanguagePicker variant="icon" />
               <CreateEventPopover
                 open={createDialogOpen}
                 onOpenChange={(open) => {

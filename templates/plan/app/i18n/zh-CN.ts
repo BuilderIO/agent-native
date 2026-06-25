@@ -1,0 +1,91 @@
+const messages = {
+  root: {
+    commandActions: "操作",
+    askPlan: "询问 Plan",
+    openPlans: "打开计划",
+    openRecaps: "打开回顾",
+    commandAppearance: "外观",
+    toggleTheme: "切换主题",
+  },
+  header: {
+    plan: "Plan",
+    settings: "设置",
+    team: "团队",
+    extensions: "扩展",
+  },
+  navigation: {
+    settings: "设置",
+    ask: "询问",
+    plan: "计划",
+  },
+  settings: {
+    title: "设置",
+    description: "此应用的语言和工作区偏好设置。",
+    languageTitle: "语言",
+    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
+    languageLabel: "界面语言",
+    workspaceTitle: "工作区",
+    workspaceDescription: "管理团队成员、组织访问权限和共享工作区偏好。",
+    openTeamSettings: "打开团队设置",
+    openResourceSettings: "打开资源设置",
+    agentTitle: "代理设置",
+    agentDescription:
+      "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
+    openAgentSettings: "打开代理设置",
+  },
+  agent: {
+    emptyState:
+      "让 Plan 代理搜索已合并的 PR 回顾、检查此文档、添加图表，或以可视化计划回答代码问题。",
+    suggestionShipped: "上周发布了什么？",
+    suggestionUi: "这个界面现在是什么样？",
+    suggestionApi: "这个 API 的结构是什么？",
+  },
+  sidebar: {
+    openNavigation: "打开导航",
+    navigation: "导航",
+    navigationDescription: "应用导航链接",
+    chats: "聊天",
+    newPlanChat: "新建 Plan 聊天",
+    newChat: "新建聊天",
+    renameChat: "重命名聊天",
+    unpinChat: "取消置顶聊天",
+    pinChat: "置顶聊天",
+    archiveChat: "归档聊天",
+    planSection: "计划",
+    newPlan: "新建计划",
+    signInCreatePlan: "登录以创建计划",
+    signInToCreate: "登录以创建",
+    signInKeepPlans: "登录即可创建并保留计划。",
+    noPlans: "还没有计划。",
+    recapBadge: "回顾",
+    viewAllPlans: "查看所有计划...",
+    brandingSentLocal: "已将品牌请求发送给本地代码代理",
+    brandingSent: "已将品牌请求发送给代码代理",
+    customizePlanBranding: "自定义 Plan 品牌",
+    customizeBranding: "自定义品牌",
+    customizeBrandingDescription: "描述要在 Plan 中应用的品牌更改。",
+    customizeBrandingPlaceholder: "使用我们的徽标、更改应用名称、更新颜色...",
+    expandSidebar: "展开侧边栏",
+    collapseSidebar: "折叠侧边栏",
+    signIn: "登录",
+  },
+  chat: {
+    suggestionShipped: "What shipped in the last week?",
+    suggestionUi: "What does the new checkout UI look like?",
+    suggestionAuth: "When did the auth API change?",
+    suggestionApi: "What is the shape of the billing API?",
+    emptyState: "Ask Plan",
+    placeholder:
+      "Ask what shipped, what changed, or what the current code shows...",
+    heading: "Ask Plan",
+    description:
+      "Search merged PR recaps, inspect visual blocks, and publish code answers as diagrams, wireframes, API specs, and data models.",
+  },
+  guest: {
+    banner:
+      "You're browsing as a guest. Sign in to create plans, leave comments, and keep your work.",
+    signIn: "Sign in",
+  },
+};
+
+export default messages;

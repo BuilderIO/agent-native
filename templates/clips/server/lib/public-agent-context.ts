@@ -329,36 +329,78 @@ export async function loadAgentBrowserDiagnostics(recordingId: string) {
   return parseBrowserDiagnosticsRow(row);
 }
 
+// Most-recent console logs / network requests surfaced in the public agent
+// context. Bounded to keep the agent payload small; the summary still reports
+// the true total counts.
+const MAX_PUBLIC_AGENT_CONSOLE_LOGS = 100;
+const MAX_PUBLIC_AGENT_NETWORK_REQUESTS = 100;
+// Curated warn/error highlights and failed-request highlights.
+const MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES = 20;
+
+function toPublicConsoleEntry(
+  entry: BrowserDiagnosticsData["consoleLogs"][number],
+) {
+  return {
+    timestampMs: entry.elapsedMs,
+    level: entry.level,
+    message: entry.message,
+  };
+}
+
+function toPublicNetworkEntry(
+  entry: BrowserDiagnosticsData["networkRequests"][number],
+) {
+  return {
+    timestampMs: entry.elapsedMs,
+    type: entry.type,
+    method: entry.method,
+    // Already sanitized at capture time: path is kept, query values are
+    // redacted, and auth/hash are stripped.
+    url: entry.url,
+    status: entry.status ?? null,
+    error: entry.error ?? null,
+    durationMs: entry.durationMs,
+  };
+}
+
+function isFailedNetworkRequest(
+  entry: BrowserDiagnosticsData["networkRequests"][number],
+): boolean {
+  return (
+    Boolean(entry.error) ||
+    (typeof entry.status === "number" && entry.status >= 400)
+  );
+}
+
 function compactBrowserDiagnostics(diagnostics: BrowserDiagnosticsData | null) {
   if (!diagnostics) return null;
+  // Full console stream (all levels: debug/log/info/warn/error), redacted at
+  // capture time and bounded to the most-recent entries.
+  const consoleLogs = diagnostics.consoleLogs
+    .slice(-MAX_PUBLIC_AGENT_CONSOLE_LOGS)
+    .map(toPublicConsoleEntry);
+  // Warn/error highlights kept as a separate convenience list so agents can
+  // jump straight to problems without scanning the full stream.
   const consoleIssues = diagnostics.consoleLogs
     .filter((entry) => entry.level === "warn" || entry.level === "error")
-    .slice(-20)
-    .map((entry) => ({
-      timestampMs: entry.elapsedMs,
-      level: entry.level,
-      message: entry.message,
-    }));
+    .slice(-MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES)
+    .map(toPublicConsoleEntry);
+  // Full network stream (fetch + XHR), redacted at capture time and bounded.
+  const networkRequests = diagnostics.networkRequests
+    .slice(-MAX_PUBLIC_AGENT_NETWORK_REQUESTS)
+    .map(toPublicNetworkEntry);
+  // Failed-request highlights so agents can jump straight to problems.
   const failedNetworkRequests = diagnostics.networkRequests
-    .filter(
-      (entry) =>
-        Boolean(entry.error) ||
-        (typeof entry.status === "number" && entry.status >= 400),
-    )
-    .slice(-20)
-    .map((entry) => ({
-      timestampMs: entry.elapsedMs,
-      type: entry.type,
-      method: entry.method,
-      status: entry.status ?? null,
-      error: entry.error ?? null,
-      durationMs: entry.durationMs,
-    }));
+    .filter(isFailedNetworkRequest)
+    .slice(-MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES)
+    .map(toPublicNetworkEntry);
   return {
     summary: diagnostics.summary,
+    consoleLogs,
     consoleIssues,
+    networkRequests,
     failedNetworkRequests,
-    note: "Diagnostics are redacted and bounded; public context omits page URLs, request URLs, headers, bodies, cookies, and query values.",
+    note: "Console logs include all levels (debug/log/info/warn/error). Network requests include method, sanitized URL (path kept, query values redacted), status, and duration. Diagnostics are bounded; the recording's own page URL, request headers, request/response bodies, and cookies are omitted.",
   };
 }
 
@@ -403,7 +445,7 @@ export function buildPublicAgentContext({
     "Use transcript.segments for timestamped spoken context.",
     ...(browserDiagnostics
       ? [
-          "Use browserDiagnostics for redacted console warnings/errors and failed network requests captured during the recording.",
+          "Use browserDiagnostics.consoleLogs for the redacted console stream (all levels: debug/log/info/warn/error) and browserDiagnostics.networkRequests for the fetch/XHR requests (method, sanitized URL, status, duration) captured during the recording. browserDiagnostics.consoleIssues highlights just the warnings/errors, and browserDiagnostics.failedNetworkRequests highlights failed requests.",
         ]
       : []),
     ...(isLoomEmbedBacked
@@ -411,8 +453,9 @@ export function buildPublicAgentContext({
           "This clip is a legacy Loom embed import; frame extraction is not available through Clips until it is reimported as a Clips-hosted video.",
         ]
       : [
-          "Use apis.frame.urlTemplate with atMs to fetch a JPEG frame when the spoken transcript references something visible on screen.",
-          "Prefer recommendedFrames first, then request additional frames around transcript timestamps that matter for the task.",
+          "This clip is readable as both text (transcript) and images (JPEG frames) — you can hear AND see it.",
+          "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task.",
+          "If you cannot load an image from a URL, you will only have the transcript — tell the user to open the clip in an image-capable agent (ChatGPT, Claude Code, Cursor, Codex) or to upload a frame image directly so you can see it.",
         ]),
   ];
 

@@ -7,8 +7,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { SqlEditor } from "@/components/SqlEditor";
 import {
   Tooltip,
   TooltipContent,
@@ -206,14 +206,14 @@ export function ViewSqlPopover({
           </div>
         </div>
 
-        <Textarea
+        <SqlEditor
+          aria-label="SQL"
           value={draft}
           onChange={(e) => {
             if (canEditSql) setDraft(e.target.value);
           }}
           rows={12}
-          spellCheck={false}
-          className="font-mono text-xs resize-y min-h-[240px]"
+          className="min-h-[240px]"
           placeholder="SELECT ..."
           readOnly={!canEditSql}
         />

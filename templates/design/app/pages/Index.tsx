@@ -399,12 +399,12 @@ export default function Index() {
     <div className="flex items-center gap-3">
       {designs.length > 0 ? (
         <div className="relative">
-          <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
+          <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search designs..."
-            className="pl-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
+            className="ps-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
           />
         </div>
       ) : null}
@@ -489,7 +489,7 @@ export default function Index() {
               {/* New design card */}
               <button
                 onClick={openNewDesign}
-                className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-left cursor-pointer"
+                className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
               >
                 <div className="aspect-video flex items-center justify-center bg-muted/30">
                   <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
@@ -540,7 +540,7 @@ export default function Index() {
                       {cardContent}
                     </Link>
                     <div
-                      className={`absolute left-2 top-2 z-10 transition-opacity ${
+                      className={`absolute start-2 top-2 z-10 transition-opacity ${
                         isSelected || isSelectingDesigns
                           ? "pointer-events-auto opacity-100"
                           : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
@@ -562,7 +562,7 @@ export default function Index() {
                       </Tooltip>
                     </div>
                     {/* Three-dot menu */}
-                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                    <div className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
@@ -579,21 +579,21 @@ export default function Index() {
                             onClick={() => startRename(design)}
                             className="cursor-pointer"
                           >
-                            <IconPencil className="w-3.5 h-3.5 mr-2" />
+                            <IconPencil className="w-3.5 h-3.5 me-2" />
                             Rename
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => handleDuplicate(design.id)}
                             className="cursor-pointer"
                           >
-                            <IconCopy className="w-3.5 h-3.5 mr-2" />
+                            <IconCopy className="w-3.5 h-3.5 me-2" />
                             Duplicate
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => setDeleteId(design.id)}
                             className="text-red-400 focus:text-red-400 cursor-pointer"
                           >
-                            <IconTrash className="w-3.5 h-3.5 mr-2" />
+                            <IconTrash className="w-3.5 h-3.5 me-2" />
                             Delete
                           </DropdownMenuItem>
                         </DropdownMenuContent>

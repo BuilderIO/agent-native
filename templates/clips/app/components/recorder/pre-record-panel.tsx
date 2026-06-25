@@ -589,7 +589,7 @@ export function PreRecordPanel({
                 // this click and the ?mode=camera deep-link path.
                 onClick={() => chooseMode(opt.value)}
                 className={cn(
-                  "flex min-h-20 min-w-0 flex-col justify-between rounded-xl border p-3 text-left transition-colors",
+                  "flex min-h-20 min-w-0 flex-col justify-between rounded-xl border p-3 text-start transition-colors",
                   active
                     ? "border-primary bg-primary text-primary-foreground shadow-sm"
                     : "border-border bg-background text-foreground hover:border-foreground/30 hover:bg-muted/45",
@@ -624,7 +624,7 @@ export function PreRecordPanel({
           <CollapsibleTrigger asChild>
             <button
               type="button"
-              className="flex w-full items-center gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/35"
+              className="flex w-full items-center gap-3 px-6 py-4 text-start transition-colors hover:bg-muted/35"
             >
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                 <IconDeviceDesktop className="h-4 w-4" />
@@ -657,7 +657,7 @@ export function PreRecordPanel({
                     type="button"
                     onClick={() => chooseDisplaySurface(opt.value)}
                     className={cn(
-                      "flex min-h-[76px] flex-col rounded-lg border p-2 text-left transition-colors",
+                      "flex min-h-[76px] flex-col rounded-lg border p-2 text-start transition-colors",
                       active
                         ? "border-primary bg-primary/10 text-foreground"
                         : "border-border bg-background text-muted-foreground hover:border-foreground/40 hover:text-foreground",
@@ -687,7 +687,7 @@ export function PreRecordPanel({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="flex w-full items-center gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/35"
+            className="flex w-full items-center gap-3 px-6 py-4 text-start transition-colors hover:bg-muted/35"
           >
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
               {needsCamera ? (

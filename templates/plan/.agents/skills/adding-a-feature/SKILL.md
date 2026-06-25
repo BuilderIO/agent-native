@@ -86,6 +86,10 @@ Instruction examples may name secret keys like `SLACK_WEBHOOK`, but must use
 placeholders such as `${keys.SLACK_WEBHOOK}` or `<SLACK_WEBHOOK>`. Do not paste
 real keys, internal data, or customer data into instructions as examples.
 
+If the feature adds or changes visible UI copy, prompts, toasts, labels, empty
+states, or formatting, read `internationalization` and update the app's i18n
+catalogs in the same change.
+
 For app-backed skills, declare skill visibility in the app-skill manifest:
 
 - `internal` — only the app's own agents should use it.
@@ -177,3 +181,4 @@ TL;DR: spread `ownableColumns()` into the resource table, pair it with `createSh
 - **create-skill** — How to create skills for new patterns (area 3 in detail)
 - **storing-data** — Where to store the feature's data
 - **real-time-sync** — How the UI stays in sync when the agent writes data
+- **internationalization** — How to update localized UI copy and catalogs

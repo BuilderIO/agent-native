@@ -49,6 +49,7 @@ For source examples, read matching files under
 | Define or call app operations         | `content/actions.md`, `content/client.md`                                                                |
 | Add SQL data, schema, or access rules | `content/database.md`, `content/security.md`, `content/sharing.md`                                       |
 | Keep the UI and agent in sync         | `content/context-awareness.md`, `content/client.md`                                                      |
+| Localize UI copy and language choices | `content/internationalization.md`, `content/client.md`                                                   |
 | Build headless or chat-first apps     | `content/pure-agent-apps.md`, `content/agent-surfaces.md`, `content/using-your-agent.md`                 |
 | Add automations or scheduled work     | `content/automations.md`, `content/recurring-jobs.md`                                                    |
 | Compose apps or call sibling agents   | `content/a2a-protocol.md`, `content/multi-app-workspace.md`, `content/workspace.md`                      |

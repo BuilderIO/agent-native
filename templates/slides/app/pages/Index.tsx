@@ -506,7 +506,7 @@ export default function Index() {
                 aria-label="Show all decks"
                 className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
               >
-                <IconStack2 className="mr-1.5 h-3.5 w-3.5" />
+                <IconStack2 className="me-1.5 h-3.5 w-3.5" />
                 All
               </ToggleGroupItem>
               <ToggleGroupItem
@@ -514,7 +514,7 @@ export default function Index() {
                 aria-label="Show decks created by me"
                 className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
               >
-                <IconUserCircle className="mr-1.5 h-3.5 w-3.5" />
+                <IconUserCircle className="me-1.5 h-3.5 w-3.5" />
                 Mine
               </ToggleGroupItem>
             </ToggleGroup>
@@ -533,7 +533,7 @@ export default function Index() {
             {/* New deck card */}
             <button
               onClick={openNewDeck}
-              className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-left cursor-pointer"
+              className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
             >
               <div className="aspect-video flex items-center justify-center bg-muted/30">
                 <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">

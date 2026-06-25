@@ -12,6 +12,7 @@ import {
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
+  useT,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { GenerationContextBar } from "@/components/generation/GenerationContextBar";
@@ -58,6 +59,7 @@ export function Layout({ children }: LayoutProps) {
   useNavigationState();
   const location = useLocation();
   const navigate = useNavigate();
+  const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const isCreateRoute =
     location.pathname === "/" || location.pathname.startsWith("/chat/");
@@ -110,7 +112,7 @@ export function Layout({ children }: LayoutProps) {
       )}
       <div
         className={cn(
-          "fixed inset-y-0 left-0 z-50 md:static md:z-auto",
+          "fixed inset-y-0 start-0 z-50 md:static md:z-auto",
           mobileSidebarOpen
             ? "translate-x-0"
             : "-translate-x-full md:translate-x-0",
@@ -123,12 +125,14 @@ export function Layout({ children }: LayoutProps) {
         <div className="flex h-12 shrink-0 items-center border-b border-border bg-sidebar px-4 md:hidden">
           <button
             onClick={() => setMobileSidebarOpen(true)}
-            className="-ml-1 mr-3 cursor-pointer rounded-md p-2.5 hover:bg-sidebar-accent/50"
-            aria-label="Open navigation"
+            className="-ms-1 me-3 cursor-pointer rounded-md p-2.5 hover:bg-sidebar-accent/50"
+            aria-label={t("navigation.openNavigation")}
           >
             <IconMenu2 className="h-5 w-5 text-foreground" />
           </button>
-          <span className="text-base font-bold tracking-tight">Assets</span>
+          <span className="text-base font-bold tracking-tight">
+            {t("navigation.brand")}
+          </span>
         </div>
         {!hideHeader && <Header />}
         <InvitationBanner />
@@ -155,11 +159,11 @@ export function Layout({ children }: LayoutProps) {
         browserTabId={getBrowserTabId()}
         openOnChatRunning={chatHomeHandoffActive}
         onFullscreenRequest={openCreateChatFullscreen}
-        emptyStateText="Describe the asset you want to make"
+        emptyStateText={t("chat.emptyState")}
         suggestions={[
-          "Generate 3 blog heroes from this brand kit",
-          "Make an 8-second product reveal video",
-          "Match the style of my reference assets",
+          t("chat.suggestionBlogHeroes"),
+          t("chat.suggestionProductVideo"),
+          t("chat.suggestionReferenceStyle"),
         ]}
         composerToolbarSlot={<GenerationContextBar />}
         threadFooterSlot={({ threadId }) => (

@@ -3,11 +3,14 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   Area,
   AreaChart,
@@ -49,7 +52,6 @@ import {
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { useSqlQuery } from "@/lib/sql-query";
-import { useChartTooltipFlip } from "@/hooks/use-chart-tooltip-flip";
 import type {
   SqlPanel,
   ChartType,
@@ -74,6 +76,11 @@ const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
   zIndex: 60,
   pointerEvents: "none",
 };
+
+const PORTAL_GUTTER_PADDING = 12;
+const PORTAL_CURSOR_OFFSET = 24;
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 const CHART_TOOLTIP_PROPS = {
   allowEscapeViewBox: { x: true, y: true },
@@ -240,39 +247,114 @@ function shouldShowLegend(panel: SqlPanel, seriesCount: number): boolean {
   return panel.config?.legend !== false && seriesCount > 0;
 }
 
+function numericTooltipValue(value: unknown): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : Number.NEGATIVE_INFINITY;
+}
+
+export function sortTooltipPayloadItems<
+  T extends {
+    value?: unknown;
+  },
+>(items: T[]): T[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const diff =
+        numericTooltipValue(b.item.value) - numericTooltipValue(a.item.value);
+      return diff !== 0 ? diff : a.index - b.index;
+    })
+    .map(({ item }) => item);
+}
+
+function useSeriesVisibility(keys: string[]): {
+  hiddenKeys: Set<string>;
+  visibleKeys: string[];
+  toggleSeries: (key: string) => void;
+} {
+  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    setHiddenKeys((prev) => {
+      const next = new Set(
+        Array.from(prev).filter((key) => keys.includes(key)),
+      );
+      return next.size === prev.size ? prev : next;
+    });
+  }, [keys]);
+
+  const visibleKeys = useMemo(
+    () => keys.filter((key) => !hiddenKeys.has(key)),
+    [hiddenKeys, keys],
+  );
+
+  const toggleSeries = useCallback(
+    (key: string) => {
+      setHiddenKeys((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) {
+          next.delete(key);
+          return next;
+        }
+        const visibleCount = keys.filter((k) => !next.has(k)).length;
+        if (visibleCount <= 1) return prev;
+        next.add(key);
+        return next;
+      });
+    },
+    [keys],
+  );
+
+  return { hiddenKeys, visibleKeys, toggleSeries };
+}
+
 function SeriesLegend({
   keys,
   colors,
   panel,
+  hiddenKeys,
+  onToggleKey,
 }: {
   keys: string[];
   colors: string[];
   panel: SqlPanel;
+  hiddenKeys?: Set<string>;
+  onToggleKey?: (key: string) => void;
 }) {
-  if (
-    !usesPrometheusPresentation(panel) ||
-    !shouldShowLegend(panel, keys.length)
-  )
-    return null;
+  if (!shouldShowLegend(panel, keys.length)) return null;
 
   return (
     <div className="mt-2 max-h-16 overflow-y-auto overflow-x-hidden pr-1 text-[11px] leading-4 text-muted-foreground">
       <div className="flex flex-wrap gap-x-3 gap-y-1">
-        {keys.map((key, i) => (
-          <span
-            key={key}
-            className="inline-flex max-w-[14rem] items-center gap-1.5"
-            title={key}
-          >
-            <span
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{ backgroundColor: colors[i % colors.length] }}
-            />
-            <span className="truncate">
-              {formatSeriesLabelForPanel(panel, key)}
-            </span>
-          </span>
-        ))}
+        {keys.map((key, i) => {
+          const hidden = hiddenKeys?.has(key) ?? false;
+          const label = formatSeriesLabelForPanel(panel, key);
+          const color = colors[i % colors.length];
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={!hidden}
+              className={`inline-flex max-w-[14rem] items-center gap-1.5 rounded-sm text-left transition-opacity hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                hidden ? "opacity-35" : "opacity-100"
+              } ${onToggleKey ? "cursor-pointer" : "cursor-default"}`}
+              title={label}
+              onClick={() => onToggleKey?.(key)}
+            >
+              <span className="relative h-2.5 w-3 shrink-0">
+                <span
+                  className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2"
+                  style={{ backgroundColor: color }}
+                />
+                <span
+                  className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                  style={{ backgroundColor: color }}
+                />
+              </span>
+              <span className="truncate">{label}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -296,17 +378,25 @@ function ChartFrame({
   panel,
   legendKeys,
   colors,
+  hiddenKeys,
+  onToggleLegendKey,
+  showCustomLegend = false,
   children,
 }: {
   panel: SqlPanel;
   legendKeys: string[];
   colors: string[];
+  hiddenKeys?: Set<string>;
+  onToggleLegendKey?: (key: string) => void;
+  showCustomLegend?: boolean;
   children: ReactNode;
 }) {
   const fill = useContext(ChartFillHeightContext);
   const chartHeight = fill ? "h-full min-h-[250px]" : "h-[250px]";
 
-  if (!usesPrometheusPresentation(panel)) {
+  const renderLegend = showCustomLegend || usesPrometheusPresentation(panel);
+
+  if (!renderLegend) {
     return (
       <div className={`${chartHeight} w-full overflow-visible`}>{children}</div>
     );
@@ -321,7 +411,13 @@ function ChartFrame({
       >
         {children}
       </div>
-      <SeriesLegend keys={legendKeys} colors={colors} panel={panel} />
+      <SeriesLegend
+        keys={legendKeys}
+        colors={colors}
+        panel={panel}
+        hiddenKeys={hiddenKeys}
+        onToggleKey={onToggleLegendKey}
+      />
     </div>
   );
 }
@@ -346,10 +442,15 @@ function ChartTooltip({
   seriesNameFormatter?: (value: string) => string;
   valueFormatter?: (value: number) => string;
 }) {
-  const tooltipRef = useChartTooltipFlip<HTMLDivElement>();
-  const items =
-    payload?.filter((item) => item.value != null && item.value !== "") ?? [];
-  if (!active || items.length === 0) return null;
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const portalRef = useRef<HTMLDivElement | null>(null);
+  const [portalPosition, setPortalPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  const items = sortTooltipPayloadItems(
+    payload?.filter((item) => item.value != null && item.value !== "") ?? [],
+  );
 
   const labelText =
     label == null
@@ -358,11 +459,96 @@ function ChartTooltip({
         ? labelFormatter(String(label))
         : String(label);
 
-  return (
-    <div
-      ref={tooltipRef}
-      className="min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg"
-    >
+  useBrowserLayoutEffect(() => {
+    if (!active || items.length === 0 || typeof window === "undefined") {
+      setPortalPosition(null);
+      return;
+    }
+
+    const anchor = anchorRef.current;
+    const wrapper = anchor?.parentElement;
+    if (!anchor || !wrapper) return;
+
+    let frame = 0;
+    const apply = () => {
+      frame = 0;
+      if (!(wrapper as HTMLElement).style.transform) return;
+
+      const anchorRect = anchor.getBoundingClientRect();
+      const portalRect = portalRef.current?.getBoundingClientRect();
+      const width = portalRect?.width || anchorRect.width;
+      const height = portalRect?.height || anchorRect.height;
+      if (width === 0 || height === 0) return;
+
+      const sidebar = document.querySelector(".agent-sidebar-panel");
+      const sidebarRect = sidebar?.getBoundingClientRect();
+      const rightLimit =
+        sidebarRect && sidebarRect.width > 0 && sidebarRect.left > 0
+          ? sidebarRect.left - PORTAL_GUTTER_PADDING
+          : window.innerWidth - PORTAL_GUTTER_PADDING;
+      const bottomLimit = window.innerHeight - PORTAL_GUTTER_PADDING;
+
+      let left = anchorRect.left;
+      let top = anchorRect.top;
+
+      if (left + width > rightLimit) {
+        left = anchorRect.left - width - PORTAL_CURSOR_OFFSET;
+      }
+      left = Math.max(
+        PORTAL_GUTTER_PADDING,
+        Math.min(left, rightLimit - width),
+      );
+
+      if (top + height > bottomLimit) {
+        top = bottomLimit - height;
+      }
+      top = Math.max(PORTAL_GUTTER_PADDING, top);
+
+      setPortalPosition((prev) =>
+        prev &&
+        Math.abs(prev.left - left) < 0.5 &&
+        Math.abs(prev.top - top) < 0.5
+          ? prev
+          : { left, top },
+      );
+    };
+
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(apply);
+    };
+
+    schedule();
+
+    const mutationObserver = new MutationObserver(schedule);
+    mutationObserver.observe(wrapper, {
+      attributes: true,
+      attributeFilter: ["style", "class"],
+    });
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(schedule);
+    resizeObserver?.observe(anchor);
+    if (portalRef.current) resizeObserver?.observe(portalRef.current);
+
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      mutationObserver.disconnect();
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+    };
+  });
+
+  if (!active || items.length === 0) return null;
+
+  const tooltip = (
+    <div className="min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg">
       {labelText && (
         <div className="mb-1.5 truncate font-medium text-foreground">
           {labelText}
@@ -394,6 +580,32 @@ function ChartTooltip({
         })}
       </div>
     </div>
+  );
+
+  return (
+    <>
+      <div ref={anchorRef} aria-hidden="true" className="invisible">
+        {tooltip}
+      </div>
+      {portalPosition && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={portalRef}
+              role="tooltip"
+              style={{
+                position: "fixed",
+                left: portalPosition.left,
+                top: portalPosition.top,
+                zIndex: 1000,
+                pointerEvents: "none",
+              }}
+            >
+              {tooltip}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 
@@ -722,6 +934,24 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
   return String(value);
 }
 
+export function safeDashboardLinkHref(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const href = value.trim();
+  if (!href) return null;
+  if (href.startsWith("//")) return null;
+
+  try {
+    const parsed = href.startsWith("/")
+      ? new URL(href, "https://agent-native.local")
+      : new URL(href);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function renderDeltaCell(value: unknown): ReactNode {
   if (value == null || typeof value !== "number" || Number.isNaN(value)) {
     return <span className="text-muted-foreground">-</span>;
@@ -893,19 +1123,24 @@ function TableRenderer({
                     const href = col.linkKey
                       ? String(row[col.linkKey] ?? "")
                       : String(raw ?? "");
+                    const safeHref = safeDashboardLinkHref(href);
                     return (
                       <td
                         key={col.key}
                         className="py-1.5 px-2 whitespace-nowrap"
                       >
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline"
-                        >
-                          {formatted}
-                        </a>
+                        {safeHref ? (
+                          <a
+                            href={safeHref}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                          >
+                            {formatted}
+                          </a>
+                        ) : (
+                          formatted
+                        )}
                       </td>
                     );
                   }
@@ -1067,9 +1302,17 @@ function BarRenderer({
     formatXLabel(String(value ?? ""), panel);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
+  const { hiddenKeys, toggleSeries } = useSeriesVisibility(yKeys);
 
   return (
-    <ChartFrame panel={panel} legendKeys={yKeys} colors={colors}>
+    <ChartFrame
+      panel={panel}
+      legendKeys={yKeys}
+      colors={colors}
+      hiddenKeys={hiddenKeys}
+      onToggleLegendKey={toggleSeries}
+      showCustomLegend
+    >
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows}>
           <XAxis
@@ -1104,10 +1347,6 @@ function BarRenderer({
             }
             itemSorter={(item) => -(Number(item.value) || 0)}
           />
-          {!usesPrometheusPresentation(panel) &&
-            shouldShowLegend(panel, yKeys.length) && (
-              <Legend {...CHART_LEGEND_PROPS} />
-            )}
           {yKeys.map((key, i) => (
             <Bar
               key={key}
@@ -1118,6 +1357,7 @@ function BarRenderer({
                 stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
               }
               stackId={stacked ? "stack" : undefined}
+              hide={hiddenKeys.has(key)}
             />
           ))}
         </BarChart>
@@ -1149,10 +1389,18 @@ function TimeSeriesRenderer({
     formatXLabel(String(value ?? ""), panel);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
+  const { hiddenKeys, visibleKeys, toggleSeries } = useSeriesVisibility(yKeys);
 
   if (chartType === "line") {
     return (
-      <ChartFrame panel={panel} legendKeys={yKeys} colors={colors}>
+      <ChartFrame
+        panel={panel}
+        legendKeys={yKeys}
+        colors={colors}
+        hiddenKeys={hiddenKeys}
+        onToggleLegendKey={toggleSeries}
+        showCustomLegend
+      >
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={rows}>
             <XAxis
@@ -1187,10 +1435,6 @@ function TimeSeriesRenderer({
               }
               itemSorter={(item) => -(Number(item.value) || 0)}
             />
-            {!usesPrometheusPresentation(panel) &&
-              shouldShowLegend(panel, yKeys.length) && (
-                <Legend {...CHART_LEGEND_PROPS} />
-              )}
             {yKeys.map((key, i) => (
               <Line
                 key={key}
@@ -1200,6 +1444,7 @@ function TimeSeriesRenderer({
                 stroke={colors[i % colors.length]}
                 strokeWidth={2}
                 dot={false}
+                hide={hiddenKeys.has(key)}
               />
             ))}
           </LineChart>
@@ -1211,10 +1456,17 @@ function TimeSeriesRenderer({
   // With multiple series, filled areas stack and obscure lines behind them,
   // so only draw the gradient fill when there's a single series — unless
   // the caller asked for an explicit stacked area.
-  const showFill = yKeys.length === 1 || stacked;
+  const showFill = visibleKeys.length === 1 || stacked;
 
   return (
-    <ChartFrame panel={panel} legendKeys={yKeys} colors={colors}>
+    <ChartFrame
+      panel={panel}
+      legendKeys={yKeys}
+      colors={colors}
+      hiddenKeys={hiddenKeys}
+      onToggleLegendKey={toggleSeries}
+      showCustomLegend
+    >
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={rows}>
           {showFill && (
@@ -1274,10 +1526,6 @@ function TimeSeriesRenderer({
             }
             itemSorter={(item) => -(Number(item.value) || 0)}
           />
-          {!usesPrometheusPresentation(panel) &&
-            shouldShowLegend(panel, yKeys.length) && (
-              <Legend {...CHART_LEGEND_PROPS} />
-            )}
           {yKeys.map((key, i) => (
             <Area
               key={key}
@@ -1289,6 +1537,7 @@ function TimeSeriesRenderer({
               fillOpacity={showFill ? 1 : 0}
               fill={showFill ? `url(#sql-gradient-${key})` : "none"}
               stackId={stacked ? "stack" : undefined}
+              hide={hiddenKeys.has(key)}
             />
           ))}
         </AreaChart>

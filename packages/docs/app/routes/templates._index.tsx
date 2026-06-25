@@ -1,38 +1,42 @@
+import { Link } from "react-router";
+import { useLocale, useT } from "@agent-native/core/client";
 import {
   featuredTemplates,
   TemplateCard,
   trackEvent,
 } from "../components/TemplateCard";
+import { sitePathForLocale } from "../components/docs-locale";
 
 export default function TemplatesPage() {
+  const { locale } = useLocale();
+  const t = useT();
+
   return (
     <main className="templates-index-page mx-auto w-full min-w-0 max-w-[1200px] overflow-x-clip px-4 py-20 sm:px-6">
       <div className="mb-12 text-center">
         <h1 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-          Open-source, Agent-native apps you own
+          {t("templatesPage.title")}
         </h1>
         <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-          100% free and open source
+          {t("templatesPage.eyebrow")}
         </p>
         <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-          Fork a template, run it locally, and let the agent evolve it. You own
-          the code and can customize everything.
+          {t("templatesPage.body")}
         </p>
       </div>
 
       <div className="grid min-w-0 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {featuredTemplates.map((t) => (
-          <TemplateCard key={t.name} template={t} />
+        {featuredTemplates.map((template) => (
+          <TemplateCard key={template.name} template={template} />
         ))}
       </div>
 
       <div className="mt-12 text-center">
         <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-          Every template is forkable and open source. The community can build
-          and share their own.
+          {t("templatesPage.community")}
         </p>
-        <a
-          href="/docs"
+        <Link
+          to={sitePathForLocale("/docs", locale)}
           onClick={() =>
             trackEvent("create your own", { location: "templates_index" })
           }
@@ -51,8 +55,8 @@ export default function TemplatesPage() {
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-          Create your own
-        </a>
+          {t("templatesPage.createYourOwn")}
+        </Link>
       </div>
     </main>
   );

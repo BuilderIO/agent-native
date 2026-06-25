@@ -1038,7 +1038,7 @@ function AgentPanelInner({
               type="button"
               tabIndex={-1}
               aria-hidden="true"
-              className="pointer-events-none absolute right-0 top-full h-px w-px opacity-0"
+              className="pointer-events-none absolute end-0 top-full h-px w-px opacity-0"
             />
           }
         />
@@ -1344,7 +1344,7 @@ function AgentPanelInner({
                                   : "text-muted-foreground hover:bg-accent hover:text-foreground",
                               )}
                             >
-                              <span className="truncate pr-1">{tab.label}</span>
+                              <span className="truncate pe-1">{tab.label}</span>
                               {tab.status === "running" && (
                                 <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
                               )}
@@ -1458,7 +1458,7 @@ function AgentPanelInner({
                               : "text-muted-foreground hover:bg-accent hover:text-foreground",
                           )}
                         >
-                          <span className="truncate pr-1">
+                          <span className="truncate pe-1">
                             {tab.subAgentName || tab.label}
                           </span>
                           {tab.status === "running" && (

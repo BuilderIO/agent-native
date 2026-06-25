@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useFormatters, useT } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { normalizeFields } from "@/lib/normalize-fields";
 import { useForm } from "@/hooks/use-forms";
@@ -81,6 +82,8 @@ function compareValues(a: unknown, b: unknown): number {
 }
 
 export function ResponsesPage() {
+  const t = useT();
+  const { formatDate, formatNumber } = useFormatters();
   const { id } = useParams<{ id: string }>();
   const { data: form } = useForm(id!);
   const { data, isLoading, error, refetch } = useFormResponses(id!);
@@ -244,7 +247,7 @@ export function ResponsesPage() {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3">
         <p className="text-sm text-muted-foreground">
-          Failed to load responses
+          {t("responses.failedLoad")}
         </p>
         <Button
           variant="outline"
@@ -253,7 +256,7 @@ export function ResponsesPage() {
           className="gap-2"
         >
           <IconRefresh className="h-3.5 w-3.5" />
-          Retry
+          {t("common.retry")}
         </Button>
       </div>
     );
@@ -272,8 +275,10 @@ export function ResponsesPage() {
           >
             <Link to={`/forms/${id}`}>
               <IconArrowLeft className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Back to Builder</span>
-              <span className="sm:hidden">Back</span>
+              <span className="hidden sm:inline">
+                {t("responses.backToBuilder")}
+              </span>
+              <span className="sm:hidden">{t("common.back")}</span>
             </Link>
           </Button>
           <span className="text-sm font-medium truncate hidden sm:block">
@@ -281,8 +286,14 @@ export function ResponsesPage() {
           </span>
           <Badge variant="secondary" className="text-xs shrink-0">
             {search.trim() && filteredSorted.length !== total
-              ? `${filteredSorted.length} of ${total}`
-              : `${total} response${total !== 1 ? "s" : ""}`}
+              ? t("responses.filteredCount", {
+                  count: formatNumber(filteredSorted.length),
+                  total: formatNumber(total),
+                })
+              : t("responses.totalCount", {
+                  count: total,
+                  formattedCount: formatNumber(total),
+                })}
           </Badge>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -292,7 +303,7 @@ export function ResponsesPage() {
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Filter responses..."
+                placeholder={t("responses.filterPlaceholder")}
                 className="h-8 pl-7 w-48 text-xs"
               />
             </div>
@@ -305,8 +316,8 @@ export function ResponsesPage() {
             disabled={filteredSorted.length === 0}
           >
             <IconDownload className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Export CSV</span>
-            <span className="sm:hidden">Export</span>
+            <span className="hidden sm:inline">{t("responses.exportCsv")}</span>
+            <span className="sm:hidden">{t("responses.export")}</span>
           </Button>
         </div>
       </div>
@@ -319,7 +330,7 @@ export function ResponsesPage() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter responses..."
+              placeholder={t("responses.filterPlaceholder")}
               className="h-8 pl-7 text-xs"
             />
           </div>
@@ -329,16 +340,16 @@ export function ResponsesPage() {
       {/* Table */}
       {responses.length === 0 ? (
         <div className="flex flex-col items-center justify-center flex-1 py-20">
-          <h3 className="font-medium mb-1">No responses yet</h3>
+          <h3 className="font-medium mb-1">{t("responses.emptyTitle")}</h3>
           <p className="text-sm text-muted-foreground">
-            Share your form to start collecting responses
+            {t("responses.emptyDescription")}
           </p>
         </div>
       ) : filteredSorted.length === 0 ? (
         <div className="flex flex-col items-center justify-center flex-1 py-20">
-          <h3 className="font-medium mb-1">No matches</h3>
+          <h3 className="font-medium mb-1">{t("responses.noMatchesTitle")}</h3>
           <p className="text-sm text-muted-foreground">
-            No responses contain "{search}"
+            {t("responses.noMatchesDescription", { search })}
           </p>
         </div>
       ) : (
@@ -367,14 +378,14 @@ export function ResponsesPage() {
                     #
                   </th>
                   <SortableHeader
-                    label="Submitted"
+                    label={t("responses.submitted")}
                     active={sortKey === "_submitted"}
                     dir={sortDir}
                     onClick={() => toggleSort("_submitted")}
                   />
                   {hasSubmitterEmail ? (
                     <SortableHeader
-                      label="Email"
+                      label={t("responses.email")}
                       active={sortKey === "_email"}
                       dir={sortDir}
                       onClick={() => toggleSort("_email")}
@@ -382,7 +393,7 @@ export function ResponsesPage() {
                   ) : null}
                   {hasPageUrl ? (
                     <SortableHeader
-                      label="Page"
+                      label={t("responses.page")}
                       active={sortKey === "_page"}
                       dir={sortDir}
                       onClick={() => toggleSort("_page")}
@@ -390,7 +401,7 @@ export function ResponsesPage() {
                   ) : null}
                   {hasClientSurface ? (
                     <SortableHeader
-                      label="Source"
+                      label={t("responses.source")}
                       active={sortKey === "_source"}
                       dir={sortDir}
                       onClick={() => toggleSort("_source")}
@@ -417,7 +428,12 @@ export function ResponsesPage() {
                       {filteredSorted.length - idx}
                     </td>
                     <td className="min-w-36 px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-                      {format(new Date(response.submittedAt), "MMM d, h:mm a")}
+                      {formatDate(response.submittedAt, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
                     </td>
                     {hasSubmitterEmail ? (
                       <td className="w-56 px-4 py-3 align-top text-xs text-muted-foreground whitespace-normal break-words">
@@ -506,6 +522,7 @@ function SortableHeader(props: {
   dir: SortDir;
   onClick: () => void;
 }) {
+  const t = useT();
   const { label, active, dir, onClick } = props;
   const Icon = !active
     ? IconArrowsSort
@@ -524,7 +541,7 @@ function SortableHeader(props: {
           "inline-flex items-center gap-1 cursor-pointer hover:text-foreground",
           active && "text-foreground",
         )}
-        aria-label={`Sort by ${label}`}
+        aria-label={t("responses.sortBy", { label })}
       >
         {label}
         <Icon className="h-3 w-3 opacity-60" />

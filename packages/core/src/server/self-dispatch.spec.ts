@@ -31,8 +31,71 @@ describe("fireInternalDispatch", () => {
       "Self-dispatch to /_agent-native/agent-teams/_process-run returned HTTP 503 Service Unavailable",
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      "[self-dispatch] dispatch to /_agent-native/agent-teams/_process-run failed:",
+      "[self-dispatch] dispatch to /_agent-native/agent-teams/_process-run " +
+        "(base https://slides.example.test) failed:",
       expect.any(Error),
+    );
+  });
+
+  it("dispatches /.netlify/functions/* to the HOST ROOT (strips the app base path)", async () => {
+    const previous = process.env.APP_BASE_PATH;
+    process.env.APP_BASE_PATH = "/starter";
+    let calledUrl = "";
+    globalThis.fetch = vi.fn(async (url: string) => {
+      calledUrl = url;
+      return {
+        ok: true,
+        status: 202,
+        statusText: "Accepted",
+        text: async () => "",
+      };
+    }) as unknown as typeof fetch;
+
+    try {
+      await fireInternalDispatch({
+        // Base url is already app-base-path-prefixed (as resolveSelfDispatchBaseUrl
+        // returns it for a workspace app).
+        baseUrl: "https://workspace.example.test/starter",
+        path: "/.netlify/functions/starter-agent-background",
+        taskId: "task-1",
+        settleMs: 1000,
+      });
+    } finally {
+      if (previous === undefined)
+        Reflect.deleteProperty(process.env, "APP_BASE_PATH");
+      else process.env.APP_BASE_PATH = previous;
+    }
+
+    // The /starter base path must be stripped for the host-root function url.
+    expect(calledUrl).toBe(
+      "https://workspace.example.test/.netlify/functions/starter-agent-background",
+    );
+  });
+
+  it("keeps the app base path for non-function (framework-route) dispatches", async () => {
+    const previous = process.env.APP_BASE_PATH;
+    process.env.APP_BASE_PATH = "/starter";
+    let calledUrl = "";
+    globalThis.fetch = vi.fn(async (url: string) => {
+      calledUrl = url;
+      return { ok: true, status: 200, statusText: "OK", text: async () => "" };
+    }) as unknown as typeof fetch;
+
+    try {
+      await fireInternalDispatch({
+        baseUrl: "https://workspace.example.test/starter",
+        path: "/_agent-native/agent-chat/_process-run",
+        taskId: "task-1",
+        settleMs: 1000,
+      });
+    } finally {
+      if (previous === undefined)
+        Reflect.deleteProperty(process.env, "APP_BASE_PATH");
+      else process.env.APP_BASE_PATH = previous;
+    }
+
+    expect(calledUrl).toBe(
+      "https://workspace.example.test/starter/_agent-native/agent-chat/_process-run",
     );
   });
 
