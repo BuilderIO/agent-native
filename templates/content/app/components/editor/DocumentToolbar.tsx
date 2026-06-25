@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router";
+import {
+  AgentToggleButton,
+  NotificationsBell,
+  PresenceBar,
+  appPath,
+  useActionMutation,
+  type CollabUser,
+} from "@agent-native/core/client";
+import { ShareButton } from "@agent-native/core/client";
+import type { DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
   IconArrowBarUp,
@@ -21,12 +29,12 @@ import {
   IconRefresh,
   IconShare3,
 } from "@tabler/icons-react";
-import { VersionHistoryPanel } from "./VersionHistoryPanel";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,21 +47,17 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
 import {
-  AgentToggleButton,
-  NotificationsBell,
-  PresenceBar,
-  appPath,
-  useActionMutation,
-  type CollabUser,
-} from "@agent-native/core/client";
-import { ShareButton } from "@agent-native/core/client";
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useNotionConnection,
   useDocumentSyncStatus,
@@ -65,15 +69,13 @@ import {
   useSearchNotionPages,
   useCreateAndLinkNotionPage,
 } from "@/hooks/use-notion";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import { useLocalStorage } from "@/hooks/use-local-storage";
-import type { DocumentSourceInfo } from "@shared/api";
 import {
   localSourceAbsolutePath,
   revealLinkedLocalSourceFile,
 } from "@/lib/local-content-source-files";
+import { cn } from "@/lib/utils";
+
+import { VersionHistoryPanel } from "./VersionHistoryPanel";
 
 type ExportFormat = "pdf" | "markdown" | "html";
 
@@ -507,14 +509,14 @@ export function DocumentToolbar({
 
   return (
     <>
-      <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-xl border border-border/70 bg-background/95 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:top-3 sm:right-4 sm:gap-1">
+      <div className="absolute top-2 end-2 z-10 flex items-center gap-0.5 rounded-xl border border-border/70 bg-background/95 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:top-3 sm:end-4 sm:gap-1">
         {/* Presence — shared PresenceBar (agent + collaborator avatars) */}
         <PresenceBar
           activeUsers={activeUsers ?? []}
           agentPresent={agentPresent}
           agentActive={agentActive}
           currentUserEmail={currentUserEmail}
-          className="mr-1"
+          className="me-1"
         />
         {isLocalFileDocument ? (
           <Button
@@ -589,24 +591,24 @@ export function DocumentToolbar({
                   Local file
                 </DropdownMenuLabel>
                 <DropdownMenuItem disabled className="min-w-0">
-                  <IconFileText className="mr-2 h-4 w-4 shrink-0" />
+                  <IconFileText className="me-2 h-4 w-4 shrink-0" />
                   <span className="truncate">{source?.path}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={revealLocalSource.isPending}
                   onSelect={() => void handleRevealLocalPath()}
                 >
-                  <IconFolderOpen className="mr-2 h-4 w-4" />
+                  <IconFolderOpen className="me-2 h-4 w-4" />
                   Reveal in Finder
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={handleCopyLocalRelativePath}>
-                  <IconCopy className="mr-2 h-4 w-4" />
+                  <IconCopy className="me-2 h-4 w-4" />
                   Copy relative path
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => void handleCopyLocalAbsolutePath()}
                 >
-                  <IconCopy className="mr-2 h-4 w-4" />
+                  <IconCopy className="me-2 h-4 w-4" />
                   Copy absolute path
                 </DropdownMenuItem>
               </DropdownMenuGroup>
@@ -614,7 +616,7 @@ export function DocumentToolbar({
               <>
                 <DropdownMenuGroup>
                   <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
-                    <IconHistory className="mr-2 h-4 w-4" />
+                    <IconHistory className="me-2 h-4 w-4" />
                     Version history
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
@@ -622,9 +624,9 @@ export function DocumentToolbar({
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger disabled={exportDocument.isPending}>
                     {exportDocument.isPending ? (
-                      <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
                     ) : (
-                      <IconDownload className="mr-2 h-4 w-4" />
+                      <IconDownload className="me-2 h-4 w-4" />
                     )}
                     Export
                   </DropdownMenuSubTrigger>
@@ -633,21 +635,21 @@ export function DocumentToolbar({
                       disabled={exportDocument.isPending}
                       onSelect={() => void handleExport("pdf")}
                     >
-                      <IconFileTypePdf className="mr-2 h-4 w-4" />
+                      <IconFileTypePdf className="me-2 h-4 w-4" />
                       PDF
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       disabled={exportDocument.isPending}
                       onSelect={() => void handleExport("markdown")}
                     >
-                      <IconMarkdown className="mr-2 h-4 w-4" />
+                      <IconMarkdown className="me-2 h-4 w-4" />
                       Markdown
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       disabled={exportDocument.isPending}
                       onSelect={() => void handleExport("html")}
                     >
-                      <IconFileTypeHtml className="mr-2 h-4 w-4" />
+                      <IconFileTypeHtml className="me-2 h-4 w-4" />
                       HTML
                     </DropdownMenuItem>
                   </DropdownMenuSubContent>
@@ -666,25 +668,25 @@ export function DocumentToolbar({
                         isLinked ? "text-foreground" : "text-muted-foreground",
                       )}
                     >
-                      <span className="mr-2 flex h-4 w-4 shrink-0 items-center justify-center">
+                      <span className="me-2 flex h-4 w-4 shrink-0 items-center justify-center">
                         {hasConflict ? (
                           <span className="relative">
                             <NotionIcon className="h-4 w-4" />
                             <IconAlertTriangle
                               size={8}
-                              className="absolute -right-1 -top-1 text-amber-500"
+                              className="absolute -end-1 -top-1 text-amber-500"
                             />
                           </span>
                         ) : isLinked && autoSync ? (
                           <span className="relative">
                             <NotionIcon className="h-4 w-4" />
-                            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500" />
+                            <span className="absolute -end-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500" />
                           </span>
                         ) : (
                           <NotionIcon className="h-4 w-4" />
                         )}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-left">
+                      <span className="min-w-0 flex-1 truncate text-start">
                         {isLinked
                           ? "Notion sync"
                           : isConnected
@@ -994,7 +996,7 @@ export function DocumentToolbar({
               ) : null}
               <div className="group relative">
                 <NotificationsBell className="!h-8 !w-full !justify-start !rounded-sm !px-2 !py-1.5 !text-sm hover:!bg-accent hover:!text-accent-foreground focus-visible:!ring-0" />
-                <span className="pointer-events-none absolute left-8 top-1/2 -translate-y-1/2 text-sm text-muted-foreground group-hover:text-accent-foreground">
+                <span className="pointer-events-none absolute start-8 top-1/2 -translate-y-1/2 text-sm text-muted-foreground group-hover:text-accent-foreground">
                   Notifications
                 </span>
               </div>

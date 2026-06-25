@@ -1,19 +1,46 @@
-import { defineBlock, type BlockSpec } from "../types.js";
 import { registerBlocks, type BlockRegistry } from "../registry.js";
-
+import { defineBlock, type BlockSpec } from "../types.js";
+import {
+  annotatedCodeSchema,
+  annotatedCodeMdx,
+  type AnnotatedCodeData,
+} from "./annotated-code.config.js";
+import { AnnotatedCodeRead, AnnotatedCodeEdit } from "./AnnotatedCodeBlock.js";
+import {
+  apiEndpointSchema,
+  apiEndpointMdx,
+  type ApiEndpointData,
+} from "./api-endpoint.config.js";
+import { ApiEndpointRead, ApiEndpointEdit } from "./ApiEndpointBlock.js";
+import { calloutBlock } from "./callout.js";
 // Pre-built standard library specs (schema + mdx + React Read/Edit all bundled).
 import { checklistBlock } from "./checklist.js";
-import { tableBlock } from "./table.js";
-import { codeBlock } from "./code.js";
 import { codeTabsBlock } from "./code-tabs.js";
-import { htmlBlock } from "./html.js";
-import { tabsBlock } from "./tabs.js";
+import { codeBlock } from "./code.js";
 import { columnsBlock } from "./columns.js";
-import { calloutBlock } from "./callout.js";
-import { questionFormBlock, visualQuestionsBlock } from "./question-form.js";
+import {
+  dataModelSchema,
+  dataModelMdx,
+  type DataModelData,
+} from "./data-model.config.js";
+import { DataModelRead, DataModelEdit } from "./DataModelBlock.js";
 import { diagramBlock } from "./diagram.js";
-import { wireframeBlock } from "./wireframe.js";
-
+import { diffSchema, diffMdx, type DiffData } from "./diff.config.js";
+import { DiffRead, DiffEdit } from "./DiffBlock.js";
+import {
+  fileTreeSchema,
+  fileTreeMdx,
+  type FileTreeData,
+} from "./file-tree.config.js";
+import { FileTreeRead, FileTreeEdit } from "./FileTreeBlock.js";
+import { htmlBlock } from "./html.js";
+import {
+  jsonExplorerSchema,
+  jsonExplorerMdx,
+  JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH,
+  type JsonExplorerData,
+} from "./json-explorer.config.js";
+import { JsonExplorerRead, JsonExplorerEdit } from "./JsonExplorerBlock.js";
 // Dev-doc blocks: React-free schema + MDX config paired with the shared React
 // Read/Edit renderers. Composed into full specs below with canonical metadata.
 import {
@@ -23,44 +50,15 @@ import {
 } from "./mermaid.config.js";
 import { MermaidRead, MermaidEdit } from "./MermaidBlock.js";
 import {
-  apiEndpointSchema,
-  apiEndpointMdx,
-  type ApiEndpointData,
-} from "./api-endpoint.config.js";
-import { ApiEndpointRead, ApiEndpointEdit } from "./ApiEndpointBlock.js";
-import {
   openApiSpecSchema,
   openApiSpecMdx,
   type OpenApiSpecData,
 } from "./openapi-spec.config.js";
 import { OpenApiSpecRead, OpenApiSpecEdit } from "./OpenApiSpecBlock.js";
-import {
-  dataModelSchema,
-  dataModelMdx,
-  type DataModelData,
-} from "./data-model.config.js";
-import { DataModelRead, DataModelEdit } from "./DataModelBlock.js";
-import { diffSchema, diffMdx, type DiffData } from "./diff.config.js";
-import { DiffRead, DiffEdit } from "./DiffBlock.js";
-import {
-  fileTreeSchema,
-  fileTreeMdx,
-  type FileTreeData,
-} from "./file-tree.config.js";
-import { FileTreeRead, FileTreeEdit } from "./FileTreeBlock.js";
-import {
-  jsonExplorerSchema,
-  jsonExplorerMdx,
-  JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH,
-  type JsonExplorerData,
-} from "./json-explorer.config.js";
-import { JsonExplorerRead, JsonExplorerEdit } from "./JsonExplorerBlock.js";
-import {
-  annotatedCodeSchema,
-  annotatedCodeMdx,
-  type AnnotatedCodeData,
-} from "./annotated-code.config.js";
-import { AnnotatedCodeRead, AnnotatedCodeEdit } from "./AnnotatedCodeBlock.js";
+import { questionFormBlock, visualQuestionsBlock } from "./question-form.js";
+import { tableBlock } from "./table.js";
+import { tabsBlock } from "./tabs.js";
+import { wireframeBlock } from "./wireframe.js";
 
 /**
  * Canonical specs for the standard library's dev-doc blocks (Mermaid, API

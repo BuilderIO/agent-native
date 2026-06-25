@@ -1,3 +1,6 @@
+import type { ReadStream } from "node:fs";
+import { Readable } from "node:stream";
+
 /**
  * Small helpers around h3 v2 that polish ergonomics for templates.
  *
@@ -15,8 +18,6 @@
  */
 import { readBody as _readBody, getHeader, setResponseStatus } from "h3";
 import type { H3Event } from "h3";
-import { Readable } from "node:stream";
-import type { ReadStream } from "node:fs";
 
 /**
  * Default maximum chat-POST body size (25 MB uncompressed). The agent chat

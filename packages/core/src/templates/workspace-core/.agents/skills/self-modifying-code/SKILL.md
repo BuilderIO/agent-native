@@ -66,6 +66,11 @@ el.dataset.selectedId = selectedItem?.id || "";
 
 **Use configuration-driven rendering** — Extract visual decisions (colors, layouts, sizes) into JSON config files in `data/`. The agent can modify the config (Tier 1) instead of the component source (Tier 2).
 
+**Keep localized copy in catalogs** — When editing visible UI copy, labels,
+toasts, empty states, prompts, or formatting, read `internationalization` and
+update `app/i18n/en-US.ts` plus existing locale catalogs instead of leaving new
+inline strings in components.
+
 ## Don't
 
 - Don't modify `.env` files or files containing secrets
@@ -80,3 +85,4 @@ el.dataset.selectedId = selectedItem?.id || "";
 - **actions** — The agent can create or modify actions to add new capabilities
 - **delegate-to-agent** — Self-modification requests come through the agent chat
 - **real-time-sync** — Database writes trigger change events to update the UI
+- **internationalization** — UI copy, language catalogs, locale switching, and RTL-safe edits

@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { runSkills as runCoreSkills } from "@agent-native/core/cli/skills";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   installSkills,
@@ -95,6 +95,17 @@ describe("@agent-native/skills", () => {
       clients: ["codex", "cowork"],
       scope: "project",
       updateInstructions: true,
+    });
+  });
+
+  it("parses scaffold update commands for generated workspaces", () => {
+    expect(
+      parseSkillsCliArgs(["update", "scaffold", "--project"]),
+    ).toMatchObject({
+      command: "update",
+      source: "scaffold",
+      scope: "project",
+      scopeExplicit: true,
     });
   });
 
@@ -192,6 +203,17 @@ describe("@agent-native/skills", () => {
         path.join(project, ".agents", "skills", "efficient-frontier"),
       ),
     ).toBe(false);
+  });
+
+  it("forwards scaffold update commands through the shared core flow", async () => {
+    await runSkillsCli(["update", "scaffold", "--project"], {
+      isInteractive: () => false,
+    });
+
+    expect(runCoreSkills).toHaveBeenCalledWith(
+      ["update", "scaffold", "--scope", "project"],
+      expect.objectContaining({ catalogMode: "all" }),
+    );
   });
 
   it("installs every plain source skill directly when no skill is explicit", async () => {

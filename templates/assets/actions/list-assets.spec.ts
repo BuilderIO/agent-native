@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import action from "./list-assets.js";
 
 describe("list-assets schema", () => {

@@ -1,5 +1,9 @@
-import { useRef, useState } from "react";
-import { IconMessagePlus, IconSend } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  IconMessagePlus,
+  IconAt,
+  IconMoodSmile,
+} from "@tabler/icons-react";
 import { useActionMutation } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,34 +11,75 @@ import { cn } from "@/lib/utils";
 import { msToClock } from "./scrubber";
 
 interface TimestampedCommentButtonProps {
-  recordingId: string;
   enableComments: boolean;
-  /** Reads the live playback position so the comment is pinned to the right moment. */
-  getCurrentMs: () => number;
+  onOpen: () => void;
+  className?: string;
+}
+
+/** Trigger that opens the docked comment composer, pinned to the current time. */
+export function TimestampedCommentButton({
+  enableComments,
+  onOpen,
+  className,
+}: TimestampedCommentButtonProps) {
+  if (!enableComments) return null;
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className={cn("gap-1.5", className)}
+      onClick={onOpen}
+    >
+      <IconMessagePlus className="h-4 w-4" />
+      Comment
+    </Button>
+  );
+}
+
+interface TimestampedCommentBarProps {
+  recordingId: string;
+  atMs: number;
+  onClose: () => void;
   onAdded?: () => void;
   className?: string;
 }
 
-export function TimestampedCommentButton({
+/**
+ * Bottom-docked comment composer. Render inside a `relative` container (the
+ * video wrapper) so it overlays the bottom of the video at the captured moment.
+ */
+export function TimestampedCommentBar({
   recordingId,
-  enableComments,
-  getCurrentMs,
+  atMs,
+  onClose,
   onAdded,
   className,
-}: TimestampedCommentButtonProps) {
-  const [open, setOpen] = useState(false);
+}: TimestampedCommentBarProps) {
   const [draft, setDraft] = useState("");
-  const [atMs, setAtMs] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const addComment = useActionMutation("add-comment");
 
-  if (!enableComments) return null;
-
-  const openComposer = () => {
-    setAtMs(getCurrentMs());
-    setOpen(true);
+  useEffect(() => {
     requestAnimationFrame(() => textareaRef.current?.focus());
+  }, []);
+
+  const insertAtCursor = (text: string) => {
+    const el = textareaRef.current;
+    if (!el) {
+      setDraft((d) => d + text);
+      return;
+    }
+    const start = el.selectionStart ?? draft.length;
+    const end = el.selectionEnd ?? draft.length;
+    const next = draft.slice(0, start) + text + draft.slice(end);
+    setDraft(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + text.length;
+      el.setSelectionRange(pos, pos);
+    });
   };
 
   const submit = () => {
@@ -45,77 +90,77 @@ export function TimestampedCommentButton({
       {
         onSuccess: () => {
           setDraft("");
-          setOpen(false);
           onAdded?.();
+          onClose();
         },
       },
     );
   };
 
-  if (!open) {
-    return (
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className={cn("gap-1.5", className)}
-        onClick={openComposer}
-      >
-        <IconMessagePlus className="h-4 w-4" />
-        Comment
-      </Button>
-    );
-  }
-
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-2 rounded-lg border border-border bg-card p-2 shadow-sm",
-        className,
-      )}
-    >
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <IconMessagePlus className="h-3.5 w-3.5" />
-        Commenting at
-        <span className="font-mono text-foreground">{msToClock(atMs)}</span>
-      </div>
-      <Textarea
-        ref={textareaRef}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            submit();
-          }
-          if (e.key === "Escape") {
-            e.preventDefault();
-            setOpen(false);
-          }
-        }}
-        placeholder="Add a comment at this moment…"
-        rows={2}
-        className="min-h-[2.5rem] resize-none text-sm"
-      />
-      <div className="flex items-center justify-end gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => setOpen(false)}
-        >
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          className="gap-1.5"
-          disabled={!draft.trim() || addComment.isPending}
-          onClick={submit}
-        >
-          <IconSend className="h-4 w-4" />
-          Comment
-        </Button>
+    <div className={cn("absolute inset-x-0 bottom-0 z-30 p-3", className)}>
+      <div className="rounded-xl border border-border bg-background/95 p-3 shadow-lg backdrop-blur">
+        <Textarea
+          ref={textareaRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              submit();
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              onClose();
+            }
+          }}
+          placeholder="Add a comment…"
+          rows={2}
+          className="min-h-[3rem] resize-none border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+        />
+        <div className="mt-2 flex items-center justify-between">
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground"
+              aria-label="Mention someone"
+              onClick={() => insertAtCursor("@")}
+            >
+              <IconAt className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground"
+              aria-label="Add emoji"
+              onClick={() => insertAtCursor("🙂")}
+            >
+              <IconMoodSmile className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onClose}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="rounded-full"
+              disabled={!draft.trim() || addComment.isPending}
+              onClick={submit}
+            >
+              Comment at {msToClock(atMs)}
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );

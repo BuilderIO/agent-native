@@ -1,8 +1,10 @@
-import { defineAction } from "@agent-native/core";
 import fs from "fs";
+
+import { defineAction } from "@agent-native/core";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
-import { assertAccess } from "@agent-native/core/sharing";
+
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
@@ -35,6 +37,8 @@ export default defineAction({
         id: r.id,
         submittedAt: r.submittedAt,
         submitterEmail: r.submitterEmail ?? null,
+        pageUrl: r.pageUrl ?? null,
+        clientSurface: r.clientSurface ?? null,
         ...JSON.parse(r.data),
       }));
       fs.writeFileSync(outputPath, JSON.stringify(data, null, 2));
@@ -43,6 +47,8 @@ export default defineAction({
         "ID",
         "Submitted At",
         "Submitter Email",
+        "Page URL",
+        "Source",
         ...fields.map((f: any) => f.label),
       ];
       const rows = responses.map((r) => {
@@ -51,6 +57,8 @@ export default defineAction({
           r.id,
           r.submittedAt,
           r.submitterEmail ?? "",
+          r.pageUrl ?? "",
+          r.clientSurface ?? "",
           ...fields.map((f: any) => {
             const val = data[f.id];
             if (Array.isArray(val)) return val.join("; ");

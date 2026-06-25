@@ -1,13 +1,21 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import { useSearchParams } from "react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   agentNativePath,
   useActionMutation,
   useChatModels,
   useChangeVersions,
+  ChangelogSettingsCard,
+  LanguagePicker,
+  openAgentSettings,
+  useT,
 } from "@agent-native/core/client";
 import { appApiPath } from "@agent-native/core/client";
+import { TeamPage } from "@agent-native/core/client/org";
+import type {
+  Alias,
+  AutomationAction,
+  AutomationRule,
+  UserSettings,
+} from "@shared/types";
 import {
   IconUsers,
   IconPlus,
@@ -24,11 +32,15 @@ import {
   IconSignature,
   IconFilter,
   IconInfoCircle,
+  IconHistory,
+  IconSettings,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import { GmailFiltersSection } from "@/components/settings/GmailFiltersSection";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +51,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -46,15 +60,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   useAliases,
   useCreateAlias,
   useUpdateAlias,
   useDeleteAlias,
 } from "@/hooks/use-aliases";
-import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   useAutomations,
   useCreateAutomation,
@@ -62,20 +81,10 @@ import {
   useDeleteAutomation,
 } from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
-import type {
-  Alias,
-  AutomationAction,
-  AutomationRule,
-  UserSettings,
-} from "@shared/types";
-import { TeamPage } from "@agent-native/core/client/org";
-import { toast } from "sonner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { GmailFiltersSection } from "@/components/settings/GmailFiltersSection";
+import { useNavigationState } from "@/hooks/use-navigation-state";
+import { cn } from "@/lib/utils";
+
+import changelog from "../../CHANGELOG.md?raw";
 
 // ─── Alias Edit Row ───────────────────────────────────────────────────────────
 
@@ -1379,9 +1388,77 @@ function SlackIntakeSection() {
   );
 }
 
+// ─── What's New Section ──────────────────────────────────────────────────────
+
+function GeneralSection() {
+  const t = useT();
+  return (
+    <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+      <div className="mb-6">
+        <h2 className="text-[16px] font-semibold text-foreground">
+          {t("settings.general")}
+        </h2>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">
+          {t("settings.generalDescription")}
+        </p>
+      </div>
+
+      <div className="max-w-2xl rounded-lg border border-border/20 bg-card/50 p-4">
+        <div className="mb-3">
+          <h3 className="text-[13px] font-semibold text-foreground">
+            {t("settings.languageTitle")}
+          </h3>
+          <p className="mt-0.5 text-[12px] text-muted-foreground">
+            {t("settings.languageDescription")}
+          </p>
+        </div>
+        <div className="max-w-sm">
+          <LanguagePicker label={t("settings.languageLabel")} />
+        </div>
+      </div>
+
+      <div className="mt-4 max-w-2xl rounded-lg border border-border/20 bg-card/50 p-4">
+        <div className="mb-3">
+          <h3 className="text-[13px] font-semibold text-foreground">
+            {t("settings.agentTitle")}
+          </h3>
+          <p className="mt-0.5 text-[12px] text-muted-foreground">
+            {t("settings.agentDescription")}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => openAgentSettings()}>
+          {t("settings.openAgentSettings")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function WhatsNewSection() {
+  const t = useT();
+  return (
+    <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+      <div className="mb-6">
+        <h2 className="text-[16px] font-semibold text-foreground">
+          {t("settings.whatsNew")}
+        </h2>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">
+          {t("settings.whatsNewDescription")}
+        </p>
+      </div>
+
+      <div className="max-w-2xl">
+        <ChangelogSettingsCard markdown={changelog} />
+      </div>
+    </div>
+  );
+}
+
 // ─── Settings Page ────────────────────────────────────────────────────────────
 
 type SettingsSection =
+  | "general"
+  | "whats-new"
   | "drafting"
   | "automations"
   | "gmail-filters"
@@ -1392,16 +1469,18 @@ type SettingsSection =
 
 const navItems: {
   id: SettingsSection;
-  label: string;
+  labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
-  { id: "drafting", label: "Drafting", icon: IconSignature },
-  { id: "automations", label: "Automations", icon: IconBolt },
-  { id: "gmail-filters", label: "Gmail Filters", icon: IconFilter },
-  { id: "aliases", label: "Aliases", icon: IconUsers },
-  { id: "tracking", label: "Tracking", icon: IconChartBar },
-  { id: "slack", label: "Slack", icon: IconBolt },
-  { id: "team", label: "Team", icon: IconUsers },
+  { id: "general", labelKey: "settings.general", icon: IconSettings },
+  { id: "whats-new", labelKey: "settings.whatsNew", icon: IconHistory },
+  { id: "drafting", labelKey: "settings.drafting", icon: IconSignature },
+  { id: "automations", labelKey: "settings.automations", icon: IconBolt },
+  { id: "gmail-filters", labelKey: "settings.gmailFilters", icon: IconFilter },
+  { id: "aliases", labelKey: "settings.aliases", icon: IconUsers },
+  { id: "tracking", labelKey: "settings.tracking", icon: IconChartBar },
+  { id: "slack", labelKey: "settings.slack", icon: IconBolt },
+  { id: "team", labelKey: "settings.team", icon: IconUsers },
 ];
 
 function isSettingsSection(value: string | null): value is SettingsSection {
@@ -1409,10 +1488,11 @@ function isSettingsSection(value: string | null): value is SettingsSection {
 }
 
 export function SettingsPage() {
+  const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const navState = useNavigationState();
   const [activeSection, setActiveSection] =
-    useState<SettingsSection>("drafting");
+    useState<SettingsSection>("general");
 
   useEffect(() => {
     const section = searchParams.get("section");
@@ -1432,31 +1512,32 @@ export function SettingsPage() {
   return (
     <div className="flex flex-1 flex-col sm:flex-row overflow-hidden">
       {/* Top tabs on mobile, left sidebar on desktop */}
-      <div className="sm:w-[200px] shrink-0 sm:border-r border-b sm:border-b-0 border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)] sm:p-3 flex sm:flex-col gap-0.5 overflow-x-auto">
+      <div className="sm:w-[200px] shrink-0 sm:border-e border-b sm:border-b-0 border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)] sm:p-3 flex sm:flex-col gap-0.5 overflow-x-auto">
         <p className="hidden sm:block px-2 py-1.5 text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">
-          Settings
+          {t("settings.title")}
         </p>
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeSection === item.id;
+          const label = t(item.labelKey);
           return (
             <button
               key={item.id}
               onClick={() => setActiveSection(item.id)}
               className={cn(
-                "flex items-center gap-2.5 sm:w-full rounded-md px-3 sm:px-2.5 py-2.5 sm:py-2 text-[13px] transition-colors text-left whitespace-nowrap",
+                "flex items-center gap-2.5 sm:w-full rounded-md px-3 sm:px-2.5 py-2.5 sm:py-2 text-[13px] transition-colors text-start whitespace-nowrap",
                 isActive
-                  ? "bg-indigo-500/15 text-indigo-300 font-medium"
+                  ? "bg-blue-500/15 text-blue-400 font-medium"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
               )}
             >
               <Icon
                 className={cn(
                   "h-4 w-4 shrink-0",
-                  isActive ? "text-indigo-400" : "text-muted-foreground/60",
+                  isActive ? "text-blue-400" : "text-muted-foreground/60",
                 )}
               />
-              {item.label}
+              {label}
             </button>
           );
         })}
@@ -1464,6 +1545,8 @@ export function SettingsPage() {
 
       {/* Right content panel */}
       <div className="flex flex-1 overflow-hidden bg-background">
+        {activeSection === "general" && <GeneralSection />}
+        {activeSection === "whats-new" && <WhatsNewSection />}
         {activeSection === "drafting" && <DraftingSection />}
         {activeSection === "automations" && <AutomationsSection />}
         {activeSection === "gmail-filters" && <GmailFiltersSection />}

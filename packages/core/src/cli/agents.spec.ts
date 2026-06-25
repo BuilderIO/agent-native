@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { formatAgentsUsage, parseAgentsArgs } from "./agents.js";
 
 describe("agents CLI", () => {

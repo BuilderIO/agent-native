@@ -1,4 +1,7 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
+
+import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../index.js";
+import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
 import {
   createAgentChatRuntimeAdapter,
   createAgentNativeChatRuntime,
@@ -10,8 +13,6 @@ import {
   type AgentChatRuntimeToolCall,
   type AgentChatRuntimeTurn,
 } from "./runtime.js";
-import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
-import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../index.js";
 
 async function* streamRuntimeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
   yield {

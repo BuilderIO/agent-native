@@ -1,7 +1,3 @@
-import { useState } from "react";
-import { useParams, useNavigate } from "react-router";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { format, parseISO } from "date-fns";
 import {
   IconCalendar,
   IconClock,
@@ -9,8 +5,12 @@ import {
   IconCalendarPlus,
   IconCircleCheck,
 } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { format, parseISO } from "date-fns";
+import { useState } from "react";
+import { useParams, useNavigate } from "react-router";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,8 +22,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { appApiPath } from "@/lib/api-path";
-import { toast } from "sonner";
 
 interface BookingInfo {
   eventTitle: string;

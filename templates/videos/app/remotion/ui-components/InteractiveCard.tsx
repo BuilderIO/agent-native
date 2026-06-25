@@ -1,7 +1,8 @@
 import React from "react";
-import { useInteractiveComponent } from "@/remotion/hooks/useInteractiveComponent";
+
 import { AnimatedElement } from "@/remotion/components/AnimatedElement";
 import type { CursorFrame } from "@/remotion/hooks/useCursorHistory";
+import { useInteractiveComponent } from "@/remotion/hooks/useInteractiveComponent";
 import type { AnimationTrack } from "@/types";
 
 export function InteractiveCard({

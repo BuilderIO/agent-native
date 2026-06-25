@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-import { getDocumentSidebarIconKind } from "./DocumentTreeItem";
+
 import type { DocumentTreeNode } from "@shared/api";
+import { describe, expect, it } from "vitest";
+
+import { getDocumentSidebarIconKind } from "./DocumentTreeItem";
 
 function readSidebarSource(relativePath: string) {
   return readFileSync(new URL(relativePath, import.meta.url), "utf8");
@@ -25,7 +27,7 @@ describe("document sidebar layout", () => {
     const scrollArea = readSidebarSource("../ui/scroll-area.tsx");
 
     expect(layout).toContain("const MIN_SIDEBAR_WIDTH = 240");
-    expect(sidebar).toContain('className="min-w-full w-max py-2 pr-2"');
+    expect(sidebar).toContain('className="min-w-full w-max py-2 pe-2"');
     expect(treeItem).toContain("const indent = depth * 12 + 12");
     expect(treeItem).toContain("min-w-56");
     expect(scrollArea).toContain('<ScrollBar orientation="horizontal" />');

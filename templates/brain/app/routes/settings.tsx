@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  ChangelogSettingsCard,
+  LanguagePicker,
+  openAgentSettings,
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconAdjustments,
   IconBuilding,
@@ -9,11 +15,9 @@ import {
   IconMessageCircle,
   IconShieldCheck,
 } from "@tabler/icons-react";
-import {
-  type BrainSettings,
-  type SettingsResponse,
-  defaultSettings,
-} from "@/lib/brain";
+import { useEffect, useMemo, useState } from "react";
+
+import { EmptyActionState, PageHeader } from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,7 +41,13 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { EmptyActionState, PageHeader } from "@/components/brain/Surface";
+import {
+  type BrainSettings,
+  type SettingsResponse,
+  defaultSettings,
+} from "@/lib/brain";
+
+import changelog from "../../CHANGELOG.md?raw";
 
 const toneOptions = [
   {
@@ -84,6 +94,7 @@ type ToneValue = (typeof toneOptions)[number]["value"];
 type SourcePolicyValue = (typeof sourcePolicyOptions)[number]["value"];
 
 export default function SettingsRoute() {
+  const t = useT();
   const settingsQuery = useActionQuery<SettingsResponse>(
     "get-brain-settings" as any,
     {} as any,
@@ -124,9 +135,9 @@ export default function SettingsRoute() {
   return (
     <div className="min-h-full bg-background">
       <PageHeader
-        eyebrow="Customize"
-        title="Customize Brain"
-        description="Name the assistant, shape its voice, and set the policies it follows when turning company sources into knowledge."
+        eyebrow={t("settings.eyebrow")}
+        title={t("settings.title")}
+        description={t("settings.description")}
         actions={
           <Button
             size="sm"
@@ -136,16 +147,18 @@ export default function SettingsRoute() {
           >
             <IconDeviceFloppy className="size-4" />
             {saveSettings.isPending
-              ? "Saving"
+              ? t("common.saving")
               : isDirty
-                ? "Save changes"
-                : "Saved"}
+                ? t("common.saveChanges")
+                : t("common.saved")}
           </Button>
         }
       />
 
       <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-7">
         <main className="grid gap-5">
+          <ChangelogSettingsCard markdown={changelog} />
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -387,11 +400,44 @@ export default function SettingsRoute() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <IconFileText className="size-4 text-primary" />
-                Current Policy
+                <IconAdjustments className="size-4 text-primary" />
+                {t("settings.languageTitle")}
               </CardTitle>
               <CardDescription>
-                The effective settings saved for this Brain workspace.
+                {t("settings.languageDescription")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-1.5">
+              <Label>{t("settings.languageLabel")}</Label>
+              <LanguagePicker label={t("settings.languageLabel")} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <IconAdjustments className="size-4 text-primary" />
+                {t("settings.agentTitle")}
+              </CardTitle>
+              <CardDescription>
+                {t("settings.agentDescription")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="outline" onClick={() => openAgentSettings()}>
+                {t("settings.openAgentSettings")}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <IconFileText className="size-4 text-primary" />
+                {t("settings.currentPolicy")}
+              </CardTitle>
+              <CardDescription>
+                {t("settings.currentPolicyDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 text-sm">
@@ -564,9 +610,9 @@ function NumberField({
           max={max}
           value={value}
           onChange={(event) => onChange(Number(event.target.value))}
-          className="rounded-r-none"
+          className="rounded-e-none"
         />
-        <div className="flex min-w-20 items-center justify-center rounded-r-md border border-l-0 border-input bg-muted px-3 text-sm text-muted-foreground">
+        <div className="flex min-w-20 items-center justify-center rounded-e-md border border-s-0 border-input bg-muted px-3 text-sm text-muted-foreground">
           {suffix}
         </div>
       </div>
@@ -609,7 +655,7 @@ function PolicyRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="min-w-0 text-muted-foreground">{label}</span>
-      <span className="max-w-40 truncate text-right font-medium capitalize">
+      <span className="max-w-40 truncate text-end font-medium capitalize">
         {value.replace(/_/g, " ")}
       </span>
     </div>

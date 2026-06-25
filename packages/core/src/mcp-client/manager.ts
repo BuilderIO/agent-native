@@ -8,9 +8,13 @@
  * lets callers add or remove servers at runtime without restarting the process.
  */
 
+import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
 import { formatMcpConnectError } from "./errors.js";
-import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
+import {
+  isFirstPartyRemoteEndpointTrusted,
+  parseMergedKey,
+} from "./remote-store.js";
 
 export const MCP_TOOL_PREFIX = "mcp__";
 
@@ -93,7 +97,10 @@ function sameServerConfig(a: McpServerConfig, b: McpServerConfig): boolean {
   if (typeA === "http" && b.type === "http" && a.type === "http") {
     return (
       a.url === b.url &&
-      JSON.stringify(a.headers ?? {}) === JSON.stringify(b.headers ?? {})
+      JSON.stringify(a.headers ?? {}) === JSON.stringify(b.headers ?? {}) &&
+      a.firstParty === b.firstParty &&
+      a.firstPartyAppId === b.firstPartyAppId &&
+      a.firstPartyOrgId === b.firstPartyOrgId
     );
   }
   if (a.type !== "http" && b.type !== "http") {
@@ -139,6 +146,38 @@ type SdkModules = {
   StdioClientTransport: any | null;
   StreamableHTTPClientTransport: any | null;
 };
+
+const DEFAULT_MCP_CONNECT_TIMEOUT_MS = 5_000;
+
+function mcpConnectTimeoutMs(): number {
+  const raw =
+    typeof process !== "undefined"
+      ? process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS ||
+        process.env.MCP_CLIENT_CONNECT_TIMEOUT_MS
+      : undefined;
+  const parsed = raw ? Number(raw) : NaN;
+  if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  return DEFAULT_MCP_CONNECT_TIMEOUT_MS;
+}
+
+async function withConnectTimeout<T>(
+  work: Promise<T>,
+  label: string,
+  timeoutMs: number,
+): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return work;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 export class McpClientManager {
   private readonly servers: Map<string, ServerEntry> = new Map();
@@ -335,12 +374,33 @@ export class McpClientManager {
         throw new Error("HTTP transport not available");
       }
       const requestInit: Record<string, unknown> = {};
-      if (cfg.headers && Object.keys(cfg.headers).length > 0) {
-        requestInit.headers = cfg.headers;
+      const staticHeaders = { ...(cfg.headers ?? {}) };
+      const transportOptions: Record<string, unknown> = { requestInit };
+      if (this.shouldInjectFirstPartyIdentity(entry)) {
+        const baselineHeaders = { ...staticHeaders };
+        removeAuthorizationHeaders(baselineHeaders);
+        if (Object.keys(baselineHeaders).length > 0) {
+          requestInit.headers = baselineHeaders;
+        }
+        if (typeof fetch === "function") {
+          const nativeFetch = fetch.bind(globalThis);
+          transportOptions.fetch = async (input: unknown, init?: unknown) =>
+            nativeFetch(
+              input as Parameters<typeof fetch>[0],
+              await buildFirstPartyRequestInit(
+                staticHeaders,
+                init,
+                this.firstPartyTrust(entry),
+              ),
+            );
+        }
+      } else if (Object.keys(staticHeaders).length > 0) {
+        requestInit.headers = staticHeaders;
       }
-      transport = new sdk.StreamableHTTPClientTransport(new URL(cfg.url), {
-        requestInit,
-      });
+      transport = new sdk.StreamableHTTPClientTransport(
+        new URL(cfg.url),
+        transportOptions,
+      );
     } else {
       if (!sdk.StdioClientTransport) {
         throw new Error(
@@ -411,8 +471,17 @@ export class McpClientManager {
     // process (stdio) or pending HTTP session — otherwise repeated failures
     // leak transports. Assign to the entry only after the handshake succeeds.
     try {
-      await client.connect(transport);
-      const listed = await client.listTools();
+      const timeoutMs = mcpConnectTimeoutMs();
+      await withConnectTimeout(
+        Promise.resolve(client.connect(transport)),
+        `MCP server ${entry.id} connect`,
+        timeoutMs,
+      );
+      const listed = await withConnectTimeout(
+        Promise.resolve(client.listTools()),
+        `MCP server ${entry.id} tools/list`,
+        timeoutMs,
+      );
       const rawTools: Array<{
         name: string;
         title?: string;
@@ -509,7 +578,9 @@ export class McpClientManager {
       } else if (!sameServerConfig(prevServers[id], nextServers[id])) {
         reconnected.push(id);
       } else {
-        unchanged.push(id);
+        const entry = this.servers.get(id);
+        if (entry?.error) reconnected.push(id);
+        else unchanged.push(id);
       }
     }
     for (const id of Object.keys(nextServers)) {
@@ -703,5 +774,193 @@ export class McpClientManager {
       tools,
       errors,
     };
+  }
+
+  private shouldInjectFirstPartyIdentity(entry: ServerEntry): boolean {
+    return this.firstPartyTrust(entry) !== null;
+  }
+
+  private firstPartyTrust(
+    entry: ServerEntry,
+  ): { orgId: string; appId: string; url: string } | null {
+    if (entry.config.type !== "http" || entry.config.firstParty !== true) {
+      return null;
+    }
+    const parsed = parseMergedKey(entry.id);
+    if (parsed?.scope !== "org") return null;
+    return {
+      orgId: entry.config.firstPartyOrgId ?? parsed.owner,
+      appId: entry.config.firstPartyAppId ?? parsed.name,
+      url: entry.config.url,
+    };
+  }
+}
+
+function removeAuthorizationHeaders(headers: Record<string, string>): void {
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === "authorization") delete headers[key];
+  }
+}
+
+function headersToRecord(value: unknown): Record<string, string> {
+  if (!value) return {};
+  if (typeof Headers !== "undefined" && value instanceof Headers) {
+    return Object.fromEntries(value.entries());
+  }
+  if (Array.isArray(value)) {
+    return Object.fromEntries(
+      value
+        .filter((entry) => Array.isArray(entry) && entry.length >= 2)
+        .map(([key, headerValue]) => [String(key), String(headerValue)]),
+    );
+  }
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(
+        ([key, headerValue]) => [key, String(headerValue)],
+      ),
+    );
+  }
+  return {};
+}
+
+async function buildFirstPartyRequestInit(
+  staticHeaders: Record<string, string>,
+  rawInit: unknown,
+  trust: { orgId: string; appId: string; url: string } | null,
+): Promise<RequestInit> {
+  const init =
+    rawInit && typeof rawInit === "object" ? (rawInit as RequestInit) : {};
+  const headers = {
+    ...headersToRecord(staticHeaders),
+    ...headersToRecord(init.headers),
+  };
+  removeAuthorizationHeaders(headers);
+  const token = await mintFirstPartyMcpIdentityToken(trust).catch(() => null);
+  if (token) headers.Authorization = `Bearer ${token}`;
+  headers["x-agent-native-mcp-inline-apps"] = "1";
+  return { ...init, headers };
+}
+
+function randomJti(): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  );
+}
+
+const FIRST_PARTY_TRUST_TTL_MS = 60_000;
+const FIRST_PARTY_TRUST_FAILURE_TTL_MS = 10_000;
+const ORG_SIGNING_CONTEXT_TTL_MS = 60_000;
+
+const firstPartyTrustCache = new Map<
+  string,
+  { ok: boolean; expiresAt: number }
+>();
+const orgSigningContextCache = new Map<
+  string,
+  { orgDomain?: string; orgSecret?: string; expiresAt: number }
+>();
+
+async function isFirstPartyTrustCached(trust: {
+  orgId: string;
+  appId: string;
+  url: string;
+}): Promise<boolean> {
+  const key = `${trust.orgId}\n${trust.appId}\n${trust.url}`;
+  const cached = firstPartyTrustCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.ok;
+  const result = await isFirstPartyRemoteEndpointTrusted(
+    trust.orgId,
+    trust.appId,
+    trust.url,
+  );
+  const ok = result.ok === true;
+  firstPartyTrustCache.set(key, {
+    ok,
+    expiresAt:
+      Date.now() +
+      (ok ? FIRST_PARTY_TRUST_TTL_MS : FIRST_PARTY_TRUST_FAILURE_TTL_MS),
+  });
+  return ok;
+}
+
+async function resolveOrgSigningContext(orgId: string): Promise<{
+  orgDomain?: string;
+  orgSecret?: string;
+}> {
+  const cached = orgSigningContextCache.get(orgId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { orgDomain: cached.orgDomain, orgSecret: cached.orgSecret };
+  }
+  let orgDomain: string | undefined;
+  let orgSecret: string | undefined;
+  try {
+    const { getOrgDomain, getOrgA2ASecret } = await import("../org/context.js");
+    orgDomain = (await getOrgDomain(orgId)) ?? undefined;
+    orgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
+  } catch {
+    // Global A2A_SECRET remains the hosted/common path.
+  }
+  orgSigningContextCache.set(orgId, {
+    orgDomain,
+    orgSecret,
+    expiresAt: Date.now() + ORG_SIGNING_CONTEXT_TTL_MS,
+  });
+  return { orgDomain, orgSecret };
+}
+
+async function mintFirstPartyMcpIdentityToken(
+  trust: { orgId: string; appId: string; url: string } | null,
+): Promise<string | null> {
+  if (!trust) return null;
+  const [{ getRequestOrgId, getRequestUserEmail }, { signA2AToken }] =
+    await Promise.all([
+      import("../server/request-context.js"),
+      import("../a2a/client.js"),
+    ]);
+  const userEmail = getRequestUserEmail();
+  const requestOrgId = getRequestOrgId();
+  if (requestOrgId && requestOrgId !== trust.orgId) {
+    return null;
+  }
+  const orgId = requestOrgId ?? trust.orgId;
+  if (!orgId) return null;
+  if (!(await isFirstPartyTrustCached({ ...trust, orgId }))) return null;
+
+  const { orgDomain, orgSecret } = await resolveOrgSigningContext(orgId);
+  const subject =
+    userEmail && requestOrgId
+      ? userEmail
+      : (await import("../mcp/connect-store.js")).serviceIdentityEmail(
+          "mcp-client",
+          orgId,
+        );
+
+  return signA2AToken(subject, orgDomain, orgSecret, {
+    expiresIn: "5m",
+    audience: firstPartyMcpAudienceForUrl(trust.url),
+    preferGlobalSecret: !orgSecret,
+    extraClaims: {
+      jti: randomJti(),
+      scope: "mcp-connect",
+      org_id: orgId,
+      agent_native_first_party_mcp: true,
+    },
+  });
+}
+
+function firstPartyMcpAudienceForUrl(rawUrl: string): string | undefined {
+  try {
+    const url = new URL(rawUrl);
+    const pathname = url.pathname.replace(/\/+$/, "");
+    url.pathname = pathname.endsWith("/_agent-native/mcp")
+      ? pathname
+      : `${pathname}/_agent-native/mcp`;
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return undefined;
   }
 }

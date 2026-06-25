@@ -1,8 +1,9 @@
-import { useEffect } from "react";
 import {
   AgentChatSurface,
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client";
+import { useEffect } from "react";
+
 import { TAB_ID } from "@/lib/tab-id";
 
 export default function AskPage() {

@@ -1,6 +1,8 @@
-import { useState } from "react";
 import { IconPlus, IconX } from "@tabler/icons-react";
+import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
+
 import { PropertyCombobox } from "./PropertyCombobox";
 
 interface GroupByPickerProps {

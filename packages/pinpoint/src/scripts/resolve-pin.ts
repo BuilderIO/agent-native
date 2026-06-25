@@ -2,6 +2,7 @@
 // MIT License
 
 import { parseArgs, fail } from "@agent-native/core/scripts";
+
 import { FileStore } from "../storage/file-store.js";
 
 export default async function (args: string[]) {

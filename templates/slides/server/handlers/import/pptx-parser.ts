@@ -1,5 +1,5 @@
-import JSZip from "jszip";
 import { XMLParser } from "fast-xml-parser";
+import JSZip from "jszip";
 
 export interface ParsedTextRun {
   content: string;

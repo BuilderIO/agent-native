@@ -4,9 +4,34 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  resolveEngine,
+  getStoredModelForEngine,
+  normalizeModelForEngine,
+  registerBuiltinEngines,
+} from "../agent/engine/index.js";
+import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
+import type {
+  AgentEngine,
+  EngineEvent,
+  EngineMessage,
+  EngineStreamOptions,
+} from "../agent/engine/types.js";
+import { DEFAULT_AGENT_MAX_ITERATIONS } from "../agent/loop-settings.js";
+import {
+  actionsToEngineTools,
+  runAgentLoop,
+  type ActionEntry,
+  type AgentLoopUsage,
+} from "../agent/production-agent.js";
+import {
   createToolSearchEntry,
   TOOL_SEARCH_ACTION_NAME,
 } from "../agent/tool-search.js";
+import type { AgentChatEvent } from "../agent/types.js";
+import {
+  formatPromptWithAttachments,
+  type AgentPromptAttachment,
+} from "../code-agents/prompt-attachments.js";
 import {
   createCodingToolRegistry,
   isReadOnlyShellCommand,
@@ -20,40 +45,16 @@ import {
   McpClientManager,
   mcpToolsToActionEntries,
 } from "../mcp-client/index.js";
-import { runWithRequestContext } from "../server/request-context.js";
-import {
-  actionsToEngineTools,
-  runAgentLoop,
-  type ActionEntry,
-  type AgentLoopUsage,
-} from "../agent/production-agent.js";
-import {
-  resolveEngine,
-  getStoredModelForEngine,
-  normalizeModelForEngine,
-  registerBuiltinEngines,
-} from "../agent/engine/index.js";
-import type {
-  AgentEngine,
-  EngineEvent,
-  EngineMessage,
-  EngineStreamOptions,
-} from "../agent/engine/types.js";
-import type { AgentChatEvent } from "../agent/types.js";
-import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
-import { DEFAULT_AGENT_MAX_ITERATIONS } from "../agent/loop-settings.js";
 import {
   readAgentsBundleFromFs,
   generateDevelopmentSkillsPromptBlock,
 } from "../server/agents-bundle.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
-import {
-  formatPromptWithAttachments,
-  type AgentPromptAttachment,
-} from "../code-agents/prompt-attachments.js";
+import { createCodeAgentOutputSmoother } from "./code-agent-output-smoother.js";
 import {
   addCodeAgentCommandToAllowlist,
   appendCodeAgentTranscriptEvent,
@@ -65,7 +66,6 @@ import {
   type CodeAgentPermissionMode,
   type CodeAgentRunRecord,
 } from "./code-agent-runs.js";
-import { createCodeAgentOutputSmoother } from "./code-agent-output-smoother.js";
 
 export interface ExecuteCodeAgentRunOptions {
   runId: string;

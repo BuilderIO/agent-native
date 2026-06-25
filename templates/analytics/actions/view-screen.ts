@@ -1,16 +1,17 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import {
-  getRequestUserEmail,
-  getRequestOrgId,
-} from "@agent-native/core/server";
 import {
   readAppState,
   readAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server";
+import { z } from "zod";
+
+import { listDashboardCatalog } from "../server/lib/dashboard-catalog";
 import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
-import { listDashboardCatalog } from "../server/lib/dashboard-catalog";
 
 export default defineAction({
   description:

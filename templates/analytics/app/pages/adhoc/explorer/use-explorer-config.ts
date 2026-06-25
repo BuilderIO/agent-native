@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { callAction } from "@agent-native/core/client";
 import { useQuery } from "@tanstack/react-query";
+import { useState, useCallback, useEffect, useRef } from "react";
+
 import type { ExplorerConfig } from "./types";
 import { createDefaultConfig } from "./types";
-import { callAction } from "@agent-native/core/client";
 
 const AUTOSAVE_ID = "_autosave";
 const AUTOSAVE_DELAY = 800; // ms debounce

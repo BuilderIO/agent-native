@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { NotificationChannel } from "./types.js";
 
 // Each test imports channels.js fresh (vi.resetModules) so the module-level

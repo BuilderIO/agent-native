@@ -361,6 +361,20 @@ describe("buildPublicAgentContext", () => {
     });
 
     expect(context.browserDiagnostics?.summary.networkFailureCount).toBe(1);
+    // consoleLogs exposes the full stream (all levels), not just warn/error.
+    expect(context.browserDiagnostics?.consoleLogs).toEqual([
+      {
+        timestampMs: 1,
+        level: "log",
+        message: "Started",
+      },
+      {
+        timestampMs: 2,
+        level: "error",
+        message: "Failed without token=<redacted>",
+      },
+    ]);
+    // consoleIssues remains the curated warn/error highlight list.
     expect(context.browserDiagnostics?.consoleIssues).toEqual([
       {
         timestampMs: 2,
@@ -368,19 +382,40 @@ describe("buildPublicAgentContext", () => {
         message: "Failed without token=<redacted>",
       },
     ]);
+    // networkRequests exposes the full stream with sanitized URLs.
+    expect(context.browserDiagnostics?.networkRequests).toEqual([
+      {
+        timestampMs: 3,
+        type: "fetch",
+        method: "GET",
+        url: "https://api.example.com/fail?token=<redacted>",
+        status: 500,
+        error: null,
+        durationMs: 120,
+      },
+      {
+        timestampMs: 4,
+        type: "xhr",
+        method: "POST",
+        url: "/ok",
+        status: 200,
+        error: null,
+        durationMs: 40,
+      },
+    ]);
+    // failedNetworkRequests remains the curated failure highlight list.
     expect(context.browserDiagnostics?.failedNetworkRequests).toEqual([
       {
         timestampMs: 3,
         type: "fetch",
         method: "GET",
+        url: "https://api.example.com/fail?token=<redacted>",
         status: 500,
         error: null,
         durationMs: 120,
       },
     ]);
+    // The recording's own page URL is still never exposed.
     expect(context.browserDiagnostics).not.toHaveProperty("pageUrl");
-    expect(
-      context.browserDiagnostics?.failedNetworkRequests[0],
-    ).not.toHaveProperty("url");
   });
 });

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import {
   AgentAutoContinueSignal,
   readSSEStream,
@@ -935,6 +936,66 @@ describe("SSE event processor error classification", () => {
 
     expect(err).toBeInstanceOf(AgentAutoContinueSignal);
     expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
+  });
+
+  it("surfaces run_budget_exhausted as a loud terminal error without auto-continuing", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const giveUpMessage =
+      "I ran out of time before finishing this step (hosted runs have a ~40s budget). " +
+      "I stopped rather than leave things half-done — nothing was partially saved by me here. " +
+      "Please retry, ideally as a single bulk action.";
+
+    // Must NOT throw AgentAutoContinueSignal — it must terminate with a result.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: giveUpMessage,
+            errorCode: "run_budget_exhausted",
+            recoverable: true,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-budget",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { recoverable?: boolean } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    // recoverable:true survives so the recovery banner reads
+    // "stopped before finishing".
+    expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          message: giveUpMessage,
+          errorCode: "run_budget_exhausted",
+          recoverable: true,
+        }),
+      }),
+    );
   });
 });
 

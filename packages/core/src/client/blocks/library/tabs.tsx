@@ -1,16 +1,17 @@
-import { useState } from "react";
 import {
   IconLayoutNavbar,
   IconPencil,
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
-import { cn } from "../../utils.js";
+import { useState } from "react";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../../components/ui/popover.js";
+import { cn } from "../../utils.js";
 import { defineBlock } from "../types.js";
 import type {
   BlockContainerRegion,
@@ -18,6 +19,7 @@ import type {
   BlockEditProps,
   NestedBlock,
 } from "../types.js";
+import { NarrowContainerProvider } from "./narrow-container.js";
 import {
   tabsSchema,
   tabsMdx,
@@ -25,7 +27,6 @@ import {
   type TabsOrientation,
   type TabsTab,
 } from "./tabs.config.js";
-import { NarrowContainerProvider } from "./narrow-container.js";
 
 /**
  * Standard `tabs` block: a horizontal pill-tab container whose tabs each hold a

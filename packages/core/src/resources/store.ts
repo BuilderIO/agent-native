@@ -1,3 +1,5 @@
+import crypto from "crypto";
+
 import {
   getDbExec,
   isPostgres,
@@ -5,12 +7,7 @@ import {
   retryOnDdlRace,
   type DbExec,
 } from "../db/client.js";
-import { emitResourceChange, emitResourceDelete } from "./emitter.js";
-import type { StoreWriteOptions } from "../settings/store.js";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "../server/request-context.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   canUseLocalWorkspaceResourcePath,
   deleteLocalWorkspaceResource,
@@ -23,7 +20,12 @@ import {
   type LocalWorkspaceResourceFile,
   type LocalWorkspaceResourceMeta,
 } from "../local-artifacts/index.js";
-import crypto from "crypto";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
+import type { StoreWriteOptions } from "../settings/store.js";
+import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 
 export const SHARED_OWNER = "__shared__";
 export const WORKSPACE_OWNER = "__workspace__";
@@ -781,6 +783,15 @@ async function _doEnsureTable(): Promise<void> {
   await ensureResourceColumn(client, `expires_at ${intType()}`);
   await ensureResourceColumn(client, "metadata TEXT");
 
+  // Older deployments have 32-bit timestamp columns; on Postgres the
+  // `Date.now()` written on insert/update overflows int4. Widen in place
+  // (no-op once done / on fresh DBs).
+  await widenIntColumnsToBigInt("resources", [
+    "created_at",
+    "updated_at",
+    "expires_at",
+  ]);
+
   // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid race conditions)
   const now = Date.now();
   const seedSql = isPostgres()
@@ -1493,9 +1504,9 @@ export async function resourceListAllOwners(
   });
   const localResources = (
     await Promise.all(
-      (await localWorkspaceResourceMetas(pathPrefix)).map((resource) =>
-        resourceGet(resource.id),
-      ),
+      (
+        await localWorkspaceResourceMetas(pathPrefix)
+      ).map((resource) => resourceGet(resource.id)),
     )
   ).filter((resource): resource is Resource => !!resource);
   const localPaths = new Set(localResources.map((resource) => resource.path));

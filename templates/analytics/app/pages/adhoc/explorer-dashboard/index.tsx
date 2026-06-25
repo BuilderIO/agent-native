@@ -1,44 +1,3 @@
-import { useState, useEffect, useCallback } from "react";
-import { useSearchParams, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  IconPlus,
-  IconTrash,
-  IconPencil,
-  IconArchive,
-  IconDots,
-  IconEye,
-  IconEyeOff,
-} from "@tabler/icons-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { toast } from "sonner";
 import {
   PresenceBar,
   useCollaborativeDoc,
@@ -52,16 +11,6 @@ import {
   callAction,
   type CollabUser,
 } from "@agent-native/core/client";
-import {
-  resourceCanEdit,
-  resourceCanManage,
-  type ResourceAccess,
-} from "@/lib/resource-access";
-import {
-  DashboardTitleSkeleton,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
-import { DashboardChartCard } from "./ChartCard";
 import {
   DndContext,
   closestCenter,
@@ -78,10 +27,63 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import {
+  IconPlus,
+  IconTrash,
+  IconPencil,
+  IconArchive,
+  IconDots,
+  IconEye,
+  IconEyeOff,
+} from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useCallback } from "react";
+import { useSearchParams, useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import {
+  DashboardTitleSkeleton,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  resourceCanEdit,
+  resourceCanManage,
+  type ResourceAccess,
+} from "@/lib/resource-access";
+
+import { DashboardSkeleton } from "../DashboardSkeleton";
+import { DashboardChartCard } from "./ChartCard";
 
 export interface DashboardChart {
   id: string;
@@ -326,7 +328,7 @@ export default function ExplorerDashboardPage() {
         queryKey: ["explorer-dashboards-palette"],
       });
       toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
-      navigate("/adhoc/explorer");
+      navigate("/dashboards/explorer");
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Couldn't archive dashboard",
@@ -485,27 +487,7 @@ export default function ExplorerDashboardPage() {
   }
 
   if (!loaded) {
-    // Match the eventual DashboardChartCard layout (Card chrome + title row +
-    // chart-body skeleton) so the transition from "dashboard config loading"
-    // to "queries loading" doesn't morph skeleton shape — the title text just
-    // fills in. Otherwise the bare h-64 rectangles jump into Card-chromed
-    // panels and the page visibly shifts.
-    return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[0, 1].map((i) => (
-            <Card key={i} className="flex flex-col overflow-visible">
-              <CardHeader className="pb-2 shrink-0">
-                <Skeleton className="h-4 w-32" />
-              </CardHeader>
-              <CardContent className="flex flex-1 flex-col pt-0">
-                <Skeleton className="w-full flex-1 min-h-[250px]" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (!dashboard) return null;
@@ -657,7 +639,7 @@ export default function ExplorerDashboardPage() {
                           queryKey: ["explorer-dashboards-palette"],
                         });
                         setConfirmDeleteOpen(false);
-                        navigate("/adhoc/explorer");
+                        navigate("/dashboards/explorer");
                       } catch (err) {
                         toast.error(
                           err instanceof Error
@@ -717,7 +699,7 @@ export default function ExplorerDashboardPage() {
                   onRemove={() => removeChart(chart.id)}
                   onToggleWidth={() => toggleWidth(chart.id)}
                   onEdit={() =>
-                    navigate(`/adhoc/explorer?config=${chart.configId}`)
+                    navigate(`/dashboards/explorer?config=${chart.configId}`)
                   }
                   editable={canEdit}
                 />

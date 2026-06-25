@@ -1,11 +1,12 @@
 import { useMemo } from "react";
-import { cn } from "@/lib/utils";
-import { formatMs } from "@/lib/timestamp-mapping";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { formatMs } from "@/lib/timestamp-mapping";
+import { cn } from "@/lib/utils";
 
 export interface TimelineChapter {
   startMs: number;

@@ -1,14 +1,12 @@
+import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
+
 import actionsRegistry from "../../.generated/actions-registry.js";
-import { getOrgContext } from "@agent-native/core/org";
-import {
-  listScopedSettingRecords,
-  resolveSettingsScope,
-} from "../lib/scoped-settings";
+import { renderDataDictionary } from "../lib/data-dictionary-context";
 import {
   hasExplicitPartialDisclosure,
   hasFailedCorpusWorkflowEvidence,
@@ -22,7 +20,10 @@ import {
   needsCorpusWorkflowForCoverageSensitiveRequest,
   needsSourceRecordBodyWorkflowForCoverageSensitiveRequest,
 } from "../lib/real-data-actions";
-import { renderDataDictionary } from "../lib/data-dictionary-context";
+import {
+  listScopedSettingRecords,
+  resolveSettingsScope,
+} from "../lib/scoped-settings";
 
 const DATA_DICT_PREFIX = "data-dict-";
 
@@ -240,11 +241,11 @@ export default createAgentChatPlugin({
           return filtered.slice(0, 20).map((d) => ({
             id: `dashboard:${d.id}`,
             label: d.name || "Untitled dashboard",
-            description: `/adhoc/${d.id}`,
+            description: `/dashboards/${d.id}`,
             icon: "deck",
             refType: "dashboard",
             refId: d.id,
-            refPath: `/adhoc/${d.id}`,
+            refPath: `/dashboards/${d.id}`,
           }));
         } catch (err) {
           console.error("[analytics] Dashboard mention provider failed:", err);

@@ -1,5 +1,6 @@
-import { useRef } from "react";
 import { useAgentRouteState } from "@agent-native/core/client";
+import { useRef } from "react";
+
 import { useFolders } from "@/hooks/use-folders";
 
 export interface NavigationState {

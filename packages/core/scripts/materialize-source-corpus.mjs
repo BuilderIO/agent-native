@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 import {
   copyFileSync,
   existsSync,
@@ -9,7 +10,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { basename, dirname, extname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -60,6 +60,8 @@ const textFileNames = new Set([
   ".ignore",
   ".npmignore",
   ".npmrc",
+  ".oxfmtrc",
+  ".oxfmtrc.json",
   ".prettierignore",
   ".prettierrc",
   ".taurignore",
@@ -132,6 +134,7 @@ function hasTextLikeName(relativePath) {
   const name = basename(relativePath);
   if (textFileNames.has(name)) return true;
   if (name.startsWith(".env.example")) return true;
+  if (name.startsWith(".oxfmt")) return true;
   if (name.startsWith(".prettier")) return true;
   return textFileExtensions.has(extname(name).toLowerCase());
 }

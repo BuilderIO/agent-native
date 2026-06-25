@@ -16,10 +16,10 @@
  *  - Temp files are cleaned up best-effort after the run.
  */
 
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
 
 import type {
   SandboxAdapter,

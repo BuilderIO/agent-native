@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import { z } from "zod";
 import { putUserSetting } from "@agent-native/core/settings";
-import type { AvailabilityConfig } from "../shared/api.js";
+import { z } from "zod";
+
 import {
   ensureBookingUsername,
   updateBookingUsername,
 } from "../server/handlers/booking-usernames.js";
+import type { AvailabilityConfig } from "../shared/api.js";
 
 const timeSlotSchema = z.object({
   start: z.string(),

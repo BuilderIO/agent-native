@@ -57,13 +57,13 @@ the recorder page itself. The Clips Chrome extension is the active-tab path for
 browser logs: it launches `/record` with an extension capture session and passes
 `developerLogs=1/0`, then saves diagnostics with source `extension`.
 
-Keep the public Chrome extension option hidden until the Web Store listing is
-live. UI prompts that otherwise say "Download desktop app" should use the shared
-install-choice component so `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` can reveal
-two options: Chrome extension for browser logs, and desktop app for the most
-seamless native capture. Also set `VITE_CLIPS_CHROME_EXTENSION_URL` when the
-extension URL exists; leave the boolean unset while preparing/submitting the
-listing.
+The Web Store listing is live, so the public Chrome extension option shows by
+default. UI prompts that otherwise say "Download desktop app" use the shared
+install-choice component (`CaptureInstallButton` / `CaptureInstallInlineLink`)
+to offer two options: Chrome extension for browser logs, and desktop app for the
+most seamless native capture. Set `VITE_CLIPS_CHROME_EXTENSION_ENABLED=0` to hide
+the Chrome option again, or `VITE_CLIPS_CHROME_EXTENSION_URL` to point at a
+different listing.
 
 ## Pause / resume
 

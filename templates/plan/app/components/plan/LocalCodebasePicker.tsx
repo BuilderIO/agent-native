@@ -1,6 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
 import { setClientAppState } from "@agent-native/core/client";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   IconAlertCircle,
   IconCircleCheck,
@@ -8,7 +6,10 @@ import {
   IconRefresh,
   IconX,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {

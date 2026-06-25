@@ -1,5 +1,3 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   IconPlus,
   IconFilter,
@@ -17,18 +15,9 @@ import {
   IconCheck,
   IconKeyOff,
 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
-import { useTableSchema, useTableRows, mutateTable } from "./useDbAdmin.js";
-import { loadGridState, saveGridState } from "./storage.js";
-import { useChangeset, pkStringFor } from "./changeset.js";
-import { DataGrid, type GridRow, type ActiveCell } from "./DataGrid.js";
-import { FilterBar } from "./FilterBar.js";
-import { RowSidePanel, type RowSidePanelMode } from "./RowSidePanel.js";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+
 import type {
   DbAdminDialect,
   DbAdminFilter,
@@ -36,6 +25,18 @@ import type {
   DbAdminSort,
   DbAdminMutationResult,
 } from "../../db-admin/types.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import { cn } from "../utils.js";
+import { useChangeset, pkStringFor } from "./changeset.js";
+import { DataGrid, type GridRow, type ActiveCell } from "./DataGrid.js";
+import { FilterBar } from "./FilterBar.js";
+import { RowSidePanel, type RowSidePanelMode } from "./RowSidePanel.js";
+import { loadGridState, saveGridState } from "./storage.js";
+import { useTableSchema, useTableRows, mutateTable } from "./useDbAdmin.js";
 
 export interface TableEditorProps {
   table: string;

@@ -1,21 +1,15 @@
-import { and, asc, eq, inArray, type InferSelectModel } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import {
-  defaultPropertyOptions,
-  evaluatePropertyFormula,
-  formulaValueText,
-  isComputedPropertyType,
-  isEmptyPropertyValue,
-  normalizePropertyValue,
-  normalizePropertyVisibility,
-  parsePropertyOptions,
-  parsePropertyValue,
-  serializePropertyOptions,
-  serializePropertyValue,
-  type DocumentPropertyOptions,
-  type DocumentPropertyType,
-  type DocumentPropertyValue,
-} from "../shared/properties.js";
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  sql,
+  type InferSelectModel,
+} from "drizzle-orm";
+
+import { getDb, schema } from "../server/db/index.js";
 import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterMode,
@@ -27,12 +21,33 @@ import type {
   ContentDatabaseOpenPagesIn,
   DocumentProperty,
 } from "../shared/api.js";
+import {
+  DEFAULT_BLOCKS_FIELD_NAME,
+  defaultPropertyOptions,
+  evaluatePropertyFormula,
+  formulaValueText,
+  isBlocksPropertyType,
+  isComputedPropertyType,
+  isEmptyPropertyValue,
+  isPrimaryBlocksField,
+  normalizePropertyValue,
+  resolveBlocksFieldValue,
+  normalizePropertyVisibility,
+  parsePropertyOptions,
+  parsePropertyValue,
+  serializePropertyOptions,
+  serializePropertyValue,
+  type DocumentPropertyOptions,
+  type DocumentPropertyType,
+  type DocumentPropertyValue,
+} from "../shared/properties.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
 type ContentDatabaseRow = InferSelectModel<typeof schema.contentDatabases>;
 type ContentDatabaseItemRow = InferSelectModel<
   typeof schema.contentDatabaseItems
 >;
+type DbClient = ReturnType<typeof getDb>;
 
 export function nanoid(size = 12): string {
   const chars =
@@ -71,7 +86,12 @@ export async function getDatabaseForDocument(
   const [database] = await db
     .select()
     .from(schema.contentDatabases)
-    .where(eq(schema.contentDatabases.documentId, documentId));
+    .where(
+      and(
+        eq(schema.contentDatabases.documentId, documentId),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    );
   return database ?? null;
 }
 
@@ -92,7 +112,12 @@ export async function getDatabaseMembershipForDocument(
       schema.contentDatabases,
       eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
     )
-    .where(eq(schema.contentDatabaseItems.documentId, documentId));
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.documentId, documentId),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    );
   return row ?? null;
 }
 
@@ -112,7 +137,12 @@ export async function getDatabaseById(
   const [database] = await db
     .select()
     .from(schema.contentDatabases)
-    .where(eq(schema.contentDatabases.id, databaseId));
+    .where(
+      and(
+        eq(schema.contentDatabases.id, databaseId),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    );
   return database ?? null;
 }
 
@@ -386,6 +416,10 @@ function normalizeStringList(value: unknown) {
 export async function listPropertiesForDocument(document: DocumentRow) {
   const database = await resolvePropertyDatabaseForDocument(document);
   if (!database) return [];
+  // Read path: PURE read. Seeding the primary Blocks field happens at create
+  // time and via the one-time startup repair (repairUnseededBlocksFields) —
+  // never here. A viewer opening a shared/legacy row must not trigger writes on
+  // another owner's database.
   return listPropertiesForDatabase(database.id, document);
 }
 
@@ -416,6 +450,13 @@ export async function listPropertiesForDatabase(
     ? await databaseRowNumbersByDocumentId(databaseId)
     : new Map<string, number>();
 
+  // Additional (non-primary) Blocks fields keep their content in their own
+  // store, keyed by (documentId, propertyId). Load this row's contents up front
+  // so each Blocks field resolves to its OWN independent content.
+  const blockContentByPropertyId = valueDocument
+    ? await blockFieldContentsForDocument(valueDocument.id)
+    : new Map<string, string>();
+
   const properties = definitions.map((definition) => {
     const type = definition.type as DocumentPropertyType;
     const storedValue = valueByPropertyId.get(definition.id);
@@ -437,7 +478,15 @@ export async function listPropertiesForDatabase(
           ? computedPropertyValue(type, valueDocument, {
               databaseRowNumber: rowNumberByDocumentId.get(valueDocument.id),
             })
-          : parsePropertyValue(storedValue?.valueJson),
+          : valueDocument && isBlocksPropertyType(type)
+            ? // Each Blocks field reads from exactly one place: the primary from
+              // the document body, additional fields from their own store.
+              resolveBlocksFieldValue({
+                options,
+                documentBody: valueDocument.content,
+                blockFieldContent: blockContentByPropertyId.get(definition.id),
+              })
+            : parsePropertyValue(storedValue?.valueJson),
       editable: !isComputedPropertyType(type),
     };
   });
@@ -544,8 +593,14 @@ async function propertyValuesForLinkedDocuments(
   const docs = await db
     .select()
     .from(schema.documents)
-    .where(inArray(schema.documents.id, documentIds));
+    .where(
+      and(
+        inArray(schema.documents.id, documentIds),
+        accessFilter(schema.documents, schema.documentShares),
+      ),
+    );
   const docById = new Map(docs.map((doc) => [doc.id, doc]));
+  const accessibleDocumentIds = docs.map((doc) => doc.id);
 
   if (isComputedPropertyType(property.definition.type)) {
     const rowNumberByDocumentId = property.definition.databaseId
@@ -561,12 +616,55 @@ async function propertyValuesForLinkedDocuments(
     });
   }
 
+  if (accessibleDocumentIds.length === 0) {
+    return documentIds.map(() => null);
+  }
+
+  if (isBlocksPropertyType(property.definition.type)) {
+    const blockFieldRows = isPrimaryBlocksField(property.definition.options)
+      ? []
+      : await db
+          .select({
+            documentId: schema.documentBlockFieldContents.documentId,
+            content: schema.documentBlockFieldContents.content,
+          })
+          .from(schema.documentBlockFieldContents)
+          .where(
+            and(
+              inArray(
+                schema.documentBlockFieldContents.documentId,
+                accessibleDocumentIds,
+              ),
+              eq(
+                schema.documentBlockFieldContents.propertyId,
+                property.definition.id,
+              ),
+            ),
+          );
+    const blockFieldContentByDocumentId = new Map(
+      blockFieldRows.map((row) => [row.documentId, row.content]),
+    );
+    return documentIds.map((documentId) => {
+      const doc = docById.get(documentId);
+      return doc
+        ? resolveBlocksFieldValue({
+            options: property.definition.options,
+            documentBody: doc.content,
+            blockFieldContent: blockFieldContentByDocumentId.get(documentId),
+          })
+        : null;
+    });
+  }
+
   const storedValues = await db
     .select()
     .from(schema.documentPropertyValues)
     .where(
       and(
-        inArray(schema.documentPropertyValues.documentId, documentIds),
+        inArray(
+          schema.documentPropertyValues.documentId,
+          accessibleDocumentIds,
+        ),
         eq(schema.documentPropertyValues.propertyId, property.definition.id),
       ),
     );
@@ -611,4 +709,300 @@ export function normalizedValueJson(
   value: unknown,
 ) {
   return serializePropertyValue(normalizePropertyValue(type, value));
+}
+
+// --- Blocks fields ---------------------------------------------------------
+//
+// Storage model: the default/primary "Content" Blocks field is backed by
+// `documents.content`. Every ADDITIONAL Blocks field stores its content in its
+// own row in `document_block_field_contents`, keyed by (documentId,
+// propertyId). This guarantees independence — no two Blocks fields ever share
+// content.
+
+// Load all additional-Blocks-field contents for a single document, keyed by
+// propertyId. The primary field is intentionally absent here (its content lives
+// on the document itself).
+export async function blockFieldContentsForDocument(
+  documentId: string,
+): Promise<Map<string, string>> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      propertyId: schema.documentBlockFieldContents.propertyId,
+      content: schema.documentBlockFieldContents.content,
+    })
+    .from(schema.documentBlockFieldContents)
+    .where(eq(schema.documentBlockFieldContents.documentId, documentId));
+  return new Map(rows.map((row) => [row.propertyId, row.content ?? ""]));
+}
+
+export async function readBlockFieldContent(
+  documentId: string,
+  propertyId: string,
+): Promise<string> {
+  const db = getDb();
+  const [row] = await db
+    .select({ content: schema.documentBlockFieldContents.content })
+    .from(schema.documentBlockFieldContents)
+    .where(
+      and(
+        eq(schema.documentBlockFieldContents.documentId, documentId),
+        eq(schema.documentBlockFieldContents.propertyId, propertyId),
+      ),
+    );
+  return row?.content ?? "";
+}
+
+// Upsert the content for an additional (non-primary) Blocks field.
+//
+// Atomic insert-or-update on the UNIQUE (document_id, property_id) index — no
+// read-then-write window. Two concurrent first-saves can no longer race into a
+// duplicate-key throw: the loser falls through to the conflict UPDATE branch.
+export async function writeBlockFieldContent(args: {
+  documentId: string;
+  propertyId: string;
+  ownerEmail: string;
+  content: string;
+  now: string;
+}): Promise<void> {
+  const db = getDb();
+  await db
+    .insert(schema.documentBlockFieldContents)
+    .values({
+      id: nanoid(),
+      ownerEmail: args.ownerEmail,
+      documentId: args.documentId,
+      propertyId: args.propertyId,
+      content: args.content,
+      createdAt: args.now,
+      updatedAt: args.now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        schema.documentBlockFieldContents.documentId,
+        schema.documentBlockFieldContents.propertyId,
+      ],
+      set: { content: args.content, updatedAt: args.now },
+    });
+}
+
+// Write the primary Blocks field's content — i.e. the document body.
+export async function writePrimaryBlocksContent(args: {
+  documentId: string;
+  content: string;
+  now: string;
+}): Promise<void> {
+  await assertAccess("document", args.documentId, "editor");
+  const db = getDb();
+  await db
+    .update(schema.documents)
+    .set({ content: args.content, updatedAt: args.now })
+    .where(eq(schema.documents.id, args.documentId));
+}
+
+// Fetch a single property definition scoped to a database (and owner).
+export async function getPropertyDefinitionForDatabase(args: {
+  propertyId: string;
+  databaseId: string;
+  ownerEmail: string;
+}) {
+  const db = getDb();
+  const [definition] = await db
+    .select()
+    .from(schema.documentPropertyDefinitions)
+    .where(
+      and(
+        eq(schema.documentPropertyDefinitions.id, args.propertyId),
+        eq(schema.documentPropertyDefinitions.ownerEmail, args.ownerEmail),
+        eq(schema.documentPropertyDefinitions.databaseId, args.databaseId),
+      ),
+    );
+  return definition ?? null;
+}
+
+// How many Blocks-type property definitions a database has. Used to drive the
+// solo (chromeless) vs. multi (headers + collapsible) rendering decision and
+// the "only Blocks field" delete warning.
+export async function countBlocksFieldsForDatabase(
+  databaseId: string,
+): Promise<number> {
+  const db = getDb();
+  const definitions = await db
+    .select({ type: schema.documentPropertyDefinitions.type })
+    .from(schema.documentPropertyDefinitions)
+    .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId));
+  return definitions.filter((definition) =>
+    isBlocksPropertyType(definition.type as DocumentPropertyType),
+  ).length;
+}
+
+// The id of a database's existing primary Blocks definition, if any. Used to
+// adopt a legacy primary created by the old read-path seeder rather than
+// creating a duplicate.
+async function findExistingPrimaryBlocksDefinition(
+  databaseId: string,
+  db: DbClient = getDb(),
+): Promise<string | null> {
+  const definitions = await db
+    .select({
+      id: schema.documentPropertyDefinitions.id,
+      type: schema.documentPropertyDefinitions.type,
+      optionsJson: schema.documentPropertyDefinitions.optionsJson,
+    })
+    .from(schema.documentPropertyDefinitions)
+    .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId));
+  const primary = definitions.find(
+    (definition) =>
+      isBlocksPropertyType(definition.type as DocumentPropertyType) &&
+      isPrimaryBlocksField(parsePropertyOptions(definition.optionsJson)),
+  );
+  return primary?.id ?? null;
+}
+
+// Seed the primary "Content" Blocks field for a database exactly ONCE.
+//
+// `content_databases.primary_blocks_property_id` is the single source of truth
+// and the concurrency guard. The deterministic primary definition is inserted
+// before the database row is marked seeded, so we never publish blocks_seeded=1
+// before the definition row exists. Two concurrent calls converge on the same
+// property id and the loser returns the already-claimed id.
+//
+// Returns the primary property id (existing or newly created). Never reseeds a
+// database whose primary was intentionally deleted (blocks_seeded=1, id NULL).
+export async function seedDefaultBlocksField(args: {
+  databaseId: string;
+  ownerEmail: string;
+  orgId: string | null;
+  now: string;
+  db?: DbClient;
+}): Promise<string | null> {
+  const db = args.db ?? getDb();
+
+  // Deterministic id keyed to the database so concurrent claimants converge on
+  // the same value; the UNIQUE primary-key on definitions also rejects a
+  // duplicate insert if two callers somehow both attempt it.
+  const id = `blocks_primary_${args.databaseId}`;
+
+  // Legacy adoption: a database seeded by the OLD read-path safety net already
+  // has a primary "Content" definition but a NULL column (if the v52 backfill
+  // somehow didn't run for it). Adopt that existing definition instead of
+  // creating a second primary — guarantees the invariant even off the migration
+  // path. The atomic UPDATE (column still NULL) makes this race-safe.
+  const existingPrimary = await findExistingPrimaryBlocksDefinition(
+    args.databaseId,
+    db,
+  );
+  if (existingPrimary) {
+    await db
+      .update(schema.contentDatabases)
+      .set({
+        primaryBlocksPropertyId: existingPrimary,
+        blocksSeeded: 1,
+        updatedAt: args.now,
+      })
+      .where(
+        and(
+          eq(schema.contentDatabases.id, args.databaseId),
+          sql`primary_blocks_property_id IS NULL`,
+        ),
+      );
+    return existingPrimary;
+  }
+
+  const [database] = await db
+    .select({
+      primaryId: schema.contentDatabases.primaryBlocksPropertyId,
+      blocksSeeded: schema.contentDatabases.blocksSeeded,
+    })
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, args.databaseId));
+  if (!database) return null;
+  if (database.primaryId) return database.primaryId;
+  if (database.blocksSeeded === 1) return null;
+
+  const [maxPos] = await db
+    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+    .from(schema.documentPropertyDefinitions)
+    .where(eq(schema.documentPropertyDefinitions.databaseId, args.databaseId));
+
+  await db
+    .insert(schema.documentPropertyDefinitions)
+    .values({
+      id,
+      ownerEmail: args.ownerEmail,
+      orgId: args.orgId,
+      databaseId: args.databaseId,
+      name: DEFAULT_BLOCKS_FIELD_NAME,
+      type: "blocks",
+      visibility: "always_show",
+      optionsJson: serializePropertyOptions({ blocks: { primary: true } }),
+      position: (maxPos?.max ?? -1) + 1,
+      createdAt: args.now,
+      updatedAt: args.now,
+    })
+    .onConflictDoNothing();
+
+  const claim = await db
+    .update(schema.contentDatabases)
+    .set({
+      primaryBlocksPropertyId: id,
+      blocksSeeded: 1,
+      updatedAt: args.now,
+    })
+    .where(
+      and(
+        eq(schema.contentDatabases.id, args.databaseId),
+        sql`primary_blocks_property_id IS NULL`,
+        sql`blocks_seeded = 0`,
+      ),
+    )
+    .returning({ id: schema.contentDatabases.primaryBlocksPropertyId });
+
+  if (claim[0]?.id === id) return id;
+
+  const [afterClaim] = await db
+    .select({ primaryId: schema.contentDatabases.primaryBlocksPropertyId })
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, args.databaseId));
+  if (afterClaim?.primaryId) return afterClaim.primaryId;
+
+  await db
+    .delete(schema.documentPropertyDefinitions)
+    .where(eq(schema.documentPropertyDefinitions.id, id));
+  return null;
+}
+
+// One-time startup repair for LEGACY databases that have never been seeded —
+// i.e. databases created before the Blocks type existed and which have NO
+// primary Blocks field yet (blocks_seeded = 0). Their `documents.content` body
+// still works; seeding the primary field exposes it as a first-class property.
+//
+// Runs at boot from the migration plugin, NOT from any read path, so opening a
+// shared/legacy row never triggers a write. Uses each database's own owner/org
+// (no request context). Idempotent: the atomic claim in seedDefaultBlocksField
+// makes re-runs no-ops, and databases whose primary was intentionally deleted
+// (blocks_seeded = 1) are skipped.
+export async function repairUnseededBlocksFields(): Promise<number> {
+  const db = getDb();
+  const databases = await db
+    .select({
+      id: schema.contentDatabases.id,
+      ownerEmail: schema.contentDatabases.ownerEmail,
+      orgId: schema.contentDatabases.orgId,
+    })
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.blocksSeeded, 0));
+
+  const now = new Date().toISOString();
+  let seeded = 0;
+  for (const database of databases) {
+    await seedDefaultBlocksField({
+      databaseId: database.id,
+      ownerEmail: database.ownerEmail,
+      orgId: database.orgId ?? null,
+      now,
+    });
+    seeded += 1;
+  }
+  return seeded;
 }

@@ -1,27 +1,29 @@
 import { defineAction } from "@agent-native/core";
+import { buildDeepLink } from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
+import { z } from "zod";
+
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import { resolveAccess } from "@agent-native/core/sharing";
-import { buildDeepLink } from "@agent-native/core/server";
-import { z } from "zod";
-import {
-  listPropertiesForDocument,
-  serializeDatabase,
-} from "./_property-utils.js";
 import {
   getDatabaseByDocumentId,
   getDatabaseItemByDocumentId,
+  isSoftDeletedDatabaseDocument,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
 import { serializeDocumentSource } from "./_document-source.js";
-import "../server/db/index.js";
 import {
   getLocalFileDocument,
   isLocalDocumentId,
   isContentLocalFileMode,
 } from "./_local-file-documents.js";
+import "../server/db/index.js";
+import {
+  listPropertiesForDocument,
+  serializeDatabase,
+} from "./_property-utils.js";
 
 function canEditRole(role: string) {
   return role === "owner" || role === "admin" || role === "editor";
@@ -48,6 +50,9 @@ export default defineAction({
 
     const access = await resolveAccess("document", args.id);
     if (!access) throw new Error(`Document "${args.id}" not found`);
+    if (await isSoftDeletedDatabaseDocument(args.id)) {
+      throw new Error(`Document "${args.id}" not found`);
+    }
     const doc = access.resource;
     const database = await getDatabaseByDocumentId(doc.id);
     const databaseMembership = await getDatabaseItemByDocumentId(doc.id);

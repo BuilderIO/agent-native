@@ -1,5 +1,3 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconCheck,
@@ -10,7 +8,10 @@ import {
   IconPlugConnected,
   IconSparkles,
 } from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -76,7 +77,7 @@ function dashboardPathForTemplate(
   if (template.id === "demo-node-exporter") {
     return demoNodeExporterDashboardPath(dashboardId, options);
   }
-  return `/adhoc/${dashboardId}`;
+  return `/dashboards/${dashboardId}`;
 }
 
 function sourceLabel(source: string): string {

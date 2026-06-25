@@ -1,11 +1,15 @@
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
+
 import {
   getDialect,
   getDatabaseUrl,
   getDatabaseAuthToken,
   isLocalSqliteUrl,
+  isPgliteUrl,
   isConnectionError,
+  getPgliteClient,
+  loadPgliteDrizzle,
   prepareLocalSqliteUrl,
   sqliteFilenameFromUrl,
   pgPoolOptions,
@@ -334,6 +338,14 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         _dbReady = Promise.resolve(_db);
         return _dbReady;
       }
+    }
+
+    if (isPgliteUrl(url)) {
+      _dbReady = loadPgliteDrizzle().then(async ({ drizzle }) => {
+        const client = await getPgliteClient(url);
+        _db = drizzle({ client, schema });
+      });
+      return _dbReady;
     }
 
     if (dialect === "postgres") {

@@ -1,4 +1,8 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import {
+  agentNativePath,
+  isInBuilderFrame,
+  oauthRedirectUri,
+} from "@agent-native/core/client";
 import {
   IconCalendarCheck,
   IconX,
@@ -10,13 +14,16 @@ import {
   IconUpload,
   IconAlertTriangle,
   IconLogout,
+  IconInfoCircle,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
-  agentNativePath,
-  isInBuilderFrame,
-  oauthRedirectUri,
-} from "@agent-native/core/client";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -336,6 +343,8 @@ export function GoogleConnectBanner({
                 : "Connect Google"}
         </Button>
 
+        <GoogleVerificationNotice className="mt-3" />
+
         <GoogleAuthIssuePanel
           issue={desktopAuthIssue}
           onSignOut={handleSignOutForGoogle}
@@ -363,7 +372,7 @@ export function GoogleConnectBanner({
         )}
 
         {showWizard && !allConfigured && (
-          <div className="mt-8 w-full max-w-lg text-left">
+          <div className="mt-8 w-full max-w-lg text-start">
             <SetupWizard
               currentStep={currentStep}
               setCurrentStep={setCurrentStep}
@@ -439,15 +448,18 @@ export function GoogleConnectBanner({
     <div className="border-b border-border/30 bg-card">
       {/* Compact banner row */}
       <div className="flex items-center justify-between gap-3 px-4 py-2">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-white/[0.06]">
             <IconCalendarCheck className="h-3 w-3 text-white/40" />
           </div>
-          <p className="text-[13px] font-medium leading-tight text-foreground/80">
-            {allConfigured
-              ? "Ready to connect — sign in with your Google account"
-              : "Connect Google to sync your calendar"}
-          </p>
+          <div className="flex min-w-0 flex-col">
+            <p className="text-[13px] font-medium leading-tight text-foreground/80">
+              {allConfigured
+                ? "Ready to connect — sign in with your Google account"
+                : "Connect Google to sync your calendar"}
+            </p>
+            <GoogleVerificationNotice className="mt-0.5" />
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
@@ -534,6 +546,49 @@ export function GoogleConnectBanner({
   );
 }
 
+// Heads-up popover: Google shows a "hasn't verified this app" warning during
+// the OAuth consent flow because the connection runs through the user's own
+// Google Cloud project (External + Testing), not a Google-reviewed public app.
+// This explains that the warning is expected and how to safely continue.
+function GoogleVerificationNotice({ className = "" }: { className?: string }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={`inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-muted-foreground ${className}`}
+        >
+          <IconInfoCircle className="h-3 w-3" />
+          Google may show a warning
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="center" className="w-72 text-start">
+        <div className="flex items-start gap-2.5">
+          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">
+            <IconAlertTriangle className="h-3.5 w-3.5" />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-[13px] font-medium text-foreground">
+              “Google hasn’t verified this app”
+            </p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              You’ll see this screen because the calendar connects through your
+              own Google Cloud project, not a Google-reviewed public app. It’s
+              safe to continue: click{" "}
+              <span className="font-medium text-foreground">Advanced</span>,
+              then{" "}
+              <span className="font-medium text-foreground">
+                “Go to … (unsafe)”
+              </span>{" "}
+              to finish connecting.
+            </p>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function GoogleAuthIssuePanel({
   issue,
   onSignOut,
@@ -557,7 +612,7 @@ function GoogleAuthIssuePanel({
 
   return (
     <div
-      className={`rounded-lg border border-amber-500/25 bg-amber-500/[0.07] p-3 text-left ${className}`}
+      className={`rounded-lg border border-amber-500/25 bg-amber-500/[0.07] p-3 text-start ${className}`}
     >
       <div className="flex items-start gap-3">
         <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">
@@ -579,7 +634,7 @@ function GoogleAuthIssuePanel({
                 className="h-8 gap-1.5 px-3 text-xs font-medium"
                 onClick={onSignOut}
               >
-                <IconLogout className="h-3.5 w-3.5" />
+                <IconLogout className="h-3.5 w-3.5 rtl:-scale-x-100" />
                 Sign out
               </Button>
               <Button
@@ -642,7 +697,7 @@ function SetupWizard({
             key={i}
             role="button"
             tabIndex={0}
-            className={`w-full text-left rounded-lg border p-3 transition-colors cursor-pointer ${
+            className={`w-full text-start rounded-lg border p-3 transition-colors cursor-pointer ${
               isActive
                 ? "border-primary/40 bg-primary/5"
                 : isCompleted
@@ -669,7 +724,7 @@ function SetupWizard({
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium">
-                  <span className="text-muted-foreground mr-1.5">{i + 1}.</span>
+                  <span className="text-muted-foreground me-1.5">{i + 1}.</span>
                   {step.title}
                 </p>
 

@@ -1,6 +1,9 @@
+import { useLocale, useT } from "@agent-native/core/client";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Link, useLocation } from "react-router";
-import { useState, useEffect, useRef } from "react";
-import { NAV_ITEMS, NAV_SECTIONS } from "./docsNavItems";
+
+import { comparableDocsPath } from "./docs-locale";
+import { getDocsNavItems, getDocsNavSections } from "./docsNavItems";
 
 function ChevronIcon({ open }: { open: boolean }) {
   return (
@@ -27,12 +30,17 @@ export default function MobileDocsNav() {
   const [open, setOpen] = useState(false);
   const navRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
+  const { locale } = useLocale();
+  const t = useT();
+  const navSections = useMemo(() => getDocsNavSections(locale, t), [locale, t]);
+  const navItems = useMemo(() => getDocsNavItems(locale, t), [locale, t]);
 
   const currentPath = location.pathname;
-  const norm = currentPath.replace(/\/+$/, "") || "/";
+  const norm = comparableDocsPath(currentPath.replace(/\/+$/, "") || "/");
 
   const currentItem =
-    NAV_ITEMS.find((item) => norm === item.to) ?? NAV_ITEMS[0];
+    navItems.find((item) => norm === comparableDocsPath(item.to)) ??
+    navItems[0];
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -53,7 +61,7 @@ export default function MobileDocsNav() {
         onClick={() => setOpen(!open)}
         className="mobile-docs-nav-trigger"
         aria-expanded={open}
-        aria-label="Navigate docs"
+        aria-label={t("docs.navigateAria")}
       >
         <svg
           width="16"
@@ -75,7 +83,7 @@ export default function MobileDocsNav() {
       {open && (
         <nav className="mobile-docs-nav-dropdown">
           <ul className="mobile-docs-nav-list">
-            {NAV_SECTIONS.map((section) => (
+            {navSections.map((section) => (
               <li key={section.title}>
                 <p className="px-3 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--fg-secondary)] first:pt-1">
                   {section.title}
@@ -85,7 +93,10 @@ export default function MobileDocsNav() {
                     // Chevron-only group header (no `to`): render a plain,
                     // non-clickable label with its children listed below.
                     const isGroup = !item.to && Boolean(item.children?.length);
-                    const isActive = !isGroup && item.to === currentItem.to;
+                    const isActive =
+                      !isGroup &&
+                      comparableDocsPath(item.to!) ===
+                        comparableDocsPath(currentItem.to);
                     return (
                       <li key={item.to ?? item.label}>
                         {isGroup ? (
@@ -105,7 +116,9 @@ export default function MobileDocsNav() {
                         {item.children ? (
                           <ul className="list-none p-0">
                             {item.children.map((child) => {
-                              const childActive = child.to === currentItem.to;
+                              const childActive =
+                                comparableDocsPath(child.to!) ===
+                                comparableDocsPath(currentItem.to);
                               return (
                                 <li key={child.to ?? child.label}>
                                   <Link

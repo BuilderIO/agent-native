@@ -1,13 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  addDays,
-  differenceInMinutes,
-  eachDayOfInterval,
-  format,
-  parseISO,
-  startOfWeek,
-} from "date-fns";
 import { useActionQuery } from "@agent-native/core/client";
+import type {
+  FindTimeBusyBlock,
+  FindTimeResult,
+  FindTimeSlot,
+} from "@shared/api";
 import {
   IconAlertCircle,
   IconCalendarTime,
@@ -16,13 +12,22 @@ import {
   IconLoader2,
   IconUsers,
 } from "@tabler/icons-react";
-import type {
-  FindTimeBusyBlock,
-  FindTimeResult,
-  FindTimeSlot,
-} from "@shared/api";
-import { Button } from "@/components/ui/button";
+import {
+  addDays,
+  differenceInMinutes,
+  eachDayOfInterval,
+  format,
+  parseISO,
+  startOfWeek,
+} from "date-fns";
+import { useEffect, useMemo, useState } from "react";
+
+import {
+  AttendeeAutocomplete,
+  type AttendeeRecipient,
+} from "@/components/calendar/AttendeeAutocomplete";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -30,12 +35,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
 import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
-import {
-  AttendeeAutocomplete,
-  type AttendeeRecipient,
-} from "@/components/calendar/AttendeeAutocomplete";
+import { cn } from "@/lib/utils";
 
 const START_HOUR = 7;
 const END_HOUR = 19;

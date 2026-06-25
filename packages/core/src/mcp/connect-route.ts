@@ -26,17 +26,19 @@
  * routes. Dialect-agnostic SQL lives in `connect-store.ts`.
  */
 
+import { randomUUID } from "node:crypto";
+
 import type { H3Event } from "h3";
 import { getMethod, getHeader } from "h3";
-import { readBody } from "../server/h3-helpers.js";
+
+import { signA2AToken } from "../a2a/client.js";
+import { getOrgDomain } from "../org/context.js";
 import {
   getSession,
   getConfiguredLoginHtml,
   isLoopbackRequest,
 } from "../server/auth.js";
-import { signA2AToken } from "../a2a/client.js";
-import { getOrgDomain } from "../org/context.js";
-import { randomUUID } from "node:crypto";
+import { readBody } from "../server/h3-helpers.js";
 import {
   recordMintedToken,
   listTokens,

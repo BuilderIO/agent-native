@@ -1,4 +1,11 @@
 import {
+  askUserQuestion,
+  buildSignInReturnHref,
+  useActionMutation,
+  useActionQuery,
+  useSession,
+} from "@agent-native/core/client";
+import {
   IconAd,
   IconArrowRight,
   IconFileDescription,
@@ -7,19 +14,13 @@ import {
   IconRocket,
   IconSpeakerphone,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { useMemo } from "react";
 import { useNavigate } from "react-router";
-import {
-  askUserQuestion,
-  buildSignInReturnHref,
-  useActionMutation,
-  useActionQuery,
-  useSession,
-} from "@agent-native/core/client";
-import { useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
+
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
+import { Button } from "@/components/ui/button";
 import {
   buildTemplateHtml,
   buildTemplateTweaks,
@@ -225,7 +226,7 @@ export default function Templates() {
                     title={template.title}
                     html={previewHtmlById.get(template.id) ?? template.html}
                   />
-                  <div className="absolute left-3 top-3 flex h-8 w-8 items-center justify-center rounded-md border border-white/70 bg-white/90 text-slate-900 shadow-sm dark:border-white/10 dark:bg-black/45 dark:text-white">
+                  <div className="absolute start-3 top-3 flex h-8 w-8 items-center justify-center rounded-md border border-white/70 bg-white/90 text-slate-900 shadow-sm dark:border-white/10 dark:bg-black/45 dark:text-white">
                     <Icon className="h-4 w-4" />
                   </div>
                 </div>
@@ -247,7 +248,7 @@ export default function Templates() {
                     className="w-full cursor-pointer"
                   >
                     Use template
-                    <IconArrowRight className="h-3.5 w-3.5" />
+                    <IconArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" />
                   </Button>
                 </div>
               </article>

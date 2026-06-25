@@ -8,7 +8,8 @@
     "start": "agent-native start",
     "typecheck": "agent-native typecheck",
     "action": "agent-native action",
-    "script": "agent-native script"
+    "script": "agent-native script",
+    "skills:update": "agent-native skills update scaffold --project"
   },
   "dependencies": {
     "@agent-native/core": "latest",
@@ -22,21 +23,22 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@react-router/dev": "^7.16.0",
-    "@react-router/fs-routes": "^7.16.0",
+    "@react-router/dev": "^8.0.1",
+    "@react-router/fs-routes": "^8.0.1",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-query": "^5.99.2",
     "@types/node": "^24.2.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@typescript/native-preview": "catalog:",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "next-themes": "^0.4.6",
-    "prettier": "^3.6.2",
+    "oxfmt": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "react-router": "^7.16.0",
+    "react-router": "^8.0.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.1.18",

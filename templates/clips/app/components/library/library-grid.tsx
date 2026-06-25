@@ -1,41 +1,29 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  getBrowserTabId,
+  sendToAgentChat,
+  setClientAppState,
+} from "@agent-native/core/client";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+
+import { ShareRecordingDialog } from "@/components/player/share-dialog";
 import {
   useFolders,
   useRecordings,
   useTrashRecording,
   useArchiveRecording,
   useRestoreRecording,
-  useRenameRecording,
   useMoveRecording,
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
-import {
-  getBrowserTabId,
-  sendToAgentChat,
-  setClientAppState,
-  useSession,
-} from "@agent-native/core/client";
-import { RecordingCard } from "./recording-card";
-import { EmptyState } from "./empty-state";
-import { SortMenu, type SortKey } from "./sort-menu";
-import { FilterChips, type FilterChip } from "./filter-chips";
+
 import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
+import { EmptyState } from "./empty-state";
+import { FilterChips, type FilterChip } from "./filter-chips";
 import { PageHeader } from "./page-header";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { IconChecks } from "@tabler/icons-react";
-import { ShareRecordingDialog } from "@/components/player/share-dialog";
+import { RecordingCard } from "./recording-card";
+import { SortMenu, type SortKey } from "./sort-menu";
 
 interface LibraryGridProps {
   view: "library" | "space" | "archive" | "trash" | "all";
@@ -107,11 +95,8 @@ export function LibraryGrid({
 }: LibraryGridProps) {
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [renamingRec, setRenamingRec] = useState<RecordingSummary | null>(null);
-  const [renameValue, setRenameValue] = useState("");
+  const selectionMode = selected.size > 0;
   const [sharingRec, setSharingRec] = useState<RecordingSummary | null>(null);
-  const renameInputRef = useRef<HTMLInputElement>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
 
@@ -128,13 +113,10 @@ export function LibraryGrid({
 
   const { data, isLoading } = useRecordings(args);
   const recordings = data?.recordings ?? [];
-  const { session } = useSession();
-  const currentUserEmail = session?.email?.toLowerCase();
 
   const trashRecording = useTrashRecording();
   const archiveRecording = useArchiveRecording();
   const restoreRecording = useRestoreRecording();
-  const renameRecording = useRenameRecording();
   const moveRecording = useMoveRecording();
   const canMoveSelection = view === "library" || view === "space";
   const { data: scopedFolders } = useFolders(
@@ -202,7 +184,6 @@ export function LibraryGrid({
 
   const clearSelection = () => {
     setSelected(new Set());
-    setSelectionMode(false);
   };
 
   const moveSelected = async (targetFolderId: string | null) => {
@@ -222,32 +203,6 @@ export function LibraryGrid({
     } finally {
       setIsBulkPending(false);
     }
-  };
-
-  const openRenameDialog = (rec: RecordingSummary) => {
-    setRenamingRec(rec);
-    setRenameValue(isDefaultTitle(rec.title) ? "" : (rec.title ?? ""));
-    // Focus the input after dialog opens
-    setTimeout(() => renameInputRef.current?.select(), 50);
-  };
-
-  const submitRename = () => {
-    if (!renamingRec) return;
-    const trimmed = renameValue.trim();
-    if (!trimmed) {
-      toast.error("Title cannot be empty");
-      return;
-    }
-    renameRecording.mutate(
-      { id: renamingRec.id, title: trimmed },
-      {
-        onSuccess: () => {
-          toast.success("Clip renamed");
-          setRenamingRec(null);
-        },
-        onError: () => toast.error("Failed to rename clip"),
-      },
-    );
   };
 
   const chips: FilterChip[] = [];
@@ -286,46 +241,6 @@ export function LibraryGrid({
         />
       )}
 
-      {/* Rename dialog */}
-      <Dialog
-        open={!!renamingRec}
-        onOpenChange={(open) => {
-          if (!open) setRenamingRec(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Rename clip</DialogTitle>
-          </DialogHeader>
-          <Input
-            ref={renameInputRef}
-            value={renameValue}
-            onChange={(e) => setRenameValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submitRename();
-            }}
-            placeholder="Clip title"
-            className="mt-1"
-            autoFocus
-          />
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setRenamingRec(null)}
-              disabled={renameRecording.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={submitRename}
-              disabled={renameRecording.isPending || !renameValue.trim()}
-            >
-              {renameRecording.isPending ? "Saving…" : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Page header — rendered into the top app bar */}
       <PageHeader>
         <div className="min-w-0 flex-1">
@@ -337,22 +252,6 @@ export function LibraryGrid({
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {extraActions}
-          <Button
-            variant={selectionMode ? "default" : "outline"}
-            size="sm"
-            className={cn(
-              "h-8 gap-1.5",
-              selectionMode &&
-                "bg-primary text-primary-foreground hover:bg-primary/90",
-            )}
-            onClick={() => {
-              setSelectionMode((v) => !v);
-              if (selectionMode) setSelected(new Set());
-            }}
-          >
-            <IconChecks className="h-3.5 w-3.5" />
-            Select
-          </Button>
           <SortMenu value={sort} onChange={setSort} />
         </div>
       </PageHeader>
@@ -388,16 +287,6 @@ export function LibraryGrid({
                   selectionMode={selectionMode}
                   onToggleSelect={toggleSelect}
                   onShare={(rec) => setSharingRec(rec)}
-                  canRenameTitle={
-                    !!currentUserEmail &&
-                    r.ownerEmail.toLowerCase() === currentUserEmail
-                  }
-                  onRename={
-                    currentUserEmail &&
-                    r.ownerEmail.toLowerCase() === currentUserEmail
-                      ? openRenameDialog
-                      : undefined
-                  }
                   onMove={(rec) => {
                     sendToAgentChat({
                       message: `Move the clip "${rec.title}" (id: ${rec.id}) to a folder. Ask me which folder to move it to, or list available folders.`,

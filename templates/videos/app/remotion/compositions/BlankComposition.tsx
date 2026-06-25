@@ -1,4 +1,5 @@
 import { AbsoluteFill } from "remotion";
+
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";
 import { InteractiveButton } from "@/remotion/ui-components/InteractiveButton";
 import { InteractiveCard } from "@/remotion/ui-components/InteractiveCard";

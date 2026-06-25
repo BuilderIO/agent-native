@@ -1,0 +1,147 @@
+---
+title: "국제화"
+description: "공유 로케일 카탈로그, 언어 선택기, 브라우저 언어 대체 및 로케일 인식 문서 콘텐츠를 사용하여 Agent Native 앱을 현지화합니다."
+---
+
+# 국제화
+
+Agent Native 앱은 공유를 통해 프레임워크 및 템플릿 UI를 현지화할 수 있습니다.
+`@agent-native/core/client/i18n` 런타임. 프레임워크는 사용자의
+SQL 설정에서 언어 선택, actions로 노출 및 대체
+앱이 아직 문자열을 번역하지 않은 경우 영어입니다.
+
+## 런타임
+
+`AppProviders`를 통해 공급자 사용:
+
+```tsx
+import { AppProviders, getLocaleInitScript } from "@agent-native/core/client";
+import { i18nCatalog } from "./i18n";
+
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+<script
+  data-agent-native-locale-init
+  dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+/>;
+
+<AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+  <Outlet />
+</AppProviders>;
+```
+
+`getLocaleInitScript()`는 초기 `lang`, `dir` 및
+React가 수화되기 전의 `window.__AGENT_NATIVE_LOCALE__`. 공개 SSR 경로는
+`@agent-native/core/server`에서 `resolveLocaleFromRequest()`를 호출하고
+수화 불일치를 방지하기 위해 해당 스크립트에 로케일/카탈로그를 해결했습니다.
+
+## 카탈로그
+
+각 현지화된 템플릿은 `app/i18n/` 아래에 카탈로그를 보관합니다:
+
+```ts
+// app/i18n/index.ts
+import enUS from "./en-US";
+import type { AgentNativeI18nCatalog } from "@agent-native/core/client";
+
+export const i18nCatalog = {
+  sourceLocale: "en-US",
+  messages: enUS,
+  loadMessages: async (locale) => {
+    switch (locale) {
+      case "zh-CN":
+        return (await import("./zh-CN")).default;
+      default:
+        return null;
+    }
+  },
+} satisfies AgentNativeI18nCatalog;
+```
+
+항상 `en-US`를 번들로 묶으세요. 영어가 아닌 카탈로그를 동적 가져오기하여 사용자만
+활성 로캘을 다운로드합니다. 지원되는 로캘 코드는 `en-US`, `zh-CN`,
+`es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN` 및 `ar-SA`.
+
+## UI
+
+인터페이스 문자열에 `useT()`를 사용하고 앱 문자열에 `<LanguagePicker />`를 넣습니다.
+`/settings` 페이지. 사이드바 앱은 앱 사이드바에 **설정**을 노출해야 합니다.
+헤더 언어 아이콘은 바로가기일 뿐입니다.
+
+```tsx
+import {
+  LanguagePicker,
+  openAgentSettings,
+  useT,
+} from "@agent-native/core/client";
+
+function SettingsPage() {
+  const t = useT();
+  return (
+    <>
+      <h2>{t("settings.languageTitle")}</h2>
+      <LanguagePicker label={t("settings.languageLabel")} />
+
+      <h2>{t("settings.agentTitle")}</h2>
+      <p>{t("settings.agentDescription")}</p>
+      <button type="button" onClick={() => openAgentSettings()}>
+        {t("settings.openAgentSettings")}
+      </button>
+    </>
+  );
+}
+```
+
+"에이전트 설정" 컨트롤은 오른쪽 에이전트 사이드바의 설정 탭을 열어야 합니다.
+모델, API 키, 자동화, 음성 및 기타 프레임워크 수준 제어의 경우
+앱은 자체 설정 페이지에서 중요한 프레임워크 설정을 복제할 수 있습니다.
+설정이 앱의 중심이지만 사이드바 설정 탭은 그대로 유지되는 경우
+진실의 근원.
+
+날짜, 숫자, 상대 시간 및 목록에는 `useFormatters()`를 사용하세요. 넣지 마세요
+번역 문자열 내 로케일 구분 날짜/숫자 형식.
+
+## 문서 사이트 콘텐츠 {#docs-site-content}
+
+공개 문서 페이지는 동일한 핵심 공급자를 사용하지만
+`persistPreference={false}`이므로 익명 문서 트래픽은 localStorage를 사용하며
+SQL 설정 actions 대신 브라우저 언어. 영어 출처는
+`packages/core/docs/content/*.md`. 현지화된 페이지는
+`packages/core/docs/content/locales/<locale>/<slug>.md`.
+
+앱 카탈로그와 동일한 BCP-47 로캘 코드를 사용합니다.
+영어 소스, 번역된 제목에 `{#anchor}`를 사용하여 안정적인 앵커 유지,
+경로, 작업 이름, 프로토콜 필드, 환경 변수 및 공급자 이름은 그대로 둡니다
+번역되지 않았습니다. 로케일에 페이지에 대해 번역된 Markdown가 없으면 문서 사이트
+탐색 및 크롬을 현지화하는 동안 해당 페이지는 영어로 대체됩니다.
+
+Docs Markdown에는 구조화된 `an-*` 시각 블록이 포함될 수 있습니다. file-tree 제목과 `entries[].note`, callout 본문, tab labels, annotated-code labels/notes처럼 사용자에게 보이는 prose 필드는 의미가 있을 때 번역합니다. 파일명, paths, env vars, route strings, action names, language tags, code snippets, JSON keys, protocol names 같은 안정적인 식별자는 그대로 둡니다.
+
+## Actions와 지속성
+
+모든 앱은 다음을 상속합니다:
+
+- `get-localization-preference` — 현재 사용자의 `{ locale }` 읽기
+- `set-localization-preference` — `"system"` 또는 지원되는 로캘 설정
+
+지속성 값은 `localization` 아래의 사용자 범위 SQL 설정에 있습니다.
+`localStorage`는 사전 수화 및 익명 대체에만 사용됩니다. 활동적인
+로케일은 에이전트가 볼 수 있도록 주변 컨텍스트로 애플리케이션 상태에 미러링됩니다.
+현재 인터페이스 언어
+
+## 가드
+
+실행:
+
+```bash
+pnpm guard:i18n-catalogs
+```
+
+경비원은 지원되는 로케일 파일 이름, 키 패리티, 자리 표시자 패리티를 확인합니다.
+부실 키 및 `Intl.PluralRules`를 통한 CLDR 복수 카테고리. 확인합니다
+번역 품질이 아닌 구조; 가시성이 높은 문자열에는 여전히 사람이 필요합니다
+검토.
+
+작업 이름, 경로, 열거형 값과 같은 안정적인 식별자를 번역하지 마세요.
+앱 상태 키, 데이터베이스 값, 프로토콜 필드, 환경 변수 이름 또는 공급자
+이름.

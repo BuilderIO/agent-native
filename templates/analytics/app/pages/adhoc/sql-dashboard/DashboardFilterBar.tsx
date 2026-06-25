@@ -1,15 +1,18 @@
+import {
+  IconChevronDown,
+  IconDeviceFloppy,
+  IconFilterOff,
+} from "@tabler/icons-react";
 import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
+
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { DatePicker } from "@/components/ui/date-picker";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -17,18 +20,17 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
-  IconChevronDown,
-  IconDeviceFloppy,
-  IconFilterOff,
-} from "@tabler/icons-react";
-import type { DashboardFilter, FilterType } from "./types";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+
+import type { DashboardFilter, FilterType } from "./types";
 
 export const FILTER_PARAM_PREFIX = "f_";
 
@@ -224,7 +226,7 @@ export function DashboardFilterBar({
       <Collapsible
         open={filtersOpen}
         onOpenChange={setFiltersOpen}
-        className="rounded-lg border border-border bg-card p-3"
+        className="group rounded-lg border border-border bg-card p-3"
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-baseline gap-2">
@@ -235,7 +237,7 @@ export function DashboardFilterBar({
               auto-applied
             </span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-data-[state=closed]:opacity-100">
             {onSaveView && filtersActive && (
               <Button
                 variant="ghost"

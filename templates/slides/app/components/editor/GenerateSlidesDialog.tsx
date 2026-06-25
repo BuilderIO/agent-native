@@ -1,5 +1,8 @@
-import { useState } from "react";
+import { useActionMutation } from "@agent-native/core/client";
+import type { SlideGenerateResponse } from "@shared/api";
 import { IconLoader2, IconPhoto } from "@tabler/icons-react";
+import { useState } from "react";
+
 import {
   Dialog,
   DialogContent,
@@ -14,8 +17,6 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-import { useActionMutation } from "@agent-native/core/client";
-import type { SlideGenerateResponse } from "@shared/api";
 
 interface GenerateSlidesDialogProps {
   open: boolean;

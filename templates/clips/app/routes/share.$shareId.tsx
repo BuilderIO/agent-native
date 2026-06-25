@@ -1,13 +1,17 @@
 import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData, useNavigate, useParams } from "react-router";
-import { useQuery } from "@tanstack/react-query";
+  agentNativePath,
+  appBasePath,
+  appPath,
+  track,
+  useSession,
+  AgentPanel,
+  getBrowserTabId,
+} from "@agent-native/core/client";
+import {
+  getRequestUserEmail,
+  signShortLivedToken,
+} from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -17,31 +21,33 @@ import {
   IconLogin2,
   IconShare3,
 } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
 import { eq } from "drizzle-orm";
 import {
-  agentNativePath,
-  appBasePath,
-  appPath,
-  useSession,
-  AgentPanel,
-  getBrowserTabId,
-} from "@agent-native/core/client";
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData, useNavigate, useParams } from "react-router";
+
+import { CaptureInstallButton } from "@/components/capture-install-options";
+import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
+import { CommentsPanel } from "@/components/player/comments-panel";
+import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
+import { ReactionsTray } from "@/components/player/reactions-tray";
+import { ShareRecordingPopover } from "@/components/player/share-dialog";
+import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
+import { TranscriptPanel } from "@/components/player/transcript-panel";
 import {
   VideoPlayer,
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
-import { TranscriptPanel } from "@/components/player/transcript-panel";
-import { CommentsPanel } from "@/components/player/comments-panel";
-import { ReactionsTray } from "@/components/player/reactions-tray";
-import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
-import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
-import { ShareRecordingPopover } from "@/components/player/share-dialog";
-import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
-import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
-import { useViewTracking } from "@/hooks/use-view-tracking";
 import { Button } from "@/components/ui/button";
-import { CaptureInstallButton } from "@/components/capture-install-options";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,19 +58,21 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
-import { getDb, schema } from "../../server/db";
-import {
-  getRequestUserEmail,
-  signShortLivedToken,
-} from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
+import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
+
+import { getDb, schema } from "../../server/db";
 import { buildAgentApiUrls, safeJsonForHtml } from "../../shared/agent-context";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "../../shared/loom";
+import {
+  buildSignupAttributionQuery,
+  readShareAttribution,
+} from "../../shared/share-attribution";
 import {
   buildClipsShareMeta,
   clipsSharePageTitle,
@@ -121,14 +129,13 @@ function shouldShowGeneratedTitleSkeleton(
   return true;
 }
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ params, url }: LoaderFunctionArgs) {
   const id = params.shareId;
-  const requestUrl = new URL(request.url);
   if (!id)
     return {
       recording: null,
       agentContextUrl: null,
-      origin: requestUrl.origin,
+      origin: url.origin,
       shareUrl: null,
     };
 
@@ -154,7 +161,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     return {
       recording: null,
       agentContextUrl: null,
-      origin: requestUrl.origin,
+      origin: url.origin,
       shareUrl: null,
     };
 
@@ -165,7 +172,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
       return {
         recording: null,
         agentContextUrl: null,
-        origin: requestUrl.origin,
+        origin: url.origin,
         shareUrl: null,
       };
   }
@@ -193,12 +200,12 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const canExposeOwnerAgentContext = canExposeAgentContext && Boolean(token);
   return {
     recording,
-    origin: requestUrl.origin,
-    shareUrl: `${requestUrl.origin}${requestUrl.pathname}`,
+    origin: url.origin,
+    shareUrl: `${url.origin}${url.pathname}`,
     agentContextUrl:
       canExposeAnonymousAgentContext || canExposeOwnerAgentContext
         ? buildAgentApiUrls(id, {
-            origin: requestUrl.origin,
+            origin: url.origin,
             basePath:
               process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "",
             token,
@@ -207,11 +214,11 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   };
 }
 
-export const meta: MetaFunction<typeof loader> = ({ data }) => {
+export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
   return buildClipsShareMeta({
-    recording: data?.recording ?? null,
-    origin: data?.origin ?? null,
-    shareUrl: data?.shareUrl ?? null,
+    recording: loaderData?.recording ?? null,
+    origin: loaderData?.origin ?? null,
+    shareUrl: loaderData?.shareUrl ?? null,
   });
 };
 
@@ -247,7 +254,7 @@ function AgentDiscovery({
     title: recording.title,
     agentContextUrl,
     instructions:
-      "Fetch agentContextUrl for timestamped transcript segments and frame API links.",
+      "Fetch agentContextUrl for the transcript and JPEG frame URLs. Fetch the frame URLs to SEE the screen, not just read the transcript.",
   };
 
   return (
@@ -274,6 +281,61 @@ export default function ShareRoute() {
   const loaderData = useLoaderData<typeof loader>() as SharePageLoaderData;
   const { shareId } = useParams<{ shareId: string }>();
   const navigate = useNavigate();
+
+  // Viral attribution: read the `ref`/`via` the visitor arrived on (the tagged
+  // share link) so we can fire funnel events and forward attribution into the
+  // signup URL even when cookies are blocked or `document.referrer` is empty.
+  const attribution = useMemo(
+    () =>
+      readShareAttribution(
+        typeof window === "undefined" ? "" : window.location.search,
+      ),
+    [],
+  );
+  const recordingId = shareId ?? "";
+
+  // share_cta_click — fired alongside (never instead of) the real navigation.
+  // `track` is non-throwing, but guard anyway so tracking can never break a CTA.
+  const fireShareCtaClick = useCallback(
+    (cta: "signup" | "download" | "try_clips" | "signin") => {
+      try {
+        void track("share_cta_click", {
+          surface: "clip",
+          recording_id: recordingId,
+          cta,
+          ref: attribution.ref,
+          via: attribution.via,
+        });
+      } catch {
+        // Never let analytics break a CTA.
+      }
+    },
+    [recordingId, attribution.ref, attribution.via],
+  );
+
+  // Forward attribution into the signup URL so it survives blocked cookies.
+  const signupHref = appPath(
+    `/signup?${buildSignupAttributionQuery(attribution.via)}`,
+  );
+
+  // share_view — fire once when the public share page mounts. The ref guard
+  // prevents double-fire across re-renders / StrictMode double-invocation.
+  const shareViewFiredRef = useRef(false);
+  useEffect(() => {
+    if (shareViewFiredRef.current) return;
+    shareViewFiredRef.current = true;
+    try {
+      void track("share_view", {
+        surface: "clip",
+        recording_id: recordingId,
+        ref: attribution.ref,
+        via: attribution.via,
+      });
+    } catch {
+      // Never let analytics break the page render.
+    }
+  }, [recordingId, attribution.ref, attribution.via]);
+
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const [password, setPassword] = useState<string | null>(() => {
     if (typeof window === "undefined" || !shareId) return null;
@@ -506,7 +568,7 @@ export default function ShareRoute() {
             shareId ? (
               <Button asChild size="sm">
                 <a href={buildSignInHref(`/r/${shareId}`)} className="gap-1.5">
-                  <IconLogin2 className="h-4 w-4" />
+                  <IconLogin2 className="h-4 w-4 rtl:-scale-x-100" />
                   Sign in
                 </a>
               </Button>
@@ -581,7 +643,7 @@ export default function ShareRoute() {
             {message}
           </p>
           {isFailure && detail && canManageStorage ? (
-            <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-left shadow-sm">
+            <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-start shadow-sm">
               <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Details
               </div>
@@ -614,14 +676,14 @@ export default function ShareRoute() {
             {!session && isFailure ? (
               <Button asChild size="sm">
                 <a href={signInHref} className="gap-1.5">
-                  <IconLogin2 className="h-4 w-4" />
+                  <IconLogin2 className="h-4 w-4 rtl:-scale-x-100" />
                   Sign in to finish
                 </a>
               </Button>
             ) : !session && !sessionLoading && !isFailure ? (
               <Button asChild variant="ghost" size="sm">
                 <a href={signInHref} className="gap-1.5">
-                  <IconLogin2 className="h-4 w-4" />
+                  <IconLogin2 className="h-4 w-4 rtl:-scale-x-100" />
                   Sign in if this is yours
                 </a>
               </Button>
@@ -663,7 +725,7 @@ export default function ShareRoute() {
               onClick={() => navigate("/")}
               aria-label="Back to home"
             >
-              <IconArrowLeft className="h-4 w-4" />
+              <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
             </Button>
           ) : null}
           <div className="min-w-0 flex-1">
@@ -690,7 +752,11 @@ export default function ShareRoute() {
               </Button>
             ) : session ? null : (
               <Button variant="ghost" size="sm" asChild>
-                <a href={appPath("/")} className="gap-1.5">
+                <a
+                  href={appPath("/")}
+                  className="gap-1.5"
+                  onClick={() => fireShareCtaClick("try_clips")}
+                >
                   Try Clips
                   <IconExternalLink className="h-3.5 w-3.5" />
                 </a>
@@ -841,7 +907,7 @@ export default function ShareRoute() {
         </div>
       </div>
 
-      <aside className="flex min-h-[420px] w-full shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-l lg:border-t-0">
+      <aside className="flex min-h-[420px] w-full shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-s lg:border-t-0">
         <Tabs defaultValue="agent" className="flex h-full flex-col">
           <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
             <TabsTrigger value="agent" className="text-xs">
@@ -850,7 +916,7 @@ export default function ShareRoute() {
             <TabsTrigger value="comments" className="text-xs gap-1">
               Comments
               {comments.length > 0 ? (
-                <span className="ml-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
+                <span className="ms-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
                   {comments.length}
                 </span>
               ) : null}
@@ -879,7 +945,10 @@ export default function ShareRoute() {
                 browserTabId={getBrowserTabId()}
               />
             ) : (
-              <PublicAgentEmptyState />
+              <PublicAgentEmptyState
+                signupHref={signupHref}
+                onCtaClick={fireShareCtaClick}
+              />
             )}
           </TabsContent>
           <TabsContent
@@ -932,6 +1001,7 @@ export default function ShareRoute() {
           if (!open) setSignInIntent(null);
         }}
         intent={signInIntent ?? "comment"}
+        onSignIn={() => fireShareCtaClick("signin")}
       />
     </div>
   );
@@ -947,7 +1017,13 @@ function sanitizeFilename(name: string): string {
   );
 }
 
-function PublicAgentEmptyState() {
+function PublicAgentEmptyState({
+  signupHref,
+  onCtaClick,
+}: {
+  signupHref: string;
+  onCtaClick: (cta: "signup" | "download" | "try_clips" | "signin") => void;
+}) {
   const [platform, setPlatform] = useState<ViewerPlatform | null>(null);
 
   useEffect(() => {
@@ -1005,12 +1081,18 @@ function PublicAgentEmptyState() {
         Loom alternative
       </p>
       <div className="mt-7 flex w-full max-w-[220px] flex-col gap-2">
-        <CaptureInstallButton className="w-full gap-2" align="center">
+        <CaptureInstallButton
+          className="w-full gap-2"
+          align="center"
+          onClick={() => onCtaClick("download")}
+        >
           <IconDownload className="h-4 w-4" />
           {downloadLabel}
         </CaptureInstallButton>
         <Button asChild variant="outline" className="w-full">
-          <a href={appPath("/signup")}>Sign up</a>
+          <a href={signupHref} onClick={() => onCtaClick("signup")}>
+            Sign up
+          </a>
         </Button>
       </div>
     </div>

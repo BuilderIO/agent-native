@@ -4,7 +4,7 @@ use tauri::{
     Emitter, Listener, Manager,
 };
 
-use crate::clips::toggle_popover;
+use crate::clips::{force_show_popover, toggle_popover};
 use crate::dlog;
 use crate::state::{TrayAnchor, TrayMeetings};
 use crate::tray_meetings::{build_meetings_section, handle_meeting_menu_click, MeetingItem};
@@ -114,7 +114,7 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
             match id_ref {
-                "show" => toggle_popover(app),
+                "show" => force_show_popover(app),
                 "stop" => {
                     let _ = app.emit("clips:recorder-stop", ());
                 }

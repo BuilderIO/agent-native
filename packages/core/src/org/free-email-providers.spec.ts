@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import {
   FREE_EMAIL_PROVIDER_DOMAINS,
   isFreeEmailProvider,

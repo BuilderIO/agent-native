@@ -1,7 +1,8 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -112,9 +113,9 @@ describe("agent-native skills", () => {
       "utf-8",
     );
 
-    expect(source).toContain("Hosted plans, shareable links");
+    expect(source).toContain("Hosted plans, shareable links (recommended)");
     expect(source).toContain(
-      "Recommended. 100% free and open source. Stores plans at plan.agent-native.com with sharing, comments, and browser editor.",
+      "100% free and open source. Supports comments, browser editor, and sharing.",
     );
   });
 
@@ -1984,6 +1985,109 @@ describe("agent-native skills", () => {
       ),
     );
     expect(metadata.contentHash).not.toBe("old");
+  });
+
+  it("updates generated workspace scaffold skills and repairs agent symlinks", async () => {
+    const root = tmpDir();
+    const shared = path.join(root, "packages", "shared");
+    fs.mkdirSync(path.join(shared, ".agents", "skills", "actions"), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(root, "apps"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify(
+        {
+          name: "my-workspace",
+          "agent-native": { workspaceCore: "@my/shared" },
+        },
+        null,
+        2,
+      ),
+    );
+    fs.writeFileSync(path.join(root, "AGENTS.md"), "# Workspace\n");
+    fs.writeFileSync(
+      path.join(shared, "package.json"),
+      JSON.stringify({ name: "@my/shared" }, null, 2),
+    );
+    fs.writeFileSync(path.join(shared, "AGENTS.md"), "# Shared\n");
+    fs.writeFileSync(
+      path.join(shared, ".agents", "skills", "actions", "SKILL.md"),
+      "old actions skill\n",
+    );
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    await runSkills(["update", "scaffold", "--scope", "project", "--json"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+
+    const json = JSON.parse(stdout.join(""));
+    expect(json).toMatchObject({ command: "update", found: 1, updated: 1 });
+    expect(json.scaffold[0]).toMatchObject({
+      kind: "workspace-core",
+      status: "current",
+    });
+    expect(
+      fs.readFileSync(
+        path.join(shared, ".agents", "skills", "actions", "SKILL.md"),
+        "utf-8",
+      ),
+    ).toContain("# Agent Actions");
+    expect(
+      fs.existsSync(
+        path.join(root, ".agents", "skills", "actions", "SKILL.md"),
+      ),
+    ).toBe(true);
+    const claudePath = path.join(root, "CLAUDE.md");
+    expect(fs.existsSync(claudePath)).toBe(true);
+    if (fs.lstatSync(claudePath).isSymbolicLink()) {
+      expect(fs.readlinkSync(claudePath)).toBe("AGENTS.md");
+    }
+    expect(fs.existsSync(path.join(root, ".claude", "skills"))).toBe(true);
+  });
+
+  it("updates generated standalone headless scaffold skills", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "actions"), { recursive: true });
+    fs.mkdirSync(path.join(root, ".agents", "skills", "agent-native-docs"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify(
+        {
+          name: "headless-app",
+          dependencies: { "@agent-native/core": "latest" },
+        },
+        null,
+        2,
+      ),
+    );
+    fs.writeFileSync(path.join(root, "AGENTS.md"), "# Headless\n");
+    fs.writeFileSync(path.join(root, "actions", "hello.ts"), "export {}\n");
+    fs.writeFileSync(
+      path.join(root, ".agents", "skills", "agent-native-docs", "SKILL.md"),
+      "old docs skill\n",
+    );
+
+    await runSkills(["update", "scaffold", "--scope", "project"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+
+    expect(
+      fs.readFileSync(
+        path.join(root, ".agents", "skills", "agent-native-docs", "SKILL.md"),
+        "utf-8",
+      ),
+    ).toContain("# Agent Native Docs");
+    expect(fs.existsSync(path.join(root, "CLAUDE.md"))).toBe(true);
+    expect(fs.existsSync(path.join(root, ".claude", "skills"))).toBe(true);
   });
 
   it("registers the skill against a --mcp-url override (bare origin gets the mcp path)", async () => {

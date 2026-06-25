@@ -1,4 +1,3 @@
-import { useCallback, useMemo, useRef, useState } from "react";
 import {
   IconArrowNarrowRight,
   IconChevronRight,
@@ -8,6 +7,8 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
+import { useCallback, useMemo, useRef, useState } from "react";
+
 import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";

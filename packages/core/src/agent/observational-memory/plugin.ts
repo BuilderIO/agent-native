@@ -10,11 +10,11 @@
  * functional without the plugin.
  */
 
+import { runMigrations } from "../../db/migrations.js";
 import {
   awaitBootstrap,
   markDefaultPluginProvided,
 } from "../../server/framework-request-handler.js";
-import { runMigrations } from "../../db/migrations.js";
 import { OBSERVATIONAL_MEMORY_MIGRATIONS } from "./migrations.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;

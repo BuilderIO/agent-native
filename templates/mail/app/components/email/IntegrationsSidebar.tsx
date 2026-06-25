@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useSendToAgentChat, useT } from "@agent-native/core/client";
+import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
   IconPlus,
   IconCheck,
@@ -6,21 +7,26 @@ import {
   IconChevronLeft,
   IconArrowUp,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { Spinner } from "@/components/ui/spinner";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
+import { useState, useEffect, useRef } from "react";
+
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { useSendToAgentChat } from "@agent-native/core/client";
-import { ExtensionSlot } from "@agent-native/core/client/extensions";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useApolloPerson } from "@/hooks/use-apollo";
 import {
   useIntegration,
   useAllIntegrations,
@@ -29,13 +35,8 @@ import {
   usePylonContact,
   isAuthError,
 } from "@/hooks/use-integrations";
-import { useApolloPerson } from "@/hooks/use-apollo";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { cn } from "@/lib/utils";
 
 function safeExternalHref(value?: string | null): string | null {
   if (!value) return null;
@@ -330,6 +331,7 @@ function IntegrationSetup() {
 }
 
 function AddIntegrationButton() {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -365,7 +367,7 @@ function AddIntegrationButton() {
             <div className="h-7 w-7 rounded-md border border-dashed border-border/40 flex items-center justify-center shrink-0">
               <IconPlus className="h-3 w-3" />
             </div>
-            <span>Add integration</span>
+            <span>{t("mail.integrations.addIntegration")}</span>
           </button>
         </PopoverTrigger>
         <PopoverContent
@@ -377,7 +379,7 @@ function AddIntegrationButton() {
         >
           <div className="px-3.5 pt-3 pb-1.5">
             <span className="text-[12px] font-medium text-foreground/80">
-              New integration
+              {t("mail.integrations.newIntegration")}
             </span>
           </div>
 
@@ -397,7 +399,7 @@ function AddIntegrationButton() {
                   handleSubmit();
                 }
               }}
-              placeholder="e.g. Salesforce CRM — show deal stage and recent activity for the contact"
+              placeholder={t("mail.integrations.newIntegrationPlaceholder")}
               className="w-full bg-transparent text-[12px] text-foreground/90 placeholder:text-muted-foreground/30 outline-none resize-none"
               rows={3}
               style={{ maxHeight: "200px" }}
@@ -407,7 +409,7 @@ function AddIntegrationButton() {
           <div className="px-3.5 py-2 flex items-center justify-end gap-2 border-t border-border/30">
             <span className="text-[11px] text-muted-foreground/60">
               {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-              +Enter to submit
+              +Enter {t("mail.compose.toSubmit")}
             </span>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -420,12 +422,16 @@ function AddIntegrationButton() {
                       ? "bg-primary hover:bg-primary/90 text-primary-foreground"
                       : "bg-muted/50 text-muted-foreground/30 cursor-not-allowed",
                   )}
-                  aria-label="Submit"
+                  aria-label={t("mail.integrations.submit")}
                 >
                   <IconArrowUp className="w-4 h-4" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>{`Submit (${/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter)`}</TooltipContent>
+              <TooltipContent>
+                {t("mail.integrations.submitShortcut", {
+                  shortcut: `${/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter`,
+                })}
+              </TooltipContent>
             </Tooltip>
           </div>
         </PopoverContent>
@@ -443,6 +449,7 @@ function IntegrationRow({
   connected: boolean;
   onConfigure: () => void;
 }) {
+  const t = useT();
   const { disconnect } = useIntegration(def.id);
 
   return (
@@ -470,20 +477,20 @@ function IntegrationRow({
                   </button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent>Settings</TooltipContent>
+              <TooltipContent>{t("mail.toolbar.settings")}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-36">
               <DropdownMenuItem
                 onClick={() => onConfigure()}
                 className="text-[12px] text-foreground/70"
               >
-                Update key
+                {t("mail.integrations.updateKey")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => disconnect.mutate()}
                 className="text-[12px] text-red-400/80"
               >
-                Disconnect
+                {t("mail.integrations.disconnect")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -493,7 +500,7 @@ function IntegrationRow({
           onClick={onConfigure}
           className="shrink-0 text-[11px] text-primary hover:text-primary/90 font-medium transition-colors"
         >
-          Connect
+          {t("mail.integrations.connect")}
         </button>
       )}
     </div>
@@ -507,6 +514,7 @@ function IntegrationKeyEntry({
   def: IntegrationDef;
   onBack: () => void;
 }) {
+  const t = useT();
   const [apiKey, setApiKey] = useState("");
   const { connect } = useIntegration(def.id);
   const errorMessage =
@@ -519,7 +527,7 @@ function IntegrationKeyEntry({
           onClick={onBack}
           className="text-muted-foreground/50 hover:text-muted-foreground transition-colors"
         >
-          <IconChevronLeft className="h-3.5 w-3.5" />
+          <IconChevronLeft className="h-3.5 w-3.5 rtl:-scale-x-100" />
         </button>
         <div className="h-6 w-6 rounded-md overflow-hidden shrink-0 bg-accent/30 p-0.5">
           {def.logo}
@@ -550,7 +558,9 @@ function IntegrationKeyEntry({
           disabled={!apiKey.trim() || connect.isPending}
           className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
-          {connect.isPending ? "Checking..." : "Save"}
+          {connect.isPending
+            ? t("mail.integrations.checking")
+            : t("mail.integrations.save")}
         </button>
       </div>
 
@@ -561,9 +571,9 @@ function IntegrationKeyEntry({
       {/* Instructions always visible */}
       <div className="rounded-md bg-accent/30 px-2.5 py-2">
         <p className="text-[11px] text-muted-foreground/70 mb-1.5">
-          To get your API key:
+          {t("mail.integrations.getApiKey")}
         </p>
-        <ol className="text-[11px] text-muted-foreground/50 space-y-0.5 list-decimal pl-3 mb-1.5">
+        <ol className="text-[11px] text-muted-foreground/50 space-y-0.5 list-decimal ps-3 mb-1.5">
           {def.helpSteps.map((step, i) => (
             <li key={i}>{step}</li>
           ))}
@@ -574,7 +584,10 @@ function IntegrationKeyEntry({
           rel="noopener noreferrer"
           className="text-[11px] text-primary/80 hover:text-primary hover:underline transition-colors"
         >
-          Open {def.name} Settings &rarr;
+          {t("mail.integrations.openProviderSettings", {
+            provider: def.name,
+          })}{" "}
+          &rarr;
         </a>
       </div>
     </div>
@@ -606,7 +619,7 @@ function IntegrationNotice({
             onClick={() => setReconnecting(false)}
             className="text-muted-foreground/50 hover:text-muted-foreground"
           >
-            <IconChevronLeft className="h-3.5 w-3.5" />
+            <IconChevronLeft className="h-3.5 w-3.5 rtl:-scale-x-100" />
           </button>
           <div className="h-5 w-5 rounded-md overflow-hidden shrink-0 bg-accent/30 p-0.5">
             {def.logo}
@@ -666,7 +679,7 @@ function IntegrationNotice({
       {authErr ? (
         <button
           onClick={() => setReconnecting(true)}
-          className="text-[11px] text-amber-400/80 hover:text-amber-300 mt-1 text-left"
+          className="text-[11px] text-amber-400/80 hover:text-amber-300 mt-1 text-start"
         >
           {def.name} API key is invalid or expired —{" "}
           <span className="underline">reconnect</span>
@@ -817,7 +830,7 @@ function ApolloSection({ email }: { email: string }) {
                 rel="noopener noreferrer"
                 className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
               >
-                LinkedIn
+                LinkedIn{/* i18n-ignore */}
               </a>
             )}
             {safeExternalHref(person.twitter_url) && (
@@ -837,7 +850,7 @@ function ApolloSection({ email }: { email: string }) {
                 rel="noopener noreferrer"
                 className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
               >
-                GitHub
+                GitHub{/* i18n-ignore */}
               </a>
             )}
             {safeExternalHref(person.organization?.website_url) && (
@@ -868,7 +881,7 @@ function ApolloSection({ email }: { email: string }) {
               <p key={i} className="text-[11px] text-muted-foreground/60">
                 {p.raw_number}
                 {p.type && (
-                  <span className="text-muted-foreground/40 ml-1">
+                  <span className="text-muted-foreground/40 ms-1">
                     ({p.type})
                   </span>
                 )}
@@ -932,7 +945,10 @@ function HubSpotSection({ email }: { email: string }) {
     <>
       <div className="h-px bg-border/30 mx-4" />
       <div className="px-4 py-3">
-        <SectionHeader logo={INTEGRATIONS[1].logo} label="HubSpot" />
+        <SectionHeader
+          logo={INTEGRATIONS[1].logo}
+          label={"HubSpot" /* i18n-ignore */}
+        />
 
         {name && (
           <p className="text-[12px] text-foreground/80 font-medium">{name}</p>

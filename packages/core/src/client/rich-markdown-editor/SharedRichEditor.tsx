@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef } from "react";
-import { EditorContent, useEditor } from "@tiptap/react";
 import type { Extension, Node, Mark } from "@tiptap/core";
-import type { Doc as YDoc } from "yjs";
+import { EditorContent, useEditor } from "@tiptap/react";
+import { useEffect, useMemo, useRef } from "react";
 import type { Awareness } from "y-protocols/awareness";
+import type { Doc as YDoc } from "yjs";
+
 import { cn } from "../utils.js";
+import { BubbleToolbar, type BubbleToolbarItem } from "./BubbleToolbar.js";
 import {
   createSharedEditorExtensions,
   type RichMarkdownDialect,
@@ -12,13 +14,12 @@ import {
   type SharedEditorFeatures,
 } from "./extensions.js";
 import type { ImageUploadFn } from "./ImageExtension.js";
+import { SlashCommandMenu, type SlashCommandItem } from "./SlashCommandMenu.js";
 import {
   useCollabReconcile,
   getEditorMarkdown,
   type UseCollabReconcileResult,
 } from "./useCollabReconcile.js";
-import { SlashCommandMenu, type SlashCommandItem } from "./SlashCommandMenu.js";
-import { BubbleToolbar, type BubbleToolbarItem } from "./BubbleToolbar.js";
 
 export interface SharedRichEditorProps {
   value: string;

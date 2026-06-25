@@ -1,5 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { useNavigate, useParams } from "react-router";
+import {
+  OpenSourceBadge,
+  PoweredByBadge,
+  StarfieldBackground,
+} from "@agent-native/core/client";
+import type { Booking } from "@shared/api";
+import { IconCalendar } from "@tabler/icons-react";
 import {
   addMinutes,
   endOfMonth,
@@ -7,34 +12,30 @@ import {
   parseISO,
   startOfMonth,
 } from "date-fns";
-import { IconCalendar } from "@tabler/icons-react";
-import {
-  OpenSourceBadge,
-  PoweredByBadge,
-  StarfieldBackground,
-} from "@agent-native/core/client";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { DatePicker } from "@/components/booking/DatePicker";
-import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
+import { useEffect, useState, type ReactNode } from "react";
+import { useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
+
+import { BookingConfirmation } from "@/components/booking/BookingConfirmation";
 import {
   BookingForm,
   type BookingFormValue,
 } from "@/components/booking/BookingForm";
-import { BookingConfirmation } from "@/components/booking/BookingConfirmation";
-import {
-  usePublicSettings,
-  usePublicAvailability,
-  usePublicBookingLink,
-} from "@/hooks/use-public-data";
+import { DatePicker } from "@/components/booking/DatePicker";
+import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
   useAvailableDays,
   useAvailableSlots,
   useCreateBooking,
 } from "@/hooks/use-bookings";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import { toast } from "sonner";
-import type { Booking } from "@shared/api";
+import {
+  usePublicSettings,
+  usePublicAvailability,
+  usePublicBookingLink,
+} from "@/hooks/use-public-data";
 import { cn } from "@/lib/utils";
 
 type Step = "duration" | "date" | "time" | "info" | "confirmed";

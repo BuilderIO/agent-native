@@ -1,3 +1,11 @@
+import {
+  IconBrandGoogle,
+  IconBrandZoom,
+  IconCheck,
+  IconLink,
+  IconVideo,
+  IconVideoOff,
+} from "@tabler/icons-react";
 /**
  * ConferencingSelector — choose how a booking's video meeting is set up.
  *
@@ -23,24 +31,19 @@
  *   - `onConnectGoogle` — optional, same shape as onConnectZoom
  */
 import { useId, type ComponentType } from "react";
-import {
-  IconBrandGoogle,
-  IconBrandZoom,
-  IconCheck,
-  IconLink,
-  IconVideo,
-  IconVideoOff,
-} from "@tabler/icons-react";
+
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
+
+import { useSchedulingT } from "../../i18n.js";
 
 export type ConferencingType = "none" | "google_meet" | "zoom" | "custom";
 
@@ -65,37 +68,38 @@ export interface ConferencingSelectorProps {
 
 const OPTIONS: {
   type: ConferencingType;
-  label: string;
-  description: string;
+  labelKey: Parameters<ReturnType<typeof useSchedulingT>>[0];
+  descriptionKey: Parameters<ReturnType<typeof useSchedulingT>>[0];
   Icon: ComponentType<{ className?: string }>;
 }[] = [
   {
     type: "none",
-    label: "No conferencing",
-    description: "In-person or other",
+    labelKey: "noConferencing",
+    descriptionKey: "inPersonOrOther",
     Icon: IconVideoOff,
   },
   {
     type: "google_meet",
-    label: "Google Meet",
-    description: "Auto-generate a Meet link",
+    labelKey: "googleMeet",
+    descriptionKey: "googleMeetDescription",
     Icon: IconBrandGoogle,
   },
   {
     type: "zoom",
-    label: "Zoom",
-    description: "Auto-create a meeting per booking",
+    labelKey: "zoom",
+    descriptionKey: "zoomDescription",
     Icon: IconBrandZoom,
   },
   {
     type: "custom",
-    label: "Custom link",
-    description: "Paste any meeting URL",
+    labelKey: "customLink",
+    descriptionKey: "customLinkDescription",
     Icon: IconLink,
   },
 ];
 
 export function ConferencingSelector(props: ConferencingSelectorProps) {
+  const t = useSchedulingT();
   const id = useId();
   const {
     value,
@@ -122,7 +126,7 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
       {!hideLabel && (
         <Label className="flex items-center gap-1.5">
           <IconVideo className="h-4 w-4" />
-          Conferencing
+          {t("conferencing")}
         </Label>
       )}
 
@@ -141,7 +145,7 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="truncate font-medium">
-                  {selectedOption.label}
+                  {t(selectedOption.labelKey)}
                 </span>
                 {selectedStatus === "connected" &&
                   selectedOption.type !== "none" &&
@@ -151,14 +155,16 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
                       className="h-5 gap-1 text-[10px] font-normal"
                     >
                       <IconCheck className="h-3 w-3" />
-                      Connected
+                      {t("connected")}
                     </Badge>
                   )}
               </div>
               <p className="truncate text-xs text-muted-foreground">
                 {selectedStatus === "not-configured"
-                  ? `${selectedOption.label} is not configured on this server.`
-                  : selectedOption.description}
+                  ? t("providerNotConfigured", {
+                      provider: t(selectedOption.labelKey),
+                    })
+                  : t(selectedOption.descriptionKey)}
               </p>
             </div>
           </div>
@@ -178,19 +184,21 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
                   <opt.Icon className="mt-0.5 h-4 w-4 shrink-0" />
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium">{opt.label}</span>
+                      <span className="font-medium">{t(opt.labelKey)}</span>
                       {status === "connected" &&
                         opt.type !== "none" &&
                         opt.type !== "custom" && (
                           <span className="text-[10px] text-muted-foreground">
-                            Connected
+                            {t("connected")}
                           </span>
                         )}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {isUnavailable
-                        ? `${opt.label} needs server OAuth credentials before it can be used.`
-                        : opt.description}
+                        ? t("providerNeedsCredentials", {
+                            provider: t(opt.labelKey),
+                          })
+                        : t(opt.descriptionKey)}
                     </p>
                   </div>
                 </div>
@@ -205,10 +213,9 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
         <div className="rounded-md border border-border/60 bg-muted/30 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">Connect your Zoom account</p>
+              <p className="text-sm font-medium">{t("connectZoomAccount")}</p>
               <p className="text-xs text-muted-foreground">
-                We'll create a real Zoom meeting for every booking — no need to
-                paste a personal link.
+                {t("connectZoomAccountDescription")}
               </p>
             </div>
             <Button
@@ -218,13 +225,12 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
               disabled={zoomStatus === "not-configured"}
             >
               <IconBrandZoom className="mr-1.5 h-4 w-4" />
-              Connect Zoom
+              {t("connectZoom")}
             </Button>
           </div>
           {zoomStatus === "not-configured" && (
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Ask your admin to set <code>ZOOM_CLIENT_ID</code> and{" "}
-              <code>ZOOM_CLIENT_SECRET</code> to enable Zoom OAuth.
+              {t("zoomNotConfigured")}
             </p>
           )}
         </div>
@@ -237,10 +243,11 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
           <div className="rounded-md border border-border/60 bg-muted/30 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">Connect Google Calendar</p>
+                <p className="text-sm font-medium">
+                  {t("connectGoogleCalendar")}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  Meet links are auto-generated when the calendar event is
-                  created.
+                  {t("connectGoogleCalendarDescription")}
                 </p>
               </div>
               <Button
@@ -251,7 +258,7 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
                 disabled={googleStatus === "not-configured"}
               >
                 <IconBrandGoogle className="mr-1.5 h-4 w-4" />
-                Connect Google
+                {t("connectGoogle")}
               </Button>
             </div>
           </div>
@@ -261,7 +268,7 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
       {value.type === "custom" && (
         <div className="space-y-1.5">
           <Label htmlFor={`${id}-url`} className="text-xs">
-            Meeting URL
+            {t("meetingUrl")}
           </Label>
           <Input
             id={`${id}-url`}
@@ -270,7 +277,7 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
             onChange={(e) =>
               onChange({ type: "custom", url: e.currentTarget.value })
             }
-            placeholder="https://meet.example.com/room"
+            placeholder={t("customMeetingUrlPlaceholder")}
             className="h-8 text-sm"
           />
         </div>

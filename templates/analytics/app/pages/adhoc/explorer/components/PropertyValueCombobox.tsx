@@ -1,8 +1,7 @@
-import { useState } from "react";
 import { IconCheck, IconSelector, IconLoader2 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Command,
   CommandEmpty,
@@ -16,6 +15,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+
 import { usePropertyValues } from "../use-dynamic-schema";
 
 interface PropertyValueComboboxProps {

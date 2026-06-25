@@ -1,8 +1,9 @@
-import { useState, useCallback } from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { IconThumbUp, IconThumbDown } from "@tabler/icons-react";
-import { cn } from "../utils.js";
+import { useState, useCallback } from "react";
+
 import { agentNativePath } from "../api-path.js";
+import { cn } from "../utils.js";
 
 const THUMBS_DOWN_CATEGORIES = [
   "Inaccurate",

@@ -195,7 +195,8 @@ body {
   text-overflow: ellipsis;
 }
 
-.tab-close {
+.tab-close,
+.tab-refresh {
   flex-shrink: 0;
   width: 16px;
   height: 16px;
@@ -218,6 +219,27 @@ body {
 }
 
 .tab-close:hover {
+  opacity: 1 !important;
+  background: var(--tab-close-hover);
+}
+
+/* Refresh reveals — and is clickable — only on the active tab, so it isn't an
+   accidental click target when you're reaching for another tab to switch to.
+   pointer-events:none lets clicks on the (invisible) slot fall through to the
+   tab button on non-active tabs. */
+.tab-refresh {
+  pointer-events: none;
+}
+
+.tab--active .tab-refresh {
+  pointer-events: auto;
+}
+
+.tab--active:hover .tab-refresh {
+  opacity: 0.5;
+}
+
+.tab--active .tab-refresh:hover {
   opacity: 1 !important;
   background: var(--tab-close-hover);
 }

@@ -1,3 +1,10 @@
+import {
+  getSession,
+  getOrigin,
+  decodeOAuthState,
+  resolveOAuthOwner,
+  oauthErrorPage,
+} from "@agent-native/core/server";
 /**
  * Zoom OAuth callback.
  *
@@ -13,13 +20,7 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import {
-  getSession,
-  getOrigin,
-  decodeOAuthState,
-  resolveOAuthOwner,
-  oauthErrorPage,
-} from "@agent-native/core/server";
+
 import { exchangeZoomCode } from "../../../lib/zoom.js";
 
 function zoomConnectedPage(email: string): string {

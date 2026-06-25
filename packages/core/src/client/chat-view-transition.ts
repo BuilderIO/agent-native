@@ -1,5 +1,4 @@
 import type { NavigateFunction, NavigateOptions } from "react-router";
-import { setAgentSidebarOpenPreference } from "./agent-sidebar-state.js";
 
 export const AGENT_CHAT_VIEW_TRANSITION_NAME = "agent-native-chat";
 export const AGENT_CHAT_VIEW_TRANSITION_CLASS =
@@ -131,7 +130,6 @@ export function markAgentChatHomeHandoff(storageKey?: string | null): void {
       String(Date.now()),
     );
   } catch {}
-  setAgentSidebarOpenPreference(true);
 }
 
 /**
@@ -157,7 +155,6 @@ export function consumeAgentChatHomeHandoff(
 
   const ttlMs = options.ttlMs ?? AGENT_CHAT_HOME_HANDOFF_TTL_MS;
   const active = Number.isFinite(startedAt) && Date.now() - startedAt <= ttlMs;
-  if (active) setAgentSidebarOpenPreference(true);
   return active;
 }
 

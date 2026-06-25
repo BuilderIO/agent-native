@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 function readDatabaseSource() {
-  return readFileSync(new URL("./DocumentDatabase.tsx", import.meta.url), {
+  return readFileSync(new URL("./database/DatabaseView.tsx", import.meta.url), {
     encoding: "utf8",
   });
 }

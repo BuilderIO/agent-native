@@ -59,8 +59,36 @@ function workspacePathBasePath(): string {
   return normalizeBasePath(segment);
 }
 
+function externalEmbedTargetBasePath(): string {
+  if (typeof window === "undefined") return "";
+  const target = (
+    window as Window & {
+      __AGENT_NATIVE_EXTERNAL_EMBED?: { target?: unknown };
+    }
+  ).__AGENT_NATIVE_EXTERNAL_EMBED?.target;
+  if (typeof target !== "string" || !target.startsWith("/")) return "";
+  try {
+    const url = new URL(target, "http://agent-native.invalid");
+    const markerIndex = url.pathname.indexOf(FRAMEWORK_ROUTE_PREFIX);
+    if (markerIndex > 0) {
+      return normalizeBasePath(url.pathname.slice(0, markerIndex));
+    }
+    if (isWorkspaceRuntime()) {
+      const segment = url.pathname.split("/").find(Boolean);
+      if (segment && segment !== "_agent-native" && segment !== "api") {
+        return normalizeBasePath(segment);
+      }
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
 export function appBasePath(): string {
   ensureEmbedAuthFetchInterceptor();
+  const externalEmbed = externalEmbedTargetBasePath();
+  if (externalEmbed) return externalEmbed;
   const configured = configuredBasePath();
   const derived = pathDerivedBasePath();
   if (!configured) return derived;

@@ -70,7 +70,7 @@ augment `env` with the parent's environment and never see app secrets.
 
 ## Verify
 
-1. `tsc --noEmit` for `@agent-native/core` passes.
+1. `tsgo --noEmit` for `@agent-native/core` passes.
 2. `docker-adapter.spec.ts` passes.
 3. With Docker available, set `AGENT_NATIVE_SANDBOX=docker` and run a `run-code`
    task that uses `appAction`/`providerFetch` through the loopback bridge;

@@ -1,4 +1,3 @@
-import React, { useState, useCallback } from "react";
 import {
   IconBrandSlack,
   IconBrandTelegram,
@@ -9,13 +8,16 @@ import {
   IconCopy,
   IconCheck,
 } from "@tabler/icons-react";
-import type { IntegrationStatus } from "./useIntegrationStatus.js";
+import React, { useState, useCallback } from "react";
+
 import { agentNativePath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
+import type { IntegrationStatus } from "./useIntegrationStatus.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const platformIcons: Record<string, React.ComponentType<any>> = {
@@ -47,6 +49,7 @@ export function IntegrationCard({
   status: IntegrationStatus;
   onRefresh: () => void;
 }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -79,9 +82,7 @@ export function IntegrationCard({
       );
     } catch (err) {
       setToggleError(
-        err instanceof Error
-          ? err.message
-          : "Network error reaching the server",
+        err instanceof Error ? err.message : t("integrations.networkError"),
       );
     } finally {
       setToggling(false);
@@ -99,7 +100,7 @@ export function IntegrationCard({
     <div className="rounded-md border border-border bg-background">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-2.5 py-2 text-left hover:bg-accent/50"
+        className="flex w-full items-center gap-2 px-2.5 py-2 text-start hover:bg-accent/50"
       >
         {expanded ? (
           <IconChevronDown
@@ -109,7 +110,7 @@ export function IntegrationCard({
         ) : (
           <IconChevronRight
             size={12}
-            className="text-muted-foreground shrink-0"
+            className="text-muted-foreground shrink-0 rtl:-scale-x-100"
           />
         )}
         <Icon size={16} className="text-muted-foreground shrink-0" />
@@ -124,7 +125,7 @@ export function IntegrationCard({
           {status.webhookUrl && (
             <div>
               <div className="text-[10px] font-medium text-muted-foreground mb-1">
-                Webhook URL
+                {t("integrations.webhookUrl")}
               </div>
               <div className="flex items-center gap-1">
                 <code className="flex-1 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
@@ -143,7 +144,9 @@ export function IntegrationCard({
                       )}
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Copy webhook URL</TooltipContent>
+                  <TooltipContent>
+                    {t("integrations.copyWebhookUrl")}
+                  </TooltipContent>
                 </Tooltip>
               </div>
             </div>
@@ -159,8 +162,7 @@ export function IntegrationCard({
 
           {!status.configured && !status.error && (
             <p className="text-[10px] text-muted-foreground">
-              Not configured. Set the required secrets to enable this
-              integration.
+              {t("integrations.notConfigured")}
             </p>
           )}
 
@@ -170,7 +172,11 @@ export function IntegrationCard({
               disabled={toggling}
               className="w-full rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground hover:bg-accent/50 disabled:opacity-50"
             >
-              {toggling ? "..." : status.enabled ? "Disable" : "Enable"}
+              {toggling
+                ? t("integrations.toggling")
+                : status.enabled
+                  ? t("integrations.disable")
+                  : t("integrations.enable")}
             </button>
           )}
         </div>

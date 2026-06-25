@@ -12,6 +12,7 @@ import { readAppState } from "@agent-native/core/application-state";
 import { accessFilter, currentAccess } from "@agent-native/core/sharing";
 import { and, desc, isNull } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   isLocalPlanRuntime,
@@ -34,6 +35,11 @@ export default defineAction({
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
     if (localCodebase) screen.localCodebase = localCodebase;
+    screen.brandingCustomization = {
+      surface: "sidebar brand header",
+      workflow:
+        "The Customize branding popover sends a source-code request. In local Code mode it routes to the local code agent; on hosted/live surfaces it should guide the user to Desktop or Builder for source edits.",
+    };
     const nav = navigation as {
       planId?: string;
       localPlanSlug?: string;

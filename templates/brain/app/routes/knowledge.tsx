@@ -1,5 +1,3 @@
-import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconBook,
@@ -9,16 +7,19 @@ import {
   IconTable,
   IconX,
 } from "@tabler/icons-react";
-import {
-  type KnowledgeResponse,
-  type KnowledgeRow,
-  formatPercent,
-  statusLabel,
-} from "@/lib/brain";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
+
 import {
   type CanonicalPreviewData,
   CanonicalPreviewSheet,
 } from "@/components/brain/CanonicalPreviewSheet";
+import {
+  EmptyActionState,
+  LoadingRows,
+  PageHeader,
+  StatusBadge,
+} from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,11 +40,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  EmptyActionState,
-  LoadingRows,
-  PageHeader,
-  StatusBadge,
-} from "@/components/brain/Surface";
+  type KnowledgeResponse,
+  type KnowledgeRow,
+  formatPercent,
+  statusLabel,
+} from "@/lib/brain";
 
 const statusOptions = [
   "all",
@@ -97,9 +98,9 @@ export default function KnowledgeRoute() {
     { knowledgeId: string; operation: "publish" | "unpublish" }
   >("preview-canonical-resource" as any);
 
-  const actionRows =
+  const actionRows: KnowledgeRow[] | undefined =
     knowledgeQuery.data?.rows ?? knowledgeQuery.data?.knowledge;
-  const rows = actionRows ?? [];
+  const rows: KnowledgeRow[] = actionRows ?? [];
   const hasActiveFilters = Boolean(query) || status !== "all" || type !== "all";
 
   const filteredRows = useMemo(() => {
@@ -163,12 +164,12 @@ export default function KnowledgeRoute() {
         <Card>
           <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center">
             <div className="relative min-w-0 flex-1">
-              <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(event) => updateParam("q", event.target.value)}
                 placeholder="Search memories, topics, source names..."
-                className="pl-9"
+                className="ps-9"
               />
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -217,8 +218,8 @@ export default function KnowledgeRoute() {
                   <TableHead>Source</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Company context</TableHead>
-                  <TableHead className="text-right">Confidence</TableHead>
-                  <TableHead className="text-right">Cites</TableHead>
+                  <TableHead className="text-end">Confidence</TableHead>
+                  <TableHead className="text-end">Cites</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -262,12 +263,12 @@ export default function KnowledgeRoute() {
                         onPreview={() => void openCanonicalPreview(row)}
                       />
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-end">
                       {typeof row.confidence === "number"
                         ? formatPercent(row.confidence)
                         : "n/a"}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-end">
                       {row.citations ?? 0}
                     </TableCell>
                   </TableRow>

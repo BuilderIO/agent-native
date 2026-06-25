@@ -1,10 +1,27 @@
+import {
+  ShareButton,
+  callAction,
+  useActionMutation,
+  useChangeVersions,
+} from "@agent-native/core/client";
+import { useSendToAgentChat } from "@agent-native/core/client";
+import {
+  IconRefresh,
+  IconTrash,
+  IconClock,
+  IconArrowLeft,
+  IconDatabase,
+} from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useParams } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { incrementItemView } from "@/lib/item-popularity";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Link, useNavigate } from "react-router";
+
+import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
+import Markdown from "@/components/Markdown";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,35 +33,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  IconRefresh,
-  IconTrash,
-  IconClock,
-  IconArrowLeft,
-  IconDatabase,
-} from "@tabler/icons-react";
-import { Link, useNavigate } from "react-router";
-import {
-  ShareButton,
-  callAction,
-  useActionMutation,
-  useChangeVersions,
-} from "@agent-native/core/client";
-import { useSendToAgentChat } from "@agent-native/core/client";
-import Markdown from "@/components/Markdown";
-import LegacyFusionAnalysis, {
-  isLegacyFusionAnalysis,
-} from "./LegacyFusionAnalysis";
-import {
-  useSetPageTitle,
-  useSetHeaderActions,
-} from "@/components/layout/HeaderActions";
-import { cn } from "@/lib/utils";
+import { incrementItemView } from "@/lib/item-popularity";
 import {
   analysisDetailPrefetchKey,
   type PrefetchSnapshot,
@@ -54,6 +51,11 @@ import {
   resourceCanManage,
   type ResourceAccess,
 } from "@/lib/resource-access";
+import { cn } from "@/lib/utils";
+
+import LegacyFusionAnalysis, {
+  isLegacyFusionAnalysis,
+} from "./LegacyFusionAnalysis";
 
 interface Analysis extends ResourceAccess {
   id: string;

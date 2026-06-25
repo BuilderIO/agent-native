@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+
+import { describe, expect, it } from "vitest";
+
 import { createSkeletonProjectIR } from "../adapters/agent-introspection.js";
 import { createMigrationRun, migrationContext } from "../runtime.js";
 import { createBrowserVerifier } from "./browser.js";

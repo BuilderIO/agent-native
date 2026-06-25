@@ -9,32 +9,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+
 import { betterAuth, type BetterAuthOptions } from "better-auth";
-import { jwt } from "better-auth/plugins/jwt";
 import { bearer } from "better-auth/plugins/bearer";
-import { sendEmail, isEmailConfigured } from "./email.js";
-import {
-  renderResetPasswordEmail,
-  renderVerifySignupEmail,
-} from "./email-templates.js";
-import { getAppProductionUrl } from "./app-url.js";
-import { getDbExec, isPostgres } from "../db/client.js";
-import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
-import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
-import { saveOAuthTokens } from "../oauth-tokens/store.js";
-import { flushTracking, identify, track } from "../tracking/index.js";
-import { TEMPLATES } from "../cli/templates-meta.js";
-import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
-import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
-import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
-import {
-  getDialect,
-  getDatabaseUrl,
-  getDatabaseAuthToken,
-  pgPoolOptions,
-  neonPoolMax,
-  attachNeonPoolErrorLogger,
-} from "../db/client.js";
+import { jwt } from "better-auth/plugins/jwt";
 import {
   pgTable,
   text as pgText,
@@ -46,6 +24,35 @@ import {
   text as sqliteText,
   integer as sqliteInteger,
 } from "drizzle-orm/sqlite-core";
+
+import { TEMPLATES } from "../cli/templates-meta.js";
+import { getDbExec, isPostgres } from "../db/client.js";
+import {
+  getDialect,
+  getDatabaseUrl,
+  getDatabaseAuthToken,
+  closePgliteClients,
+  getPgliteClient,
+  isPgliteUrl,
+  loadPgliteDrizzle,
+  pgPoolOptions,
+  neonPoolMax,
+  attachNeonPoolErrorLogger,
+} from "../db/client.js";
+import { saveOAuthTokens } from "../oauth-tokens/store.js";
+import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
+import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import { flushTracking, identify, track } from "../tracking/index.js";
+import { getAppProductionUrl } from "./app-url.js";
+import { signupAttributionFromCookieHeader } from "./attribution.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import {
+  renderResetPasswordEmail,
+  renderVerifySignupEmail,
+} from "./email-templates.js";
+import { sendEmail, isEmailConfigured } from "./email.js";
+import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 
 async function flushSignupTracking(): Promise<void> {
   try {
@@ -72,23 +79,41 @@ export async function trackSignupEvent({
   authUserId,
   email,
   name,
+  attribution,
 }: {
   authProvider: string;
   authUserId?: string;
   email: string;
   name?: string | null;
+  /**
+   * First-touch referral attribution derived from the visitor's `an_ft`
+   * cookie (see `server/attribution.ts`). Snake_case keys such as
+   * `referral_source`, `referrer_user`, and the UTM passthrough are merged
+   * into the `signup` event so we can measure where new users came from.
+   * `undefined` values are dropped; a missing object is a clean no-op.
+   */
+  attribution?: Record<string, string | undefined>;
 }): Promise<void> {
   identify(email, {
     email,
     name: name ?? undefined,
     authUserId,
   });
+  const cleanAttribution: Record<string, string> = {};
+  if (attribution) {
+    for (const [key, value] of Object.entries(attribution)) {
+      if (typeof value === "string" && value.length > 0) {
+        cleanAttribution[key] = value;
+      }
+    }
+  }
   track(
     "signup",
     {
       ...resolveSignupTrackingProperties(),
       auth_provider: authProvider,
       ...(authUserId ? { auth_user_id: authUserId } : {}),
+      ...cleanAttribution,
     },
     { userId: email },
   );
@@ -373,6 +398,7 @@ export interface BetterAuthInstance {
         name: string;
         callbackURL?: string;
       };
+      headers?: Headers;
     }) => Promise<any>;
     signOut: (opts: { headers: Headers }) => Promise<any>;
   };
@@ -785,6 +811,7 @@ export async function resetBetterAuth(): Promise<void> {
     }
     _neonAuthPool = undefined;
   }
+  await closePgliteClients();
 }
 
 // ---------------------------------------------------------------------------
@@ -929,22 +956,47 @@ async function createBetterAuthInstance(
     databaseHooks: {
       user: {
         create: {
-          after: async (user: {
-            id?: string;
-            email?: string;
-            name?: string | null;
-          }) => {
+          after: async (
+            user: {
+              id?: string;
+              email?: string;
+              name?: string | null;
+            },
+            // Better Auth (1.6.x) passes the endpoint context as the 2nd arg.
+            // It carries the originating request's headers (and on OAuth
+            // signups the callback request's headers), which is where the
+            // browser's `an_ft` first-touch cookie rides in.
+            context?: {
+              headers?: Headers | null;
+              request?: { headers?: Headers | null } | null;
+            } | null,
+          ) => {
             // When a newly-created user's email has pending org invitations
             // (common when someone is invited *before* they've signed up),
             // auto-accept them so the user lands in the org on their very
             // first page load instead of a blank-slate workspace.
             const email = user?.email;
             if (!email) return;
+            // Derive first-touch referral attribution from the request's
+            // cookie header. Never let attribution parsing throw or block
+            // signup — on any error fall back to `direct`.
+            let attribution: Record<string, string> | undefined;
+            try {
+              const cookieHeader =
+                context?.headers?.get("cookie") ??
+                context?.request?.headers?.get("cookie") ??
+                null;
+              attribution = signupAttributionFromCookieHeader(cookieHeader);
+            } catch (err) {
+              console.error("[auth] failed to derive signup attribution", err);
+              attribution = undefined;
+            }
             await trackSignupEvent({
               authProvider: "better-auth",
               authUserId: user.id,
               email,
               name: user.name,
+              attribution,
             });
             try {
               await acceptPendingInvitationsForEmail(email);
@@ -1063,6 +1115,17 @@ async function buildDatabaseConfig(
   if (dialect === "postgres") {
     const url = getDatabaseUrl();
     const { isNeonUrl } = await import("../db/create-get-db.js");
+
+    if (isPgliteUrl(url)) {
+      const { drizzle } = await loadPgliteDrizzle();
+      const client = await getPgliteClient(url);
+      const db = drizzle({ client, schema: pgAuthSchema });
+      const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
+      return drizzleAdapter(db, {
+        provider: "pg",
+        schema: pgAuthSchema,
+      });
+    }
 
     // Neon via @neondatabase/serverless (WebSockets over HTTPS). postgres-js
     // opens a raw TCP connection on port 5432 which frequently times out on

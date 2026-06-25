@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useRef, useState } from "react";
 import {
   IconChevronRight,
   IconFile,
@@ -7,16 +6,24 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../../components/ui/tooltip.js";
 import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
+import { DevInput, DevTextarea, DevSelect } from "./dev-doc-ui.js";
 import type {
   FileTreeChange,
   FileTreeData,
   FileTreeEntry,
 } from "./file-tree.config.js";
 import { FILE_TREE_CHANGES } from "./file-tree.config.js";
-import { DevInput, DevTextarea, DevSelect } from "./dev-doc-ui.js";
 
 /**
  * Read + Edit renderers for a `file-tree` block — a VS Code / GitHub-explorer
@@ -119,6 +126,10 @@ interface FolderNode {
   /** Full slash path of the folder, used as a stable key. */
   path: string;
   children: TreeNode[];
+  /** Present when the folder was authored as an explicit directory entry (a
+   * `path` ending in `/`), carrying its note/metadata + flat `entries` index. */
+  entry?: FileTreeEntry;
+  index?: number;
 }
 
 type TreeNode = FolderNode | FileLeaf;
@@ -136,6 +147,10 @@ interface FolderBuild {
   files: FileLeaf[];
   /** Insertion order of child names (folders + files) for stable rendering. */
   order: string[];
+  /** Set when an explicit directory entry (trailing slash) targets this folder,
+   * carrying its note/metadata + flat `entries` index. */
+  entry?: FileTreeEntry;
+  index?: number;
 }
 
 function makeFolder(name: string, path: string): FolderBuild {
@@ -154,8 +169,15 @@ function buildTree(entries: FileTreeEntry[]): TreeNode[] {
   entries.forEach((entry, index) => {
     const segments = entry.path.split("/").filter(Boolean);
     if (segments.length === 0) return;
-    const fileName = segments[segments.length - 1] as string;
-    const folderSegments = segments.slice(0, -1);
+
+    // A trailing slash marks a DIRECTORY entry: every segment is a folder and
+    // the entry's note/metadata attaches to the deepest folder (the last segment
+    // does NOT become a file leaf). Because folders are keyed by name, this also
+    // merges with any folder the sibling file paths already implied — so
+    // `packages/shared/` and `packages/shared/src/…` collapse onto one `shared`
+    // folder instead of a duplicate folder + file pair.
+    const isDir = /\/\s*$/.test(entry.path);
+    const folderSegments = isDir ? segments : segments.slice(0, -1);
 
     let cursor = root;
     let prefix = "";
@@ -170,6 +192,17 @@ function buildTree(entries: FileTreeEntry[]): TreeNode[] {
       cursor = next;
     }
 
+    if (isDir) {
+      // Attach metadata to the deepest folder (first declaration wins, so an
+      // explicit note isn't clobbered by a later bare prefix re-declaration).
+      if (!cursor.entry) {
+        cursor.entry = entry;
+        cursor.index = index;
+      }
+      return;
+    }
+
+    const fileName = segments[segments.length - 1] as string;
     cursor.files.push({
       kind: "file",
       name: fileName,
@@ -191,6 +224,8 @@ function buildTree(entries: FileTreeEntry[]): TreeNode[] {
           name: child.name,
           path: child.path,
           children: materialize(child),
+          entry: child.entry,
+          index: child.index,
         });
       } else {
         const file = folder.files[Number(key.slice(2))];
@@ -212,7 +247,16 @@ function compactFolderNode(folder: FolderNode): FolderNode {
   let path = folder.path;
   let children = folder.children;
 
-  while (children.length === 1 && children[0]?.kind === "folder") {
+  // Collapse single-child folder chains (a/b/c) into one row — but never across
+  // a folder that carries its own directory note, so an explicitly authored
+  // directory (e.g. `packages/shared/` with a note) keeps its own row instead of
+  // being folded into its parent or child and losing the note.
+  while (
+    !folder.entry &&
+    children.length === 1 &&
+    children[0]?.kind === "folder" &&
+    !children[0].entry
+  ) {
     const child = children[0];
     names.push(child.name);
     path = child.path;
@@ -223,6 +267,8 @@ function compactFolderNode(folder: FolderNode): FolderNode {
     kind: "folder",
     name: names.join("/"),
     path,
+    entry: folder.entry,
+    index: folder.index,
     children: compactTree(children),
   };
 }
@@ -256,6 +302,82 @@ function flattenVisibleRows(
 
 const INDENT_STEP = 14; // px per nesting level — the explorer guide spacing.
 const DEFAULT_VISIBLE_TREE_ROWS = 10;
+const NOTE_TOOLTIP_DELAY_MS = 320;
+
+function OverflowNoteTooltip({
+  className,
+  note,
+}: {
+  className: string;
+  note: string;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+
+  const measureOverflow = useCallback(() => {
+    const element = ref.current;
+    if (!element) return false;
+
+    const width = element.getBoundingClientRect().width || element.clientWidth;
+    const nextIsOverflowing =
+      width > 0 && element.scrollWidth > Math.ceil(width) + 1;
+
+    setIsOverflowing(nextIsOverflowing);
+    if (!nextIsOverflowing) setOpen(false);
+
+    return nextIsOverflowing;
+  }, []);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+
+    measureOverflow();
+    const frame = window.requestAnimationFrame(measureOverflow);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(measureOverflow);
+    resizeObserver?.observe(element);
+    window.addEventListener("resize", measureOverflow);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", measureOverflow);
+    };
+  }, [measureOverflow, note]);
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen ? measureOverflow() : false);
+  };
+
+  return (
+    <Tooltip open={open} onOpenChange={handleOpenChange}>
+      <TooltipTrigger asChild>
+        <span
+          ref={ref}
+          className={className}
+          data-file-note-overflowing={isOverflowing ? "" : undefined}
+          onFocus={measureOverflow}
+          onPointerEnter={measureOverflow}
+        >
+          {note}
+        </span>
+      </TooltipTrigger>
+      {isOverflowing && (
+        <TooltipContent
+          align="start"
+          side="top"
+          className="max-w-[min(28rem,calc(100vw-2rem))] whitespace-normal break-words text-xs leading-5"
+        >
+          {note}
+        </TooltipContent>
+      )}
+    </Tooltip>
+  );
+}
 
 /**
  * Read-only renderer for a `file-tree` block — a VS Code / GitHub-explorer file
@@ -282,8 +404,9 @@ export function FileTreeRead({
     Record<string, boolean>
   >({});
   const [showAllRows, setShowAllRows] = useState(false);
-  // Files with a note/snippet collapse their detail by default (progressive
+  // Files with snippets collapse their detail by default (progressive
   // disclosure) — keyed by the flat entry index so duplicate names never clash.
+  // A note on its own stays inline; expanding it would only move the same text.
   const [openFiles, setOpenFiles] = useState<Record<number, boolean>>({});
 
   const toggleFolder = (path: string) =>
@@ -353,30 +476,50 @@ export function FileTreeRead({
     const indent = depth * INDENT_STEP;
     if (node.kind === "folder") {
       const collapsed = collapsedFolders[node.path] ?? false;
+      // An explicit directory entry (trailing-slash path) can be a leaf folder
+      // with no children — e.g. `apps/mail/`. It still renders as a folder, just
+      // without a toggle chevron. Its authored note shows inline like a file's.
+      const expandable = node.children.length > 0;
+      const note = node.entry?.note?.trim();
+      const open = expandable && !collapsed;
       return (
         <div key={`d:${node.path}`}>
           <button
             type="button"
             data-plan-interactive
-            aria-expanded={!collapsed}
-            onClick={() => toggleFolder(node.path)}
+            disabled={!expandable}
+            aria-expanded={expandable ? !collapsed : undefined}
+            onClick={expandable ? () => toggleFolder(node.path) : undefined}
             style={{ paddingLeft: indent + 8 }}
-            className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] transition-colors hover:bg-accent/40"
+            className={cn(
+              "flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] transition-colors",
+              expandable ? "hover:bg-accent/40" : "cursor-default",
+            )}
           >
-            <IconChevronRight
-              className={cn(
-                "size-3.5 shrink-0 text-plan-muted transition-transform",
-                !collapsed && "rotate-90",
-              )}
-            />
-            {collapsed ? (
-              <IconFolder className="size-4 shrink-0 text-plan-muted" />
+            {expandable ? (
+              <IconChevronRight
+                className={cn(
+                  "size-3.5 shrink-0 text-plan-muted transition-transform",
+                  !collapsed && "rotate-90",
+                )}
+              />
             ) : (
+              <span className="size-3.5 shrink-0" aria-hidden />
+            )}
+            {open ? (
               <IconFolderOpen className="size-4 shrink-0 text-plan-muted" />
+            ) : (
+              <IconFolder className="size-4 shrink-0 text-plan-muted" />
             )}
             <span className="min-w-0 truncate font-medium text-plan-text">
               {node.name}
             </span>
+            {note && (
+              <OverflowNoteTooltip
+                className="ml-1 min-w-0 flex-1 truncate text-xs text-plan-muted"
+                note={note}
+              />
+            )}
           </button>
         </div>
       );
@@ -384,68 +527,91 @@ export function FileTreeRead({
 
     const { entry } = node;
     const change = entry.change;
-    const hasDetail = Boolean(entry.note?.trim() || entry.snippet?.trim());
+    const note = entry.note?.trim();
+    const snippet = entry.snippet?.trim();
+    const hasDetail = Boolean(snippet);
     const isOpen = openFiles[node.index] ?? false;
+    const fileRowContents = (
+      <>
+        {/* Chevron slot — present only for files with expandable snippets so
+            note-only files read as plain files instead of pseudo-folders. */}
+        {hasDetail ? (
+          <IconChevronRight
+            className={cn(
+              "mt-0.5 size-3.5 shrink-0 text-plan-muted transition-transform",
+              isOpen && "rotate-90",
+            )}
+          />
+        ) : (
+          <span className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+        )}
+        <IconFile
+          className={cn(
+            "mt-0.5 size-4 shrink-0",
+            change === "removed" ? "text-plan-muted" : "text-plan-muted/80",
+          )}
+        />
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span className="inline-flex min-w-0 shrink-0 items-center gap-1.5">
+            <span
+              className={cn(
+                "min-w-0 truncate font-medium",
+                change ? CHANGE_NAME_INK[change] : "text-plan-text",
+              )}
+            >
+              {node.name}
+            </span>
+            {change && (
+              <span
+                title={CHANGE_LABEL[change]}
+                aria-label={CHANGE_LABEL[change]}
+                className={cn(
+                  "flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold leading-none",
+                  CHANGE_BADGE[change],
+                )}
+              >
+                {CHANGE_GLYPH[change]}
+              </span>
+            )}
+          </span>
+          {note && !isOpen && (
+            <OverflowNoteTooltip
+              className="min-w-0 flex-1 truncate text-xs text-plan-muted"
+              note={note}
+            />
+          )}
+        </span>
+      </>
+    );
+    const rowClassName = cn(
+      "group flex w-full items-start gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] transition-colors",
+      hasDetail ? "hover:bg-accent/40" : "cursor-default",
+    );
 
     return (
       <div key={`f:${node.index}`}>
-        <button
-          type="button"
-          data-plan-interactive
-          data-file-path={node.path}
-          disabled={!hasDetail}
-          aria-expanded={hasDetail ? isOpen : undefined}
-          onClick={hasDetail ? () => toggleFile(node.index) : undefined}
-          style={{ paddingLeft: indent + 8 }}
-          className={cn(
-            "group flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] transition-colors",
-            hasDetail ? "hover:bg-accent/40" : "cursor-default",
-          )}
-        >
-          {/* Chevron slot — present only for files with expandable detail so
-                everything stays aligned with the folder rows above. */}
-          {hasDetail ? (
-            <IconChevronRight
-              className={cn(
-                "size-3.5 shrink-0 text-plan-muted transition-transform",
-                isOpen && "rotate-90",
-              )}
-            />
-          ) : (
-            <span className="size-3.5 shrink-0" aria-hidden />
-          )}
-          <IconFile
-            className={cn(
-              "size-4 shrink-0",
-              change === "removed" ? "text-plan-muted" : "text-plan-muted/80",
-            )}
-          />
-          <span
-            className={cn(
-              "min-w-0 truncate font-medium",
-              change ? CHANGE_NAME_INK[change] : "text-plan-text",
-            )}
+        {hasDetail ? (
+          <button
+            type="button"
+            data-plan-interactive
+            data-file-path={node.path}
+            aria-expanded={isOpen}
+            onClick={() => toggleFile(node.index)}
+            style={{ paddingLeft: indent + 8 }}
+            className={rowClassName}
           >
-            {node.name}
-          </span>
-          {change && (
-            <span
-              title={CHANGE_LABEL[change]}
-              aria-label={CHANGE_LABEL[change]}
-              className={cn(
-                "ml-1 flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold leading-none",
-                CHANGE_BADGE[change],
-              )}
-            >
-              {CHANGE_GLYPH[change]}
-            </span>
-          )}
-          {entry.note?.trim() && !isOpen && (
-            <span className="ml-1 min-w-0 flex-1 truncate text-xs text-plan-muted">
-              {entry.note}
-            </span>
-          )}
-        </button>
+            {fileRowContents}
+          </button>
+        ) : (
+          <div
+            data-plan-interactive
+            data-file-path={node.path}
+            style={{ paddingLeft: indent + 8 }}
+            className={rowClassName}
+          >
+            {fileRowContents}
+          </div>
+        )}
 
         {/* Expanded file detail: the note + a fenced snippet. */}
         {hasDetail && isOpen && (
@@ -453,16 +619,12 @@ export function FileTreeRead({
             style={{ paddingLeft: indent + 8 + 20 }}
             className="pb-2 pr-2 pt-0.5"
           >
-            {entry.note?.trim() && (
-              <p className="text-xs leading-relaxed text-plan-muted">
-                {entry.note}
-              </p>
+            {note && (
+              <p className="text-xs leading-relaxed text-plan-muted">{note}</p>
             )}
-            {entry.snippet?.trim() && (
+            {snippet && (
               <div className="mt-2 an-file-tree-snippet">
-                {ctx.renderMarkdown?.(
-                  fence(entry.snippet, fenceLanguage(entry)),
-                )}
+                {ctx.renderMarkdown?.(fence(snippet, fenceLanguage(entry)))}
               </div>
             )}
           </div>
@@ -520,36 +682,38 @@ export function FileTreeRead({
         </div>
 
         {/* The tree itself. */}
-        <div className="py-1.5">
-          {tree.length > 0 ? (
-            <>
-              {displayedRows.map(renderRow)}
-              {shouldLimitRows && (
-                <div className="px-2 pt-1">
-                  <button
-                    type="button"
-                    data-plan-interactive
-                    aria-expanded={showAllRows}
-                    onClick={() => setShowAllRows((current) => !current)}
-                    className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md text-xs font-medium text-plan-muted transition-colors hover:bg-accent/40 hover:text-plan-text"
-                  >
-                    <IconChevronRight
-                      className={cn(
-                        "size-3.5 shrink-0 transition-transform",
-                        showAllRows ? "-rotate-90" : "rotate-90",
-                      )}
-                    />
-                    {showAllRows
-                      ? "Show fewer"
-                      : `Show all ${visibleRows.length} rows`}
-                  </button>
-                </div>
-              )}
-            </>
-          ) : (
-            <p className="px-3 py-2 text-xs text-plan-muted">No files yet.</p>
-          )}
-        </div>
+        <TooltipProvider delayDuration={NOTE_TOOLTIP_DELAY_MS}>
+          <div className="py-1.5">
+            {tree.length > 0 ? (
+              <>
+                {displayedRows.map(renderRow)}
+                {shouldLimitRows && (
+                  <div className="px-2 pt-1">
+                    <button
+                      type="button"
+                      data-plan-interactive
+                      aria-expanded={showAllRows}
+                      onClick={() => setShowAllRows((current) => !current)}
+                      className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md text-xs font-medium text-plan-muted transition-colors hover:bg-accent/40 hover:text-plan-text"
+                    >
+                      <IconChevronRight
+                        className={cn(
+                          "size-3.5 shrink-0 transition-transform",
+                          showAllRows ? "-rotate-90" : "rotate-90",
+                        )}
+                      />
+                      {showAllRows
+                        ? "Show fewer"
+                        : `Show all ${visibleRows.length} rows`}
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="px-3 py-2 text-xs text-plan-muted">No files yet.</p>
+            )}
+          </div>
+        </TooltipProvider>
       </div>
 
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}

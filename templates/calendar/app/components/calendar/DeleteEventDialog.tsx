@@ -1,5 +1,8 @@
+import { useT } from "@agent-native/core/client";
+import type { CalendarEvent, DeleteEventScope } from "@shared/api";
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
+
+import { getGuestAttendeeCount } from "@/components/calendar/GuestNotificationDialog";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -9,11 +12,10 @@ import {
   AlertDialogFooter,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
-import type { CalendarEvent, DeleteEventScope } from "@shared/api";
-import { getGuestAttendeeCount } from "@/components/calendar/GuestNotificationDialog";
 
 interface DeleteEventDialogProps {
   event: CalendarEvent | null;
@@ -33,6 +35,7 @@ export function DeleteEventDialog({
   onClose,
   onConfirm,
 }: DeleteEventDialogProps) {
+  const t = useT();
   const [scope, setScope] = useState<DeleteEventScope>("single");
   const [message, setMessage] = useState("");
 
@@ -50,24 +53,28 @@ export function DeleteEventDialog({
   const copy = useMemo(() => {
     if (!event) {
       return {
-        title: "Delete event?",
-        description: "This event will be deleted.",
-        action: "delete",
+        title: t("deleteEvent.title"),
+        description: t("deleteEvent.fallbackDescription"),
+        action: t("deleteEvent.deleteAction"),
       };
     }
-    const action = getIsRemoveOnly(event) ? "remove" : "delete";
+    const action = getIsRemoveOnly(event)
+      ? t("deleteEvent.removeAction")
+      : t("deleteEvent.deleteAction");
     return {
       title: isRecurring
-        ? `This is a recurring event`
-        : `${action === "remove" ? "Remove" : "Delete"} event?`,
+        ? t("deleteEvent.recurringTitle")
+        : getIsRemoveOnly(event)
+          ? t("deleteEvent.removeTitle")
+          : t("deleteEvent.title"),
       description: isRecurring
-        ? `Choose how much of the series to ${action}.`
+        ? t("deleteEvent.chooseScope", { action })
         : canNotifyGuests
-          ? `You can notify guests with an optional note.`
-          : `This event will be ${action}d.`,
+          ? t("deleteEvent.notifyGuests")
+          : t("deleteEvent.willBeActioned", { action }),
       action,
     };
-  }, [canNotifyGuests, event, isRecurring]);
+  }, [canNotifyGuests, event, isRecurring, t]);
 
   if (!event || !open) return null;
 
@@ -116,7 +123,9 @@ export function DeleteEventDialog({
             >
               <div className="flex items-center gap-2">
                 <RadioGroupItem id="delete-scope-single" value="single" />
-                <Label htmlFor="delete-scope-single">This event</Label>
+                <Label htmlFor="delete-scope-single">
+                  {t("deleteEvent.thisEvent")}
+                </Label>
               </div>
               <div className="flex items-center gap-2">
                 <RadioGroupItem
@@ -124,12 +133,14 @@ export function DeleteEventDialog({
                   value="thisAndFollowing"
                 />
                 <Label htmlFor="delete-scope-following">
-                  This and following events
+                  {t("deleteEvent.thisAndFollowing")}
                 </Label>
               </div>
               <div className="flex items-center gap-2">
                 <RadioGroupItem id="delete-scope-all" value="all" />
-                <Label htmlFor="delete-scope-all">All events</Label>
+                <Label htmlFor="delete-scope-all">
+                  {t("deleteEvent.allEvents")}
+                </Label>
               </div>
             </RadioGroup>
           )}
@@ -137,27 +148,29 @@ export function DeleteEventDialog({
           {canNotifyGuests && (
             <div className="space-y-2">
               <Label htmlFor="delete-notification-message">
-                Add a cancellation note
+                {t("deleteEvent.cancellationNote")}
               </Label>
               <Textarea
                 id="delete-notification-message"
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
-                placeholder="Why the event is being cancelled..."
+                placeholder={t("deleteEvent.cancellationPlaceholder")}
                 rows={4}
               />
               <p className="text-xs text-muted-foreground">
-                {guestCount} {guestCount === 1 ? "guest" : "guests"}
+                {t("deleteEvent.guest", { count: guestCount })}
               </p>
             </div>
           )}
         </div>
 
         <AlertDialogFooter className="gap-2 sm:gap-0">
-          <AlertDialogCancel data-cancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel data-cancel>
+            {t("deleteEvent.cancel")}
+          </AlertDialogCancel>
           {canNotifyGuests && (
             <Button variant="outline" onClick={() => handleConfirm("none")}>
-              Don't notify
+              {t("deleteEvent.dontNotify")}
             </Button>
           )}
           <Button
@@ -165,10 +178,10 @@ export function DeleteEventDialog({
             onClick={() => handleConfirm(canNotifyGuests ? "all" : "none")}
           >
             {canNotifyGuests
-              ? "Send cancellation"
+              ? t("deleteEvent.sendCancellation")
               : isRemoveOnly
-                ? "Remove event"
-                : "Delete event"}
+                ? t("deleteEvent.removeEvent")
+                : t("deleteEvent.deleteEvent")}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

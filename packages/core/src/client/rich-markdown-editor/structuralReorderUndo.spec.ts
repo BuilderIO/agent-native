@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
 import { Editor, Node } from "@tiptap/core";
+import { describe, expect, it } from "vitest";
+
 import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
 
 /**

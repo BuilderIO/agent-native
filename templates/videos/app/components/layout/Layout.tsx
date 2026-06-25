@@ -1,12 +1,14 @@
+import { AgentSidebar, useT } from "@agent-native/core/client";
+import { InvitationBanner } from "@agent-native/core/client/org";
+import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router";
-import { IconMenu2 } from "@tabler/icons-react";
-import { NavSidebar } from "./NavSidebar";
+
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import { AgentSidebar } from "@agent-native/core/client";
-import { InvitationBanner } from "@agent-native/core/client/org";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { NavSidebar } from "./NavSidebar";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -35,6 +37,7 @@ function routeOwnsToolbar(pathname: string): boolean {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -59,18 +62,20 @@ export function Layout({ children }: LayoutProps) {
         </div>
         <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
           <SheetContent side="left" className="p-0 w-[260px]">
-            <SheetTitle className="sr-only">Navigation</SheetTitle>
+            <SheetTitle className="sr-only">
+              {t("sidebar.navigation")}
+            </SheetTitle>
             <NavSidebar />
           </SheetContent>
         </Sheet>
         <AgentSidebar
           position="right"
           defaultOpen
-          emptyStateText="Ask me anything about your videos"
+          emptyStateText={t("agent.emptyState")}
           suggestions={[
-            "Make a logo reveal for Acme",
-            "Add a camera zoom on this scene",
-            "Slow down the intro animation",
+            t("agent.suggestionLogo"),
+            t("agent.suggestionZoom"),
+            t("agent.suggestionSlow"),
           ]}
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">
@@ -79,7 +84,7 @@ export function Layout({ children }: LayoutProps) {
                 <button
                   type="button"
                   onClick={() => setMobileSidebarOpen(true)}
-                  aria-label="Open navigation"
+                  aria-label={t("sidebar.openNavigation")}
                   className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
                 >
                   <IconMenu2 className="h-4 w-4" />

@@ -14,11 +14,12 @@
  * The banner does not auto-start when the user has manually dismissed it.
  */
 
-import { useEffect, useState } from "react";
 import { IconClock, IconPlayerPlayFilled, IconX } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { useAutoFireCountdown, useAutoRecord } from "@/hooks/use-auto-record";
+import { cn } from "@/lib/utils";
 
 interface AutoRecordPromptProps {
   scheduledStart?: string | null;

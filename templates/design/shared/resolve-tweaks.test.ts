@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
+
+import type { TweakDefinition } from "./api";
 import {
   resolveTweaksToCssVars,
   renderResolvedRootBlock,
 } from "./resolve-tweaks";
-import type { TweakDefinition } from "./api";
 
 const tweaks: TweakDefinition[] = [
   {

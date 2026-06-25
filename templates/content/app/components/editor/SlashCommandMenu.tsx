@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useNavigate } from "react-router";
-import { toast } from "sonner";
-import { Editor } from "@tiptap/react";
+import { useSendToAgentChat } from "@agent-native/core/client";
+import type { CreateInlineDatabaseResponse } from "@shared/api";
+import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
 import {
   IconTypography,
   IconH1,
@@ -24,20 +23,24 @@ import {
   IconDatabase,
   IconVideo,
 } from "@tabler/icons-react";
-import { useSendToAgentChat } from "@agent-native/core/client";
-import { cn } from "@/lib/utils";
+import { Editor } from "@tiptap/react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { toast } from "sonner";
+
+import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useCreateContentDatabase } from "@/hooks/use-content-database";
+import { useCreateInlineContentDatabase } from "@/hooks/use-content-database";
 import { useCreatePage } from "@/hooks/use-create-page";
-import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
-import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
-import { buildRegistrySlashItems } from "./registrySlashItems";
+import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
+
+import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
+import { buildRegistrySlashItems } from "./registrySlashItems";
 
 interface SlashCommandMenuProps {
   editor: Editor;
@@ -106,6 +109,29 @@ export function shouldOpenGenerateOnSpace(editor: Editor) {
 
 export function parseSlashCommandQuery(textBeforeCursor: string) {
   return textBeforeCursor.match(/^\s*\/([a-zA-Z0-9]*)$/)?.[1] ?? null;
+}
+
+function insertInlineDatabaseBlock(
+  editor: Editor,
+  block: CreateInlineDatabaseResponse["block"],
+) {
+  return editor
+    .chain()
+    .focus()
+    .insertContent({
+      type: "registryBlock",
+      attrs: {
+        blockType: "inline-database",
+        blockId: block.ownerBlockId,
+        title: null,
+        summary: null,
+        __raw: serializeRegistryBlockToMdx("inline-database", {
+          id: block.ownerBlockId,
+          data: block,
+        }),
+      },
+    })
+    .run();
 }
 
 const commands: CommandItem[] = [
@@ -364,9 +390,10 @@ export function SlashCommandMenu({
   notionPageId,
 }: SlashCommandMenuProps) {
   const { send } = useSendToAgentChat();
-  const navigate = useNavigate();
   const createPage = useCreatePage();
-  const createDatabase = useCreateContentDatabase(documentId ?? null);
+  const createInlineDatabase = useCreateInlineContentDatabase(
+    documentId ?? null,
+  );
 
   const [isOpen, setIsOpen] = useState(false);
   const [isTurnInto, setIsTurnInto] = useState(false);
@@ -508,20 +535,21 @@ export function SlashCommandMenu({
 
   const databaseCommand: CommandItem = {
     title: "Database",
-    description: "Create a child database page",
+    description: "Inline database in this page",
     icon: IconDatabase,
     action: async () => {
       if (!documentId) {
         toast.error("No document selected");
         return;
       }
-      const toastId = toast.loading("Creating database...");
+      const toastId = toast.loading("Creating inline database...");
       try {
-        const result = await createDatabase.mutateAsync({
-          parentId: documentId,
+        const result = await createInlineDatabase.mutateAsync({
+          hostDocumentId: documentId,
           title: "Untitled database",
         });
-        navigate(`/page/${result.database.documentId}`, { flushSync: true });
+        const inserted = insertInlineDatabaseBlock(editor, result.block);
+        if (!inserted) throw new Error("Editor rejected the database block.");
         toast.success("Database created", { id: toastId });
       } catch (error) {
         toast.error("Failed to create database", {

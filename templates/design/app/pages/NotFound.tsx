@@ -1,5 +1,6 @@
-import { Link } from "react-router";
 import { IconArrowLeft } from "@tabler/icons-react";
+import { Link } from "react-router";
+
 import { Button } from "@/components/ui/button";
 
 export default function NotFound() {
@@ -11,7 +12,7 @@ export default function NotFound() {
       </p>
       <Button asChild variant="outline" className="cursor-pointer">
         <Link to="/">
-          <IconArrowLeft className="w-4 h-4" />
+          <IconArrowLeft className="w-4 h-4 rtl:-scale-x-100" />
           Back to designs
         </Link>
       </Button>

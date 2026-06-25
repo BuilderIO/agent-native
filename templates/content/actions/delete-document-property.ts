@@ -1,9 +1,16 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
+import {
+  isBlocksPropertyType,
+  isPrimaryBlocksField,
+  parsePropertyOptions,
+  type DocumentPropertyType,
+} from "../shared/properties.js";
 import {
   listPropertiesForDocument,
   resolvePropertyDatabaseForDocument,
@@ -24,7 +31,7 @@ export default defineAction({
     if (!database) throw new Error("Document is not part of a database.");
 
     const [definition] = await db
-      .select({ id: schema.documentPropertyDefinitions.id })
+      .select()
       .from(schema.documentPropertyDefinitions)
       .where(
         and(
@@ -38,12 +45,56 @@ export default defineAction({
       );
     if (!definition) throw new Error(`Property "${propertyId}" not found`);
 
+    const isBlocks = isBlocksPropertyType(
+      definition.type as DocumentPropertyType,
+    );
+    const isPrimaryBlocks =
+      isBlocks &&
+      isPrimaryBlocksField(parsePropertyOptions(definition.optionsJson));
+
     await db
       .delete(schema.documentPropertyValues)
       .where(eq(schema.documentPropertyValues.propertyId, propertyId));
     await db
       .delete(schema.documentPropertyDefinitions)
       .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+
+    if (isBlocks) {
+      // Drop the independent content for this Blocks field across every row.
+      await db
+        .delete(schema.documentBlockFieldContents)
+        .where(eq(schema.documentBlockFieldContents.propertyId, propertyId));
+
+      // Deleting the primary "Content" field removes the body (documents.content)
+      // for every object of this type, per the delete warning shown in the UI.
+      if (isPrimaryBlocks) {
+        // Record that the primary was intentionally removed: clear the single
+        // source of truth but LEAVE blocks_seeded = 1, so neither the read path
+        // nor the startup repair ever recreates it. Deleting the only Blocks
+        // field is an allowed product action that leaves the row metadata-only
+        // with ZERO Blocks fields.
+        await db
+          .update(schema.contentDatabases)
+          .set({
+            primaryBlocksPropertyId: null,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.contentDatabases.id, database.id));
+
+        const items = await db
+          .select({ documentId: schema.contentDatabaseItems.documentId })
+          .from(schema.contentDatabaseItems)
+          .where(eq(schema.contentDatabaseItems.databaseId, database.id));
+        const documentIds = items.map((item) => item.documentId);
+        if (documentIds.length > 0) {
+          const now = new Date().toISOString();
+          await db
+            .update(schema.documents)
+            .set({ content: "", updatedAt: now })
+            .where(inArray(schema.documents.id, documentIds));
+        }
+      }
+    }
 
     // Free any source field that was mapped to this property so it returns to
     // the "From source" picker immediately, instead of staying orphaned until

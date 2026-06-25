@@ -7,6 +7,7 @@ import type {
   DocumentPropertyType,
   DocumentPropertyValue,
 } from "@shared/api";
+
 import { type DatabaseBoardGroup, BOARD_UNGROUPED_VALUE } from "./types";
 import { createDatabaseView } from "./view-config";
 import { isDatabasePropertyVisibleInView } from "./view-state";

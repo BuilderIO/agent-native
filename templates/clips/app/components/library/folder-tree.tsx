@@ -1,5 +1,3 @@
-import { useMemo, useState } from "react";
-import { NavLink } from "react-router";
 import {
   IconChevronRight,
   IconFolder,
@@ -8,13 +6,10 @@ import {
   IconTrash,
   IconEdit,
 } from "@tabler/icons-react";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
+import { useMemo, useState } from "react";
+import { NavLink } from "react-router";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,13 +20,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { cn } from "@/lib/utils";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   useCreateFolder,
   useDeleteFolder,
   useRenameFolder,
 } from "@/hooks/use-library";
-import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 export interface FolderNode {
   id: string;
@@ -143,7 +144,7 @@ function FolderItem({
                 ? "bg-primary/10 text-primary"
                 : "text-foreground hover:bg-accent/60",
             )}
-            style={{ paddingLeft: 6 + depth * 12 }}
+            style={{ paddingInlineStart: 6 + depth * 12 }}
           >
             <button
               type="button"
@@ -158,7 +159,7 @@ function FolderItem({
             >
               <IconChevronRight
                 className={cn(
-                  "h-3 w-3 transition-transform",
+                  "h-3 w-3 transition-transform rtl:-scale-x-100",
                   open && "rotate-90",
                 )}
               />
@@ -183,7 +184,7 @@ function FolderItem({
               setRenameOpen(true);
             }}
           >
-            <IconEdit className="h-3.5 w-3.5 mr-2" /> Rename
+            <IconEdit className="h-3.5 w-3.5 me-2" /> Rename
           </ContextMenuItem>
           <ContextMenuItem
             onSelect={() => {
@@ -191,14 +192,14 @@ function FolderItem({
               setNewOpen(true);
             }}
           >
-            <IconFolderPlus className="h-3.5 w-3.5 mr-2" /> New subfolder
+            <IconFolderPlus className="h-3.5 w-3.5 me-2" /> New subfolder
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
             onSelect={() => setConfirmDelete(true)}
             className="text-destructive"
           >
-            <IconTrash className="h-3.5 w-3.5 mr-2" /> Delete
+            <IconTrash className="h-3.5 w-3.5 me-2" /> Delete
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>

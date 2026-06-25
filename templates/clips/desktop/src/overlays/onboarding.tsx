@@ -1,5 +1,5 @@
-import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useState } from "react";
 
 /**
  * Feature selection screen shown on first launch. Full-screen overlay with

@@ -1,8 +1,9 @@
-import { format, parseISO } from "date-fns";
-import { IconCircleCheck, IconVideo } from "@tabler/icons-react";
-import { Link } from "react-router";
-import { Button } from "@/components/ui/button";
 import type { Booking, CustomField } from "@shared/api";
+import { IconCircleCheck, IconVideo } from "@tabler/icons-react";
+import { format, parseISO } from "date-fns";
+import { Link } from "react-router";
+
+import { Button } from "@/components/ui/button";
 
 interface BookingConfirmationProps {
   booking: Booking;

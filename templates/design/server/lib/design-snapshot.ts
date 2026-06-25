@@ -11,14 +11,15 @@
  * the caller's responsibility — call assertAccess/resolveAccess first.
  */
 
-import { eq } from "drizzle-orm";
 import { hasCollabState, getText } from "@agent-native/core/collab";
-import { getDb, schema } from "../db/index.js";
+import { eq } from "drizzle-orm";
+
+import type { TweakDefinition } from "../../shared/api.js";
 import {
   resolveTweaksToCssVars,
   type TweakSelections,
 } from "../../shared/resolve-tweaks.js";
-import type { TweakDefinition } from "../../shared/api.js";
+import { getDb, schema } from "../db/index.js";
 
 export interface SnapshotFile {
   id: string;

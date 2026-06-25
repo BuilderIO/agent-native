@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useT } from "@agent-native/core/client";
 import { IconClock } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useParseDate, useSnoozeEmail } from "@/hooks/use-scheduled-jobs";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
+
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useParseDate, useSnoozeEmail } from "@/hooks/use-scheduled-jobs";
+import { cn } from "@/lib/utils";
 
 interface SnoozeModalProps {
   open: boolean;
@@ -103,6 +105,7 @@ export function SnoozeModal({
   onClose,
   onSnoozed,
 }: SnoozeModalProps) {
+  const t = useT();
   const [nlInput, setNlInput] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [parsedDate, setParsedDate] = useState<Date | null>(null);
@@ -274,7 +277,7 @@ export function SnoozeModal({
             type="text"
             value={nlInput}
             onChange={(e) => setNlInput(e.target.value)}
-            placeholder="Try: 8 am, 3 days, aug 7"
+            placeholder={t("mail.snooze.modalPlaceholder")}
             className="h-11 border-0 bg-transparent py-3 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
           />
           {nlTyping && (nlParsed || parseDate.isPending) && (
@@ -287,7 +290,7 @@ export function SnoozeModal({
         {/* Options list */}
         <div className="max-h-[300px] overflow-y-auto overflow-x-hidden p-1">
           <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-            Snooze until
+            {t("mail.snooze.snoozeUntil")}
           </div>
           {options.map((opt, i) => {
             const active = i === selectedIndex;

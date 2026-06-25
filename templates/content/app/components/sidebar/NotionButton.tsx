@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { agentNativePath, appApiPath } from "@agent-native/core/client";
 import {
   IconExternalLink,
   IconCheck,
@@ -8,21 +8,22 @@ import {
   IconPlugOff,
   IconRefresh,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
-import { useNotionConnection, useDisconnectNotion } from "@/hooks/use-notion";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import { agentNativePath, appApiPath } from "@agent-native/core/client";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useNotionConnection, useDisconnectNotion } from "@/hooks/use-notion";
+import { cn } from "@/lib/utils";
 
 // ─── Notion SVG icon ────────────────────────────────────────────────────────
 
@@ -269,7 +270,7 @@ export function NotionButton() {
                   )}
                 >
                   <button
-                    className="flex items-start gap-2 w-full text-left"
+                    className="flex items-start gap-2 w-full text-start"
                     onClick={() => setCurrentStep(i)}
                   >
                     <span className="mt-0.5 shrink-0">
@@ -303,7 +304,7 @@ export function NotionButton() {
                   </button>
 
                   {active && (
-                    <div className="mt-2 ml-5 space-y-2">
+                    <div className="mt-2 ms-5 space-y-2">
                       <p className="text-xs text-muted-foreground leading-relaxed">
                         {step.description}
                       </p>
@@ -391,7 +392,7 @@ export function NotionButton() {
                             <>
                               <IconLoader2
                                 size={12}
-                                className="mr-1 animate-spin"
+                                className="me-1 animate-spin"
                               />
                               Complete steps above first
                             </>

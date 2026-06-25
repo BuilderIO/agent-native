@@ -64,6 +64,13 @@ themes. For any inline border, background, or text color, reference a token:
 and `--wf-radius`. Never hard-code a hex color and never set `font-family` — the
 renderer owns the sketch/clean font.
 
+**Use literal CSS lengths for spacing.** The `--wf-*` tokens are for colors and
+renderer-owned visual styling, not layout spacing. Do not use guessed spacing
+tokens such as `var(--wf-space-4)`, Tailwind spacing classes, or theme spacing
+variables inside wireframe HTML; if a token is unavailable in the Plan renderer,
+padding collapses and content hugs the border. Use explicit CSS lengths for
+layout: `padding:16px`, `gap:12px`, `margin-top:18px`, `minmax(0,1fr)`.
+
 **Lay out with inline `style` flex/grid.** You write the real layout —
 `display:flex; flex-direction:column; gap:10px; padding:16px` and so on — and the
 renderer never repositions anything. Compose the actual product: reproduce the
@@ -135,20 +142,34 @@ no labels or copy. The renderer drops borders, sketch, and color into the
 skeleton register automatically. Never escape to a `custom-html` document block
 to fake a loader.
 
-**Editing an existing mockup.** To change one element, text, or color in an
-existing html mockup, call `update-visual-plan`
-with `contentPatches: [{ op: "patch-wireframe-html", blockId, edits: [{ find,
+**Editing an existing mockup.** In hosted mode, to change one element, text, or
+color in an existing html mockup, do not regenerate the frame — call
+`update-visual-plan` with
+`contentPatches: [{ op: "patch-wireframe-html", blockId, edits: [{ find,
 replace }] }]`. Each `find` is a unique snippet of the current html (read it
 first with `get-visual-plan`); set `all: true` on an edit to replace every
-occurrence. The result is re-sanitized.
+occurrence. The result is re-sanitized. In local-files privacy mode, do not call
+hosted Plan tools; edit the local MDX source directly and rerun the local
+check/serve or verify command for `<plan-dir>`.
 
 **Treat the wireframe border as part of the visible design.** Always wrap HTML
 wireframe content in a root container with real inner padding before drawing
 cards, fields, pills, labels, or controls. Use at least 14-16px of padding,
-`box-sizing: border-box`, `height: 100%`, and `gap` between child rows so the
-first row never sits flush against the screen border. Keep text away from
-borders: every container, field, button, menu item, and annotation needs enough
-padding and line-height to read cleanly in the rendered Plan view.
+`box-sizing: border-box`, `height: 100%`, and `gap` between child rows on the
+root node itself so the first row never sits flush against the screen border. Do
+not rely on padding on a nested page section as the first visible inset; the
+outermost element must create the breathing room. Keep text away from borders:
+every container, field, button, menu item, and annotation needs enough padding
+and line-height to read cleanly in the rendered Plan view.
+
+**For feature-cloud or abundance visuals, optimize the composition over line-by-line
+reading.** Some marketing/product sections need to feel like a large surface area
+of capability rather than a precise app workflow. In those cases, use one padded
+root with a short headline and a dense, aesthetic cloud of short feature labels,
+chips, rings, or columns. Vary scale and opacity with tokens, cluster by meaning,
+and let many labels be glanceable rather than individually essential. Do not
+force dozens of features into equal cards with long wrapped sentences; that
+usually creates a messy unreadable mockup.
 
 **Lay out children safely so they never collide.** Use HTML flex/grid with
 `gap`, `min-width: 0`, and sensible overflow. Avoid negative margins, absolute

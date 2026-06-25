@@ -1,6 +1,18 @@
-import { useState, useCallback, useRef, useEffect } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router";
-import { nanoid } from "nanoid";
+import {
+  AgentToggleButton,
+  NotificationsBell,
+  ShareButton,
+  appPath,
+  useReconciledState,
+  useSendToAgentChat,
+} from "@agent-native/core/client";
+import type {
+  FormField,
+  FormFieldType,
+  FormIntegration,
+  FormSettings,
+  IntegrationType,
+} from "@shared/types";
 import {
   IconExternalLink,
   IconCheck,
@@ -24,22 +36,41 @@ import {
   IconLock,
   IconArchive,
 } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
+import { format } from "date-fns";
+import { nanoid } from "nanoid";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { useParams, useNavigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
+import { FieldRenderer } from "@/components/builder/FieldRenderer";
+import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { FieldRenderer } from "@/components/builder/FieldRenderer";
-import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
+import { useDbStatus } from "@/hooks/use-db-status";
 import {
   useForm,
   useUpdateForm,
@@ -47,43 +78,13 @@ import {
   useDeleteForm,
 } from "@/hooks/use-forms";
 import { useFormResponses } from "@/hooks/use-responses";
-import { useDbStatus } from "@/hooks/use-db-status";
-import { CloudUpgrade } from "@/components/CloudUpgrade";
-import {
-  AgentToggleButton,
-  NotificationsBell,
-  ShareButton,
-  appPath,
-  useReconciledState,
-  useSendToAgentChat,
-} from "@agent-native/core/client";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-} from "@/components/ui/tooltip";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import { normalizeFields } from "@/lib/normalize-fields";
 import {
   formBuilderTabSearchParam,
   normalizeFormBuilderTab,
   type FormBuilderTab,
 } from "@/lib/form-builder-tabs";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { format } from "date-fns";
-import type {
-  FormField,
-  FormFieldType,
-  FormIntegration,
-  FormSettings,
-  IntegrationType,
-} from "@shared/types";
+import { normalizeFields } from "@/lib/normalize-fields";
+import { cn } from "@/lib/utils";
 
 const fieldTypeDefaults: Record<FormFieldType, Partial<FormField>> = {
   text: { label: "Text Field", placeholder: "Enter text..." },
@@ -315,7 +316,7 @@ export function FormBuilderPage() {
     return (
       <div className="flex flex-col h-full">
         {/* Top bar */}
-        <div className="flex items-center justify-between border-b border-border pl-12 pr-2 sm:px-4 md:pl-4 h-14 shrink-0 min-w-0">
+        <div className="flex items-center justify-between border-b border-border ps-12 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <Skeleton className="h-5 w-48" />
             <Skeleton className="h-4 w-14 rounded-full" />
@@ -344,7 +345,7 @@ export function FormBuilderPage() {
               </div>
             </div>
           </div>
-          <div className="hidden lg:block w-72 border-l border-border p-4 space-y-4">
+          <div className="hidden lg:block w-72 border-s border-border p-4 space-y-4">
             <Skeleton className="h-4 w-32" />
             <Skeleton className="h-9 w-full" />
             <Skeleton className="h-9 w-full" />
@@ -519,8 +520,8 @@ export function FormBuilderPage() {
     <div className="flex flex-col h-full">
       {codeRequiredDialog}
       {/* Top bar */}
-      <div className="flex items-center justify-between border-b border-border pl-12 pr-2 sm:px-4 md:pl-4 h-14 shrink-0 min-w-0">
-        <div className="flex items-center gap-2 sm:gap-3 relative min-w-0 flex-1 mr-2">
+      <div className="flex items-center justify-between border-b border-border ps-12 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
+        <div className="flex items-center gap-2 sm:gap-3 relative min-w-0 flex-1 me-2">
           <span
             ref={titleMeasureRef}
             aria-hidden
@@ -646,7 +647,7 @@ export function FormBuilderPage() {
               disabled={pendingStatus !== null}
             >
               {pendingStatus !== null && (
-                <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                <IconLoader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />
               )}
               {pendingStatus === "published"
                 ? "Publishing…"
@@ -678,15 +679,15 @@ export function FormBuilderPage() {
                   onClick={handleTogglePublish}
                 >
                   {pendingStatus === "draft" ? (
-                    <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
+                    <IconLoader2 className="h-4 w-4 me-2 animate-spin" />
                   ) : (
-                    <IconLock className="h-4 w-4 mr-2" />
+                    <IconLock className="h-4 w-4 me-2" />
                   )}
                   {pendingStatus === "draft" ? "Unpublishing…" : "Unpublish"}
                 </DropdownMenuItem>
                 {canArchive && (
                   <DropdownMenuItem onClick={handleArchiveForm}>
-                    <IconArchive className="h-4 w-4 mr-2" />
+                    <IconArchive className="h-4 w-4 me-2" />
                     Move to Archive
                   </DropdownMenuItem>
                 )}
@@ -717,7 +718,7 @@ export function FormBuilderPage() {
                   {(form.responseCount ?? 0) > 0 && (
                     <Badge
                       variant="secondary"
-                      className="ml-1.5 text-[9px] px-1 py-0 h-4 min-w-4"
+                      className="ms-1.5 text-[9px] px-1 py-0 h-4 min-w-4"
                     >
                       {form.responseCount}
                     </Badge>
@@ -941,7 +942,7 @@ function BuilderContent({
                       )}
                     >
                       <div
-                        className="absolute -left-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-grab hidden sm:block"
+                        className="absolute -start-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-grab hidden sm:block"
                         aria-label="Drag to reorder"
                       >
                         <IconGripVertical className="h-4 w-4 text-muted-foreground" />
@@ -1264,13 +1265,13 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">
-            <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <IconSearch className="absolute start-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
             <Input
               type="search"
               placeholder="Search responses…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-8 pl-7 text-xs w-44 sm:w-56"
+              className="h-8 ps-7 text-xs w-44 sm:w-56"
             />
           </div>
           <Button
@@ -1302,13 +1303,13 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
               <tr className="border-b border-border bg-muted/30">
                 <th
                   scope="col"
-                  className="min-w-16 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                  className="min-w-16 px-4 py-2.5 text-start text-xs font-medium text-muted-foreground whitespace-nowrap"
                 >
                   #
                 </th>
                 <th
                   scope="col"
-                  className="min-w-36 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                  className="min-w-36 px-4 py-2.5 text-start text-xs font-medium text-muted-foreground whitespace-nowrap"
                 >
                   <ResultsSortableHeader
                     label="Submitted"
@@ -1320,7 +1321,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                 {hasSubmitterEmail && (
                   <th
                     scope="col"
-                    className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                    className="px-4 py-2.5 text-start text-xs font-medium text-muted-foreground whitespace-nowrap"
                   >
                     <ResultsSortableHeader
                       label="Email"
@@ -1334,7 +1335,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                   <th
                     key={f.id}
                     scope="col"
-                    className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                    className="px-4 py-2.5 text-start text-xs font-medium text-muted-foreground whitespace-nowrap"
                   >
                     <ResultsSortableHeader
                       label={f.label}
@@ -1660,7 +1661,7 @@ function IntegrationsEditor({
                   key={type}
                   type="button"
                   onClick={() => addIntegration(type)}
-                  className="cursor-pointer rounded-lg border bg-background p-3 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[44px]"
+                  className="cursor-pointer rounded-lg border bg-background p-3 text-start hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[44px]"
                 >
                   <div className="flex items-center gap-3">
                     <IntegrationBrandMark type={type} className="h-9 w-9" />
@@ -1771,7 +1772,7 @@ function IntegrationsEditor({
             size="sm"
             className="h-11 w-full rounded-xl"
           >
-            <IconPlus className="h-3.5 w-3.5 mr-1.5" />
+            <IconPlus className="h-3.5 w-3.5 me-1.5" />
             {hasIntegrations ? "Add Another Integration" : "Add Integration"}
           </Button>
         </DropdownMenuTrigger>

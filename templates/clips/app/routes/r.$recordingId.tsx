@@ -1,7 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, useNavigate, NavLink, useSearchParams } from "react-router";
-import { useQuery } from "@tanstack/react-query";
-import { toast } from "sonner";
+import {
+  useActionMutation,
+  useActionQuery,
+  useSession,
+  AgentPanel,
+  agentNativePath,
+  getBrowserTabId,
+  readClientAppState,
+  useChangeVersions,
+} from "@agent-native/core/client";
+import {
+  isLoomEmbedBackedRecording,
+  isLoomRecordingSource,
+} from "@shared/loom";
 import {
   IconShare3,
   IconArrowLeft,
@@ -14,22 +24,27 @@ import {
   IconFileText,
   IconSparkles,
 } from "@tabler/icons-react";
-import {
-  useActionMutation,
-  useActionQuery,
-  useSession,
-  AgentPanel,
-  agentNativePath,
-  getBrowserTabId,
-  readClientAppState,
-  useChangeVersions,
-} from "@agent-native/core/client";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { isDefaultTitle, useAutoTitleBridge } from "@/hooks/use-auto-title";
+import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams, useNavigate, NavLink, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
+import { EditorLayout } from "@/components/editor/editor-layout";
+import { CommentsPanel } from "@/components/player/comments-panel";
+import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
+import { InsightsPanel } from "@/components/player/insights-panel";
+import { ReactionsTray } from "@/components/player/reactions-tray";
+import { SettingsPanel } from "@/components/player/settings-panel";
+import { ShareRecordingPopover } from "@/components/player/share-dialog";
+import { TranscriptPanel } from "@/components/player/transcript-panel";
+import {
+  VideoPlayer,
+  type VideoPlayerHandle,
+} from "@/components/player/video-player";
+import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,34 +53,23 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import {
-  VideoPlayer,
-  type VideoPlayerHandle,
-} from "@/components/player/video-player";
-import { EditorLayout } from "@/components/editor/editor-layout";
-import { TranscriptPanel } from "@/components/player/transcript-panel";
-import { CommentsPanel } from "@/components/player/comments-panel";
-import { ReactionsTray } from "@/components/player/reactions-tray";
-import { TimestampedCommentButton } from "@/components/player/timestamped-comment-button";
-import { SettingsPanel } from "@/components/player/settings-panel";
-import { InsightsPanel } from "@/components/player/insights-panel";
-import { ShareRecordingPopover } from "@/components/player/share-dialog";
-import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
-import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+  TimestampedCommentButton,
+  TimestampedCommentBar,
+} from "@/components/player/timestamped-comment-button";
+import { isDefaultTitle, useAutoTitleBridge } from "@/hooks/use-auto-title";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
-import {
-  isLoomEmbedBackedRecording,
-  isLoomRecordingSource,
-} from "@shared/loom";
+import { cn } from "@/lib/utils";
 
 export function meta() {
   return [{ title: "Clip recording · Clips" }];
@@ -171,6 +175,8 @@ export default function RecordingPage() {
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
+  const [commentOpen, setCommentOpen] = useState(false);
+  const [commentAtMs, setCommentAtMs] = useState(0);
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
@@ -271,6 +277,14 @@ export default function RecordingPage() {
   const isLoomRecording = isLoomRecordingSource(recording);
   const canUseNativeEditor = canEdit && !isLoomEmbedBacked;
   const canDelete = role === "owner";
+  const canDownloadVideo = Boolean(
+    recording?.videoUrl &&
+    !isLoomEmbedBacked &&
+    (role === "owner" ||
+      role === "admin" ||
+      role === "editor" ||
+      recording?.enableDownloads),
+  );
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
     setRetryingFinalize(true);
@@ -545,7 +559,7 @@ export default function RecordingPage() {
         detail &&
         role &&
         role !== "viewer" ? (
-          <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-left shadow-sm">
+          <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-start shadow-sm">
             <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Details
             </div>
@@ -639,7 +653,7 @@ export default function RecordingPage() {
             onClick={() => navigate("/")}
             aria-label="Back"
           >
-            <IconArrowLeft className="h-4 w-4" />
+            <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
           </Button>
           <div className="flex-1 min-w-0">
             <EditableRecordingTitle
@@ -793,9 +807,14 @@ export default function RecordingPage() {
             </Button>
           </ShareRecordingPopover>
 
-          {canDelete ? (
+          {canDelete || canDownloadVideo ? (
             <DeleteRecordingMenu
               recordingId={recording.id}
+              canDelete={canDelete}
+              canDownload={canDownloadVideo}
+              videoUrl={recording.videoUrl}
+              recordingTitle={recording.title}
+              videoFormat={recording.videoFormat}
               onDeleted={() => navigate("/library", { replace: true })}
             />
           ) : null}
@@ -811,7 +830,7 @@ export default function RecordingPage() {
             <EditorLayout recordingId={recording.id} className="flex-1" />
           ) : (
             <>
-              <div className="flex-1 min-h-0">
+              <div className="flex-1 min-h-0 relative">
                 <VideoPlayer
                   ref={playerRef}
                   recordingId={recording.id}
@@ -836,6 +855,17 @@ export default function RecordingPage() {
                   onTimeUpdate={(ms) => setCurrentMs(ms)}
                   className="h-full"
                 />
+                {commentOpen ? (
+                  <TimestampedCommentBar
+                    recordingId={recording.id}
+                    atMs={commentAtMs}
+                    onClose={() => setCommentOpen(false)}
+                    onAdded={() => {
+                      setPanel("comments");
+                      playerDataQ.refetch();
+                    }}
+                  />
+                ) : null}
               </div>
 
               {/* Title + reactions row */}
@@ -858,20 +888,18 @@ export default function RecordingPage() {
                     </NavLink>
                   ) : null}
                   <TimestampedCommentButton
-                    recordingId={recording.id}
                     enableComments={recording.enableComments}
-                    getCurrentMs={() => {
+                    onOpen={() => {
                       const liveCt = playerRef.current?.video?.currentTime;
-                      return typeof liveCt === "number" &&
+                      const liveMs =
+                        typeof liveCt === "number" &&
                         Number.isFinite(liveCt) &&
                         liveCt >= 0 &&
                         liveCt < 1e7
-                        ? Math.floor(liveCt * 1000)
-                        : currentMs;
-                    }}
-                    onAdded={() => {
-                      setPanel("comments");
-                      playerDataQ.refetch();
+                          ? Math.floor(liveCt * 1000)
+                          : currentMs;
+                      setCommentAtMs(liveMs);
+                      setCommentOpen(true);
                     }}
                   />
                   {recording.description ? (
@@ -920,7 +948,7 @@ export default function RecordingPage() {
 
       {/* Side panel */}
       {!editing ? (
-        <aside className="w-[380px] border-l border-border flex flex-col shrink-0 bg-background">
+        <aside className="w-[380px] border-s border-border flex flex-col shrink-0 bg-background">
           <Tabs
             value={panel}
             onValueChange={(v) => setPanel(v as SidePanel)}
@@ -935,16 +963,8 @@ export default function RecordingPage() {
               <TabsTrigger value="agent" className="min-w-0 px-2 text-xs">
                 Agent
               </TabsTrigger>
-              <TabsTrigger
-                value="comments"
-                className="min-w-0 gap-1 px-2 text-xs"
-              >
+              <TabsTrigger value="comments" className="min-w-0 px-2 text-xs">
                 Activity
-                {comments.length > 0 ? (
-                  <span className="ml-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
-                    {comments.length}
-                  </span>
-                ) : null}
               </TabsTrigger>
               <TabsTrigger value="transcript" className="min-w-0 px-2 text-xs">
                 Transcript

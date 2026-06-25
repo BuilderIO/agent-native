@@ -22,10 +22,12 @@
  */
 
 import path from "path";
+
 import { createClient } from "@libsql/client";
+
+import { PROVIDER_TO_ENV } from "../../agent/engine/provider-env-vars.js";
 import { getDatabaseUrl, getDatabaseAuthToken } from "../../db/client.js";
 import { parseArgs } from "../utils.js";
-import { PROVIDER_TO_ENV } from "../../agent/engine/provider-env-vars.js";
 
 interface LegacyRow {
   settingsKey: string;

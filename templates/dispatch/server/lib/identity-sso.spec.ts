@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import {
   DEFAULT_ALLOWED_HOST_SUFFIXES,
   IDENTITY_SCOPE,

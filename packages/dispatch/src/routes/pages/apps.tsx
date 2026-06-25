@@ -1,5 +1,8 @@
-import { useState } from "react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconApps,
   IconBrain,
@@ -21,10 +24,11 @@ import {
   IconStack3,
   IconVideo,
 } from "@tabler/icons-react";
+import { useState } from "react";
 import { toast } from "sonner";
+
 import { CreateAppPopover } from "@/components/create-app-popover";
 import { DispatchShell } from "@/components/dispatch-shell";
-import { WorkspaceAppCard } from "@/components/workspace-app-card";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -32,6 +36,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WorkspaceAppCard } from "@/components/workspace-app-card";
 import { cn } from "@/lib/utils";
 import type { WorkspaceAppSummary } from "@/lib/workspace-apps";
 
@@ -71,6 +76,7 @@ const TEMPLATE_ICONS: Record<string, typeof IconMail> = {
 };
 
 export default function AppsRoute() {
+  const t = useT();
   const [showHidden, setShowHidden] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const { data: apps = [], isLoading: appsLoading } = useActionQuery(
@@ -103,11 +109,13 @@ export default function AppsRoute() {
 
   return (
     <DispatchShell
-      title="Apps"
+      title={t("dispatch.nav.apps")}
       description={
         workspaceLabel
-          ? `Apps in the "${workspaceLabel}" workspace. Each app gets its own route under this workspace and shares its database, auth, and agent chat.`
-          : "Open workspace apps and start new app creation from Dispatch."
+          ? t("dispatch.pages.appsDescriptionWithWorkspace", {
+              workspace: workspaceLabel,
+            })
+          : t("dispatch.pages.appsDescription")
       }
     >
       <div className="space-y-8">
@@ -121,13 +129,19 @@ export default function AppsRoute() {
               <div className="min-w-0">
                 <h2 className="truncate text-sm font-semibold text-foreground">
                   {workspaceLabel
-                    ? `Apps in ${workspaceLabel}`
-                    : "Workspace apps"}
+                    ? t("dispatch.pages.appsInWorkspace", {
+                        workspace: workspaceLabel,
+                      })
+                    : t("dispatch.pages.workspaceApps")}
                 </h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  {visibleApps.length} active
+                  {t("dispatch.pages.activeCount", {
+                    count: visibleApps.length,
+                  })}
                   {archivedApps.length > 0
-                    ? ` · ${archivedApps.length} hidden`
+                    ? ` · ${t("dispatch.pages.hiddenCount", {
+                        count: archivedApps.length,
+                      })}`
                     : ""}
                 </p>
               </div>
@@ -138,7 +152,7 @@ export default function AppsRoute() {
                 trigger={
                   <Button size="sm">
                     <IconPlus size={15} className="mr-1.5" />
-                    Create app
+                    {t("dispatch.pages.createApp")}
                   </Button>
                 }
               />
@@ -169,12 +183,14 @@ export default function AppsRoute() {
                   />
                   <div className="min-w-0">
                     <h2 className="text-sm font-semibold text-foreground">
-                      Templates
+                      {t("dispatch.pages.templates")}
                     </h2>
                     <p className="text-xs text-muted-foreground">
                       {templatesLoading
-                        ? "Checking available templates"
-                        : `${typedTemplates.length} available to scaffold`}
+                        ? t("dispatch.pages.checkingTemplates")
+                        : t("dispatch.pages.templatesAvailable", {
+                            count: typedTemplates.length,
+                          })}
                     </p>
                   </div>
                 </div>
@@ -185,7 +201,9 @@ export default function AppsRoute() {
                     size="sm"
                     className="gap-1.5"
                   >
-                    {templatesOpen ? "Hide" : "Show"}
+                    {templatesOpen
+                      ? t("dispatch.pages.hide")
+                      : t("dispatch.pages.show")}
                     <IconChevronDown
                       size={14}
                       className={cn(
@@ -225,11 +243,12 @@ export default function AppsRoute() {
                   />
                   <div className="min-w-0">
                     <h2 className="text-sm font-semibold text-foreground">
-                      Hidden apps
+                      {t("dispatch.pages.hiddenApps")}
                     </h2>
                     <p className="text-xs text-muted-foreground">
-                      {archivedApps.length} hidden{" "}
-                      {archivedApps.length === 1 ? "app" : "apps"}
+                      {t("dispatch.pages.hiddenAppCount", {
+                        count: archivedApps.length,
+                      })}
                     </p>
                   </div>
                 </div>
@@ -240,7 +259,9 @@ export default function AppsRoute() {
                     size="sm"
                     className="gap-1.5"
                   >
-                    {showHidden ? "Hide" : "Show"}
+                    {showHidden
+                      ? t("dispatch.pages.hide")
+                      : t("dispatch.pages.show")}
                     <IconChevronDown
                       size={14}
                       className={cn(
@@ -293,23 +314,24 @@ function AppsSkeletonGrid() {
 }
 
 function EmptyAppsState() {
+  const t = useT();
   return (
     <div className="rounded-lg border border-dashed bg-card px-4 py-10 text-center">
       <div className="mx-auto flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
         <IconApps size={18} />
       </div>
       <h3 className="mt-3 text-sm font-semibold text-foreground">
-        No workspace apps yet
+        {t("dispatch.pages.noWorkspaceApps")}
       </h3>
       <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-        Create an app when a workflow needs its own focused place to live.
+        {t("dispatch.pages.noWorkspaceAppsDescription")}
       </p>
       <div className="mt-4">
         <CreateAppPopover
           trigger={
             <Button size="sm">
               <IconPlus size={15} className="mr-1.5" />
-              Create app
+              {t("dispatch.pages.createApp")}
             </Button>
           }
         />

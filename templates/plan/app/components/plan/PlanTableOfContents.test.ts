@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
 import type { PlanBlock } from "@shared/plan-content";
+import { describe, expect, it } from "vitest";
+
 import {
   collectPlanTocItems,
   getActivePlanTocId,

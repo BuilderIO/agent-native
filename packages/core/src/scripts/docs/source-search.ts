@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { parseSkillFrontmatter } from "../../server/agents-bundle.js";
 import { isValidPath, parseArgs } from "../utils.js";
 
@@ -78,6 +79,8 @@ function isProbablyTextFile(filePath: string): boolean {
     base === ".ignore" ||
     base === ".npmignore" ||
     base === ".npmrc" ||
+    base === ".oxfmtrc" ||
+    base === ".oxfmtrc.json" ||
     base === ".prettierignore" ||
     base === ".prettierrc" ||
     base === ".taurignore" ||
@@ -88,6 +91,7 @@ function isProbablyTextFile(filePath: string): boolean {
     base === "_redirects" ||
     base === "package.json" ||
     base.startsWith(".env.example") ||
+    base.startsWith(".oxfmt") ||
     base.startsWith(".prettier")
   );
 }

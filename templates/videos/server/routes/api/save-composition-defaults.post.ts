@@ -1,7 +1,8 @@
-import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
 import fs from "fs/promises";
 import path from "path";
+
 import { getSession, readBody } from "@agent-native/core/server";
+import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

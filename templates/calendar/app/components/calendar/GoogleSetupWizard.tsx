@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
 import {
   IconExternalLink,
   IconCheck,
@@ -6,10 +6,11 @@ import {
   IconLoader2,
   IconUpload,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
 
 interface EnvKeyStatus {
   key: string;
@@ -188,7 +189,7 @@ export function GoogleSetupWizard() {
             key={i}
             role="button"
             tabIndex={0}
-            className={`w-full text-left rounded-lg border p-4 transition-colors cursor-pointer ${
+            className={`w-full text-start rounded-lg border p-4 transition-colors cursor-pointer ${
               isActive
                 ? "border-primary/40 bg-primary/5"
                 : isCompleted
@@ -215,7 +216,7 @@ export function GoogleSetupWizard() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium">
-                  <span className="text-muted-foreground mr-1.5">{i + 1}.</span>
+                  <span className="text-muted-foreground me-1.5">{i + 1}.</span>
                   {step.title}
                 </p>
 
@@ -372,7 +373,7 @@ export function GoogleSetupWizard() {
                               }
                             >
                               {saving && (
-                                <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                                <IconLoader2 className="me-1.5 h-3 w-3 animate-spin" />
                               )}
                               {saving ? "Saving..." : "Save credentials"}
                             </Button>

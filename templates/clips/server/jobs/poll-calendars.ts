@@ -12,6 +12,7 @@
  */
 
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
+
 import syncCalendars from "../../actions/sync-calendars.js";
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 min

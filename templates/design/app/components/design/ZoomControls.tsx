@@ -1,10 +1,11 @@
-import { useState, useCallback, useRef, useEffect } from "react";
 import {
   IconZoomIn,
   IconZoomOut,
   IconMaximize,
   IconChevronDown,
 } from "@tabler/icons-react";
+import { useState, useCallback, useRef, useEffect } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -12,12 +13,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ZOOM_PRESETS } from "./types";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+import { ZOOM_PRESETS } from "./types";
 
 interface ZoomControlsProps {
   zoom: number;

@@ -1,3 +1,4 @@
+import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -5,7 +6,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
+
 import {
   isHtml,
   linkifyText,

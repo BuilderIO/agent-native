@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { cn } from "@/lib/utils";
+import type { MobileActionId } from "@shared/types";
 import {
   IconArchive,
   IconTrash,
@@ -12,7 +11,8 @@ import {
   IconChevronDown,
   IconSettings,
 } from "@tabler/icons-react";
-import type { MobileActionId } from "@shared/types";
+import { useState } from "react";
+
 import {
   Drawer,
   DrawerContent,
@@ -26,6 +26,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 export const ALL_MOBILE_ACTIONS: MobileActionId[] = [
   "archive",
@@ -78,15 +79,15 @@ const ACTION_META: Record<
   },
   reply: {
     label: "Reply",
-    icon: () => <IconArrowBackUp className="h-5 w-5" />,
+    icon: () => <IconArrowBackUp className="h-5 w-5 rtl:-scale-x-100" />,
   },
   replyAll: {
     label: "Reply All",
-    icon: () => <IconArrowBackUp className="h-5 w-5" />,
+    icon: () => <IconArrowBackUp className="h-5 w-5 rtl:-scale-x-100" />,
   },
   forward: {
     label: "Forward",
-    icon: () => <IconArrowForwardUp className="h-5 w-5" />,
+    icon: () => <IconArrowForwardUp className="h-5 w-5 rtl:-scale-x-100" />,
   },
   markUnread: {
     label: "Unread",

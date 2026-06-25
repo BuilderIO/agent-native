@@ -1,18 +1,3 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { flushSync } from "react-dom";
-import { useNavigate, useSearchParams } from "react-router";
-import { IconPlus, IconStack2, IconUserCircle } from "@tabler/icons-react";
-import { useDecks } from "@/context/DeckContext";
-import DeckCard from "@/components/deck/DeckCard";
-import PromptPopover from "@/components/editor/PromptDialog";
-import type { UploadedFile } from "@/components/editor/PromptDialog";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import { useDesignSystems } from "@/hooks/use-design-systems";
-import { savePromptToComposerDraft } from "@/lib/composer-draft";
-import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
 import {
   agentNativePath,
   askUserQuestion,
@@ -20,6 +5,18 @@ import {
   useSession,
 } from "@agent-native/core/client";
 import { extractGoogleDocUrls } from "@shared/google-docs";
+import { IconPlus, IconStack2, IconUserCircle } from "@tabler/icons-react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { flushSync } from "react-dom";
+import { useNavigate, useSearchParams } from "react-router";
+
+import DeckCard from "@/components/deck/DeckCard";
+import PromptPopover from "@/components/editor/PromptDialog";
+import type { UploadedFile } from "@/components/editor/PromptDialog";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,7 +27,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -40,7 +36,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { useDecks } from "@/context/DeckContext";
+import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useDesignSystems } from "@/hooks/use-design-systems";
 import { toast } from "@/hooks/use-toast";
+import { savePromptToComposerDraft } from "@/lib/composer-draft";
 
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
@@ -157,7 +157,7 @@ export default function Index() {
   const anchorRef = useRef<HTMLElement | null>(null);
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
-  const designSystemTitleById = useMemo(
+  const designSystemTitleById = useMemo<Map<string, string>>(
     () => new Map(designSystems.map((ds) => [ds.id, ds.title])),
     [designSystems],
   );
@@ -506,7 +506,7 @@ export default function Index() {
                 aria-label="Show all decks"
                 className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
               >
-                <IconStack2 className="mr-1.5 h-3.5 w-3.5" />
+                <IconStack2 className="me-1.5 h-3.5 w-3.5" />
                 All
               </ToggleGroupItem>
               <ToggleGroupItem
@@ -514,7 +514,7 @@ export default function Index() {
                 aria-label="Show decks created by me"
                 className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
               >
-                <IconUserCircle className="mr-1.5 h-3.5 w-3.5" />
+                <IconUserCircle className="me-1.5 h-3.5 w-3.5" />
                 Mine
               </ToggleGroupItem>
             </ToggleGroup>
@@ -533,7 +533,7 @@ export default function Index() {
             {/* New deck card */}
             <button
               onClick={openNewDeck}
-              className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-left cursor-pointer"
+              className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
             >
               <div className="aspect-video flex items-center justify-center bg-muted/30">
                 <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">

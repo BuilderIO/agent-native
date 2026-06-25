@@ -21,6 +21,7 @@
  * uniform "continue" instruction regardless of which recovery fired.
  */
 
+import type { EngineMessage } from "./engine/types.js";
 import {
   runAgentLoop,
   appendAgentLoopContinuation,
@@ -33,7 +34,6 @@ import {
   classifyToolCallJournal,
   buildResumeJournalNote,
 } from "./tool-call-journal.js";
-import type { EngineMessage } from "./engine/types.js";
 
 /**
  * Derive the per-turn tool-call journal from the durable run-event ledger and,
@@ -90,6 +90,24 @@ async function appendToolCallJournalNote(
  */
 export const MAX_RUN_LOOP_CONTINUATIONS = 6;
 
+/** Machine-readable code carried on the give-up terminal `error` event so the
+ * client renders a loud "stopped before finishing" terminal instead of an
+ * ambiguous silent stall. Deliberately NOT in the client's auto-recoverable
+ * allow-list (`isAutoRecoverableError`) so it terminates the chain rather than
+ * looping another POST that would hit the same wall. */
+export const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
+
+/** User-facing terminal message when a hosted run is cut off mid-step and
+ * exhausts its in-invocation continuation budget without finishing. Generic and
+ * framework-level (not app-specific). Mirrors the `reliable-mutations` skill's
+ * "fail loud, retry as a single bulk action" guidance so the user understands
+ * the turn stopped before finishing and was not partially saved by the run
+ * itself. */
+export const RUN_BUDGET_EXHAUSTED_MESSAGE =
+  "I ran out of time before finishing this step (hosted runs have a ~40s budget). " +
+  "I stopped rather than leave things half-done — nothing was partially saved by me here. " +
+  "Please retry, ideally as a single bulk action.";
+
 /**
  * Internal entry point used by the agent-chat plugin's run handler. Wraps
  * `runAgentLoop` with soft-timeout + resumable-error continuation recovery.
@@ -124,8 +142,16 @@ export async function runAgentLoopDirectWithSoftTimeout(
   };
 
   let attempts = 0;
+  // Tracks whether the most recent attempt ended by scheduling another
+  // continuation (soft-timeout or resumable error → `continue`) rather than
+  // returning a finished turn. When the loop then exits because the budget is
+  // exhausted (NOT because the user aborted and NOT because the turn finished),
+  // this is the silent give-up case: emit a loud terminal so the user sees an
+  // unambiguous "stopped before finishing" instead of a bare done/"…".
+  let lastAttemptWasUnfinishedContinuation = false;
   while (!upstreamSignal.aborted && attempts < MAX_RUN_LOOP_CONTINUATIONS) {
     attempts++;
+    lastAttemptWasUnfinishedContinuation = false;
     const controller = new AbortController();
     const abortFromUpstream = () => controller.abort();
     if (upstreamSignal.aborted) {
@@ -150,6 +176,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       });
       addUsage(nextUsage);
       if (softTimedOut && !upstreamSignal.aborted) {
+        lastAttemptWasUnfinishedContinuation = true;
         appendAgentLoopContinuation(opts.messages, "run_timeout");
         await appendToolCallJournalNote(opts.messages, opts.threadId);
         continue;
@@ -159,6 +186,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       if (softTimedOut && !upstreamSignal.aborted) {
         // Clear partial text the client received before the abort so the
         // resumed model doesn't re-emit it and produce duplicated output.
+        lastAttemptWasUnfinishedContinuation = true;
         opts.send({ type: "clear" });
         appendAgentLoopContinuation(opts.messages, "run_timeout");
         await appendToolCallJournalNote(opts.messages, opts.threadId);
@@ -178,6 +206,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       // (the partial text was already sent to the client but never entered
       // the in-memory messages array, so the next attempt re-emits it).
       if (!upstreamSignal.aborted && isResumableEngineError(err)) {
+        lastAttemptWasUnfinishedContinuation = true;
         opts.send({ type: "clear" });
         appendAgentLoopContinuation(
           opts.messages,
@@ -191,6 +220,25 @@ export async function runAgentLoopDirectWithSoftTimeout(
       clearTimeout(timer);
       upstreamSignal.removeEventListener("abort", abortFromUpstream);
     }
+  }
+
+  // The loop exited without a clean return. If the user aborted, that's a Stop —
+  // stay silent. Otherwise we only get here by exhausting
+  // MAX_RUN_LOOP_CONTINUATIONS while the last attempt was still trying to
+  // continue (soft-timeout / resumable error). That is the genuinely-silent
+  // give-up the run-manager would otherwise report as a clean `done`: emit a
+  // loud, non-auto-continuing terminal so the user knows the turn stopped
+  // before finishing and nothing was partially saved by the run itself.
+  if (!upstreamSignal.aborted && lastAttemptWasUnfinishedContinuation) {
+    // Discard any partial text already streamed for the unfinished attempt so
+    // the terminal message stands alone instead of trailing a half sentence.
+    opts.send({ type: "clear" });
+    opts.send({
+      type: "error",
+      error: RUN_BUDGET_EXHAUSTED_MESSAGE,
+      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      recoverable: true,
+    });
   }
 
   return usage;

@@ -1,4 +1,10 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import {
+  useActionQuery,
+  useActionMutation,
+  sendToAgentChat,
+  openAgentSidebar,
+  appApiPath,
+} from "@agent-native/core/client";
 import {
   IconWorld,
   IconPalette,
@@ -11,14 +17,9 @@ import {
   IconPhoto,
   IconCheck,
 } from "@tabler/icons-react";
-import {
-  useActionQuery,
-  useActionMutation,
-  sendToAgentChat,
-  openAgentSidebar,
-  appApiPath,
-} from "@agent-native/core/client";
-import { toast } from "@/hooks/use-toast";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -26,11 +27,12 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
+
 import {
   MAX_FIG_UPLOAD_BYTES,
   formatFileSize,
@@ -57,6 +59,11 @@ interface UploadedFile {
   size: number;
   textContent?: string;
 }
+
+type ExistingDesignSystem = {
+  id: string;
+  title: string;
+};
 
 function normalizeWebsiteUrlInput(input: string): string | null {
   const trimmed = input.trim();
@@ -123,10 +130,11 @@ export function DesignSystemSetup({
   });
 
   const { data: designSystemsData } = useActionQuery<{
-    designSystems: Array<{ id: string; title: string }>;
+    designSystems: ExistingDesignSystem[];
   }>("list-design-systems");
 
-  const existingSystems = designSystemsData?.designSystems ?? [];
+  const existingSystems: ExistingDesignSystem[] =
+    designSystemsData?.designSystems ?? [];
   const [selectedSystemId, setSelectedSystemId] = useState("");
 
   useEffect(() => {

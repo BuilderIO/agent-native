@@ -1,3 +1,6 @@
+import { getSession } from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 /**
  * Serving route for plan asset images stored in the `plan_assets` table.
  *
@@ -17,10 +20,8 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { eq } from "drizzle-orm";
+
 import { getDb, schema } from "./db/index.js";
-import { resolveAccess } from "@agent-native/core/sharing";
-import { getSession } from "@agent-native/core/server";
 import { resolvePlanAccessContext } from "./lib/local-identity.js";
 
 /** Allowed image MIME types. SVG is intentionally served as octet-stream to

@@ -1,8 +1,13 @@
+import { useActionMutation } from "@agent-native/core/client";
+import { zodResolver } from "@hookform/resolvers/zod";
+import type { Exercise } from "@shared/types";
+import { IconPlus } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useActionMutation } from "@agent-native/core/client";
-import { formatLocalDate } from "@/lib/utils";
+import { toast } from "sonner";
+import { z } from "zod";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -11,13 +16,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { IconPlus } from "@tabler/icons-react";
-import { toast } from "sonner";
-import { z } from "zod";
-import type { Exercise } from "@shared/types";
+import { formatLocalDate } from "@/lib/utils";
 
 const formSchema = z.object({
   name: z.string().min(1, "Exercise name is required"),

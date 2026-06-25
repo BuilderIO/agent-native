@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import type { SkillResult } from "./types.js";
+
 import { agentNativePath } from "../api-path.js";
+import type { SkillResult } from "./types.js";
 
 export function useSkills(enabled: boolean) {
   const [skills, setSkills] = useState<SkillResult[]>([]);

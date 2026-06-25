@@ -1,10 +1,9 @@
+import { callAction, useSession } from "@agent-native/core/client";
+import { IconCheck, IconMailFast, IconX } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { IconCheck, IconMailFast, IconX } from "@tabler/icons-react";
-import { callAction, useSession } from "@agent-native/core/client";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,6 +14,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function meta() {
   return [{ title: "Join team · Clips" }];
@@ -194,7 +195,7 @@ export default function InviteAcceptRoute() {
                   onClick={() => setDeclineOpen(true)}
                   disabled={accepting}
                 >
-                  <IconX className="size-4 mr-1.5" />
+                  <IconX className="size-4 me-1.5" />
                   Decline
                 </Button>
                 <Button
@@ -202,7 +203,7 @@ export default function InviteAcceptRoute() {
                   disabled={accepting}
                   className="bg-primary hover:bg-primary/90"
                 >
-                  <IconCheck className="size-4 mr-1.5" />
+                  <IconCheck className="size-4 me-1.5" />
                   {accepting ? "Joining…" : "Accept invite"}
                 </Button>
               </div>

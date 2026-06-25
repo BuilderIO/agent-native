@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import { execSync, spawn } from "child_process";
-import path from "path";
 import fs from "fs";
+import path from "path";
 import { fileURLToPath } from "url";
+
 import * as Sentry from "@sentry/node";
 
 // Resolve version once at module scope — used by both --version and --help
@@ -263,6 +264,16 @@ function findTsxBin(): string {
   const localTsx = path.resolve("node_modules/.bin/tsx");
   if (fs.existsSync(localTsx)) return localTsx;
   return "tsx";
+}
+
+function findTypeScriptCompilerBin(): string {
+  const localTsgo = path.resolve("node_modules/.bin/tsgo");
+  if (fs.existsSync(localTsgo)) return localTsgo;
+
+  const localTsc = path.resolve("node_modules/.bin/tsc");
+  if (fs.existsSync(localTsc)) return localTsc;
+
+  return "tsgo";
 }
 
 function findReactRouterBin(): string {
@@ -585,12 +596,10 @@ switch (command) {
       try {
         execSync(`${rr} typegen`, { stdio: "inherit" });
       } catch {
-        // typegen may fail if routes aren't set up yet — continue to tsc
+        // typegen may fail if routes aren't set up yet; continue to TypeScript.
       }
     }
-    const tsc = path.resolve("node_modules/.bin/tsc");
-    const tscBin = fs.existsSync(tsc) ? tsc : "tsc";
-    run(tscBin, ["--noEmit", ...args]);
+    run(findTypeScriptCompilerBin(), ["--noEmit", ...args]);
     break;
   }
 
@@ -827,6 +836,21 @@ switch (command) {
     break;
   }
 
+  case "changelog": {
+    // Author and roll up the app's user-facing changelog (changeset-style
+    // pending entry files → a dated CHANGELOG.md section).
+    import("./changelog.js")
+      .then(async (m) => {
+        const code = await m.runChangelog(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "--version":
   case "-v": {
     console.log(_version);
@@ -906,6 +930,10 @@ Usage:
                                 Pass a URL instead of a name for a generic
                                 research-and-integrate blueprint. --list to
                                 browse available blueprints.
+  agent-native changelog <cmd>  Author the app's user-facing changelog.
+                                cmds: add "<summary>" [--type added|fixed|...] |
+                                release | list. Pending entries live in
+                                changelog/; 'release' rolls them into CHANGELOG.md.
   agent-native audit-agent-web  Audit a public URL for agent-readable surfaces
   agent-native eval [pattern]   Run the app's evals (**/*.eval.ts, evals/*.ts)
                                 and exit non-zero if any scores below its

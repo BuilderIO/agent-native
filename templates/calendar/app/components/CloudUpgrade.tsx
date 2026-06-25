@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { agentNativePath } from "@agent-native/core/client";
 import {
   IconX,
   IconCheck,
@@ -7,7 +7,8 @@ import {
   IconCloud,
   IconChevronRight,
 } from "@tabler/icons-react";
-import { agentNativePath } from "@agent-native/core/client";
+import { useState, useRef, useCallback } from "react";
+
 import { appApiPath } from "@/lib/api-path";
 
 interface CloudUpgradeProps {

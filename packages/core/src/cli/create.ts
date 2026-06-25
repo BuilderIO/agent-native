@@ -1,19 +1,20 @@
+import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
-import { execFileSync } from "child_process";
-import { setupAgentSymlinks } from "./setup-agents.js";
-import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
+
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
+import { setupAgentSymlinks } from "./setup-agents.js";
 import {
   coreTemplates,
   getTemplate,
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
+import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,9 +23,9 @@ const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
-  "@react-router/dev": "7.16.0",
-  "@react-router/fs-routes": "7.16.0",
-  "react-router": "7.16.0",
+  "@react-router/dev": "8.0.1",
+  "@react-router/fs-routes": "8.0.1",
+  "react-router": "8.0.1",
 };
 const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
@@ -1893,7 +1894,7 @@ function copyDir(src: string, dest: string, root?: string): void {
 
 function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
   if (
-    name === "settings.json" &&
+    /^settings(?:\..*)?\.json$/.test(name) &&
     srcPath?.split(path.sep).includes(".claude")
   ) {
     return true;

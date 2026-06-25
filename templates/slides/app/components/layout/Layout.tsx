@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router";
-import { Sidebar } from "./Sidebar";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar, useT } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { IconMenu2 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router";
+
 import { useDecks } from "@/context/DeckContext";
-import { AgentWorkIndicator } from "./AgentWorkIndicator";
+import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { TAB_ID } from "@/lib/tab-id";
+import { cn } from "@/lib/utils";
+
+import { AgentWorkIndicator } from "./AgentWorkIndicator";
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -29,6 +31,7 @@ function pageHasOwnToolbar(pathname: string): boolean {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const t = useT();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
@@ -66,11 +69,11 @@ export function Layout({ children }: LayoutProps) {
       <AgentSidebar
         position="right"
         defaultOpen
-        emptyStateText="Ask me anything about your presentations"
+        emptyStateText={t("agent.emptyState")}
         suggestions={[
-          "Build a 10-slide pitch from this doc",
-          "Apply our brand to this deck",
-          "Generate a hero image for this slide",
+          t("agent.suggestionPitch"),
+          t("agent.suggestionBrand"),
+          t("agent.suggestionHero"),
         ]}
         scope={deckScope}
         browserTabId={TAB_ID}
@@ -84,10 +87,10 @@ export function Layout({ children }: LayoutProps) {
           )}
           <div
             className={cn(
-              "fixed inset-y-0 left-0 z-50 md:static md:z-auto",
+              "fixed inset-y-0 start-0 z-50 md:static md:z-auto",
               sidebarOpen
                 ? "translate-x-0"
-                : "-translate-x-full md:translate-x-0",
+                : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
             )}
           >
             <Sidebar
@@ -110,7 +113,7 @@ export function Layout({ children }: LayoutProps) {
                 <button
                   onClick={() => setSidebarOpen(true)}
                   className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground cursor-pointer"
-                  aria-label="Open navigation"
+                  aria-label={t("sidebar.openNavigation")}
                 >
                   <IconMenu2 className="h-4 w-4" />
                 </button>

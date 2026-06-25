@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import Settings from "@/pages/Settings";
+
 import { useAppHeaderControls } from "@/components/layout/AppLayout";
+import Settings from "@/pages/Settings";
 
 export function meta() {
   return [{ title: "Settings — Calendar" }];

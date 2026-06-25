@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
+import { seedFromText } from "@agent-native/core/collab";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import { assertAccess } from "@agent-native/core/sharing";
-import { seedFromText } from "@agent-native/core/collab";
 
 export default defineAction({
   description:

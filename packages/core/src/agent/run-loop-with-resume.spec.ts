@@ -1,4 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+
+import { EngineError } from "./engine/types.js";
+import type { EngineMessage } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   appendAgentLoopContinuation,
@@ -6,11 +9,11 @@ import {
   continuationReasonForResumableError,
   runAgentLoop,
 } from "./production-agent.js";
-import { EngineError } from "./engine/types.js";
-import type { EngineMessage } from "./engine/types.js";
 import {
   runAgentLoopDirectWithSoftTimeout,
   MAX_RUN_LOOP_CONTINUATIONS,
+  RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+  RUN_BUDGET_EXHAUSTED_MESSAGE,
 } from "./run-loop-with-resume.js";
 import { getCurrentTurnEventsForThread } from "./run-store.js";
 import type { AgentChatEvent } from "./types.js";
@@ -304,7 +307,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
 
     // After MAX iterations the loop returns the accumulated (empty) usage
     // rather than throwing — matches the existing soft-timeout exit shape and
-    // lets the run-manager surface its own terminal state to the client.
+    // lets the run-manager finalize the run.
     const usage = await runAgentLoopDirectWithSoftTimeout(
       makeOpts(
         [{ role: "user", content: [{ type: "text", text: "go" }] }],
@@ -315,6 +318,99 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
 
     expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
     expect(usage.inputTokens).toBe(0);
+  });
+
+  it("emits a loud give-up terminal error when the continuation budget is exhausted mid-step", async () => {
+    // Every attempt is a resumable interruption, so the loop keeps continuing
+    // and finally hits MAX_RUN_LOOP_CONTINUATIONS without ever finishing. This
+    // is the genuinely-silent cutoff case: the run-manager would otherwise
+    // report a clean `done`, so the wrapper must surface an explicit terminal.
+    const sentEvents: AgentChatEvent[] = [];
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      throw new Error("socket hang up");
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
+    const terminal = sentEvents.find((e) => e.type === "error");
+    expect(terminal).toBeDefined();
+    const err = terminal as Extract<AgentChatEvent, { type: "error" }>;
+    expect(err.errorCode).toBe(RUN_BUDGET_EXHAUSTED_ERROR_CODE);
+    expect(err.error).toBe(RUN_BUDGET_EXHAUSTED_MESSAGE);
+    expect(err.error).toContain("stopped");
+    expect(err.error).toContain("nothing was partially saved");
+    expect(err.recoverable).toBe(true);
+    // The unfinished partial text must be cleared before the terminal so it
+    // stands alone instead of trailing a half sentence.
+    const clearIndex = sentEvents.findIndex((e) => e.type === "clear");
+    const errorIndex = sentEvents.findIndex((e) => e.type === "error");
+    expect(clearIndex).toBeGreaterThanOrEqual(0);
+    expect(clearIndex).toBeLessThan(errorIndex);
+  });
+
+  it("does NOT emit a give-up terminal when the turn finishes cleanly", async () => {
+    // A normal completion (no soft-timeout, no resumable error) must never emit
+    // the give-up terminal — that would falsely tell the user it stopped early.
+    const sentEvents: AgentChatEvent[] = [];
+    mockRunAgentLoop.mockResolvedValue({
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "test-model",
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+      ),
+      60_000,
+    );
+
+    expect(sentEvents.some((e) => e.type === "error")).toBe(false);
+  });
+
+  it("does NOT emit a give-up terminal when the user aborts mid-loop", async () => {
+    // User pressed Stop: the loop exits because upstreamSignal aborted, not
+    // because the budget ran out. Staying silent here avoids a spurious
+    // "stopped before finishing" on an intentional cancellation.
+    const upstream = new AbortController();
+    const sentEvents: AgentChatEvent[] = [];
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      // First attempt errors with a resumable error but ALSO aborts upstream,
+      // so the continuation branch is skipped and the loop exits via the
+      // while-condition rather than the budget.
+      upstream.abort();
+      throw new Error("socket hang up");
+    });
+
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          upstream.signal,
+          (event) => sentEvents.push(event),
+        ),
+        60_000,
+      ),
+    ).rejects.toThrow("socket hang up");
+
+    expect(attempts).toBe(1);
+    expect(sentEvents.some((e) => e.type === "error")).toBe(false);
   });
 
   it("stops resuming when the upstream signal aborts mid-loop", async () => {

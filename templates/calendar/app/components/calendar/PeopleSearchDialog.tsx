@@ -1,4 +1,3 @@
-import { useState, useEffect, useRef, useCallback } from "react";
 import { callAction } from "@agent-native/core/client";
 import {
   IconSearch,
@@ -6,6 +5,8 @@ import {
   IconUserPlus,
   IconLoader2,
 } from "@tabler/icons-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+
 import {
   Dialog,
   DialogContent,

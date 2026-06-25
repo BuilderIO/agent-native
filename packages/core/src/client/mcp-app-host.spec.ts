@@ -3,6 +3,8 @@ import React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { _resetEmbedAuthForTests } from "./embed-auth.js";
 import {
   AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,
   _resetMcpAppHostForTests,
@@ -13,7 +15,6 @@ import {
   updateMcpAppModelContext,
   useMcpAppHostContext,
 } from "./mcp-app-host.js";
-import { _resetEmbedAuthForTests } from "./embed-auth.js";
 
 const REQUEST_TIMEOUT_MS = 5000;
 
@@ -87,6 +88,16 @@ async function flushMicrotasks() {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
+}
+
+async function flushHostLifecycleTurn() {
+  // The direct host handshake awaits multiple lifecycle turns before the
+  // caller's follow-up request is posted, so flush enough macrotask turns to
+  // let the post-initialize continuation run.
+  for (let i = 0; i < 4; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  await flushMicrotasks();
 }
 
 function enableMcpEmbedBridge(): void {
@@ -259,7 +270,7 @@ describe("MCP app host client helpers", () => {
         },
       },
     });
-    await flushMicrotasks();
+    await flushHostLifecycleTurn();
 
     calls = getJsonRpcCalls(parent);
     expect(calls).toEqual(
@@ -331,7 +342,7 @@ describe("MCP app host client helpers", () => {
       id: initCall.id,
       result: { protocolVersion: "2026-01-26" },
     });
-    await flushMicrotasks();
+    await flushHostLifecycleTurn();
 
     calls = getJsonRpcCalls(parent);
     const contextCall = calls.find(
@@ -387,7 +398,7 @@ describe("MCP app host client helpers", () => {
       id: initCall.id,
       result: { protocolVersion: "2026-01-26" },
     });
-    await flushMicrotasks();
+    await flushHostLifecycleTurn();
 
     calls = getJsonRpcCalls(parent);
     const contextCall = calls.find(
@@ -608,7 +619,7 @@ describe("MCP app host client helpers", () => {
       id: initCall.id,
       result: { protocolVersion: "2026-01-26" },
     });
-    await flushMicrotasks();
+    await flushHostLifecycleTurn();
 
     calls = getJsonRpcCalls(parent);
     const contextCall = calls.find(
@@ -663,7 +674,7 @@ describe("MCP app host client helpers", () => {
       id: initCall.id,
       result: { protocolVersion: "2026-01-26" },
     });
-    await flushMicrotasks();
+    await flushHostLifecycleTurn();
 
     calls = getJsonRpcCalls(parent);
     const contextCall = calls.find(
@@ -750,7 +761,7 @@ describe("MCP app host client helpers", () => {
       id: calls[0].id,
       result: { protocolVersion: "2026-01-26" },
     });
-    await flushMicrotasks();
+    await flushHostLifecycleTurn();
     const linkCall = getJsonRpcCalls(parent).find(
       (call) => call.method === "ui/open-link",
     )!;
@@ -776,7 +787,7 @@ describe("MCP app host client helpers", () => {
       id: initCall.id,
       result: { protocolVersion: "2026-01-26" },
     });
-    await flushMicrotasks();
+    await flushHostLifecycleTurn();
 
     calls = getJsonRpcCalls(parent);
     const firstContextCall = calls.find(

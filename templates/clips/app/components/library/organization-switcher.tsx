@@ -1,18 +1,17 @@
-import { useState } from "react";
+import {
+  useOrg,
+  useSwitchOrg,
+  useCreateOrg,
+} from "@agent-native/core/client/org";
 import {
   IconChevronDown,
   IconCheck,
   IconPlus,
   IconBuilding,
 } from "@tabler/icons-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  DropdownMenuLabel,
-} from "@/components/ui/dropdown-menu";
+import { useState } from "react";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,13 +21,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 import {
-  useOrg,
-  useSwitchOrg,
-  useCreateOrg,
-} from "@agent-native/core/client/org";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 interface OrganizationSwitcherProps {
   className?: string;
@@ -56,7 +57,7 @@ export function OrganizationSwitcher({ className }: OrganizationSwitcherProps) {
           <button
             type="button"
             className={cn(
-              "flex w-full items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-left",
+              "flex w-full items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-start",
               "hover:bg-accent",
               className,
             )}
@@ -82,7 +83,7 @@ export function OrganizationSwitcher({ className }: OrganizationSwitcherProps) {
           </DropdownMenuLabel>
           {orgs.length === 0 && (
             <DropdownMenuItem disabled>
-              <IconBuilding className="h-3.5 w-3.5 mr-2" />
+              <IconBuilding className="h-3.5 w-3.5 me-2" />
               <span className="text-xs">No organizations yet</span>
             </DropdownMenuItem>
           )}
@@ -100,7 +101,7 @@ export function OrganizationSwitcher({ className }: OrganizationSwitcherProps) {
               }}
               className="flex items-center"
             >
-              <div className="flex h-5 w-5 items-center justify-center rounded text-[10px] font-semibold bg-muted text-muted-foreground mr-2">
+              <div className="flex h-5 w-5 items-center justify-center rounded text-[10px] font-semibold bg-muted text-muted-foreground me-2">
                 {o.orgName.slice(0, 1).toUpperCase()}
               </div>
               <span className="flex-1 truncate text-xs">{o.orgName}</span>
@@ -111,7 +112,7 @@ export function OrganizationSwitcher({ className }: OrganizationSwitcherProps) {
           ))}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setCreateOpen(true)}>
-            <IconPlus className="h-3.5 w-3.5 mr-2" />
+            <IconPlus className="h-3.5 w-3.5 me-2" />
             <span className="text-xs">New organization</span>
           </DropdownMenuItem>
         </DropdownMenuContent>

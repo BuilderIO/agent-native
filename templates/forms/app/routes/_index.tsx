@@ -3,6 +3,7 @@ import {
   appPath,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
+  useT,
 } from "@agent-native/core/client";
 import {
   IconArrowRight,
@@ -12,6 +13,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
+
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,6 +47,7 @@ export function meta() {
 
 export default function Index() {
   const navigate = useNavigate();
+  const t = useT();
 
   useEffect(() => {
     function handleChatRunning(event: Event) {
@@ -73,7 +76,7 @@ export default function Index() {
             <TooltipTrigger asChild>
               <button
                 type="button"
-                aria-label="Open dashboard"
+                aria-label={t("home.openDashboard")}
                 className="pointer-events-auto flex items-center gap-2 rounded-md text-sm font-semibold text-foreground transition-colors hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={openForms}
               >
@@ -89,10 +92,12 @@ export default function Index() {
                   aria-hidden="true"
                   className="hidden h-4 w-auto shrink-0 dark:block"
                 />
-                Forms
+                {t("navigation.brand")}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Open dashboard</TooltipContent>
+            <TooltipContent side="bottom">
+              {t("home.openDashboard")}
+            </TooltipContent>
           </Tooltip>
         </TooltipProvider>
         <div className="pointer-events-auto flex items-center gap-1.5">
@@ -104,7 +109,7 @@ export default function Index() {
             className="gap-1.5"
             onClick={openForms}
           >
-            Dashboard
+            {t("home.dashboard")}
             <IconArrowRight className="size-3.5" />
           </Button>
         </div>
@@ -120,30 +125,27 @@ export default function Index() {
         showTabBar={false}
         dynamicSuggestions={false}
         suggestions={[]}
-        emptyStateText="Ask Forms what to build, publish, or analyze."
+        emptyStateText={t("home.emptyState")}
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
-        composerPlaceholder="Ask about @forms, responses, analytics, or configuration..."
+        composerPlaceholder={t("home.composerPlaceholder")}
         composerSlot={
           <div className="forms-chat-intro">
-            <h1>What do you want to do?</h1>
-            <p>
-              Build a form, inspect results, chart submissions, or tune a form's
-              setup from the same conversation.
-            </p>
+            <h1>{t("home.heading")}</h1>
+            <p>{t("home.description")}</p>
             <div className="forms-chat-pill-row" aria-hidden="true">
               <span>
                 <IconDatabase className="size-3.5" />
-                @tag forms
+                {t("home.pillForms")}
               </span>
               <span>
                 <IconChartBar className="size-3.5" />
-                analytics
+                {t("home.pillAnalytics")}
               </span>
               <span>
                 <IconSettings className="size-3.5" />
-                configuration
+                {t("home.pillConfiguration")}
               </span>
             </div>
           </div>

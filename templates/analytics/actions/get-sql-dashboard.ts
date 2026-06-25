@@ -5,8 +5,9 @@ import {
   buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
-import { getDashboard } from "../server/lib/dashboards-store";
+
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
+import { getDashboard } from "../server/lib/dashboards-store";
 
 function seededResponse(
   id: string,
@@ -22,10 +23,6 @@ function seededResponse(
     hiddenAt: null,
     hiddenBy: null,
   };
-}
-
-function isEmptyConfig(config: Record<string, unknown>): boolean {
-  return !Array.isArray(config.panels) || config.panels.length === 0;
 }
 
 export default defineAction({
@@ -78,10 +75,6 @@ export default defineAction({
       });
     }
     const config = dash.config as Record<string, unknown>;
-    if (isEmptyConfig(config)) {
-      const seed = loadDashboardSeed(args.id);
-      if (seed) return seededResponse(args.id, seed);
-    }
     return {
       id: args.id,
       ...config,

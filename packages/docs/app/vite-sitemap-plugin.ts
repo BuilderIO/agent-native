@@ -1,12 +1,18 @@
+import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { execSync } from "child_process";
+
 import type { Plugin } from "vite";
+
 import {
   buildSitemapXml as buildAgentWebSitemapXml,
   type AgentWebPage,
 } from "../../core/src/agent-web/index";
+import {
+  DEFAULT_LOCALE,
+  isLocaleCode,
+} from "../../core/src/localization/shared";
 import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
 
 export const SITE_URL = "https://www.agent-native.com";
@@ -64,6 +70,7 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
     rootDir,
     "app/components/TemplateCard.tsx",
   );
+  const docsLastmod = gitLastmod(docsDir);
 
   const docsPages = fs
     .readdirSync(docsDir)
@@ -79,9 +86,39 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
         description: data.description,
         markdown: body.trim() + "\n",
         markdownPath: `/docs/${slug}.md`,
-        lastmod: gitLastmod(filePath),
+        lastmod: docsLastmod,
       } satisfies AgentWebPage;
     });
+
+  const localizedDocsRoot = path.join(docsDir, "locales");
+  const localizedDocsPages = fs.existsSync(localizedDocsRoot)
+    ? fs
+        .readdirSync(localizedDocsRoot)
+        .filter((locale) => isLocaleCode(locale) && locale !== DEFAULT_LOCALE)
+        .flatMap((locale) => {
+          const localeDir = path.join(localizedDocsRoot, locale);
+          return fs
+            .readdirSync(localeDir)
+            .filter((name) => name.endsWith(".md"))
+            .map((name) => {
+              const slug = name.replace(/\.md$/, "");
+              const filePath = path.join(localeDir, name);
+              const raw = fs.readFileSync(filePath, "utf8");
+              const { data, body } = parseFrontmatter(raw);
+              return {
+                path:
+                  slug === "getting-started"
+                    ? `/${locale}/docs`
+                    : `/${locale}/docs/${slug}`,
+                title: data.title || titleFromSlug(slug),
+                description: data.description,
+                markdown: body.trim() + "\n",
+                markdownPath: `/${locale}/docs/${slug}.md`,
+                lastmod: docsLastmod,
+              } satisfies AgentWebPage;
+            });
+        })
+    : [];
 
   const templateSource = fs.readFileSync(templateCardPath, "utf8");
   const templatePages = parseTemplatePages(templateSource).map((template) => ({
@@ -136,6 +173,15 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/privacy.tsx")),
     },
     {
+      path: "/terms",
+      title: "Agent-Native Terms of Service",
+      description:
+        "Terms of Service for Agent-Native hosted applications, templates, demos, and official hosted services.",
+      markdown:
+        "# Agent-Native Terms of Service\n\nTerms of Service for Agent-Native hosted applications, templates, demos, and official hosted services.\n",
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/terms.tsx")),
+    },
+    {
       path: "/templates",
       title: "Agent-Native Templates",
       description: "Ready-to-fork app templates built with Agent-Native.",
@@ -153,6 +199,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/skills.tsx")),
     },
     ...docsPages,
+    ...localizedDocsPages,
     ...templatePages,
   ]);
 }

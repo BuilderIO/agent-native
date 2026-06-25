@@ -1,5 +1,3 @@
-import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
 import {
   IconDots,
   IconLock,
@@ -10,11 +8,14 @@ import {
   IconFolder,
   IconArchive,
   IconTrash,
-  IconEdit,
   IconCheck,
   IconAlertTriangle,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useCallback, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+
+import { EditableRecordingTitle } from "@/components/editable-recording-title";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -23,11 +24,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import type { RecordingSummary } from "@/hooks/use-library";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
-import { EditableRecordingTitle } from "@/components/editable-recording-title";
+import type { RecordingSummary } from "@/hooks/use-library";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
+import { cn } from "@/lib/utils";
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -72,10 +72,8 @@ interface RecordingCardProps {
   onToggleSelect?: (id: string) => void;
   onShare?: (rec: RecordingSummary) => void;
   onMove?: (rec: RecordingSummary) => void;
-  onRename?: (rec: RecordingSummary) => void;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
-  canRenameTitle?: boolean;
 }
 
 export function RecordingCard({
@@ -85,10 +83,8 @@ export function RecordingCard({
   onToggleSelect,
   onShare,
   onMove,
-  onRename,
   onArchive,
   onTrash,
-  canRenameTitle = false,
 }: RecordingCardProps) {
   const navigate = useNavigate();
   const [hovered, setHovered] = useState(false);
@@ -186,7 +182,7 @@ export function RecordingCard({
         </div>
 
         {/* Duration badge */}
-        <div className="absolute bottom-2 right-2 rounded bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-white tabular-nums">
+        <div className="absolute bottom-2 end-2 rounded bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-white tabular-nums">
           {duration}
         </div>
 
@@ -194,7 +190,7 @@ export function RecordingCard({
         {(selectionMode || hovered || selected) && (
           <div
             onClick={handleCheckbox}
-            className="absolute top-2 left-2 flex h-5 w-5 items-center justify-center rounded bg-background/90 border border-border"
+            className="absolute top-2 start-2 flex h-5 w-5 items-center justify-center rounded bg-background/90 border border-border"
           >
             <Checkbox
               checked={selected}
@@ -207,7 +203,7 @@ export function RecordingCard({
 
         {/* Status pill for non-ready recordings */}
         {recording.status !== "ready" && (
-          <div className="absolute top-2 right-2 rounded-full bg-black/80 px-2 py-0.5 text-[10px] font-medium text-white uppercase tracking-wide">
+          <div className="absolute top-2 end-2 rounded-full bg-black/80 px-2 py-0.5 text-[10px] font-medium text-white uppercase tracking-wide">
             {waitingForStorage ? "storage" : recording.status}
           </div>
         )}
@@ -215,7 +211,7 @@ export function RecordingCard({
         {(recording.status === "failed" || waitingForStorage) && (
           <div
             className={cn(
-              "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2 text-left shadow-sm backdrop-blur",
+              "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2 text-start shadow-sm backdrop-blur",
               waitingForStorage ? "border-primary/30" : "border-destructive/30",
             )}
           >
@@ -263,7 +259,6 @@ export function RecordingCard({
             <EditableRecordingTitle
               recordingId={recording.id}
               title={recording.title}
-              canEdit={canRenameTitle}
               displayTitle={
                 isDefaultTitle(recording.title)
                   ? "Untitled Clip"
@@ -303,34 +298,26 @@ export function RecordingCard({
               onClick={(e) => e.stopPropagation()}
             >
               <DropdownMenuItem onSelect={() => onShare?.(recording)}>
-                <IconShare className="h-4 w-4 mr-2" /> Share
+                <IconShare className="h-4 w-4 me-2" /> Share
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onMove?.(recording)}>
-                <IconFolder className="h-4 w-4 mr-2" /> Move to folder
+                <IconFolder className="h-4 w-4 me-2" /> Move to folder
               </DropdownMenuItem>
-              {onRename ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => onRename(recording)}>
-                    <IconEdit className="h-4 w-4 mr-2" /> Rename
-                  </DropdownMenuItem>
-                </>
-              ) : null}
               <DropdownMenuSeparator />
               {recording.archivedAt ? (
                 <DropdownMenuItem onSelect={() => onArchive?.(recording)}>
-                  <IconCheck className="h-4 w-4 mr-2" /> Unarchive
+                  <IconCheck className="h-4 w-4 me-2" /> Unarchive
                 </DropdownMenuItem>
               ) : (
                 <DropdownMenuItem onSelect={() => onArchive?.(recording)}>
-                  <IconArchive className="h-4 w-4 mr-2" /> Archive
+                  <IconArchive className="h-4 w-4 me-2" /> Archive
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem
                 onSelect={() => onTrash?.(recording)}
                 className="text-destructive focus:text-destructive"
               >
-                <IconTrash className="h-4 w-4 mr-2" /> Delete
+                <IconTrash className="h-4 w-4 me-2" /> Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -347,7 +334,7 @@ export function RecordingCard({
             {recording.ownerEmail}
           </span>
           {recording.tags.length > 0 && (
-            <div className="ml-auto flex items-center gap-1 truncate">
+            <div className="ms-auto flex items-center gap-1 truncate">
               {recording.tags.slice(0, 2).map((t) => (
                 <span
                   key={t}

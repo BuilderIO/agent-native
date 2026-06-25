@@ -1,5 +1,6 @@
-import { useSearchParams } from "react-router";
-import { format, parseISO, differenceInMinutes } from "date-fns";
+import { useActionQuery } from "@agent-native/core/client";
+import { postNavigate, isInAgentEmbed } from "@agent-native/core/client";
+import type { CalendarEvent } from "@shared/api";
 import {
   IconClock,
   IconMapPin,
@@ -8,11 +9,11 @@ import {
   IconArrowUpRight,
   IconCalendar,
 } from "@tabler/icons-react";
+import { format, parseISO, differenceInMinutes } from "date-fns";
+import { useSearchParams } from "react-router";
+
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { useActionQuery } from "@agent-native/core/client";
-import { postNavigate, isInAgentEmbed } from "@agent-native/core/client";
-import type { CalendarEvent } from "@shared/api";
 
 type EventPreviewResult = CalendarEvent | { error: string };
 

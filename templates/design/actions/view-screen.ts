@@ -20,9 +20,10 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async () => {
-    const [navigation, designVariants] = await Promise.all([
+    const [navigation, designVariants, designSelection] = await Promise.all([
       readAppStateForCurrentTab("navigation"),
       readAppState("design-variants"),
+      readAppStateForCurrentTab("design-selection"),
     ]);
     const designId =
       navigation &&
@@ -37,6 +38,7 @@ export default defineAction({
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
+    if (designSelection) screen.designSelection = designSelection;
     if (showQuestions) {
       screen.pendingQuestions = showQuestions;
       screen.note =

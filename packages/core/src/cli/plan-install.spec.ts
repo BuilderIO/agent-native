@@ -1,3 +1,7 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
+
 /**
  * Adversarial INSTALL / CLI / FIRST-RUN coverage focused on the Plans
  * (`templates/plan`) app and its shipped skills.
@@ -19,9 +23,6 @@
  * templates-meta.ts as the user hits them on a fresh machine.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import fs from "fs";
-import os from "os";
-import path from "path";
 
 import {
   createApp,
@@ -446,6 +447,12 @@ describe("Plans skills install — materialized output", () => {
     expect(plan.result.id).toBe("visual-plans");
     expect(plan.result.skillNames).toEqual(["visual-plan"]);
     expect(Object.keys(plan.captured)).toEqual(["visual-plan"]);
+    expect(plan.captured["visual-plan"]).toContain(
+      "npx @agent-native/core@latest skills add visual-plans",
+    );
+    expect(plan.captured["visual-plan"]).toContain(
+      "use `skills add visual-plan` or\n`skills add visual-recap` instead",
+    );
 
     const recap = await materializeViaAlias("visual-recap");
     expect(recap.result.id).toBe("visual-plans");

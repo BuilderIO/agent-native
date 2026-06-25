@@ -1,8 +1,8 @@
+import { useActionMutation } from "@agent-native/core/client";
+import { IconDots, IconDownload, IconTrash } from "@tabler/icons-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { IconDots, IconTrash } from "@tabler/icons-react";
-import { useActionMutation } from "@agent-native/core/client";
-import { Button } from "@/components/ui/button";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,23 +13,42 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
 interface DeleteRecordingMenuProps {
   recordingId: string;
   onDeleted?: () => void;
+  /** Whether to show the Delete item. Defaults to true. */
+  canDelete?: boolean;
+  /** Whether to show the Download item. Requires `videoUrl`. */
+  canDownload?: boolean;
+  videoUrl?: string | null;
+  recordingTitle?: string | null;
+  videoFormat?: string | null;
+}
+
+function sanitizeFilename(name: string): string {
+  return name.replace(/[^a-z0-9-_]+/gi, "-").toLowerCase() || "clip";
 }
 
 export function DeleteRecordingMenu({
   recordingId,
   onDeleted,
+  canDelete = true,
+  canDownload = false,
+  videoUrl,
+  recordingTitle,
+  videoFormat,
 }: DeleteRecordingMenuProps) {
   const [open, setOpen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const trashRecording = useActionMutation<any, { id: string }>(
     "trash-recording",
     {
@@ -47,6 +66,32 @@ export function DeleteRecordingMenu({
     if (trashRecording.isPending) return;
     trashRecording.mutate({ id: recordingId });
   }, [recordingId, trashRecording]);
+
+  const handleDownload = useCallback(async () => {
+    if (!videoUrl || downloading) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(videoUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${sanitizeFilename(recordingTitle ?? "clip")}.${videoFormat ?? "mp4"}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Cross-origin URLs that block fetch still open in a new tab so the
+      // viewer can save the file from there.
+      window.open(videoUrl, "_blank", "noopener,noreferrer");
+    } finally {
+      setDownloading(false);
+    }
+  }, [videoUrl, recordingTitle, videoFormat, downloading]);
+
+  const showDownload = canDownload && Boolean(videoUrl);
 
   return (
     <AlertDialog
@@ -67,16 +112,31 @@ export function DeleteRecordingMenu({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              setOpen(true);
-            }}
-            className="text-destructive focus:text-destructive"
-          >
-            <IconTrash className="mr-2 h-4 w-4" />
-            Delete
-          </DropdownMenuItem>
+          {showDownload ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                void handleDownload();
+              }}
+              disabled={downloading}
+            >
+              <IconDownload className="mr-2 h-4 w-4" />
+              {downloading ? "Downloading…" : "Download video"}
+            </DropdownMenuItem>
+          ) : null}
+          {showDownload && canDelete ? <DropdownMenuSeparator /> : null}
+          {canDelete ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setOpen(true);
+              }}
+              className="text-destructive focus:text-destructive"
+            >
+              <IconTrash className="mr-2 h-4 w-4" />
+              Delete
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
       <AlertDialogContent>

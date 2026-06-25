@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
-import attachSource from "./attach-content-database-source";
+
+import type { ContentDatabaseSource } from "../shared/api";
+import { serializeBuilderCmsSourceReadMetadataRecord } from "./_database-source-utils";
+import { normalizeContentDatabasePageOptions } from "./_database-utils";
 import addSourceFieldProperty, {
   propertyTypeForSourceField,
   sourceFieldPropertyValuesFromRows,
 } from "./add-content-database-source-field-property";
+import attachSource from "./attach-content-database-source";
 import disconnectSource from "./disconnect-content-database-source";
 import executeExecution from "./execute-builder-source-execution";
 import getSource from "./get-content-database-source";
@@ -17,9 +21,6 @@ import reviewChangeSet from "./review-content-database-source-change-set";
 import setWriteMode from "./set-content-database-source-write-mode";
 import stageBuilderRevision from "./stage-builder-revision";
 import validateExecution from "./validate-builder-source-execution";
-import { normalizeContentDatabasePageOptions } from "./_database-utils";
-import { serializeBuilderCmsSourceReadMetadataRecord } from "./_database-source-utils";
-import type { ContentDatabaseSource } from "../shared/api";
 
 describe("content database source actions", () => {
   it("accepts database or document IDs for source status reads", () => {

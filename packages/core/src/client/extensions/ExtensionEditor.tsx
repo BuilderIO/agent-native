@@ -1,7 +1,3 @@
-import { agentNativePath } from "../api-path.js";
-import { useState, useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router";
 import {
   IconArrowLeft,
   IconDeviceFloppy,
@@ -9,23 +5,29 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router";
+
+import { extensionPath } from "../../extensions/path.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import { cn } from "../utils.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
+import { cn } from "../utils.js";
 import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
-import { extensionPath } from "../../extensions/path.js";
 
 interface SlotDeclaration {
   id: string;
@@ -46,6 +48,7 @@ export interface ExtensionEditorProps {
 }
 
 export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
+  const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isEdit = !!extensionId;
@@ -184,12 +187,14 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
                   : "/extensions"
               }
               className="inline-flex cursor-pointer items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              aria-label="Back"
+              aria-label={t("extensions.back")}
             >
               <IconArrowLeft className="h-4 w-4" />
             </Link>
             <h1 className="text-sm font-semibold">
-              {isEdit ? "Edit Extension" : "New Extension"}
+              {isEdit
+                ? t("extensions.editExtension")
+                : t("extensions.newExtension")}
             </h1>
           </div>
           <div className="flex items-center gap-2">
@@ -203,7 +208,11 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
               )}
             >
               <IconDeviceFloppy className="h-3.5 w-3.5" />
-              {saving ? "Saving..." : isEdit ? "Save" : "Create"}
+              {saving
+                ? t("extensions.saving")
+                : isEdit
+                  ? t("extensions.save")
+                  : t("extensions.create")}
             </button>
             {isEdit && (
               <Popover
@@ -219,29 +228,30 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
                       <button
                         type="button"
                         className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                        aria-label="More options"
+                        aria-label={t("extensions.moreOptions")}
                       >
                         <IconDots className="h-4 w-4" />
                       </button>
                     </PopoverTrigger>
                   </TooltipTrigger>
-                  <TooltipContent>More options</TooltipContent>
+                  <TooltipContent>{t("extensions.moreOptions")}</TooltipContent>
                 </Tooltip>
                 <PopoverContent align="end" sideOffset={4} className="w-72 p-0">
                   {!confirmingDelete ? (
                     <>
                       <div className="px-3 py-2 border-b border-border/40">
-                        <p className="text-[12px] font-medium">Appears in</p>
+                        <p className="text-[12px] font-medium">
+                          {t("extensions.appearsIn")}
+                        </p>
                         {slots.length === 0 ? (
                           <p className="text-[11px] text-muted-foreground/70 mt-0.5">
-                            Not installed in any widget areas. Ask the agent to
-                            add it somewhere.
+                            {t("extensions.noWidgetAreas")}
                           </p>
                         ) : (
                           <p className="text-[11px] text-muted-foreground/70 mt-0.5">
-                            This extension can render in {slots.length} widget
-                            area
-                            {slots.length === 1 ? "" : "s"}.
+                            {t("extensions.widgetAreaCount", {
+                              count: slots.length,
+                            })}
                           </p>
                         )}
                       </div>
@@ -263,13 +273,15 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
                                       handleRemoveFromSlot(s.slotId)
                                     }
                                     className="rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground cursor-pointer"
-                                    aria-label="Remove from this widget area"
+                                    aria-label={t(
+                                      "extensions.removeFromWidgetArea",
+                                    )}
                                   >
                                     <IconX className="h-3.5 w-3.5" />
                                   </button>
                                 </TooltipTrigger>
                                 <TooltipContent>
-                                  Remove from this widget area (for me)
+                                  {t("extensions.removeFromWidgetAreaForMe")}
                                 </TooltipContent>
                               </Tooltip>
                             </div>
@@ -285,8 +297,8 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
                           <IconTrash className="h-3.5 w-3.5" />
                           <span>
                             {existingTool?.canDelete === false
-                              ? "Remove from my list..."
-                              : "Delete extension..."}
+                              ? t("extensions.removeFromMyListEllipsis")
+                              : t("extensions.deleteExtensionEllipsis")}
                           </span>
                         </button>
                       </div>
@@ -295,12 +307,11 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
                     <div className="flex flex-col gap-2 p-3">
                       <p className="text-[12px]">
                         {existingTool?.canDelete === false
-                          ? "Remove "
-                          : "Delete "}
-                        <span className="font-medium">{name}</span>?
+                          ? t("extensions.removeQuestion", { name })
+                          : t("extensions.deleteQuestion", { name })}{" "}
                         {existingTool?.canDelete === false
-                          ? " This hides it from your Extensions list without deleting it for anyone else."
-                          : " This removes the extension everywhere, for everyone it's shared with."}
+                          ? t("extensions.hideForYouDescription")
+                          : t("extensions.deleteEverywhereConfirmation")}
                       </p>
                       <div className="flex justify-end gap-1">
                         <button
@@ -308,7 +319,7 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
                           onClick={() => setConfirmingDelete(false)}
                           className="rounded-md px-2 py-1 text-[12px] hover:bg-accent cursor-pointer"
                         >
-                          Cancel
+                          {t("extensions.cancel")}
                         </button>
                         <button
                           type="button"
@@ -321,11 +332,11 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
                         >
                           {deleting
                             ? existingTool?.canDelete === false
-                              ? "Removing..."
-                              : "Deleting..."
+                              ? t("extensions.removing")
+                              : t("extensions.deleting")
                             : existingTool?.canDelete === false
-                              ? "Remove"
-                              : "Delete"}
+                              ? t("extensions.remove")
+                              : t("extensions.delete")}
                         </button>
                       </div>
                     </div>
@@ -340,25 +351,25 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
           <div className="flex w-1/2 flex-col gap-4 overflow-auto border-r p-4">
             <div>
               <label className="mb-1.5 block text-sm font-medium text-foreground">
-                Name
+                {t("extensions.nameLabel")}
               </label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="My Extension"
+                placeholder={t("extensions.namePlaceholder")}
                 className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
               />
             </div>
 
             <div>
               <label className="mb-1.5 block text-sm font-medium text-foreground">
-                Description
+                {t("extensions.descriptionLabel")}
               </label>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="What does this extension do?"
+                placeholder={t("extensions.descriptionPlaceholder")}
                 rows={2}
                 className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
               />
@@ -366,12 +377,12 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
 
             <div className="flex flex-1 flex-col">
               <label className="mb-1.5 block text-sm font-medium text-foreground">
-                Content
+                {t("extensions.contentLabel")}
               </label>
               <textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="<html>...</html>"
+                placeholder={t("extensions.contentPlaceholder")}
                 className="flex-1 resize-none rounded-md border border-input bg-background p-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
                 spellCheck={false}
               />
@@ -384,11 +395,11 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
                 srcDoc={content}
                 className="h-full w-full border-0"
                 sandbox="allow-scripts allow-forms"
-                title="Extension preview"
+                title={t("extensions.previewTitle")}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                Preview will appear here
+                {t("extensions.previewEmpty")}
               </div>
             )}
           </div>

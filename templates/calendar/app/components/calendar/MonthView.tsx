@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import type { CalendarEvent } from "@shared/api";
 import {
   startOfMonth,
   endOfMonth,
@@ -11,12 +11,14 @@ import {
   format,
   parseISO,
 } from "date-fns";
-import { cn } from "@/lib/utils";
-import { EventCard } from "./EventCard";
-import { EventDetailPopover } from "./EventDetailPopover";
+import { useState, useMemo } from "react";
+
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
-import type { CalendarEvent } from "@shared/api";
+import { cn } from "@/lib/utils";
+
+import { EventCard } from "./EventCard";
+import { EventDetailPopover } from "./EventDetailPopover";
 
 interface MonthViewProps {
   events: CalendarEvent[];

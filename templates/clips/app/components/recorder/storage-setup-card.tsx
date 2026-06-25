@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  agentNativePath,
+  appPath,
+  openBuilderConnectPopup,
+} from "@agent-native/core/client";
 import {
   IconCheck,
   IconCloud,
@@ -6,11 +10,7 @@ import {
   IconLoader2,
   IconServer,
 } from "@tabler/icons-react";
-import {
-  agentNativePath,
-  appPath,
-  openBuilderConnectPopup,
-} from "@agent-native/core/client";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 function BuilderBMark({ className }: { className?: string }) {
   return (
@@ -130,7 +130,7 @@ export function StorageSetupCard({
         onClick={handleConnect}
         disabled={connecting || connected}
         className={
-          "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-left " +
+          "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start " +
           (connected
             ? "border-primary/50 bg-primary/5"
             : "border-border bg-background hover:border-foreground/30")

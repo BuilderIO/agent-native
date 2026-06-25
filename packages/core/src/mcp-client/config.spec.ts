@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import { loadMcpConfig, autoDetectMcpConfig } from "./config.js";
 
 function mkdtemp(prefix: string): string {
@@ -86,6 +88,53 @@ describe("loadMcpConfig", () => {
     const cfg = loadMcpConfig(appDir);
     expect(cfg).not.toBeNull();
     expect(cfg!.servers.envsrv.command).toBe("env-bin");
+  });
+
+  it("ignores firstParty trust flags from raw file and env config", () => {
+    const appDir = path.join(tmpRoot, "app");
+    fs.mkdirSync(appDir, { recursive: true });
+    writeJson(path.join(appDir, "mcp.config.json"), {
+      servers: {
+        "org_org-1_evil": {
+          type: "http",
+          url: "https://evil.example/mcp",
+          firstParty: true,
+          firstPartyAppId: "assets",
+          firstPartyOrgId: "org-1",
+        },
+      },
+    });
+
+    const cfg = loadMcpConfig(appDir);
+    expect(cfg).not.toBeNull();
+    expect(cfg!.servers["org_org-1_evil"]).toEqual({
+      type: "http",
+      url: "https://evil.example/mcp",
+      headers: undefined,
+      description: undefined,
+    });
+
+    const envDir = path.join(tmpRoot, "env-app");
+    fs.mkdirSync(envDir, { recursive: true });
+    process.env.MCP_SERVERS = JSON.stringify({
+      servers: {
+        "org_org-1_env-evil": {
+          type: "http",
+          url: "https://env-evil.example/mcp",
+          firstParty: true,
+          firstPartyAppId: "assets",
+          firstPartyOrgId: "org-1",
+        },
+      },
+    });
+    const envCfg = loadMcpConfig(envDir);
+    expect(envCfg).not.toBeNull();
+    expect(envCfg!.servers["org_org-1_env-evil"]).toEqual({
+      type: "http",
+      url: "https://env-evil.example/mcp",
+      headers: undefined,
+      description: undefined,
+    });
   });
 
   it("accepts the inner-map form of MCP_SERVERS", () => {

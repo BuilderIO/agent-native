@@ -1,18 +1,18 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server/request-context";
+import {
   ForbiddenError,
   currentAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import {
-  normalizePlanContent,
-  sanitizeStoredPlanHtml,
-  serializePlanContent,
-} from "../server/plan-content.js";
-import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
+import { notifyPlanCommentRecipients } from "../server/lib/comment-notifications.js";
 import {
   isAnonymousPublicViewer,
   isGuestAuthorIdentity,
@@ -22,11 +22,12 @@ import {
 } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
-import { notifyPlanCommentRecipients } from "../server/lib/comment-notifications.js";
 import {
-  getRequestUserEmail,
-  getRequestUserName,
-} from "@agent-native/core/server/request-context";
+  normalizePlanContent,
+  sanitizeStoredPlanHtml,
+  serializePlanContent,
+} from "../server/plan-content.js";
+import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
 import {
   assertPlanEditor,
   buildPlanHtml,

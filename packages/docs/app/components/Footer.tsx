@@ -1,7 +1,13 @@
+import { useLocale, useT } from "@agent-native/core/client";
 import { Link } from "react-router";
+
+import { sitePathForLocale } from "./docs-locale";
 
 export default function Footer() {
   const year = new Date().getFullYear();
+  const { locale } = useLocale();
+  const t = useT();
+  const localizedPath = (path: string) => sitePathForLocale(path, locale);
 
   return (
     <footer className="border-t border-[var(--docs-border)] px-6 py-8">
@@ -9,10 +15,22 @@ export default function Footer() {
         <p className="m-0">&copy; {year} Agent-Native</p>
         <div className="flex flex-wrap items-center justify-center gap-4 sm:justify-end">
           <Link
-            to="/privacy"
+            to={localizedPath("/download")}
             className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
           >
-            Privacy
+            {t("footer.download")}
+          </Link>
+          <Link
+            to={localizedPath("/privacy")}
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            {t("footer.privacy")}
+          </Link>
+          <Link
+            to={localizedPath("/terms")}
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            {t("footer.terms")}
           </Link>
           <a
             href="https://github.com/BuilderIO/agent-native"

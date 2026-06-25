@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { AgentChatEvent } from "./types.js";
+
 import {
   classifyToolCallJournal,
   buildResumeJournalNote,
   findCompletedJournalEntry,
   isJournalEmpty,
 } from "./tool-call-journal.js";
+import type { AgentChatEvent } from "./types.js";
 
 function start(tool: string, input?: Record<string, string>): AgentChatEvent {
   return { type: "tool_start", tool, input: input ?? {} };

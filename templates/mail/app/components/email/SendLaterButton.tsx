@@ -1,11 +1,13 @@
+import { useT } from "@agent-native/core/client";
+import { IconSend, IconChevronDown, IconCalendar } from "@tabler/icons-react";
 import { useState, useRef } from "react";
+
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
-import { IconSend, IconChevronDown, IconCalendar } from "@tabler/icons-react";
 
 interface SendLaterButtonProps {
   onSend: () => void;
@@ -54,6 +56,7 @@ export function SendLaterButton({
   disabled,
   isSending,
 }: SendLaterButtonProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const presets = getPresets();
   const dateInputRef = useRef<HTMLInputElement>(null);
@@ -73,7 +76,7 @@ export function SendLaterButton({
         onClick={onSend}
       >
         <IconSend className="h-3.5 w-3.5 mr-1.5" />
-        {isSending ? "Sending..." : "Send"}
+        {isSending ? t("mail.compose.sending") : t("mail.compose.send")}
       </Button>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
@@ -89,7 +92,7 @@ export function SendLaterButton({
         <PopoverContent className="w-64 p-3" align="end" side="top">
           <div className="space-y-2">
             <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-              Schedule send
+              {t("mail.sendLater.scheduleSend")}
             </div>
             <div className="space-y-1">
               {presets.map((preset) => (
@@ -112,7 +115,7 @@ export function SendLaterButton({
                   className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-sm text-muted-foreground"
                 >
                   <IconCalendar className="h-4 w-4" />
-                  Pick date &amp; time...
+                  {t("mail.sendLater.pickDateTime")}
                 </button>
                 <input
                   ref={dateInputRef}

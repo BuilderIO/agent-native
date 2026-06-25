@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as jose from "jose";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Stub the heavy MCP SDK + builtin-tools so importing build-server.ts is cheap
 // — these specs only exercise verifyAuth's revoke-check addition.
@@ -27,12 +27,14 @@ const SECRET = "verify-auth-secret";
 async function sign(
   claims: Record<string, unknown>,
   secret = SECRET,
+  options: { audience?: string } = {},
 ): Promise<string> {
-  return new jose.SignJWT(claims)
+  const jwt = new jose.SignJWT(claims)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime("1h")
-    .sign(new TextEncoder().encode(secret));
+    .setExpirationTime("1h");
+  if (options.audience) jwt.setAudience(options.audience);
+  return jwt.sign(new TextEncoder().encode(secret));
 }
 
 describe("verifyAuth — connect-token revoke check", () => {
@@ -120,6 +122,70 @@ describe("verifyAuth — connect-token revoke check", () => {
     });
     expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-active");
     expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-active");
+  });
+
+  it("preserves the framework first-party MCP marker from audience-bound connect-scoped tokens", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    const token = await sign(
+      {
+        sub: "svc-mcp-client@service.org_123",
+        scope: "mcp-connect",
+        jti: "jti-first-party",
+        org_id: "org_123",
+        agent_native_first_party_mcp: true,
+      },
+      SECRET,
+      {
+        audience: "https://assets.example.com/_agent-native/mcp",
+      },
+    );
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: "https://assets.example.com/_agent-native/mcp",
+    });
+    expect(res.authed).toBe(true);
+    expect(res.identity).toMatchObject({
+      userEmail: "svc-mcp-client@service.org_123",
+      orgId: "org_123",
+      firstPartyMcp: true,
+    });
+  });
+
+  it("rejects a first-party MCP token without an audience", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    const token = await sign({
+      sub: "svc-mcp-client@service.org_123",
+      scope: "mcp-connect",
+      jti: "jti-first-party-no-aud",
+      org_id: "org_123",
+      agent_native_first_party_mcp: true,
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: "https://assets.example.com/_agent-native/mcp",
+    });
+    expect(res.authed).toBe(false);
+    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a first-party MCP token audience-bound to another app", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    const token = await sign(
+      {
+        sub: "svc-mcp-client@service.org_123",
+        scope: "mcp-connect",
+        jti: "jti-first-party-wrong-aud",
+        org_id: "org_123",
+        agent_native_first_party_mcp: true,
+      },
+      SECRET,
+      {
+        audience: "https://assets.example.com/_agent-native/mcp",
+      },
+    );
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: "https://design.example.com/_agent-native/mcp",
+    });
+    expect(res.authed).toBe(false);
+    expect(isJtiRevokedMock).not.toHaveBeenCalled();
   });
 
   it("resolves an org SERVICE token to a synthetic service identity with orgId", async () => {

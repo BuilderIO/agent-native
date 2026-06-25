@@ -1,20 +1,33 @@
 import { randomUUID } from "node:crypto";
+
 import { and, eq, gte, isNull } from "drizzle-orm";
+
 import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isPostgres, retryOnDdlRace } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import { recordChange } from "../server/poll.js";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "../server/request-context.js";
 import {
   accessFilter,
   assertAccess,
   resolveAccess,
   ForbiddenError,
 } from "../sharing/access.js";
-import {
-  getRequestUserEmail,
-  getRequestOrgId,
-} from "../server/request-context.js";
 import { registerShareableResource } from "../sharing/registry.js";
+import {
+  EXTENSION_CHANGE_MARKER_KEY,
+  extensionChangeMarkerSession,
+  extensionChangeMarkerValue,
+  type ExtensionChangeTarget,
+} from "./change-marker.js";
+import {
+  applyExtensionContentUpdate,
+  type ExtensionContentEdit,
+  type ExtensionLegacyPatch,
+} from "./content-patch.js";
 import {
   extensions,
   extensionHides,
@@ -49,17 +62,6 @@ import {
   EXTENSION_CONSENTS_CREATE_SQL_PG,
   EXTENSION_CONSENTS_VIEWER_INDEX_SQL,
 } from "./schema.js";
-import {
-  EXTENSION_CHANGE_MARKER_KEY,
-  extensionChangeMarkerSession,
-  extensionChangeMarkerValue,
-  type ExtensionChangeTarget,
-} from "./change-marker.js";
-import {
-  applyExtensionContentUpdate,
-  type ExtensionContentEdit,
-  type ExtensionLegacyPatch,
-} from "./content-patch.js";
 
 const getDb = createGetDb({
   extensions,

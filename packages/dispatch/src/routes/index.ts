@@ -32,6 +32,7 @@ import { type RouteConfig, route, index } from "@react-router/dev/routes";
 export const dispatchRoutes: RouteConfig = [
   index("./pages/_index.js"),
   route("chat", "./pages/chat.js"),
+  route("chat/:threadId", "./pages/chat.js"),
   route("overview", "./pages/overview.js"),
   route("metrics", "./pages/metrics.js"),
   route("apps", "./pages/apps.js"),
@@ -47,6 +48,7 @@ export const dispatchRoutes: RouteConfig = [
   route("approval", "./pages/approval.js"),
   route("approvals", "./pages/approvals.js"),
   route("audit", "./pages/audit.js"),
+  route("settings", "./pages/settings.js"),
   route("dreams", "./pages/dreams.js"),
   route("thread-debug", "./pages/thread-debug.js"),
   route("team", "./pages/team.js"),

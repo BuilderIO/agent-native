@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { emit, listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { IconCameraOff } from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useRef, useState } from "react";
 type BubbleSize = "small" | "medium";
 
 /**
@@ -606,40 +606,90 @@ export function Bubble() {
   }, []);
 
   // ---- explicit drag handler --------------------------------------------
-  // We bypass `data-tauri-drag-region` entirely — it was unreliable across
-  // three iterations (see PR history). Tauri's attribute hook watches for
-  // elements with the attribute at page-load time, and also has gotchas
-  // with pointer-events, unfocused-window first-click swallowing, and
-  // WKWebView's latched event target. Calling `startDragging()` explicitly
-  // on mousedown is the canonical robust path (per Tauri's own docs for
-  // "customize drag behavior") and skips all of those footguns.
+  // Loom-style manual drag. We deliberately do NOT use Tauri's native
+  // `startDragging()` (or `data-tauri-drag-region`): with a native drag the OS
+  // window server owns the position, so the only way to keep the bubble on
+  // screen is to clamp AFTER each move and `set_position` it back — and the OS
+  // immediately shoves it back out toward the cursor on the next frame. That
+  // fight is exactly the jitter/snap-back we're killing here.
   //
-  // Interactive children (close X, size dots) are marked `data-no-drag`
-  // so their clicks land on their onClick handlers instead of starting
-  // a window drag.
-  const handleBubbleMouseDown = (e: React.MouseEvent) => {
-    // Only left mouse button initiates drag.
+  // Instead we drive the move ourselves. On pointer-down Rust snapshots the
+  // cursor + window anchor; each frame `bubble_drag_move` reads the live cursor,
+  // offsets the window by the cursor delta, and clamps BEFORE moving. The
+  // window therefore stops dead at the edge like a puck against a wall — the
+  // cursor keeps going, the bubble stays pinned, nothing to snap back from.
+  //
+  // Interactive children (close X, size dots) are marked `data-no-drag` so
+  // their clicks land on their onClick handlers instead of starting a drag.
+  const draggingRef = useRef(false);
+  const moveFrameRef = useRef<number | null>(null);
+
+  const handleBubblePointerDown = (e: React.PointerEvent) => {
+    // Only the left button initiates a drag.
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
-    // Walk up from the target — any ancestor marked `data-no-drag`
-    // means we're over a real control, not the draggable surface.
+    // Any ancestor marked `data-no-drag` means we're over a real control.
     if (target.closest("[data-no-drag]")) return;
-    console.log("[bubble] startDragging");
-    getCurrentWindow()
-      .startDragging()
-      .catch((err) => {
-        console.warn("[bubble] startDragging failed", err);
+    e.preventDefault();
+    draggingRef.current = true;
+    // Pointer capture keeps pointermove/up flowing even after the cursor
+    // leaves the (small) bubble window — which it will the moment the bubble
+    // hits an edge and the cursor outruns it.
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // capture is best-effort
+    }
+    void invoke("bubble_drag_start").catch((err) => {
+      console.warn("[bubble] bubble_drag_start failed", err);
+    });
+  };
+
+  const handleBubblePointerMove = (e: React.PointerEvent) => {
+    if (!draggingRef.current) return;
+    // Coalesce a burst of pointermove events into at most one reposition per
+    // animation frame, no matter how fast the OS delivers them. Rust reads the
+    // live cursor itself, so the frame callback needs no coordinates.
+    if (moveFrameRef.current != null) return;
+    moveFrameRef.current = requestAnimationFrame(() => {
+      moveFrameRef.current = null;
+      if (!draggingRef.current) return;
+      void invoke("bubble_drag_move").catch(() => {
+        // Transient failures (e.g. window mid-teardown) are non-fatal; the
+        // next pointermove schedules another frame.
       });
+    });
+  };
+
+  const endBubbleDrag = (e: React.PointerEvent) => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    if (moveFrameRef.current != null) {
+      cancelAnimationFrame(moveFrameRef.current);
+      moveFrameRef.current = null;
+    }
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // already released
+    }
+    void invoke("bubble_drag_end").catch((err) => {
+      console.warn("[bubble] bubble_drag_end failed", err);
+    });
   };
 
   return (
-    // The ENTIRE wrapper catches mousedown and calls `startDragging()`
-    // directly. No `data-tauri-drag-region` — see `handleBubbleMouseDown`.
+    // The ENTIRE wrapper is the drag surface — pointer-down drives the manual
+    // clamp-before-move drag loop. No `startDragging()`, no
+    // `data-tauri-drag-region` — see `handleBubblePointerDown` above.
     <div
       className={`bubble-wrapper bubble-${size}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      onMouseDown={handleBubbleMouseDown}
+      onPointerDown={handleBubblePointerDown}
+      onPointerMove={handleBubblePointerMove}
+      onPointerUp={endBubbleDrag}
+      onPointerCancel={endBubbleDrag}
       data-path={activePath}
     >
       <div className="bubble-root">
@@ -676,7 +726,7 @@ export function Bubble() {
           }
         />
         {/* Close X — top-right of bubble, only visible on hover. Marked
-            `data-no-drag` so mousedown here does NOT call startDragging;
+            `data-no-drag` so pointer-down here does NOT start a drag;
             onClick fires normally. */}
         <button
           type="button"

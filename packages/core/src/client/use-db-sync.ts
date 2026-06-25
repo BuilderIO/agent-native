@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { agentNativePath } from "./api-path.js";
-import { bumpChangeVersion } from "./use-change-version.js";
+
 import { ensureDemoModeFetchInterceptor } from "../demo/fetch-interceptor.js";
+import { agentNativePath } from "./api-path.js";
 import {
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
 } from "./embed-auth.js";
+import { bumpChangeVersion } from "./use-change-version.js";
 
 interface QueryClient {
   invalidateQueries(opts?: { queryKey?: string[] }): void;

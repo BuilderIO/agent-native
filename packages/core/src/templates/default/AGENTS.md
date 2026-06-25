@@ -6,7 +6,7 @@ This is an **@agent-native/core** application -- the AI agent and UI share state
 
 ### Core Principles
 
-1. **Shared SQL database** -- All app state lives in SQL. Local SQLite at `data/app.db` is the zero-setup dev fallback; deployed apps need a persistent `DATABASE_URL` so data survives container/serverless restarts. Turso is optional, not required: Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments are all valid when supported by the deploy. Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`, `resources`.
+1. **Shared SQL database** -- All app state lives in SQL. Local SQLite at `data/app.db` is the zero-setup dev fallback; local PGlite is available as a Postgres-dialect opt-in with `DATABASE_URL=pglite:./data/pglite` after installing `@electric-sql/pglite`. Deployed apps need a persistent `DATABASE_URL` so data survives container/serverless restarts. Turso is optional, not required: Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments are all valid when supported by the deploy. Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`, `resources`.
 2. **AI through the right framework surface** -- Product workflows delegate to the agent via `sendToAgentChat()` / `agentChat.submit()`. Use `sendToAgentChat({ message, context, submit })` for simple UI handoffs and prefill/review flows; add `newTab: true, background: true, openSidebar: false` when the agent should work silently without focusing the sidebar. Only use the agent-chat context state helpers (`useAgentChatContext`, `setAgentChatContextItem`, `listAgentChatContext`, `removeAgentChatContextItem`, `clearAgentChatContext`) when the UI needs two-way sync with staged context chips. For rare server-side text transforms that intentionally need no tools, chat history, or run state, use `completeText()` from `@agent-native/core/server` inside an action instead of importing provider SDKs directly.
 3. **Actions for app operations** -- `pnpm action <name>` dispatches to callable action files in `actions/`; `defineAction` also auto-exposes those operations at `/_agent-native/actions/:name` for the UI. Do not create custom REST routes that re-export actions.
 4. **Live sync keeps the UI current** -- Database writes stream over `/_agent-native/events` first, with `/_agent-native/poll` as the fallback. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` / `useActionMutation` for action-backed data (preferred). If you use raw `useQuery`, fold `useChangeVersions([<source>, "action"])` into the key for targeted refreshes. See the `real-time-sync` and `adding-a-feature` skills.
@@ -38,6 +38,10 @@ Read these local package docs before implementing advanced Agent Native
 features. Prefer this app's own `AGENTS.md` and `.agents/skills/` for
 app-specific rules, then use the corpus for reusable framework/template
 patterns.
+After updating `@agent-native/core`, run `pnpm skills:update` or
+`npx @agent-native/core@latest skills update scaffold --project` from the app
+root to refresh framework-provided `.agents/skills` and repair `CLAUDE.md` /
+`.claude/skills` compatibility links.
 
 ### Database Code
 
@@ -139,21 +143,22 @@ repackage, or proxy an action.
 
 Skills in `.agents/skills/` provide detailed guidance for each architectural rule. Read them before making changes.
 
-| Skill                 | When to read                                                                      |
-| --------------------- | --------------------------------------------------------------------------------- |
-| `agent-native-docs`   | Before using advanced Agent Native framework APIs or generated-app features       |
-| `adding-a-feature`    | **Read first when adding ANY new feature** — the four-area parity checklist       |
-| `real-time-sync`      | Before wiring data fetching for anything the agent can mutate (must auto-refresh) |
-| `storing-data`        | Before storing or reading any app state                                           |
-| `delegate-to-agent`   | Before adding LLM calls or AI delegation                                          |
-| `actions`             | Before creating or modifying actions                                              |
-| `self-modifying-code` | Before editing source, components, or styles                                      |
-| `capture-learnings`   | Before recording user preferences or corrections                                  |
-| `frontend-design`     | Before building or restyling any UI component, page, or layout                    |
-| `shadcn-ui`           | Before adding, updating, or debugging shadcn/ui components                        |
-| `agent-engines`       | Before switching LLM providers or registering a custom engine                     |
-| `notifications`       | Before surfacing alerts/progress to the user or adding channels                   |
-| `progress`            | Before running any task that takes more than a few seconds                        |
+| Skill                  | When to read                                                                      |
+| ---------------------- | --------------------------------------------------------------------------------- |
+| `agent-native-docs`    | Before using advanced Agent Native framework APIs or generated-app features       |
+| `adding-a-feature`     | **Read first when adding ANY new feature** — the four-area parity checklist       |
+| `real-time-sync`       | Before wiring data fetching for anything the agent can mutate (must auto-refresh) |
+| `storing-data`         | Before storing or reading any app state                                           |
+| `internationalization` | Before adding or editing visible UI copy, prompts, toasts, labels, or formatting  |
+| `delegate-to-agent`    | Before adding LLM calls or AI delegation                                          |
+| `actions`              | Before creating or modifying actions                                              |
+| `self-modifying-code`  | Before editing source, components, or styles                                      |
+| `capture-learnings`    | Before recording user preferences or corrections                                  |
+| `frontend-design`      | Before building or restyling any UI component, page, or layout                    |
+| `shadcn-ui`            | Before adding, updating, or debugging shadcn/ui components                        |
+| `agent-engines`        | Before switching LLM providers or registering a custom engine                     |
+| `notifications`        | Before surfacing alerts/progress to the user or adding channels                   |
+| `progress`             | Before running any task that takes more than a few seconds                        |
 
 ## When Adding Features
 

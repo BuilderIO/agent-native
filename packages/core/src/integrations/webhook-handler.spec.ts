@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { H3Event } from "h3";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { IncomingMessage, PlatformAdapter } from "./types.js";
 import { handleWebhook, resolveBaseUrl } from "./webhook-handler.js";
 

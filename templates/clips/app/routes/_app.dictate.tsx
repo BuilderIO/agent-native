@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconArrowsExchange,
   IconChevronDown,
@@ -14,8 +13,13 @@ import {
   IconPlayerPlay,
   IconPlayerStop,
 } from "@tabler/icons-react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+
+import { CaptureInstallButton } from "@/components/capture-install-options";
+import { PageHeader } from "@/components/library/page-header";
+import { DayHeader } from "@/components/meetings/day-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,16 +28,13 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn, shortcutLabel, shortcutModifierLabel } from "@/lib/utils";
-import { DayHeader } from "@/components/meetings/day-header";
-import { PageHeader } from "@/components/library/page-header";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
-import { CaptureInstallButton } from "@/components/capture-install-options";
+import { cn, shortcutLabel, shortcutModifierLabel } from "@/lib/utils";
 
 export function meta() {
   return [{ title: "Dictate · Clips" }];
@@ -213,7 +214,7 @@ function HowToCard({ defaultOpen = true }: { defaultOpen?: boolean }) {
         {open ? (
           <IconChevronDown className="h-4 w-4 text-muted-foreground" />
         ) : (
-          <IconChevronRight className="h-4 w-4 text-muted-foreground" />
+          <IconChevronRight className="h-4 w-4 text-muted-foreground rtl:-scale-x-100" />
         )}
       </CollapsibleTrigger>
       <CollapsibleContent>
@@ -439,7 +440,7 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
           {expanded ? (
             <IconChevronDown className="h-3.5 w-3.5" />
           ) : (
-            <IconChevronRight className="h-3.5 w-3.5" />
+            <IconChevronRight className="h-3.5 w-3.5 rtl:-scale-x-100" />
           )}
           {formatTime(dictation.createdAt)}
         </div>
@@ -454,7 +455,7 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
             <span className="text-muted-foreground italic">No text</span>
           )}
         </div>
-        <div className="col-span-1 text-right text-xs text-muted-foreground tabular-nums">
+        <div className="col-span-1 text-end text-xs text-muted-foreground tabular-nums">
           {formatDuration(dictation.durationMs)}
         </div>
         <div className="col-span-1 flex justify-end">
@@ -946,7 +947,7 @@ export default function DictateRoute() {
                         <div className="col-span-2">When</div>
                         <div className="col-span-2">Source</div>
                         <div className="col-span-6">Text</div>
-                        <div className="col-span-1 text-right">Duration</div>
+                        <div className="col-span-1 text-end">Duration</div>
                         <div className="col-span-1" />
                       </div>
                       <div>

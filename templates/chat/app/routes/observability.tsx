@@ -1,4 +1,5 @@
-import { ObservabilityDashboard } from "@agent-native/core/client";
+import { ObservabilityDashboard, useT } from "@agent-native/core/client";
+
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 export function meta() {
@@ -6,7 +7,8 @@ export function meta() {
 }
 
 export default function ObservabilityPage() {
-  useSetPageTitle("Observability");
+  const t = useT();
+  useSetPageTitle(t("pages.observabilityPageTitle"));
   return (
     <div className="p-6">
       <ObservabilityDashboard />

@@ -10,20 +10,21 @@
  * Usage: pnpm action <action-name> ['{"arg":"value"}'] [--args]
  */
 
-import path from "path";
 import fs from "fs";
+import path from "path";
 import { pathToFileURL } from "url";
-import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
+
+import type { ActionEntry } from "../agent/production-agent.js";
 import { closeDbExec } from "../db/client.js";
-import { loadEnv } from "./utils.js";
+import { notifyActionChange } from "../server/action-change.js";
 import {
   runWithRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
 import { resolveDevUserEmail } from "./dev-session.js";
-import { notifyActionChange } from "../server/action-change.js";
-import type { ActionEntry } from "../agent/production-agent.js";
+import { loadEnv } from "./utils.js";
 
 // Load .env from cwd so DATABASE_URL and other vars are available to all actions.
 loadEnv();
@@ -228,11 +229,14 @@ function parsePositionalJsonArg(args: string[]): Record<string, unknown> {
  * resolves `AGENT_USER_EMAIL` / the dev session); we never inject a dev
  * identity here beyond what that wrap already established.
  */
-function cliActionCtx(): import("../action.js").ActionRunContext {
+function cliActionCtx(
+  actionName: string,
+): import("../action.js").ActionRunContext {
   return {
     userEmail: getRequestUserEmail(),
     orgId: getRequestOrgId() ?? null,
     caller: "cli",
+    actionName,
   };
 }
 
@@ -268,7 +272,7 @@ async function dispatchAction(
         typeof handler.run === "function"
       ) {
         const parsed = parseActionArgs(args, { coerceBooleans: true });
-        const result = await handler.run(parsed, cliActionCtx());
+        const result = await handler.run(parsed, cliActionCtx(actionName));
         if (handler.readOnly !== true) {
           await notifyActionChange({ actionName }).catch(() => {});
         }
@@ -298,7 +302,7 @@ async function dispatchAction(
       const parsed = parseActionArgs(args, { coerceBooleans: true });
       const result = await packageAction.run(
         parsed as Record<string, string>,
-        cliActionCtx(),
+        cliActionCtx(actionName),
       );
       if (packageAction.readOnly !== true) {
         await notifyActionChange({ actionName }).catch(() => {});

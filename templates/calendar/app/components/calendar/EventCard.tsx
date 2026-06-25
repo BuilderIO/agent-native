@@ -1,12 +1,13 @@
-import { cn } from "@/lib/utils";
-import { EventStatusIcon } from "@/lib/rsvp-status";
+import type { CalendarEvent } from "@shared/api";
+import { IconAlertTriangleFilled } from "@tabler/icons-react";
+
 import {
   getEventDisplayColor,
   allOtherDeclined,
   type CalendarColorPreferences,
 } from "@/lib/event-colors";
-import { IconAlertTriangleFilled } from "@tabler/icons-react";
-import type { CalendarEvent } from "@shared/api";
+import { EventStatusIcon } from "@/lib/rsvp-status";
+import { cn } from "@/lib/utils";
 
 interface EventCardProps {
   event: CalendarEvent;

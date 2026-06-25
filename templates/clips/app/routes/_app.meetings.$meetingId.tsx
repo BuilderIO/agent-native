@@ -1,6 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, useNavigate, useParams } from "react-router";
-import { toast } from "sonner";
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconArrowLeft,
   IconCheck,
@@ -17,9 +15,26 @@ import {
   IconUsers,
   IconWand,
 } from "@tabler/icons-react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { NavLink, useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
+
+import { CaptureInstallButton } from "@/components/capture-install-options";
+import { PageHeader } from "@/components/library/page-header";
+import {
+  AttendeeStack,
+  attendeeInitials,
+  type AttendeeStackParticipant,
+} from "@/components/meetings/attendee-stack";
+import { BulletLink } from "@/components/meetings/bullet-link";
+import { CanvasEditor } from "@/components/meetings/canvas-editor";
+import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
+import { ShareMeetingPopover } from "@/components/meetings/share-meeting-dialog";
+import {
+  TranscriptBubbles,
+  type TranscriptSegment,
+} from "@/components/meetings/transcript-bubbles";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,6 +45,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,28 +56,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
-import {
-  AttendeeStack,
-  attendeeInitials,
-  type AttendeeStackParticipant,
-} from "@/components/meetings/attendee-stack";
-import { PageHeader } from "@/components/library/page-header";
-import { ShareMeetingPopover } from "@/components/meetings/share-meeting-dialog";
-import {
-  TranscriptBubbles,
-  type TranscriptSegment,
-} from "@/components/meetings/transcript-bubbles";
-import { BulletLink } from "@/components/meetings/bullet-link";
-import { CanvasEditor } from "@/components/meetings/canvas-editor";
-import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
-import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { CaptureInstallButton } from "@/components/capture-install-options";
+import { useDesktopPromo } from "@/hooks/use-desktop-promo";
+import { cn } from "@/lib/utils";
 
 export function meta() {
   return [{ title: "Meeting · Clips" }];

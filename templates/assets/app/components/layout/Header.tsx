@@ -1,13 +1,18 @@
+import {
+  AgentToggleButton,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import { useLocation } from "react-router";
-import { AgentToggleButton, useActionQuery } from "@agent-native/core/client";
+
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
-const pageTitles: Record<string, string> = {
-  "/": "Create",
-  "/library": "Library",
-  "/brand-kits": "Brand Kits",
-  "/extensions": "Extensions",
-  "/settings": "Settings",
+const pageTitleKeys: Record<string, string> = {
+  "/": "navigation.create",
+  "/library": "navigation.library",
+  "/brand-kits": "navigation.brandKits",
+  "/extensions": "navigation.extensions",
+  "/settings": "navigation.settings",
 };
 
 function LibraryTitle({ id }: { id: string }) {
@@ -19,7 +24,10 @@ function LibraryTitle({ id }: { id: string }) {
 }
 
 function StaticTitle({ pathname }: { pathname: string }) {
-  const title = pageTitles[pathname] ?? "Assets";
+  const t = useT();
+  const title = pageTitleKeys[pathname]
+    ? t(pageTitleKeys[pathname])
+    : t("navigation.brand");
   return (
     <h1 className="text-lg font-semibold tracking-tight truncate">{title}</h1>
   );

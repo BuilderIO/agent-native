@@ -5,9 +5,10 @@
 // Singleton guard prevents multiple toolbar instances (HMR-safe).
 
 import { render } from "solid-js/web";
-import { overlayStyles } from "./styles/theme.js";
-import { PinpointApp } from "./components/PinpointApp.js";
+
 import type { PinpointConfig } from "../types/index.js";
+import { PinpointApp } from "./components/PinpointApp.js";
+import { overlayStyles } from "./styles/theme.js";
 
 const CONTAINER_ID = "pinpoint-root";
 

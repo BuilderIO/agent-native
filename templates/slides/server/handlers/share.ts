@@ -1,19 +1,21 @@
-import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 import crypto from "crypto";
-import { eq, lt } from "drizzle-orm";
+
 import { readBody } from "@agent-native/core/server";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { getDb, schema } from "../db";
-import {
-  resolveSlidesRequestAuthContext,
-  withSlidesRequestContext,
-} from "./request-auth-context.js";
 import { toSharedDeckSlide } from "@shared/api";
 import type {
   ShareDeckRequest,
   ShareDeckResponse,
   SharedDeckResponse,
 } from "@shared/api";
+import { eq, lt } from "drizzle-orm";
+import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
+
+import { getDb, schema } from "../db";
+import {
+  resolveSlidesRequestAuthContext,
+  withSlidesRequestContext,
+} from "./request-auth-context.js";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 

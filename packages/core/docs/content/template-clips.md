@@ -15,7 +15,7 @@ A capture-everything app: screen recordings, meeting notes from your calendar, a
 }
 ```
 
-Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a normal Clips share link into an agent, and it can "hear" the transcript and "see" timestamped frames even when the underlying model cannot ingest raw video or audio.
+Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a normal Clips share link into an agent and it can "hear" the transcript as text and "see" timestamped screen frames as images — no raw video needed. Frame-viewing works in any image-capable agent (ChatGPT, Claude Code, Cursor, Codex); text-only web chats still get the full transcript and can take a frame you upload.
 
 ```an-diagram title="Capture, transcribe, reuse" summary="Three capture types land in one library; the agent transcribes, titles, and summarizes, then every transcript is searchable and shareable."
 {
@@ -54,10 +54,13 @@ itself. The Chrome extension is the path for active-tab developer logs and
 browser-only repros. In the Clips UI, use the Chrome option for browser logs and
 the desktop app for the most seamless everyday capture path.
 
+The Agent-Native Clips Chrome extension listing is
+`https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`.
 If you host your own Clips server, keep the Chrome extension option hidden until
-your Web Store listing is live. Set `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` and
-`VITE_CLIPS_CHROME_EXTENSION_URL=<chrome-web-store-url>` after approval to show
-the extension beside desktop-app download prompts.
+your Web Store listing is live. Set `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1`
+after approval to show the extension beside desktop-app download prompts. Set
+`VITE_CLIPS_CHROME_EXTENSION_URL` only if you need to override the default
+listing URL.
 
 ## Agent-readable clips
 
@@ -65,6 +68,12 @@ Paste a normal public Clips share link into an agent. The share page advertises
 a compact agent context URL, and that context points to the transcript and frame
 APIs, so models that only accept text or still images can still understand what
 happened in the recording.
+
+Any agent that can fetch an image URL into its vision — ChatGPT, Claude Code,
+Cursor, Codex, and MCP-connected agents — reads the transcript and sees the
+frames. A few text-only web chats read the transcript but won't pull frame images
+in on their own; there, upload a key frame or open the clip in an image-capable
+agent.
 
 | Endpoint                                          | What agents get                                                                                                |
 | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -165,7 +174,7 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 
 1. **Video storage (required).** Connect a storage backend through the onboarding wizard. The easiest path is Builder.io (free during beta, one-click). For self-hosted storage, set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and optionally `S3_REGION` and `S3_PUBLIC_BASE_URL`. Cloudflare R2 and DigitalOcean Spaces use the same env vars with the `R2_*` prefix.
 2. **Google Calendar (optional).** To sync upcoming meetings, connect a Google Calendar account from Settings. The OAuth callback URL in dev is `http://localhost:8094/_agent-native/google/callback`. Set up a Google OAuth client in [Google Cloud Console](https://console.cloud.google.com/) with the Gmail and Google Calendar APIs enabled.
-3. **Screen-capture permissions.** On macOS, grant Screen Recording permission to the browser (or the desktop companion app) in System Settings → Privacy & Security → Screen Recording. Browser recordings can save redacted console and fetch/XHR diagnostics from the recorder page. Once a deployment has a published Clips Chrome extension URL, enable `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` and set `VITE_CLIPS_CHROME_EXTENSION_URL` so users can choose the extension for active-tab browser logs or the desktop app for the smoothest native capture path.
+3. **Screen-capture permissions.** On macOS, grant Screen Recording permission to the browser (or the desktop companion app) in System Settings → Privacy & Security → Screen Recording. Browser recordings can save redacted console and fetch/XHR diagnostics from the recorder page. Once the Chrome extension listing is available, enable `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` so users can choose the extension for active-tab browser logs or the desktop app for the smoothest native capture path.
 4. **Slack previews (optional).** Create a Slack app with `links:read`, `links:write`, and `links.embed:write`; subscribe to `link_shared`; add your Clips share domain under **App Unfurl Domains**; set the Request URL to `https://your-clips.example.com/api/slack/unfurl`; and add the OAuth redirect URL `https://your-clips.example.com/api/slack/oauth/callback`. Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET`, then connect workspaces from Clips Settings.
 
 ### Host your own Clips server
@@ -209,9 +218,11 @@ tray app at your deployment.
 
 5. **Enable the Chrome extension after publishing.** Keep
    `VITE_CLIPS_CHROME_EXTENSION_ENABLED` unset until the Chrome Web Store listing
-   is approved and you have a public extension URL. Then set it to `1` and set
-   `VITE_CLIPS_CHROME_EXTENSION_URL` to reveal the browser-log option beside the
-   desktop app prompts.
+   is approved. Then set it to `1` to reveal the browser-log option beside the
+   desktop app prompts. The default listing URL is
+   `https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`;
+   set `VITE_CLIPS_CHROME_EXTENSION_URL` only if your deployment uses a
+   different extension listing.
 
 6. **Connect optional integrations.** Google Calendar powers the Meetings tab,
    `GEMINI_API_KEY` or Builder.io Connect powers transcript cleanup and titles,

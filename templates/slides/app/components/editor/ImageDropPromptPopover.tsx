@@ -1,10 +1,11 @@
+import { appBasePath, sendToAgentChat } from "@agent-native/core/client";
+import { IconLoader2, IconX } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { IconLoader2, IconX } from "@tabler/icons-react";
-import { appBasePath, sendToAgentChat } from "@agent-native/core/client";
-import { toast } from "@/hooks/use-toast";
+
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
 
 const POPOVER_WIDTH = 360;
 const POPOVER_MARGIN = 12;

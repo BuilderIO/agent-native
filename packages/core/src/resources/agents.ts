@@ -1,13 +1,13 @@
 import {
+  type CustomAgentProfile,
+  parseCustomAgentProfile,
+} from "./metadata.js";
+import {
   resourceGet,
   resourceGetByPath,
   resourceListAccessible,
   SHARED_OWNER,
 } from "./store.js";
-import {
-  type CustomAgentProfile,
-  parseCustomAgentProfile,
-} from "./metadata.js";
 
 export async function listAccessibleCustomAgents(
   owner: string,

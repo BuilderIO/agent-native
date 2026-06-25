@@ -1,7 +1,12 @@
+import { useActionMutation, useT } from "@agent-native/core/client";
+import { IconArrowBackUp, IconTrash } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { IconArrowBackUp, IconTrash } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
+
+import { EmptyState } from "@/components/library/empty-state";
+import { PageHeader } from "@/components/library/page-header";
+import { RecordingCard } from "@/components/library/recording-card";
+import { SortMenu, type SortKey } from "@/components/library/sort-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,12 +17,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { RecordingCard } from "@/components/library/recording-card";
-import { EmptyState } from "@/components/library/empty-state";
-import { SortMenu, type SortKey } from "@/components/library/sort-menu";
-import { PageHeader } from "@/components/library/page-header";
+import { Button } from "@/components/ui/button";
 import { useRecordings, type RecordingSummary } from "@/hooks/use-library";
-import { useActionMutation } from "@agent-native/core/client";
 
 export function meta() {
   return [{ title: "Trash · Clips" }];
@@ -36,6 +37,7 @@ function Skeleton() {
 }
 
 export default function TrashRoute() {
+  const t = useT();
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmPurge, setConfirmPurge] = useState(false);
@@ -65,8 +67,9 @@ export default function TrashRoute() {
       restore.mutate(
         { id },
         {
-          onSuccess: () => toast.success("Restored"),
-          onError: (err: any) => toast.error(err?.message ?? "Restore failed"),
+          onSuccess: () => toast.success(t("trashRoute.restored")),
+          onError: (err: any) =>
+            toast.error(err?.message ?? t("trashRoute.restoreFailed")),
         },
       );
     }
@@ -78,8 +81,9 @@ export default function TrashRoute() {
       purge.mutate(
         { id },
         {
-          onSuccess: () => toast.success("Permanently deleted"),
-          onError: (err: any) => toast.error(err?.message ?? "Delete failed"),
+          onSuccess: () => toast.success(t("trashRoute.permanentlyDeleted")),
+          onError: (err: any) =>
+            toast.error(err?.message ?? t("trashRoute.deleteFailed")),
         },
       );
     }
@@ -88,21 +92,47 @@ export default function TrashRoute() {
   };
 
   const selectedIds = Array.from(selected);
+  const allSelected =
+    recordings.length > 0 && selected.size === recordings.length;
+
+  const toggleSelectAll = () => {
+    setSelected((prev) =>
+      prev.size === recordings.length
+        ? new Set()
+        : new Set(recordings.map((r) => r.id)),
+    );
+  };
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
       <PageHeader>
-        <h1 className="text-base font-semibold text-foreground">Trash</h1>
+        <h1 className="text-base font-semibold text-foreground">
+          {t("trashRoute.title")}
+        </h1>
         <div className="ml-auto flex items-center gap-2">
           {selectedIds.length > 0 && (
             <>
+              <span className="text-sm text-muted-foreground">
+                {t("trashRoute.selected", { count: selectedIds.length })}
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="gap-1.5"
+                onClick={toggleSelectAll}
+              >
+                {allSelected
+                  ? t("trashRoute.deselectAll")
+                  : t("trashRoute.selectAll")}
+              </Button>
               <Button
                 size="sm"
                 variant="outline"
                 className="gap-1.5"
                 onClick={() => restoreAll(selectedIds)}
               >
-                <IconArrowBackUp className="h-3.5 w-3.5" /> Restore
+                <IconArrowBackUp className="h-3.5 w-3.5" />{" "}
+                {t("trashRoute.restore")}
               </Button>
               <Button
                 size="sm"
@@ -110,7 +140,8 @@ export default function TrashRoute() {
                 className="gap-1.5"
                 onClick={() => setConfirmPurge(true)}
               >
-                <IconTrash className="h-3.5 w-3.5" /> Delete forever
+                <IconTrash className="h-3.5 w-3.5" />{" "}
+                {t("trashRoute.deleteForever")}
               </Button>
             </>
           )}
@@ -147,20 +178,22 @@ export default function TrashRoute() {
       <AlertDialog open={confirmPurge} onOpenChange={setConfirmPurge}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete forever?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("trashRoute.deleteForeverTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedIds.length} recording
-              {selectedIds.length === 1 ? "" : "s"} will be permanently removed.
-              This cannot be undone.
+              {t("trashRoute.bulkDeleteDescription", {
+                count: selectedIds.length,
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => purgeAll(selectedIds)}
             >
-              Delete forever
+              {t("trashRoute.deleteForever")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -174,13 +207,15 @@ export default function TrashRoute() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete forever?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("trashRoute.deleteForeverTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This recording will be permanently removed. This cannot be undone.
+              {t("trashRoute.singleDeleteDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
@@ -188,7 +223,7 @@ export default function TrashRoute() {
                 setSinglePurgeId(null);
               }}
             >
-              Delete forever
+              {t("trashRoute.deleteForever")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

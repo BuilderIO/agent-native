@@ -1,6 +1,3 @@
-import { BubbleMenu } from "@tiptap/react/menus";
-import type { Editor } from "@tiptap/react";
-import { NodeSelection, type EditorState } from "@tiptap/pm/state";
 import {
   IconBold,
   IconItalic,
@@ -13,13 +10,18 @@ import {
   IconH3,
   IconH4,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { NodeSelection, type EditorState } from "@tiptap/pm/state";
+import type { Editor } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
 import { useState } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
 import { captureAnchor, type CommentTextAnchor } from "./comment-anchors";
 
 export type CommentRange = { from: number; to: number };

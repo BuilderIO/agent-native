@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
 import {
   useCollaborativeDoc,
   type CollabUser,
 } from "@agent-native/core/client";
+import { useEffect, useState } from "react";
 
 const TAB_ID = `slides-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 

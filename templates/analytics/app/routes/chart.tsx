@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useSearchParams } from "react-router";
+
 import { SqlChart } from "@/components/dashboard/SqlChart";
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 

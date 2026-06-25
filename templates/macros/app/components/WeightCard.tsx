@@ -1,11 +1,12 @@
-import { useState } from "react";
+import type { Weight } from "@shared/types";
 import {
   IconTrash,
   IconPencil,
   IconLoader2,
   IconScale,
 } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
+import { useState } from "react";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,7 +18,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Weight } from "@shared/types";
+import { Button } from "@/components/ui/button";
 
 interface WeightCardProps {
   weight: Weight;

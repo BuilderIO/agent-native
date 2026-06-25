@@ -1,4 +1,3 @@
-import { useState, type MouseEvent } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconCopy,
@@ -13,6 +12,8 @@ import {
   IconX,
   IconZoomIn,
 } from "@tabler/icons-react";
+import { useState, type MouseEvent } from "react";
+
 import { Dialog, DialogOverlay, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -22,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+
 import { copyImage, downloadImage } from "./image-actions";
 
 /**

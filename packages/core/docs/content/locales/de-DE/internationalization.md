@@ -1,0 +1,147 @@
+---
+title: "Internationalisierung"
+description: "Lokalisieren Sie Agent Native-Apps mit freigegebenen Gebietsschemakatalogen, einer Sprachauswahl, einem Browser-Sprach-Fallback und länderspezifischen Dokumentinhalten."
+---
+
+# Internationalisierung
+
+Agent Native-Apps können Framework und Vorlage UI über die gemeinsame lokalisieren
+`@agent-native/core/client/i18n`-Laufzeit. Das Framework speichert die Daten des Benutzers
+Sprachauswahl in den SQL-Einstellungen, macht sie als actions verfügbar und greift auf
+Englisch, wenn eine App eine Zeichenfolge noch nicht übersetzt hat.
+
+## Laufzeit
+
+Verwenden Sie den Anbieter über `AppProviders`:
+
+```tsx
+import { AppProviders, getLocaleInitScript } from "@agent-native/core/client";
+import { i18nCatalog } from "./i18n";
+
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+<script
+  data-agent-native-locale-init
+  dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+/>;
+
+<AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+  <Outlet />
+</AppProviders>;
+```
+
+`getLocaleInitScript()` legt die anfänglichen Werte `lang`, `dir` und
+`window.__AGENT_NATIVE_LOCALE__` bevor React hydratisiert. Öffentliche SSR-Routen können
+Rufen Sie `resolveLocaleFromRequest()` von `@agent-native/core/server` auf und übergeben Sie
+Gebietsschema/Katalog in diesem Skript aufgelöst, um Nichtübereinstimmungen bei der Hydratation zu vermeiden.
+
+## Kataloge
+
+Jede lokalisierte Vorlage behält Kataloge unter `app/i18n/`:
+
+```ts
+// app/i18n/index.ts
+import enUS from "./en-US";
+import type { AgentNativeI18nCatalog } from "@agent-native/core/client";
+
+export const i18nCatalog = {
+  sourceLocale: "en-US",
+  messages: enUS,
+  loadMessages: async (locale) => {
+    switch (locale) {
+      case "zh-CN":
+        return (await import("./zh-CN")).default;
+      default:
+        return null;
+    }
+  },
+} satisfies AgentNativeI18nCatalog;
+```
+
+Always bundle `en-US`. Dynamic-import non-English catalogs so users only
+Laden Sie das aktive Gebietsschema herunter. Die unterstützten Gebietsschemacodes sind `en-US`, `zh-CN`,
+`es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN` und `ar-SA`.
+
+## UI
+
+Verwenden Sie `useT()` für Schnittstellenzeichenfolgen und fügen Sie `<LanguagePicker />` in die App ein
+`/settings`-Seite. Sidebar-Apps sollten **Einstellungen** in der App-Sidebar anzeigen;
+Das Sprachsymbol in der Kopfzeile ist nur eine Verknüpfung.
+
+```tsx
+import {
+  LanguagePicker,
+  openAgentSettings,
+  useT,
+} from "@agent-native/core/client";
+
+function SettingsPage() {
+  const t = useT();
+  return (
+    <>
+      <h2>{t("settings.languageTitle")}</h2>
+      <LanguagePicker label={t("settings.languageLabel")} />
+
+      <h2>{t("settings.agentTitle")}</h2>
+      <p>{t("settings.agentDescription")}</p>
+      <button type="button" onClick={() => openAgentSettings()}>
+        {t("settings.openAgentSettings")}
+      </button>
+    </>
+  );
+}
+```
+
+Das Steuerelement „Agenteneinstellungen“ sollte die Registerkarte „Einstellungen“ der rechten Agentenseitenleiste öffnen
+für Modell, API-Taste, Automatisierung, Sprache und andere Steuerelemente auf Framework-Ebene.
+Apps duplizieren möglicherweise hochwertige Framework-Einstellungen auf ihrer eigenen Einstellungsseite
+wenn die Einstellung für die App von zentraler Bedeutung ist, die Registerkarte mit den Seitenleisteneinstellungen jedoch erhalten bleibt
+Quelle der Wahrheit.
+
+Verwenden Sie `useFormatters()` für Datumsangaben, Zahlen, relative Zeit und Listen. Nicht einfügen
+Gebietsabhängige Datums-/Zahlenformatierung in Übersetzungszeichenfolgen.
+
+## Docs-Site-Inhalt {#docs-site-content}
+
+Öffentliche Dokumentseiten verwenden denselben Kernanbieter, jedoch mit
+`persistPreference={false}`, sodass anonymer Dokumentenverkehr localStorage und
+Browsersprache statt SQL Einstellungen actions. Die englische Quelle bleibt in
+`packages/core/docs/content/*.md`. Lokalisierte Seitenüberschreibungen werden direkt daneben unter
+`packages/core/docs/content/locales/<locale>/<slug>.md`.
+
+Verwenden Sie dieselben BCP-47-Gebietsschemacodes wie App-Kataloge. Behalten Sie den gleichen Slug wie der
+Englische Quelle, stabile Anker mit `{#anchor}` bei übersetzten Überschriften beibehalten
+und hinterlassen Sie Routen, Aktionsnamen, Protokollfelder, Umgebungsvariablen und Anbieternamen
+unübersetzt. Wenn ein Gebietsschema kein übersetztes Markdown für eine Seite hat, die Dokumentationsseite
+greift für diese Seite auf Englisch zurück, während Navigation und Chrome weiterhin lokalisiert werden.
+
+Docs-Markdown kann strukturierte `an-*`-Visual-Blocks enthalten. Übersetze ihre sichtbaren Prose-Felder, wo es sinnvoll ist, etwa file-tree-Titel und `entries[].note`, Callout-Bodies, Tab-Labels sowie annotated-code-Labels/Notes. Lass stabile Identifikatoren unverändert: Dateinamen, Pfade, env vars, Routenstrings, Action-Namen, Language-Tags, Code-Snippets, JSON-Keys und Protokollnamen.
+
+## Actions und Beharrlichkeit
+
+Jede App erbt:
+
+- `get-localization-preference` – liest den `{ locale }` des aktuellen Benutzers
+- `set-localization-preference` – Legen Sie `"system"` oder ein unterstütztes Gebietsschema fest
+
+Der dauerhafte Wert lebt in benutzerbezogenen SQL-Einstellungen unter `localization`.
+`localStorage` wird nur zur Vorhydratation und zum anonymen Fallback verwendet. Das aktive
+Das Gebietsschema wird als Umgebungskontext in den Anwendungsstatus gespiegelt, sodass Agenten es sehen können
+die aktuelle Schnittstellensprache.
+
+## Wache
+
+Ausführen:
+
+```bash
+pnpm guard:i18n-catalogs
+```
+
+Der Wächter überprüft unterstützte Gebietsschema-Dateinamen, Schlüsselparität und Platzhalterparität.
+veraltete Schlüssel und CLDR Pluralkategorien bis `Intl.PluralRules`. Es prüft
+Struktur, nicht Übersetzungsqualität; Gut sichtbare Saiten brauchen immer noch Menschen
+Rezension.
+
+Übersetzen Sie keine stabilen Bezeichner wie Aktionsnamen, Routen, Enum-Werte usw.
+App-Statusschlüssel, Datenbankwerte, Protokollfelder, Umgebungsvariablennamen oder Anbieter
+Namen.

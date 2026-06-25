@@ -8,6 +8,7 @@
  * Cost is stored as "centicents" (1/100th of a cent) for integer precision.
  */
 import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 
 /**
  * Per-million-token pricing in cents. Cache read is typically ~10% of
@@ -232,6 +233,11 @@ async function ensureUsageTable(): Promise<void> {
           // Column already exists — ignore
         }
       }
+
+      // Older deployments created `created_at` as 32-bit `INTEGER`; on Postgres
+      // the `Date.now()` written per run by recordUsage() overflows int4. Widen
+      // it in place (no-op once done / on fresh BIGINT databases).
+      await widenIntColumnsToBigInt("token_usage", ["created_at"]);
 
       try {
         await client.execute(

@@ -1,8 +1,10 @@
-import { useEffect } from "react";
 import {
   AgentChatSurface,
   markAgentChatHomeHandoff,
+  useT,
 } from "@agent-native/core/client";
+import { useEffect } from "react";
+
 import { TAB_ID } from "@/lib/tab-id";
 
 const SEO_TITLE =
@@ -23,6 +25,8 @@ export function meta() {
 }
 
 export default function AskRoute() {
+  const t = useT();
+
   useEffect(() => {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
@@ -47,15 +51,15 @@ export default function AskRoute() {
         showTabBar={false}
         dynamicSuggestions={false}
         suggestions={[]}
-        emptyStateText="Ask Brain about company knowledge."
+        emptyStateText={t("ask.emptyState")}
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
-        composerPlaceholder="Ask about company knowledge..."
+        composerPlaceholder={t("ask.composerPlaceholder")}
         composerSlot={
           <div className="brain-chat-intro">
-            <h1>What do you want to know?</h1>
-            <p>Brain answers from cited company knowledge.</p>
+            <h1>{t("ask.heroTitle")}</h1>
+            <p>{t("ask.heroDescription")}</p>
           </div>
         }
       />

@@ -1,8 +1,9 @@
 # Assets — Agent Guide
 
 Assets is an agent-native asset library and generation workspace. The agent
-manages libraries, images, generated assets, inline embeds, notifications,
-collaboration, and A2A asset requests through actions and SQL state.
+manages libraries, images, generated assets, inline MCP App pickers,
+notifications, collaboration, and portable asset requests through actions and
+SQL state.
 
 Detailed library, generation, image, embed, and engine rules live in
 `.agents/skills/`.
@@ -61,9 +62,10 @@ Read the relevant skill before deeper work:
   plain image-generation requests. Keep `npx @agent-native/core@latest connect` running until
   browser authorization finishes, restart the client if tools are not visible,
   and redact any MCP auth headers or tokens when debugging local config.
-- For human-in-the-loop image creation, call `open-asset-picker` with `prompt`,
-  `autoGenerate: true`, and `count: 3` so the picker opens with candidates to
-  preview, tweak by preset/aspect/count, and choose.
+- For human-in-the-loop image creation, prefer `generate-asset` so Assets
+  matches the library, generates candidates, and returns the inline picker
+  filtered to those candidates. Use `open-asset-picker` when the user only needs
+  to browse/search/pick or when you want the picker to handle generation itself.
 - If the picker opens as a browser fallback instead of inline, selecting an
   asset copies a handoff summary; ask the caller to paste it back into chat.
 - Treat Codex, Claude Code, and Claude Desktop Code as link-out hosts for MCP

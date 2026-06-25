@@ -1,5 +1,33 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useParams, useNavigate, Link } from "react-router";
+import {
+  useActionQuery,
+  useActionMutation,
+  useSession,
+  useCollaborativeDoc,
+  isReconcileLeadClient,
+  generateTabId,
+  emailToColor,
+  emailToName,
+  PresenceBar,
+  AgentToggleButton,
+  NotificationsBell,
+  ShareButton,
+  isEmbedAuthActive,
+  sendToAgentChat,
+  getBrowserTabId,
+  readClientAppState,
+  setClientAppState,
+  useReconciledState,
+  usePresence,
+  useFollowUser,
+  LiveCursorOverlay,
+  type CollabUser,
+  type PromptComposerSubmitOptions,
+} from "@agent-native/core/client";
+import type { TweakDefinition } from "@shared/api";
+import {
+  resolveTweaksToCssVars,
+  type TweakSelections,
+} from "@shared/resolve-tweaks";
 import {
   IconArrowLeft,
   IconPencil,
@@ -27,35 +55,30 @@ import {
   IconArrowBackUp,
   IconArrowForwardUp,
 } from "@tabler/icons-react";
-import * as Y from "yjs";
-import {
-  useActionQuery,
-  useActionMutation,
-  useSession,
-  useCollaborativeDoc,
-  isReconcileLeadClient,
-  generateTabId,
-  emailToColor,
-  emailToName,
-  PresenceBar,
-  AgentToggleButton,
-  NotificationsBell,
-  ShareButton,
-  isEmbedAuthActive,
-  sendToAgentChat,
-  useReconciledState,
-  usePresence,
-  useFollowUser,
-  LiveCursorOverlay,
-  type CollabUser,
-  type PromptComposerSubmitOptions,
-} from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useParams, useNavigate, Link } from "react-router";
+import { toast } from "sonner";
+import * as Y from "yjs";
 
+import { DesignCanvas } from "@/components/design/DesignCanvas";
+import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
+import { EditPanel } from "@/components/design/EditPanel";
+import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
+import { QuestionFlow } from "@/components/design/QuestionFlow";
+import { TweaksPanel } from "@/components/design/TweaksPanel";
+import type {
+  ElementInfo,
+  DeviceFrameType,
+  ViewportTab,
+} from "@/components/design/types";
+import { ZOOM_PRESETS } from "@/components/design/types";
+import { VariantGrid } from "@/components/design/VariantGrid";
+import { VariantHandoffCard } from "@/components/design/VariantHandoffCard";
+import PromptPopover from "@/components/editor/PromptDialog";
+import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { useOpenMobileSidebar } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,16 +89,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { DesignCanvas } from "@/components/design/DesignCanvas";
-import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
-import { EditPanel } from "@/components/design/EditPanel";
-import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
-import { QuestionFlow } from "@/components/design/QuestionFlow";
-import { TweaksPanel } from "@/components/design/TweaksPanel";
-import { VariantGrid } from "@/components/design/VariantGrid";
-import { VariantHandoffCard } from "@/components/design/VariantHandoffCard";
-import PromptPopover from "@/components/editor/PromptDialog";
-import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
@@ -83,14 +104,6 @@ import {
   DESIGN_VARIANT_PICKED_EVENT,
   useVariantFlow,
 } from "@/hooks/use-variant-flow";
-import { useOpenMobileSidebar } from "@/components/layout/Layout";
-import type {
-  ElementInfo,
-  DeviceFrameType,
-  ViewportTab,
-} from "@/components/design/types";
-import { ZOOM_PRESETS } from "@/components/design/types";
-import { prettyScreenName } from "@/lib/screen-names";
 import {
   clearPendingGeneration,
   hasFreshPendingGeneration,
@@ -99,20 +112,20 @@ import {
   PENDING_GENERATION_STALE_MS,
   readPendingGeneration,
 } from "@/lib/pending-generation";
-import type { TweakDefinition } from "@shared/api";
-import {
-  resolveTweaksToCssVars,
-  type TweakSelections,
-} from "@shared/resolve-tweaks";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 
 const TAB_ID = generateTabId();
+
+// Selection is tab-scoped (like navigation) so a second editor tab cannot
+// overwrite this tab's selection context. The global key is mirrored as a
+// fallback for CLI/external agents that do not send a browser tab id.
+function designSelectionStateKeys(): string[] {
+  const tabId = getBrowserTabId();
+  return tabId
+    ? [`design-selection:${tabId}`, "design-selection"]
+    : ["design-selection"];
+}
 // Stable symbol used as the Yjs transaction origin for all local user edits.
 // The UndoManager tracks only this origin so remote peers' and the agent's
 // edits are never undone by this user's Cmd+Z.
@@ -317,6 +330,8 @@ export default function DesignEditor() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const undoManagerRef = useRef<Y.UndoManager | null>(null);
+  const persistedSelectionStateRef = useRef<string | null>(null);
+  const designSelectionOwnerIdRef = useRef(`${TAB_ID}:${generateTabId()}`);
   const [tweakSaveActive, setTweakSaveActive] = useState(false);
   // Shared visual-editor modes (overlays the iframe). drawMode toggles the
   // pencil overlay, pinMode lets the user drop comment pins. They're
@@ -340,6 +355,26 @@ export default function DesignEditor() {
   const [promptDesignSystemId, setPromptDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
+
+  useEffect(() => {
+    return () => {
+      void (async () => {
+        const keys = designSelectionStateKeys();
+        const current = await readClientAppState(keys[0]).catch(() => null);
+        const ownerId =
+          current && typeof current === "object"
+            ? (current as { ownerId?: unknown }).ownerId
+            : undefined;
+        if (ownerId !== designSelectionOwnerIdRef.current) return;
+        persistedSelectionStateRef.current = null;
+        for (const key of designSelectionStateKeys()) {
+          await setClientAppState(key, null, {
+            keepalive: true,
+          }).catch(() => {});
+        }
+      })();
+    };
+  }, []);
   // When generation stalls we keep the original prompt + files around so the
   // user can retry with one click instead of re-typing. Cleared as soon as the
   // user kicks off a new run (retry or fresh prompt).
@@ -1414,6 +1449,24 @@ export default function DesignEditor() {
       mode,
     };
     (window as any).__designSelection = selection;
+    const persistedSelection = {
+      designId: selection.designId,
+      designTitle: selection.designTitle,
+      activeFileId: selection.activeFileId,
+      activeFilename: selection.activeFilename,
+      selectedElement: selection.selectedElement,
+      mode: selection.mode,
+      ownerId: designSelectionOwnerIdRef.current,
+    };
+    const persistedKey = JSON.stringify(persistedSelection);
+    if (persistedSelectionStateRef.current !== persistedKey) {
+      persistedSelectionStateRef.current = persistedKey;
+      for (const key of designSelectionStateKeys()) {
+        setClientAppState(key, persistedSelection, {
+          keepalive: true,
+        }).catch(() => {});
+      }
+    }
     const el = document.documentElement;
     el.dataset.designId = id;
     if (activeFile?.id) el.dataset.fileId = activeFile.id;

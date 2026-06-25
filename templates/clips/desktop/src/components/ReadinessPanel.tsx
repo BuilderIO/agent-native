@@ -1,6 +1,3 @@
-import { useState, useCallback, useEffect } from "react";
-import { isMacPlatform } from "../lib/platform";
-import { invoke } from "@tauri-apps/api/core";
 import {
   IconChevronRight,
   IconChevronDown,
@@ -8,6 +5,10 @@ import {
   IconCircleOff,
   IconRefresh,
 } from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
+import { useState, useCallback, useEffect } from "react";
+
+import { isMacPlatform } from "../lib/platform";
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
 type MacosPrivacyPane =

@@ -1,13 +1,14 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+
 import { defineAction } from "../../action.js";
+import { getDbExec } from "../../db/client.js";
+import { getAppProductionUrl } from "../../server/app-url.js";
+import { renderEmail, emailStrong } from "../../server/email-template.js";
+import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
 import { assertAccess, ForbiddenError } from "../access.js";
 import { requireShareableResource } from "../registry.js";
-import { sendEmail, isEmailConfigured } from "../../server/email.js";
-import { renderEmail, emailStrong } from "../../server/email-template.js";
-import { getAppProductionUrl } from "../../server/app-url.js";
-import { getDbExec } from "../../db/client.js";
 import {
   getExtensionShareChangeTargets,
   notifyExtensionShareChanged,

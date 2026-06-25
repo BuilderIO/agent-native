@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
-import { IconChartLine, IconDownload, IconUsers } from "@tabler/icons-react";
 import { appBasePath, useActionQuery } from "@agent-native/core/client";
+import { IconChartLine, IconDownload, IconUsers } from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+
+import { PageHeader } from "@/components/library/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -12,10 +13,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 import { EngagementChart } from "./engagement-chart";
-import { TopVideosTable } from "./top-videos-table";
 import { TopCreatorsTable } from "./top-creators-table";
-import { PageHeader } from "@/components/library/page-header";
+import { TopVideosTable } from "./top-videos-table";
 
 interface InsightsResponse {
   organizationId: string | null;
@@ -71,7 +73,7 @@ export function InsightsHub() {
         <h1 className="text-base font-semibold tracking-tight truncate">
           Insights
         </h1>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ms-auto flex items-center gap-2">
           <Select value={days} onValueChange={setDays}>
             <SelectTrigger className="h-8 w-36">
               <SelectValue placeholder="Period" />
@@ -85,7 +87,7 @@ export function InsightsHub() {
           </Select>
           <Button variant="outline" size="sm" className="h-8" asChild>
             <a href={csvUrl} download>
-              <IconDownload className="size-4 mr-1.5" />
+              <IconDownload className="size-4 me-1.5" />
               Export CSV
             </a>
           </Button>

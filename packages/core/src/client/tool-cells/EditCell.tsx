@@ -9,13 +9,14 @@
  * Collapsed by default beyond MAX_COLLAPSED_LINES; expand button shows all.
  */
 
-import { memo, useMemo, useState } from "react";
 import {
   IconChevronDown,
   IconFile,
   IconFileDiff,
   IconLoader2,
 } from "@tabler/icons-react";
+import { memo, useMemo, useState } from "react";
+
 import { cn } from "../utils.js";
 
 export interface EditCellMeta {

@@ -1,18 +1,20 @@
+import fs from "fs";
+import path from "path";
+
+import { getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   setResponseStatus,
   readMultipartFormData,
 } from "h3";
-import path from "path";
-import fs from "fs";
 import { nanoid } from "nanoid";
-import { getSession } from "@agent-native/core/server";
-import { tenantUploadDir } from "../lib/tenant-files.js";
-import { canSaveAsUploadedAsset, uploadImageAsset } from "./assets.js";
+
 import {
   SLIDES_REFERENCE_FILE_ERROR_LABEL,
   isSlidesReferenceFileExtension,
 } from "../../shared/upload-types";
+import { tenantUploadDir } from "../lib/tenant-files.js";
+import { canSaveAsUploadedAsset, uploadImageAsset } from "./assets.js";
 
 export const MAX_REFERENCE_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_FIG_REFERENCE_FILE_BYTES = 200 * 1024 * 1024;

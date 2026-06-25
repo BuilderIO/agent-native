@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { IconEdit } from "@tabler/icons-react";
-import { toast } from "sonner";
 import { useActionMutation } from "@agent-native/core/client";
-import { cn } from "@/lib/utils";
+import { IconEdit } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { toast } from "sonner";
+
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
+import { cn } from "@/lib/utils";
 
 interface EditableRecordingTitleProps {
   recordingId: string;
@@ -219,7 +220,7 @@ export function EditableRecordingTitle({
         startEditing();
       }}
       className={cn(
-        "group/title -mx-1 flex min-w-0 max-w-full items-center gap-1 rounded px-1 text-left",
+        "group/title -mx-1 flex min-w-0 max-w-full items-center gap-1 rounded px-1 text-start",
         "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className,
       )}

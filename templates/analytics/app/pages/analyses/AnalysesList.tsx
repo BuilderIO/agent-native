@@ -1,6 +1,14 @@
-import { useState } from "react";
+import {
+  callAction,
+  useSendToAgentChat,
+  useChangeVersions,
+} from "@agent-native/core/client";
+import { IconFlask, IconClock, IconSearch } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link } from "react-router";
+
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -8,14 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconFlask, IconClock, IconSearch } from "@tabler/icons-react";
-import {
-  callAction,
-  useSendToAgentChat,
-  useChangeVersions,
-} from "@agent-native/core/client";
 
 interface AnalysisSummary {
   id: string;
@@ -78,13 +79,13 @@ export default function AnalysesList() {
           </p>
           {analyses && analyses.length > 0 && (
             <div className="relative">
-              <IconSearch className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60 pointer-events-none" />
+              <IconSearch className="absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60 pointer-events-none" />
               <input
                 type="search"
                 placeholder="Search analyses…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-8 rounded-md border border-input bg-background pl-8 pr-3 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring"
+                className="h-8 rounded-md border border-input bg-background ps-8 pe-3 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
           )}

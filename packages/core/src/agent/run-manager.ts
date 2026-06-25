@@ -1,6 +1,5 @@
-import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
-import { EngineError } from "./engine/types.js";
 import { captureError } from "../server/capture-error.js";
+import { EngineError } from "./engine/types.js";
 import {
   insertRun,
   insertRunEvent,
@@ -15,10 +14,12 @@ import {
   updateRunHeartbeat,
   bumpRunProgress,
   reapIfStale,
+  reapUnclaimedBackgroundRun,
   ensureTerminalRunEvent,
   setRunError,
   STALE_RUN_ERROR_EVENT,
 } from "./run-store.js";
+import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
 
 export interface ActiveRun {
   runId: string;
@@ -64,8 +65,41 @@ export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 40_000;
  * env value just guarantees the cutoff is a hard error instead of a graceful
  * hand-off. Any resolved value above this is clamped down when hosted. Local
  * dev (non-hosted) is left alone so long-running local turns aren't chunked.
+ *
+ * IMPORTANT: this clamp is for the INTERACTIVE / foreground path and must NOT
+ * be raised. The foreground POST still rides a synchronous serverless function
+ * (~60-65s wall), so 40s remains correct there. The only sanctioned exception
+ * is the opt-in `backgroundFunction` mode (see
+ * `BACKGROUND_SOFT_TIMEOUT_CEILING_MS`), which runs inside a Netlify background
+ * function (no ~60s wall, 15-min budget) and therefore can safely outlast 40s.
  */
 export const HOSTED_SOFT_TIMEOUT_CEILING_MS = 40_000;
+
+/**
+ * Hard ceiling for the soft timeout when a run executes inside a Netlify
+ * background function (any deployed function whose name ends in `-background`).
+ * Background functions return 202 immediately and run detached for up to 15
+ * minutes, so the ~60s synchronous function wall that 40s defends against does
+ * NOT apply. 13 minutes leaves ~2 min of headroom under Netlify's 15-min hard
+ * kill to abort, persist the partial turn, write the terminal event, and (for
+ * the rare >13-min turn) self-fire another background continuation.
+ *
+ * This ceiling is used ONLY when a caller explicitly opts in with
+ * `backgroundFunction: true`. It does not change the foreground/interactive
+ * ceiling and does not fire unless the durable-background path dispatched the
+ * run into a background function. Per the design doc Guardrail, the 40s
+ * interactive clamp stays correct for every non-background run.
+ */
+export const BACKGROUND_SOFT_TIMEOUT_CEILING_MS = 13 * 60_000; // 780_000
+
+/**
+ * Default soft-timeout budget for a background-function run when the caller
+ * does not pass an explicit `softTimeoutMs`. Same value as the ceiling — we
+ * want a background turn to use nearly its whole 15-min budget before handing
+ * off to a chained background continuation.
+ */
+export const DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS =
+  BACKGROUND_SOFT_TIMEOUT_CEILING_MS;
 
 /** Default SQL retention for completed run event logs (24 hours). */
 export const DEFAULT_COMPLETED_RUN_RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -137,10 +171,28 @@ export interface StartRunOptions {
    * share one `turnId` so the durable assistant message can be folded across
    * them instead of dropped per-run. Defaults to the runId (turn == run). */
   turnId?: string;
+  /**
+   * Opt into the durable-background-function soft-timeout regime for THIS run
+   * only. When true, `resolveRunSoftTimeoutMs` lifts the hosted ceiling from
+   * 40s to ~13min (`BACKGROUND_SOFT_TIMEOUT_CEILING_MS`) because the run is
+   * executing inside a Netlify background function (no ~60s wall). Off by
+   * default — the foreground/interactive path never sets this, so its 40s
+   * clamp is unchanged. See the design doc + the durable-background dispatch
+   * decision in production-agent.ts.
+   */
+  backgroundFunction?: boolean;
 }
 
 export interface ResolveRunSoftTimeoutOptions {
   useHostedDefault?: boolean;
+  /**
+   * Resolve the soft timeout for a run executing inside a Netlify background
+   * function. Lifts the hosted clamp to `BACKGROUND_SOFT_TIMEOUT_CEILING_MS`
+   * (~13min) for this invocation only and, when no override/env is supplied,
+   * defaults to `DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS`. Does NOT change the
+   * foreground ceiling. Off by default.
+   */
+  backgroundFunction?: boolean;
 }
 
 function isHostedRuntime(): boolean {
@@ -172,15 +224,21 @@ export function resolveRunSoftTimeoutMs(
   options?: ResolveRunSoftTimeoutOptions,
 ): number {
   const hosted = isHostedRuntime();
+  const background = options?.backgroundFunction === true;
+  // The interactive/foreground ceiling is 40s — the synchronous serverless
+  // function wall. A background-function run (opt-in only) has no ~60s wall, so
+  // it is allowed to outlast that and is clamped to the larger 13-min ceiling
+  // instead. The 40s clamp for non-background hosted runs is unchanged.
+  const ceiling = background
+    ? BACKGROUND_SOFT_TIMEOUT_CEILING_MS
+    : HOSTED_SOFT_TIMEOUT_CEILING_MS;
   // A configured/env soft timeout that exceeds the upstream walls can never
   // actually fire (the gateway/function kills the run first), so clamp it down
   // on hosted runtimes. This is what makes auto_continue reach the client
   // instead of the run dying as builder_gateway_timeout / stale_run. `0` means
   // "disabled" and is never clamped up.
   const clampHosted = (ms: number): number =>
-    hosted && ms > HOSTED_SOFT_TIMEOUT_CEILING_MS
-      ? HOSTED_SOFT_TIMEOUT_CEILING_MS
-      : ms;
+    hosted && ms > ceiling ? ceiling : ms;
 
   if (typeof overrideMs === "number" && Number.isFinite(overrideMs)) {
     return clampHosted(Math.max(0, overrideMs));
@@ -189,6 +247,11 @@ export function resolveRunSoftTimeoutMs(
   if (envValue !== undefined) {
     const raw = Number(envValue);
     if (Number.isFinite(raw) && raw >= 0) return clampHosted(raw);
+  }
+  // A background-function run uses the full background budget by default; the
+  // foreground default (40s) is unchanged.
+  if (background) {
+    return hosted ? DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS : 0;
   }
   return options?.useHostedDefault && hosted
     ? DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS
@@ -343,6 +406,7 @@ export function startRun(
   }, 1500);
   const softTimeoutMs = resolveRunSoftTimeoutMs(options?.softTimeoutMs, {
     useHostedDefault: options?.useHostedSoftTimeoutDefault === true,
+    backgroundFunction: options?.backgroundFunction === true,
   });
   const softTimeoutTimer =
     softTimeoutMs > 0
@@ -959,6 +1023,14 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   status: string;
   heartbeatAt: number;
   lastProgressAt: number | null;
+  /** How the run was dispatched (NULL/foreground, background, background-processing). */
+  dispatchMode?: string | null;
+  /**
+   * Last reached `_process-run` worker stage as a JSON string
+   * `{stage,detail?,at}`. Surfaced so a silent background-worker death is
+   * diagnosable from the client WITHOUT the unreadable bg-fn logs.
+   */
+  diagStage?: string | null;
 } | null> {
   // Check memory first — return both running AND recently-completed runs
   // that still have events in memory. This allows sub-agent tabs to replay
@@ -992,6 +1064,20 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
     const sqlRun = await getRunByThread(threadId, { includeTerminal: true });
     if (!sqlRun) return null;
     if (sqlRun.status === "running") {
+      // FALLBACK HARDENING: a background-dispatched run that is still UNCLAIMED
+      // (dispatch_mode === 'background', never flipped to 'background-processing')
+      // past the tight grace means the bg-fn worker never started — a silent
+      // async-worker death that the 202-ack inline fallback can't catch. Reap it
+      // early and recoverably (background_worker_never_started) so the run no
+      // longer hangs for the full 90s window and the client's recoverable-error
+      // path can re-drive the turn. Only fires when there is provably no live
+      // worker; a claimed/heartbeating run is left alone by the conditional SQL.
+      if (sqlRun.dispatchMode === "background") {
+        const recovered = await reapUnclaimedBackgroundRun(sqlRun.id).catch(
+          () => false,
+        );
+        if (recovered) return null;
+      }
       // If the producer is dead (no recent heartbeat), reap before the
       // client can see a stale "running" status and enter a reconnect
       // loop it can never exit.
@@ -1004,6 +1090,8 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         status: sqlRun.status,
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
+        dispatchMode: sqlRun.dispatchMode,
+        diagStage: sqlRun.diagStage,
       };
     }
     if (sqlRun.status === "completed" || sqlRun.status === "errored") {
@@ -1029,6 +1117,8 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         status: sqlRun.status,
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
+        dispatchMode: sqlRun.dispatchMode,
+        diagStage: sqlRun.diagStage,
       };
     }
   } catch {

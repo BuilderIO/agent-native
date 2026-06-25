@@ -1,57 +1,4 @@
 import {
-  Fragment,
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  useRef,
-} from "react";
-import { useSearchParams, useParams, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-  IconArchive,
-  IconClock,
-  IconDots,
-  IconEye,
-  IconEyeOff,
-  IconInfoCircle,
-  IconPencil,
-  IconPlus,
-  IconTrash,
-  IconUser,
-  IconX,
-} from "@tabler/icons-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   ShareButton,
   PresenceBar,
   useCollaborativeDoc,
@@ -65,26 +12,78 @@ import {
   useActionMutation,
   type CollabUser,
 } from "@agent-native/core/client";
-import { SqlChartCard } from "./SqlChartCard";
 import {
-  DashboardFilterBar,
-  FILTER_PARAM_PREFIX,
-  resolveFilterVars,
-} from "./DashboardFilterBar";
-import { interpolate } from "./interpolate";
-import { serializePanelSql } from "./panel-sql";
-import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
-import { ViewsMenu } from "./ViewsMenu";
-import BlankDashboard from "../BlankDashboard";
+  useDroppable,
+  DndContext,
+  pointerWithin,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import {
-  clampDashboardColumns,
-  clampPanelWidth,
-  DEFAULT_DASHBOARD_COLUMNS,
-  type SqlDashboardConfig,
-  type SqlPanel,
-} from "./types";
-import { useUserPref } from "@/hooks/use-user-pref";
+  IconArchive,
+  IconClock,
+  IconDots,
+  IconEye,
+  IconEyeOff,
+  IconInfoCircle,
+  IconPencil,
+  IconPlus,
+  IconTrash,
+  IconUser,
+  IconX,
+} from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Fragment,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
+import { useSearchParams, useParams, useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import {
+  DashboardTitleSkeleton,
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
+import { useUserPref } from "@/hooks/use-user-pref";
 import { incrementItemView } from "@/lib/item-popularity";
 import {
   sqlDashboardPrefetchKey,
@@ -95,26 +94,34 @@ import {
   resourceCanManage,
   type ResourceAccess,
 } from "@/lib/resource-access";
+
+import BlankDashboard from "../BlankDashboard";
+import { DashboardSkeleton } from "../DashboardSkeleton";
 import {
-  DashboardTitleSkeleton,
-  useSetPageTitle,
-  useSetHeaderActions,
-} from "@/components/layout/HeaderActions";
+  buildDashboardPanelGroups,
+  dropSlotId,
+  movePanelToDropSlot,
+  readDropSlot,
+  removePanelFromLayout,
+  sameDropSlot,
+  type DashboardDropSlot,
+} from "./dashboard-layout";
 import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  KeyboardSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
+  DashboardFilterBar,
+  FILTER_PARAM_PREFIX,
+  resolveFilterVars,
+} from "./DashboardFilterBar";
+import { interpolate } from "./interpolate";
+import { serializePanelSql } from "./panel-sql";
+import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
+import { SqlChartCard } from "./SqlChartCard";
 import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  rectSortingStrategy,
-} from "@dnd-kit/sortable";
+  clampDashboardColumns,
+  DEFAULT_DASHBOARD_COLUMNS,
+  type SqlDashboardConfig,
+  type SqlPanel,
+} from "./types";
+import { ViewsMenu } from "./ViewsMenu";
 
 const TAB_ID = generateTabId();
 
@@ -145,6 +152,35 @@ function groupDashboardTabs(tabs: string[]): {
   }
 
   return { groups, hasNestedTabs };
+}
+
+function DashboardDropLine({
+  slot,
+  activeSlot,
+  disabled,
+}: {
+  slot: DashboardDropSlot;
+  activeSlot: DashboardDropSlot | null;
+  disabled: boolean;
+}) {
+  const { setNodeRef } = useDroppable({
+    id: dropSlotId(slot),
+    data: { slot },
+    disabled,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      aria-hidden="true"
+      data-active={sameDropSlot(activeSlot, slot) ? "true" : undefined}
+      className={
+        slot.type === "row"
+          ? "dashboard-row-drop-slot"
+          : "dashboard-column-drop-slot"
+      }
+    />
+  );
 }
 
 type FetchedDashboard = {
@@ -272,9 +308,15 @@ export default function SqlDashboardPage() {
   const [descriptionInput, setDescriptionInput] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [draggingPanelId, setDraggingPanelId] = useState<string | null>(null);
+  const [activeDropSlot, setActiveDropSlot] =
+    useState<DashboardDropSlot | null>(null);
   const viewedDashboardIdRef = useRef<string | null>(null);
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  const dashboardColumns = clampDashboardColumns(
+    dashboard?.columns ?? DEFAULT_DASHBOARD_COLUMNS,
+  );
   const isDemoDashboard = dashboard?.demo?.id === "demo-node-exporter";
   const showDemoIntro =
     isDemoDashboard && searchParams.get("demoIntro") === "1";
@@ -625,26 +667,14 @@ export default function SqlDashboardPage() {
       if (!dashboard) return;
       persist({
         ...dashboard,
-        panels: dashboard.panels.filter((p) => p.id !== panelId),
+        panels: removePanelFromLayout(
+          dashboard.panels,
+          panelId,
+          dashboardColumns,
+        ),
       });
     },
-    [dashboard, persist],
-  );
-
-  const toggleWidth = useCallback(
-    (panelId: string, gridColumns: number) => {
-      if (!dashboard) return;
-      const max = clampDashboardColumns(gridColumns);
-      persist({
-        ...dashboard,
-        panels: dashboard.panels.map((p) => {
-          if (p.id !== panelId) return p;
-          const current = clampPanelWidth(p.width, max);
-          return { ...p, width: current >= max ? 1 : max };
-        }),
-      });
-    },
-    [dashboard, persist],
+    [dashboard, dashboardColumns, persist],
   );
 
   const handleSavePanel = useCallback(
@@ -682,26 +712,42 @@ export default function SqlDashboardPage() {
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
   );
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setDraggingPanelId(String(event.active.id));
+  }, []);
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    setActiveDropSlot(readDropSlot(event.over?.data.current));
+  }, []);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
+      setDraggingPanelId(null);
+      setActiveDropSlot(null);
       if (!dashboard) return;
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-      const oldIndex = dashboard.panels.findIndex((p) => p.id === active.id);
-      const newIndex = dashboard.panels.findIndex((p) => p.id === over.id);
-      if (oldIndex === -1 || newIndex === -1) return;
+      const slot = readDropSlot(event.over?.data.current);
+      if (!slot) return;
+      const nextPanels = movePanelToDropSlot(
+        dashboard.panels,
+        String(event.active.id),
+        slot,
+        dashboardColumns,
+      );
+      if (nextPanels === dashboard.panels) return;
       persist({
         ...dashboard,
-        panels: arrayMove(dashboard.panels, oldIndex, newIndex),
+        panels: nextPanels,
       });
     },
-    [dashboard, persist],
+    [dashboard, dashboardColumns, persist],
   );
+
+  const handleDragCancel = useCallback(() => {
+    setDraggingPanelId(null);
+    setActiveDropSlot(null);
+  }, []);
 
   const handleSaveName = useCallback(() => {
     if (!dashboard) return;
@@ -794,42 +840,8 @@ export default function SqlDashboardPage() {
   // Group panels into "section blocks": each section starts a new block whose
   // grid uses the section's `columns` (falling back to the dashboard default).
   // Panels before any section go in an initial unsectioned block.
-  const dashboardColumns = clampDashboardColumns(
-    dashboard?.columns ?? DEFAULT_DASHBOARD_COLUMNS,
-  );
   const panelGroups = useMemo(() => {
-    const groups: Array<{
-      key: string;
-      section: SqlPanel | null;
-      panels: SqlPanel[];
-      columns: number;
-    }> = [];
-    let current: {
-      key: string;
-      section: SqlPanel | null;
-      panels: SqlPanel[];
-      columns: number;
-    } = {
-      key: "intro",
-      section: null,
-      panels: [],
-      columns: dashboardColumns,
-    };
-    for (const panel of visiblePanels) {
-      if (panel.chartType === "section") {
-        if (current.section || current.panels.length > 0) groups.push(current);
-        current = {
-          key: panel.id,
-          section: panel,
-          panels: [],
-          columns: clampDashboardColumns(panel.columns ?? dashboardColumns),
-        };
-      } else {
-        current.panels.push(panel);
-      }
-    }
-    if (current.section || current.panels.length > 0) groups.push(current);
-    return groups;
+    return buildDashboardPanelGroups(visiblePanels, dashboardColumns);
   }, [visiblePanels, dashboardColumns]);
 
   const handleDelete = useCallback(async () => {
@@ -995,53 +1007,107 @@ export default function SqlDashboardPage() {
             </Button>
           </AddPanelPopover>
         ) : null}
-        {canEdit || canManage ? (
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-muted-foreground hover:text-foreground"
-                    aria-label="Dashboard actions"
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Dashboard details and actions"
+                >
+                  <IconDots className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Details</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel className="font-normal">
+              <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+                {dashboardUpdatedAt && (
+                  <span className="flex items-center gap-1.5">
+                    <IconClock className="h-3 w-3" />
+                    Updated{" "}
+                    {new Date(dashboardUpdatedAt).toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>
+                )}
+                {dashboardOwner && (
+                  <span className="flex items-center gap-1.5">
+                    <IconUser className="h-3 w-3" />
+                    {dashboardOwner.split("@")[0]}
+                  </span>
+                )}
+                {dashboardVisibility ? (
+                  <span
+                    className={`flex items-center gap-1.5 font-medium ${
+                      dashboardVisibility === "public"
+                        ? "text-green-600"
+                        : dashboardVisibility === "org"
+                          ? "text-blue-600"
+                          : "text-yellow-600"
+                    }`}
                   >
-                    <IconDots className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>More actions</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-44">
-              {canEdit && !archivedAt ? (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void handleArchive();
-                  }}
-                >
-                  <IconArchive className="mr-2 h-3.5 w-3.5" />
-                  Archive
-                </DropdownMenuItem>
-              ) : null}
-              {canEdit && !archivedAt && canManage ? (
-                <DropdownMenuSeparator />
-              ) : null}
-              {canManage ? (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    setConfirmDeleteOpen(true);
-                  }}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <IconTrash className="mr-2 h-3.5 w-3.5" />
-                  Delete permanently
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        dashboardVisibility === "public"
+                          ? "bg-green-500"
+                          : dashboardVisibility === "org"
+                            ? "bg-blue-500"
+                            : "bg-yellow-500"
+                      }`}
+                    />
+                    {dashboardVisibility === "public"
+                      ? "Public"
+                      : dashboardVisibility === "org"
+                        ? "Shared with org"
+                        : "Private"}
+                  </span>
+                ) : null}
+                {hiddenAt && (
+                  <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
+                    <IconEyeOff className="h-3 w-3" />
+                    Hidden
+                  </span>
+                )}
+              </div>
+            </DropdownMenuLabel>
+            {(canEdit && !archivedAt) || canManage ? (
+              <DropdownMenuSeparator />
+            ) : null}
+            {canEdit && !archivedAt ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  void handleArchive();
+                }}
+              >
+                <IconArchive className="mr-2 h-3.5 w-3.5" />
+                Archive
+              </DropdownMenuItem>
+            ) : null}
+            {canEdit && !archivedAt && canManage ? (
+              <DropdownMenuSeparator />
+            ) : null}
+            {canManage ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setConfirmDeleteOpen(true);
+                }}
+                className="text-destructive focus:text-destructive"
+              >
+                <IconTrash className="mr-2 h-3.5 w-3.5" />
+                Delete permanently
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
         {canManage ? (
           <AlertDialog
             open={confirmDeleteOpen}
@@ -1081,30 +1147,7 @@ export default function SqlDashboardPage() {
   }
 
   if (!loaded) {
-    // Match the eventual SqlChartCard layout exactly (Card chrome + title row +
-    // chart-body skeleton) so the transition from "dashboard config loading" to
-    // "queries loading" doesn't morph the skeleton's shape — only the title
-    // text fills in. Otherwise the bare h-64 rectangles jump into Card-chromed
-    // panels and the page visibly shifts.
-    return (
-      <div className="dashboard-grid-container space-y-4">
-        <div
-          className="dashboard-grid"
-          style={{ "--dash-cols": 2 } as React.CSSProperties}
-        >
-          {[0, 1].map((i) => (
-            <Card key={i} className="flex flex-col overflow-visible">
-              <CardHeader className="pb-2 shrink-0">
-                <Skeleton className="h-4 w-32" />
-              </CardHeader>
-              <CardContent className="flex flex-1 flex-col pt-0">
-                <Skeleton className="w-full flex-1 min-h-[250px]" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (!dashboard) return <BlankDashboard />;
@@ -1152,59 +1195,6 @@ export default function SqlDashboardPage() {
           </Button>
         </Alert>
       ) : null}
-      {/* Author, last updated, and visibility metadata */}
-      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        {hiddenAt && (
-          <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
-            <IconEyeOff className="h-3 w-3" />
-            Hidden
-          </span>
-        )}
-        {dashboardUpdatedAt && (
-          <span className="flex items-center gap-1">
-            <IconClock className="h-3 w-3" />
-            Updated{" "}
-            {new Date(dashboardUpdatedAt).toLocaleDateString("en-US", {
-              year: "numeric",
-              month: "short",
-              day: "numeric",
-            })}
-          </span>
-        )}
-        {dashboardOwner && (
-          <span className="flex items-center gap-1">
-            <IconUser className="h-3 w-3" />
-            {dashboardOwner.split("@")[0]}
-          </span>
-        )}
-        {dashboardVisibility ? (
-          <span
-            className={`flex items-center gap-1.5 font-medium ${
-              dashboardVisibility === "public"
-                ? "text-green-600"
-                : dashboardVisibility === "org"
-                  ? "text-blue-600"
-                  : "text-yellow-600"
-            }`}
-          >
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${
-                dashboardVisibility === "public"
-                  ? "bg-green-500"
-                  : dashboardVisibility === "org"
-                    ? "bg-blue-500"
-                    : "bg-yellow-500"
-              }`}
-            />
-            {dashboardVisibility === "public"
-              ? "Public"
-              : dashboardVisibility === "org"
-                ? "Shared with org"
-                : "Private"}
-          </span>
-        ) : null}
-      </div>
-
       {/* Description (click to edit) */}
       {editingDescription && canEdit ? (
         <Textarea
@@ -1324,146 +1314,186 @@ export default function SqlDashboardPage() {
       ) : (
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={pointerWithin}
+          onDragStart={canEdit ? handleDragStart : undefined}
+          onDragOver={canEdit ? handleDragOver : undefined}
           onDragEnd={canEdit ? handleDragEnd : undefined}
+          onDragCancel={handleDragCancel}
         >
-          <SortableContext
-            items={visiblePanels.map((p) => p.id)}
-            strategy={rectSortingStrategy}
-          >
-            <div className="dashboard-grid-container flex flex-col gap-4">
-              {panelGroups.map((group) => {
-                const renderPanelCell = (panel: SqlPanel) => {
-                  const resolved = panel.config?.description
-                    ? {
-                        ...panel,
-                        config: {
-                          ...panel.config,
-                          description: interpolate(
-                            panel.config.description,
-                            vars,
-                          ),
-                        },
-                      }
-                    : panel;
-                  const remoteEditor = remoteEditingPanels.get(panel.id);
-                  const span = clampPanelWidth(panel.width, group.columns);
-                  return (
-                    <div
-                      key={panel.id}
-                      className="dashboard-grid-cell relative h-full"
-                      style={
-                        {
-                          "--panel-span": span,
-                          ...(remoteEditor
-                            ? {
-                                outline: `2px solid ${remoteEditor.color}`,
-                                outlineOffset: 2,
-                                borderRadius: 8,
-                              }
-                            : null),
-                        } as React.CSSProperties
-                      }
-                    >
-                      {remoteEditor && (
-                        <span
-                          className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
-                          style={{
-                            backgroundColor: remoteEditor.color,
-                            color: "#fff",
-                          }}
-                        >
-                          {remoteEditor.name}
-                        </span>
-                      )}
-                      <SqlChartCard
-                        panel={resolved}
-                        resolvedSql={interpolate(
-                          serializePanelSql(panel.sql),
+          <div className="dashboard-grid-container flex flex-col gap-1">
+            {panelGroups.map((group) => {
+              const renderPanelCell = (panel: SqlPanel) => {
+                const resolved = panel.config?.description
+                  ? {
+                      ...panel,
+                      config: {
+                        ...panel.config,
+                        description: interpolate(
+                          panel.config.description,
                           vars,
-                        )}
-                        gridColumns={group.columns}
-                        onRemove={() => removePanel(panel.id)}
-                        onToggleWidth={() =>
-                          toggleWidth(panel.id, group.columns)
-                        }
-                        onEdit={() => openEditPanel(panel)}
-                        onSaveSql={(sql) => handleSavePanel({ ...panel, sql })}
-                        editable={canEdit}
-                      />
-                    </div>
-                  );
-                };
-
-                const renderSection = (section: SqlPanel) => {
-                  const remoteEditor = remoteEditingPanels.get(section.id);
-                  const resolved = section.config?.description
-                    ? {
-                        ...section,
-                        config: {
-                          ...section.config,
-                          description: interpolate(
-                            section.config.description,
-                            vars,
-                          ),
-                        },
-                      }
-                    : section;
-                  return (
-                    <div
-                      className="relative"
-                      style={
-                        remoteEditor
+                        ),
+                      },
+                    }
+                  : panel;
+                const remoteEditor = remoteEditingPanels.get(panel.id);
+                return (
+                  <div
+                    key={panel.id}
+                    className="dashboard-grid-cell relative h-full"
+                    style={
+                      {
+                        ...(remoteEditor
                           ? {
                               outline: `2px solid ${remoteEditor.color}`,
                               outlineOffset: 2,
                               borderRadius: 8,
                             }
-                          : undefined
-                      }
-                    >
-                      {remoteEditor && (
-                        <span
-                          className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
-                          style={{
-                            backgroundColor: remoteEditor.color,
-                            color: "#fff",
-                          }}
-                        >
-                          {remoteEditor.name}
-                        </span>
-                      )}
-                      <SqlChartCard
-                        panel={resolved}
-                        resolvedSql=""
-                        onRemove={() => removePanel(section.id)}
-                        onEdit={() => openEditPanel(section)}
-                        editable={canEdit}
-                      />
-                    </div>
-                  );
-                };
-
-                return (
-                  <Fragment key={group.key}>
-                    {group.section && renderSection(group.section)}
-                    {group.panels.length > 0 && (
-                      <div
-                        className="dashboard-grid"
-                        style={
-                          {
-                            "--dash-cols": group.columns,
-                          } as React.CSSProperties
-                        }
+                          : null),
+                      } as React.CSSProperties
+                    }
+                  >
+                    {remoteEditor && (
+                      <span
+                        className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
+                        style={{
+                          backgroundColor: remoteEditor.color,
+                          color: "#fff",
+                        }}
                       >
-                        {group.panels.map(renderPanelCell)}
-                      </div>
+                        {remoteEditor.name}
+                      </span>
                     )}
-                  </Fragment>
+                    <SqlChartCard
+                      panel={resolved}
+                      resolvedSql={interpolate(
+                        serializePanelSql(panel.sql),
+                        vars,
+                      )}
+                      onRemove={() => removePanel(panel.id)}
+                      onEdit={() => openEditPanel(panel)}
+                      onSaveSql={(sql) => handleSavePanel({ ...panel, sql })}
+                      editable={canEdit}
+                    />
+                  </div>
                 );
-              })}
-            </div>
-          </SortableContext>
+              };
+
+              const renderSection = (section: SqlPanel) => {
+                const remoteEditor = remoteEditingPanels.get(section.id);
+                const resolved = section.config?.description
+                  ? {
+                      ...section,
+                      config: {
+                        ...section.config,
+                        description: interpolate(
+                          section.config.description,
+                          vars,
+                        ),
+                      },
+                    }
+                  : section;
+                return (
+                  <div
+                    className="relative"
+                    style={
+                      remoteEditor
+                        ? {
+                            outline: `2px solid ${remoteEditor.color}`,
+                            outlineOffset: 2,
+                            borderRadius: 8,
+                          }
+                        : undefined
+                    }
+                  >
+                    {remoteEditor && (
+                      <span
+                        className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
+                        style={{
+                          backgroundColor: remoteEditor.color,
+                          color: "#fff",
+                        }}
+                      >
+                        {remoteEditor.name}
+                      </span>
+                    )}
+                    <SqlChartCard
+                      panel={resolved}
+                      resolvedSql=""
+                      onRemove={() => removePanel(section.id)}
+                      onEdit={() => openEditPanel(section)}
+                      editable={canEdit}
+                    />
+                  </div>
+                );
+              };
+
+              const renderRowDropLine = (rowIndex: number) => (
+                <DashboardDropLine
+                  key={`row-slot-${group.key}-${rowIndex}`}
+                  slot={{ type: "row", groupKey: group.key, rowIndex }}
+                  activeSlot={activeDropSlot}
+                  disabled={!canEdit || !draggingPanelId}
+                />
+              );
+
+              return (
+                <Fragment key={group.key}>
+                  {group.section && renderSection(group.section)}
+                  {renderRowDropLine(0)}
+                  {group.rows.map((row, rowIndex) => {
+                    const rowContainsDragging =
+                      !!draggingPanelId &&
+                      row.panels.some((panel) => panel.id === draggingPanelId);
+                    const columnDropDisabled =
+                      !canEdit ||
+                      !draggingPanelId ||
+                      (row.panels.length >= group.columns &&
+                        !rowContainsDragging);
+
+                    return (
+                      <Fragment key={row.key}>
+                        <div
+                          className="dashboard-grid"
+                          style={
+                            {
+                              "--dash-cols": row.panels.length,
+                            } as React.CSSProperties
+                          }
+                        >
+                          <DashboardDropLine
+                            slot={{
+                              type: "column",
+                              groupKey: group.key,
+                              rowIndex,
+                              columnIndex: 0,
+                            }}
+                            activeSlot={activeDropSlot}
+                            disabled={columnDropDisabled}
+                          />
+                          {row.panels.map((panel, columnIndex) => (
+                            <Fragment key={panel.id}>
+                              {renderPanelCell(panel)}
+                              <DashboardDropLine
+                                slot={{
+                                  type: "column",
+                                  groupKey: group.key,
+                                  rowIndex,
+                                  columnIndex: columnIndex + 1,
+                                }}
+                                activeSlot={activeDropSlot}
+                                disabled={columnDropDisabled}
+                              />
+                            </Fragment>
+                          ))}
+                        </div>
+                        {renderRowDropLine(rowIndex + 1)}
+                      </Fragment>
+                    );
+                  })}
+                </Fragment>
+              );
+            })}
+          </div>
         </DndContext>
       )}
 

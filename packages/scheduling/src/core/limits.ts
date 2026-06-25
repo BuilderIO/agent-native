@@ -1,3 +1,6 @@
+import { TZDate } from "@date-fns/tz";
+import { startOfWeek, startOfMonth, startOfYear, format } from "date-fns";
+
 /**
  * Booking limits enforcement.
  *
@@ -7,8 +10,6 @@
  * time would exceed any limit.
  */
 import type { BookingLimits } from "../shared/index.js";
-import { TZDate } from "@date-fns/tz";
-import { startOfWeek, startOfMonth, startOfYear, format } from "date-fns";
 
 export interface BookingCounts {
   perDay: Record<string, number>;

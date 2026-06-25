@@ -1,10 +1,11 @@
-import { and, eq, ne } from "drizzle-orm";
-import { accessFilter } from "@agent-native/core/sharing";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, eq, ne } from "drizzle-orm";
+
+import type { BrainSourceProvider } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import { nowIso, parseJson } from "../lib/brain.js";
 import { runConnectorSync } from "../lib/connectors.js";
-import type { BrainSourceProvider } from "../../shared/types.js";
 
 const DEFAULT_POLL_MINUTES = 60;
 const SYNC_INTERVAL_MS = 60 * 1000;

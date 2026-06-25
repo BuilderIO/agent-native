@@ -1,5 +1,5 @@
-import { defineEventHandler } from "h3";
 import { DemoResponse } from "@shared/api";
+import { defineEventHandler } from "h3";
 
 export const handleDemo = defineEventHandler((_event) => {
   const response: DemoResponse = {

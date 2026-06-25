@@ -13,8 +13,9 @@
  */
 
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+
 import { findWorkspaceRoot } from "../scripts/utils.js";
 
 /**
@@ -45,6 +46,18 @@ export interface McpHttpServerConfig {
   url: string;
   /** Extra headers to send with every request (e.g. Authorization). */
   headers?: Record<string, string>;
+  /**
+   * Trusted first-party Agent-Native app. This is set only by framework-owned
+   * org-scoped registrations, not by raw file/env config.
+   */
+  firstParty?: boolean;
+  /** Canonical first-party app id from the org directory, e.g. `assets`. */
+  firstPartyAppId?: string;
+  /**
+   * Org id the first-party server is trusted for. Runtime-only metadata set by
+   * framework-owned registrations; raw file/env config cannot provide it.
+   */
+  firstPartyOrgId?: string;
   /** Human-readable description (optional, shown in /mcp/status) */
   description?: string;
 }

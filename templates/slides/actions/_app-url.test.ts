@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { getDeckUrl, getExportUrl, getSlidesAppUrl } from "./_app-url.js";
 
 beforeEach(() => {

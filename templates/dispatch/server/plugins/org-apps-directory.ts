@@ -47,18 +47,19 @@
  */
 
 import {
-  createAuthPlugin,
-  getH3App,
-  runWithRequestContext,
-} from "@agent-native/core/server";
-import {
   getA2ASecretByDomain,
   getOrgDomain,
   resolveOrgByDomain,
 } from "@agent-native/core/org";
+import {
+  createAuthPlugin,
+  getH3App,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import { defineEventHandler, getMethod, getRequestHeader } from "h3";
 import type { H3Event } from "h3";
+
 import {
   ORG_APPS_PATH,
   buildOrgAppsResponse,

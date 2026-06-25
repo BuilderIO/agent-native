@@ -1,7 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { NavLink, useSearchParams } from "react-router";
-import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
+import { agentNativePath, useActionQuery } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
   IconAppWindow,
@@ -16,8 +13,15 @@ import {
   IconSettings,
   IconX,
 } from "@tabler/icons-react";
-import { agentNativePath, useActionQuery } from "@agent-native/core/client";
-import { useDesktopPromo } from "@/hooks/use-desktop-promo";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { NavLink, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import { CaptureInstallButton } from "@/components/capture-install-options";
+import { PageHeader } from "@/components/library/page-header";
+import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
+import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
 import {
   UpcomingMeetingCard,
   MeetingCardSkeleton,
@@ -42,10 +46,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
-import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
-import { PageHeader } from "@/components/library/page-header";
-import { CaptureInstallButton } from "@/components/capture-install-options";
+import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 
 export function meta() {
   return [{ title: "Meetings · Clips" }];
@@ -556,9 +557,9 @@ function CalendarAccountMenu({
             disabled={connectPending}
           >
             {connectPending ? (
-              <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+              <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
             ) : (
-              <IconExternalLink className="mr-2 h-4 w-4" />
+              <IconExternalLink className="me-2 h-4 w-4" />
             )}
             {primaryAccount ? "Reconnect calendar" : "Connect calendar"}
           </DropdownMenuItem>
@@ -574,7 +575,7 @@ function CalendarAccountMenu({
                   }}
                   className="text-destructive focus:text-destructive"
                 >
-                  <IconPlugOff className="mr-2 h-4 w-4" />
+                  <IconPlugOff className="me-2 h-4 w-4" />
                   Disconnect {calendarAccountLabel(account)}
                 </DropdownMenuItem>
               ))}
@@ -634,7 +635,7 @@ function MeetingsHeader({
         <h1 className="text-base font-semibold tracking-tight truncate">
           Meetings
         </h1>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ms-auto flex items-center gap-2">
           <CalendarAccountMenu
             accounts={calendarAccounts}
             onConnected={onConnected}
@@ -648,18 +649,18 @@ function MeetingsHeader({
             Upcoming calendar meetings and your recorded notes.
           </p>
           <div className="relative max-w-sm">
-            <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
               placeholder="Search meetings..."
-              className="pl-8 pr-8 h-9 text-sm"
+              className="ps-8 pe-8 h-9 text-sm"
             />
             {query && (
               <button
                 type="button"
                 onClick={() => onQueryChange("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                className="absolute end-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
                 aria-label="Clear search"
               >
                 <IconX className="h-3.5 w-3.5" />

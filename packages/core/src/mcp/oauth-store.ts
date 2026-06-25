@@ -6,8 +6,9 @@
  * are signed JWTs and are never persisted.
  */
 
-import { getDbExec, isConnectionError, intType } from "../db/client.js";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
+
+import { getDbExec, isConnectionError, intType } from "../db/client.js";
 
 let _initPromise: Promise<void> | undefined;
 

@@ -2,17 +2,20 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
   _findCorePackageRoot,
   _getClientDedupe,
   _getDefaultOptimizeDeps,
   _getReactRouterAliases,
+  agentNative,
   defineConfig,
   isFrameworkDevPath,
   stripMountedDevApiPath,
 } from "./client.js";
-import { signEmbedSessionToken } from "../server/embed-session.js";
 
 function findPlugin(name: string) {
   const plugins = (defineConfig().plugins ?? [])
@@ -21,6 +24,10 @@ function findPlugin(name: string) {
   const plugin = plugins.find((p) => p?.name === name);
   expect(plugin).toBeDefined();
   return plugin;
+}
+
+function flatPlugins(plugins: any[] | undefined): any[] {
+  return (plugins ?? []).flat().filter(Boolean) as any[];
 }
 
 describe("dev server mounted path helpers", () => {
@@ -311,6 +318,88 @@ describe("route warmup config", () => {
   });
 });
 
+describe("agentNative Vite plugin preset", () => {
+  it("returns a Vite preset with framework plugins and a config hook", () => {
+    const plugins = flatPlugins(agentNative({ ssrStubs: ["yjs"] }));
+    const pluginNames = plugins.map((p) => p?.name);
+
+    expect(pluginNames[0]).toBe("agent-native-config");
+    expect(pluginNames).toContain("agent-native-ssr-stub-heavy-libs");
+    expect(pluginNames).toContain("agent-native-action-types");
+    expect(pluginNames).toContain("agent-native-agents-bundle");
+    expect(pluginNames).toContain("agent-native-auto-reload-optimize-dep");
+    expect(pluginNames).toContain("agent-native-port-exposer");
+  });
+
+  it("applies framework defaults without clobbering ordinary Vite config", async () => {
+    const plugins = flatPlugins(
+      agentNative({ routeWarmup: { strategy: "render" } }),
+    );
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+
+    const config = (await configPlugin.config(
+      {
+        define: {
+          __APP_DEFINE__: JSON.stringify("ok"),
+          __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__: JSON.stringify({
+            strategy: "off",
+          }),
+        },
+        server: {
+          port: 4242,
+          fs: {
+            allow: ["/tmp/app-assets"],
+            deny: ["secret.txt"],
+          },
+        },
+        build: {
+          outDir: "build/client",
+        },
+        optimizeDeps: {
+          include: ["date-fns"],
+          exclude: ["lodash"],
+        },
+        resolve: {
+          dedupe: ["zustand"],
+          alias: { "~": "/tmp/app" },
+        },
+      },
+      { command: "serve", mode: "development" },
+    )) as any;
+
+    const routeWarmup = JSON.parse(
+      String(config.define.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+    );
+
+    expect(config.plugins).toBeUndefined();
+    expect(routeWarmup.strategy).toBe("render");
+    expect(config.define.__APP_DEFINE__).toBe(JSON.stringify("ok"));
+    expect(config.server.port).toBe(4242);
+    expect(config.server.fs.allow).toContain("/tmp/app-assets");
+    expect(config.server.fs.deny).toContain("secret.txt");
+    expect(config.build.outDir).toBe("build/client");
+    expect(config.build.cssMinify).toBe("esbuild");
+    expect(config.optimizeDeps.include).toContain("date-fns");
+    expect(config.optimizeDeps.exclude).toContain("lodash");
+    expect(config.resolve.dedupe).toContain("zustand");
+    expect(config.resolve.alias).toContainEqual({
+      find: "~",
+      replacement: "/tmp/app",
+    });
+  });
+
+  it("keeps legacy defineConfig caller plugins before framework plugins", () => {
+    const callerPlugin = { name: "react-router" };
+    const config = defineConfig({ plugins: [callerPlugin] });
+    const pluginNames = flatPlugins(config.plugins as any[]).map((p) => p.name);
+
+    expect(pluginNames.indexOf("react-router")).toBeLessThan(
+      pluginNames.indexOf("agent-native-action-types"),
+    );
+    expect(pluginNames).not.toContain("@vitejs/plugin-react-swc");
+  });
+});
+
 describe("Vite MCP embed headers", () => {
   it("adds COEP-compatible headers to embed-token page loads in dev", () => {
     const plugin = findPlugin("agent-native-embed-dev-frame-headers");
@@ -412,6 +501,65 @@ describe("Vite MCP embed headers", () => {
       expect.stringContaining("X-Agent-Native-Embed-Target"),
     );
     expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Resource-Policy",
+      "cross-origin",
+    );
+  });
+
+  it("adds COEP-compatible headers to originless mounted CSS requests in dev", () => {
+    const plugin = findPlugin("agent-native-embed-dev-frame-headers");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    const setHeader = vi.fn();
+    middleware!(
+      { url: "/assets/app/global.css?url", headers: {} },
+      { setHeader },
+      vi.fn(),
+    );
+
+    expect(setHeader).toHaveBeenCalledWith("Access-Control-Allow-Origin", "*");
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Resource-Policy",
+      "cross-origin",
+    );
+  });
+
+  it("does not classify mounted app pages as originless static assets in dev", () => {
+    const plugin = findPlugin("agent-native-embed-dev-frame-headers");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    const setHeader = vi.fn();
+    middleware!(
+      { url: "/assets/library", headers: {} },
+      { setHeader },
+      vi.fn(),
+    );
+
+    expect(setHeader).not.toHaveBeenCalledWith(
+      "Access-Control-Allow-Origin",
+      "*",
+    );
+    expect(setHeader).not.toHaveBeenCalledWith(
       "Cross-Origin-Resource-Policy",
       "cross-origin",
     );
@@ -570,13 +718,42 @@ describe("Vite CSS build defaults", () => {
   });
 });
 
+describe("Vite SSR stubs", () => {
+  it("exports common browser-only names from the generated stub module", async () => {
+    const plugins = (defineConfig({ ssrStubs: ["yjs"] }).plugins ?? [])
+      .flat()
+      .filter(Boolean) as any[];
+    const plugin = plugins.find(
+      (entry) => entry?.name === "agent-native-ssr-stub-heavy-libs",
+    );
+
+    expect(plugin).toBeDefined();
+    expect(await plugin.resolveId("yjs", undefined, { ssr: true })).toBe(
+      "\0agent-native-ssr-stub",
+    );
+    expect(
+      await plugin.resolveId("react", undefined, { ssr: true }),
+    ).toBeNull();
+    expect(await plugin.resolveId("yjs", undefined, { ssr: false })).toBeNull();
+
+    const code = await plugin.load("\0agent-native-ssr-stub");
+    expect(code).toContain("export const Doc = stub;");
+    expect(code).toContain("export const Map = stub;");
+    expect(code).toContain("export const encodeStateVector = stub;");
+    expect(code).toContain("export const encodeStateAsUpdate = stub;");
+    expect(code).toContain("export const mergeUpdates = stub;");
+    expect(code).toContain("export const EditorContent = stub;");
+    expect(code).toContain("export const format = stub;");
+  });
+});
+
 describe("local-core dev aliases and router dedupe", () => {
   it("dedupes react-router when the app depends on react-router", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-dedupe-"));
     fs.writeFileSync(
       path.join(tmpDir, "package.json"),
       JSON.stringify({
-        dependencies: { "react-router": "^7.16.0" },
+        dependencies: { "react-router": "^8.0.1" },
       }),
     );
 
@@ -595,7 +772,7 @@ describe("local-core dev aliases and router dedupe", () => {
       JSON.stringify({
         dependencies: {
           "@agent-native/core": pathToFileURL(coreRoot).href,
-          "react-router": "^7.16.0",
+          "react-router": "^8.0.1",
         },
       }),
     );
@@ -654,8 +831,7 @@ describe("local-core dev aliases and router dedupe", () => {
       path.join(tmpDir, "package.json"),
       JSON.stringify({
         dependencies: {
-          "react-router": "^7.16.0",
-          "react-router-dom": "^7.16.0",
+          "react-router": "^8.0.1",
         },
       }),
     );
@@ -673,14 +849,12 @@ describe("local-core dev aliases and router dedupe", () => {
           entry instanceof RegExp &&
           entry.test("react-router") &&
           entry.test("react-router/dom") &&
-          !entry.test("react-router-dom"),
+          !entry.test("react-router-extra"),
       );
 
       expect(routerNoExternal).toBeDefined();
-      expect(noExternal).toContain("react-router-dom");
       expect(external).not.toContain("react-router");
       expect(external).not.toContain("react-router/dom");
-      expect(external).not.toContain("react-router-dom");
     } finally {
       process.chdir(previousCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });

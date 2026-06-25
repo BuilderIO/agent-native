@@ -1,19 +1,20 @@
-import { useRef, useState, useCallback, useEffect } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
-import type { LibraryComponentEntry } from "@/remotion/componentRegistry";
 import {
   IconDeviceFloppy,
   IconPlayerPlay,
   IconPlayerPause,
   IconPlayerSkipBack,
 } from "@tabler/icons-react";
-import type { Zone } from "@/remotion/hooks/useEditableZones";
+import { useRef, useState, useCallback, useEffect } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/use-toast";
+import type { LibraryComponentEntry } from "@/remotion/componentRegistry";
+import type { Zone } from "@/remotion/hooks/useEditableZones";
 
 type ComponentLibraryViewProps = {
   component: LibraryComponentEntry;
@@ -302,7 +303,7 @@ export function ComponentLibraryView({
                 Press <strong>Play</strong> to see the cursor demonstrate hover
                 and click interactions:
               </p>
-              <ul className="text-xs text-muted-foreground space-y-1 ml-4 list-disc">
+              <ul className="text-xs text-muted-foreground space-y-1 ms-4 list-disc">
                 <li>
                   <strong>0.0s - 1.3s</strong>: Cursor approaches
                 </li>

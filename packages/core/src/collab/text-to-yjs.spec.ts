@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
+
 import { applyTextToYDoc, initYDocWithText } from "./text-to-yjs.js";
 
 describe("applyTextToYDoc", () => {

@@ -1,8 +1,11 @@
-import { useEffect } from "react";
 import {
   AgentChatSurface,
   markAgentChatHomeHandoff,
+  useT,
 } from "@agent-native/core/client";
+import { useEffect } from "react";
+import { useNavigate, useParams } from "react-router";
+
 import { APP_TITLE } from "@/lib/app-config";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -25,7 +28,15 @@ export function meta() {
   ];
 }
 
+function chatThreadPath(threadId: string | null) {
+  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";
+}
+
 export default function ChatRoute() {
+  const { threadId } = useParams();
+  const navigate = useNavigate();
+  const t = useT();
+
   useEffect(() => {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
@@ -45,28 +56,32 @@ export default function ChatRoute() {
         className="h-full"
         defaultMode="chat"
         storageKey="chat"
+        threadUrlSync={{
+          routeThreadId: threadId ?? null,
+          getPath: chatThreadPath,
+          navigate,
+        }}
         browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}
         suggestions={[
-          "What can you do?",
-          "Help me customize this chat app",
-          "Show me the actions and pages I can add",
+          t("chat.suggestionCapabilities"),
+          t("chat.suggestionCustomize"),
+          t("chat.suggestionActions"),
         ]}
-        emptyStateText="Ask anything, then customize the app when you need more."
+        emptyStateText={t("chat.emptyState")}
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
-        composerPlaceholder="Message the agent..."
+        composerPlaceholder={t("chat.composerPlaceholder")}
         composerSlot={
           <div className="mx-auto mb-5 max-w-xl px-4 text-center">
             <h1 className="text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
-              How can I help?
+              {t("chat.heroTitle")}
             </h1>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Chat about anything. Add actions, components, pages, jobs, or your
-              own agent backend when you want this app to do more.
+              {t("chat.heroDescription")}
             </p>
           </div>
         }

@@ -1,11 +1,34 @@
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-} from "react";
+  emailToName,
+  useActionMutation,
+  useSession,
+} from "@agent-native/core/client";
+import type {
+  AddContentDatabaseSourceFieldPropertyRequest,
+  ContentDatabaseResponse,
+  ContentDatabaseSourceFieldPropertyResponse,
+  ContentDatabaseSource,
+  DocumentProperty,
+} from "@shared/api";
+import {
+  CREATABLE_DOCUMENT_PROPERTY_TYPES,
+  DOCUMENT_PROPERTY_TYPE_LABELS,
+  DOCUMENT_PROPERTY_VISIBILITY_LABELS,
+  DOCUMENT_PROPERTY_VISIBILITIES,
+  defaultPropertyOptions,
+  documentPropertyDateIncludesTime,
+  documentPropertyDateKey,
+  documentPropertyDatePart,
+  isEmptyPropertyValue,
+  isComputedPropertyType,
+  isOnlyBlocksFieldDeletion,
+  normalizeDatePropertyValue,
+  type DocumentPropertyDateValue,
+  type DocumentPropertyOption,
+  type DocumentPropertyOptionColor,
+  type DocumentPropertyType,
+  type DocumentPropertyVisibility,
+} from "@shared/properties";
 import {
   IconAlignLeft,
   IconAt,
@@ -19,6 +42,7 @@ import {
   IconEdit,
   IconEye,
   IconEyeOff,
+  IconFileText,
   IconHash,
   IconLink,
   IconList,
@@ -37,12 +61,17 @@ import {
   IconUserCircle,
   type Icon,
 } from "@tabler/icons-react";
-import {
-  emailToName,
-  useActionMutation,
-  useSession,
-} from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -72,8 +101,10 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import {
+  applySourceFieldPropertyToDatabaseResponse,
+  contentDatabaseQueryKey,
+} from "@/hooks/use-content-database";
 import {
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
@@ -81,37 +112,14 @@ import {
   useDuplicateDocumentProperty,
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
-import { applySourceFieldPropertyToDatabaseResponse } from "@/hooks/use-content-database";
-import {
-  CREATABLE_DOCUMENT_PROPERTY_TYPES,
-  DOCUMENT_PROPERTY_TYPE_LABELS,
-  DOCUMENT_PROPERTY_VISIBILITY_LABELS,
-  DOCUMENT_PROPERTY_VISIBILITIES,
-  defaultPropertyOptions,
-  documentPropertyDateIncludesTime,
-  documentPropertyDateKey,
-  documentPropertyDatePart,
-  isEmptyPropertyValue,
-  isComputedPropertyType,
-  normalizeDatePropertyValue,
-  type DocumentPropertyDateValue,
-  type DocumentPropertyOption,
-  type DocumentPropertyOptionColor,
-  type DocumentPropertyType,
-  type DocumentPropertyVisibility,
-} from "@shared/properties";
-import type {
-  AddContentDatabaseSourceFieldPropertyRequest,
-  ContentDatabaseResponse,
-  ContentDatabaseSourceFieldPropertyResponse,
-  ContentDatabaseSource,
-  DocumentProperty,
-} from "@shared/api";
+import { cn } from "@/lib/utils";
+
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 
 interface DocumentPropertiesProps {
   documentId: string;
   canEdit: boolean;
+  databaseDocumentId?: string;
   popoversPortalled?: boolean;
 }
 
@@ -132,6 +140,7 @@ export const TYPE_ICONS: Record<DocumentPropertyType, Icon> = {
   email: IconAt,
   phone: IconPhone,
   relation: IconLink,
+  blocks: IconFileText,
   id: IconNumber,
   created_time: IconClockFilled,
   created_by: IconUserCircle,
@@ -171,6 +180,7 @@ const PROPERTY_TYPE_SEARCH_ALIASES: Partial<
   formula: ["calculate", "calculation", "computed", "equation"],
   relation: ["relationship", "linked", "link", "database"],
   rollup: ["aggregate", "aggregation", "sum", "count", "relation"],
+  blocks: ["content", "body", "rich text", "rich-text", "page", "notes"],
 };
 
 function slugify(value: string) {
@@ -639,10 +649,15 @@ function scalarPlaceholder(type: DocumentPropertyType) {
 export function DocumentProperties({
   documentId,
   canEdit,
+  databaseDocumentId = documentId,
   popoversPortalled = true,
 }: DocumentPropertiesProps) {
   const { data, isLoading } = useDocumentProperties(documentId);
-  const properties = data?.properties ?? [];
+  // Blocks fields are rendered as body content (below the database/title), not
+  // as scalar property rows in this panel — exclude them here.
+  const properties = (data?.properties ?? []).filter(
+    (property) => property.definition.type !== "blocks",
+  );
   const databaseId = data?.databaseId ?? null;
   const visibleProperties = properties.filter(isPropertyVisible);
   const hiddenProperties = properties.filter(
@@ -673,6 +688,7 @@ export function DocumentProperties({
       {canEdit && hiddenProperties.length > 0 ? (
         <HiddenPropertiesMenu
           documentId={documentId}
+          databaseDocumentId={databaseDocumentId}
           properties={hiddenProperties}
         />
       ) : null}
@@ -680,6 +696,7 @@ export function DocumentProperties({
       {canEdit && databaseId ? (
         <AddProperty
           documentId={documentId}
+          databaseDocumentId={databaseDocumentId}
           popoversPortalled={popoversPortalled}
         />
       ) : null}
@@ -698,12 +715,17 @@ function isPropertyVisible(property: DocumentProperty) {
 
 function HiddenPropertiesMenu({
   documentId,
+  databaseDocumentId,
   properties,
 }: {
   documentId: string;
+  databaseDocumentId: string;
   properties: DocumentProperty[];
 }) {
-  const configure = useConfigureDocumentProperty(documentId);
+  const configure = useConfigureDocumentProperty(
+    documentId,
+    databaseDocumentId,
+  );
 
   async function showProperty(property: DocumentProperty) {
     await configure.mutateAsync({
@@ -824,6 +846,16 @@ export function PropertyManagementPopover({
   const configure = useConfigureDocumentProperty(documentId);
   const duplicate = useDuplicateDocumentProperty(documentId);
   const remove = useDeleteDocumentProperty(documentId);
+  const { data: propertiesData } = useDocumentProperties(documentId);
+  // Whether deleting THIS property removes the last Blocks field of the type —
+  // i.e. the body. Drives the yellow warning in the delete dialog.
+  const blocksFieldCount = (propertiesData?.properties ?? []).filter(
+    (item) => item.definition.type === "blocks",
+  ).length;
+  const isOnlyBlocksField = isOnlyBlocksFieldDeletion({
+    type: property.definition.type,
+    blocksFieldCount,
+  });
   const [open, setOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [name, setName] = useState(property.definition.name);
@@ -1173,6 +1205,12 @@ export function PropertyManagementPopover({
               every document in this workspace.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {isOnlyBlocksField ? (
+            <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-800 dark:text-yellow-200">
+              This is the only blocks property present in this object type. This
+              will delete the main content (body) for all objects of this type.
+            </div>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
@@ -2295,6 +2333,7 @@ function OptionValueEditor({
 
 export function AddProperty({
   documentId,
+  databaseDocumentId = documentId,
   variant = "default",
   label = "Add property",
   popoversPortalled = true,
@@ -2302,13 +2341,17 @@ export function AddProperty({
   sources,
 }: {
   documentId: string;
+  databaseDocumentId?: string;
   variant?: "default" | "header" | "icon";
   label?: string;
   popoversPortalled?: boolean;
   source?: ContentDatabaseSource | null;
   sources?: ContentDatabaseSource[];
 }) {
-  const configure = useConfigureDocumentProperty(documentId);
+  const configure = useConfigureDocumentProperty(
+    documentId,
+    databaseDocumentId,
+  );
   const queryClient = useQueryClient();
   const addSourceFieldProperty = useActionMutation<
     ContentDatabaseSourceFieldPropertyResponse,
@@ -2316,7 +2359,7 @@ export function AddProperty({
   >("add-content-database-source-field-property", {
     onSuccess: (data) => {
       queryClient.setQueriesData<ContentDatabaseResponse>(
-        { queryKey: ["action", "get-content-database"] },
+        { queryKey: contentDatabaseQueryKey(databaseDocumentId) },
         (current) => applySourceFieldPropertyToDatabaseResponse(current, data),
       );
       queryClient.invalidateQueries({
@@ -2325,7 +2368,6 @@ export function AddProperty({
     },
   });
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
   const [typeQuery, setTypeQuery] = useState("");
   const filteredPropertyTypes = filterDocumentPropertyTypes(typeQuery);
   const firstFilteredPropertyType = filteredPropertyTypes[0] ?? null;
@@ -2353,19 +2395,18 @@ export function AddProperty({
         }),
     }))
     .filter((group) => group.fields.length > 0);
-  const addPropertyNameInputRef = useRef<HTMLInputElement>(null);
+  const addPropertySearchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const frame = requestAnimationFrame(() => {
-      addPropertyNameInputRef.current?.focus();
-      addPropertyNameInputRef.current?.select();
+      addPropertySearchInputRef.current?.focus();
+      addPropertySearchInputRef.current?.select();
     });
     return () => cancelAnimationFrame(frame);
   }, [open]);
 
   function closeAddPropertyPicker() {
-    setName("");
     setTypeQuery("");
     setOpen(false);
   }
@@ -2374,7 +2415,7 @@ export function AddProperty({
     const label = DOCUMENT_PROPERTY_TYPE_LABELS[type];
     await configure.mutateAsync({
       documentId,
-      name: name.trim() || label,
+      name: label,
       type,
       options: defaultPropertyOptions(type),
     });
@@ -2421,23 +2462,11 @@ export function AddProperty({
         className="w-80 p-2"
       >
         <div className="grid gap-2">
-          <Input
-            ref={addPropertyNameInputRef}
-            aria-label="New property name"
-            autoFocus
-            value={name}
-            placeholder="Property name"
-            onChange={(event) => setName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                closeAddPropertyPicker();
-              }
-            }}
-          />
           <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
             <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
             <Input
+              ref={addPropertySearchInputRef}
+              autoFocus
               value={typeQuery}
               placeholder="Search property types"
               aria-label="Search property types"

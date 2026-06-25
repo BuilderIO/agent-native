@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useT } from "@agent-native/core/client";
 import { IconMovie, IconLoader2 } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
 
 type NewCompositionProps = {
   isGenerating?: boolean;
 };
 
 export default function NewComposition({ isGenerating }: NewCompositionProps) {
+  const t = useT();
   const [storedGenerating, setStoredGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,7 +34,7 @@ export default function NewComposition({ isGenerating }: NewCompositionProps) {
       clearPending(
         typeof detail?.message === "string"
           ? detail.message
-          : "The agent run failed before the composition could be created.",
+          : t("newComposition.runFailed"),
       );
     };
     const handleStorage = () => readStatus();
@@ -44,9 +46,7 @@ export default function NewComposition({ isGenerating }: NewCompositionProps) {
     const timeout = window.setTimeout(
       () => {
         if (sessionStorage.getItem("videos:new-composition-generating")) {
-          clearPending(
-            "The composition request timed out. Please try again from the sidebar.",
-          );
+          clearPending(t("newComposition.timedOut"));
         }
       },
       5 * 60 * 1000,
@@ -67,7 +67,9 @@ export default function NewComposition({ isGenerating }: NewCompositionProps) {
       <div className="flex-1 flex flex-col items-center justify-center p-6 lg:p-8 min-w-0 bg-background h-full">
         <div className="flex flex-col items-center gap-4">
           <IconLoader2 size={32} className="text-primary animate-spin" />
-          <p className="text-sm text-muted-foreground">Generating...</p>
+          <p className="text-sm text-muted-foreground">
+            {t("newComposition.generating")}
+          </p>
         </div>
       </div>
     );
@@ -81,12 +83,10 @@ export default function NewComposition({ isGenerating }: NewCompositionProps) {
         </div>
         <div className="space-y-2">
           <h2 className="text-lg font-semibold text-foreground/90">
-            Create a New Composition
+            {t("newComposition.emptyTitle")}
           </h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            {error
-              ? error
-              : "Use the New Composition button in the sidebar to describe the video you want to create."}
+            {error ? error : t("newComposition.emptyDescription")}
           </p>
         </div>
       </div>

@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { IconMailFast, IconUserPlus } from "@tabler/icons-react";
 import { useActionMutation } from "@agent-native/core/client";
+import { IconMailFast, IconUserPlus } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -100,7 +101,7 @@ export function InviteDialog({ organizationId, disabled }: InviteDialogProps) {
           disabled={disabled}
           className="bg-primary hover:bg-primary/90 text-primary-foreground"
         >
-          <IconUserPlus className="size-4 mr-1.5" />
+          <IconUserPlus className="size-4 me-1.5" />
           Invite members
         </Button>
       </DialogTrigger>
@@ -157,7 +158,7 @@ export function InviteDialog({ organizationId, disabled }: InviteDialogProps) {
               disabled={invite.isPending}
               className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
-              <IconMailFast className="size-4 mr-1.5" />
+              <IconMailFast className="size-4 me-1.5" />
               {invite.isPending ? "Sending…" : "Send invites"}
             </Button>
           </DialogFooter>

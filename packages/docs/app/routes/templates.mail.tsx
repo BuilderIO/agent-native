@@ -1,7 +1,9 @@
-import { Link } from "react-router";
+import { useT } from "@agent-native/core/client";
 import { useState } from "react";
-import { templates, trackEvent } from "../components/TemplateCard";
+import { Link } from "react-router";
+
 import { TemplateDocsLink } from "../components/template-docs";
+import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
@@ -96,6 +98,7 @@ function CliCopy() {
 }
 
 export default function MailTemplate() {
+  const t = useT();
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
@@ -118,7 +121,7 @@ export default function MailTemplate() {
             >
               <polyline points="15 18 9 12 15 6" />
             </svg>
-            All Templates
+            {t("templateLanding.mail.s006")}
           </Link>
         </div>
 
@@ -133,7 +136,7 @@ export default function MailTemplate() {
             </div>
 
             <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              The open-source alternative to Superhuman and Gmail
+              {t("templateLanding.mail.s007")}
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
@@ -155,7 +158,7 @@ export default function MailTemplate() {
                   })
                 }
               >
-                Try It
+                {t("templateLanding.mail.s008")}
                 <svg
                   width="16"
                   height="16"
@@ -179,7 +182,7 @@ export default function MailTemplate() {
           <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
             <img
               src={template.screenshot}
-              alt="Mail template screenshot"
+              alt={t("templateLanding.mail.s001")}
               className="w-full object-cover object-top"
             />
           </div>
@@ -190,12 +193,10 @@ export default function MailTemplate() {
       <section className="border-t border-[var(--docs-border)] py-8">
         <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
           <h2 className="mb-2 text-base font-semibold">
-            Google may show a warning
+            {t("templateLanding.mail.s060")}
           </h2>
           <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-            The hosted demo uses Agent-Native's shared Google app for Gmail
-            access, so Google may ask you to confirm before continuing. Run
-            locally to use your own Google OAuth client.
+            {t("templateLanding.mail.s009")}
           </p>
         </div>
       </section>
@@ -204,10 +205,10 @@ export default function MailTemplate() {
       <section className="border-t border-[var(--docs-border)] py-16">
         <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">
           {[
-            { number: "⌨️", label: "Keyboard-first" },
-            { number: "AI", label: "Inbox triage" },
-            { number: "3", label: "Views" },
-            { number: "∞", label: "Customizable" },
+            { number: "⌨️", label: t("templateLanding.mail.s002") },
+            { number: "AI", label: t("templateLanding.mail.s003") },
+            { number: "3", label: t("templateLanding.mail.s004") },
+            { number: "∞", label: t("templateLanding.mail.s005") },
           ].map((stat) => (
             <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
               <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
@@ -224,11 +225,10 @@ export default function MailTemplate() {
       {/* Core capabilities */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          What you can do
+          {t("templateLanding.mail.s010")}
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          Everything you need to replace your email client with an AI-powered
-          inbox you fully own.
+          {t("templateLanding.mail.s011")}
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -247,7 +247,9 @@ export default function MailTemplate() {
                 <line x1="12" y1="19" x2="20" y2="19" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">Keyboard Shortcuts</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.mail.s012")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Superhuman-style bindings for compose, archive, reply, and
               navigation. Zero mouse required.
@@ -268,11 +270,11 @@ export default function MailTemplate() {
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">AI Triage</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.mail.s013")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              The agent reads your inbox, surfaces what matters, drafts replies,
-              and handles routine emails automatically. Set up automations for
-              auto-labeling and auto-archiving.
+              {t("templateLanding.mail.s014")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -291,10 +293,11 @@ export default function MailTemplate() {
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">Smart Search</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.mail.s015")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Natural language search across your entire inbox. "Emails from
-              last week about the budget" just works.
+              {t("templateLanding.mail.s016")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -313,10 +316,11 @@ export default function MailTemplate() {
                 <polyline points="8 6 2 12 8 18" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">Self-Improving</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.mail.s017")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              The agent modifies the app itself. Need a custom folder, filter,
-              or automation? Just ask.
+              {t("templateLanding.mail.s018")}
             </p>
           </div>
         </div>
@@ -327,11 +331,10 @@ export default function MailTemplate() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
-              AI-Powered Inbox Management
+              {t("templateLanding.mail.s019")}
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              Let the agent do the heavy lifting — triage, label, archive, and
-              draft responses from natural language instructions.
+              {t("templateLanding.mail.s020")}
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -348,7 +351,7 @@ export default function MailTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Automatic labeling, priority sorting, and auto-archive rules
+                {t("templateLanding.mail.s021")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -364,7 +367,7 @@ export default function MailTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                AI-drafted replies for routine messages
+                {t("templateLanding.mail.s022")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -380,17 +383,16 @@ export default function MailTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Thread summarization and action items
+                {t("templateLanding.mail.s023")}
               </li>
             </ul>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
-              Keyboard-First Compose
+              {t("templateLanding.mail.s024")}
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              Write and send email at the speed of thought. Full keyboard
-              navigation, Notion-style shortcuts, and AI-assisted drafting.
+              {t("templateLanding.mail.s025")}
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -407,7 +409,7 @@ export default function MailTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Multiple draft tabs for composing several emails at once
+                {t("templateLanding.mail.s026")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -423,7 +425,7 @@ export default function MailTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                AI expands short drafts into full emails
+                {t("templateLanding.mail.s027")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -439,7 +441,7 @@ export default function MailTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Send later, snooze, and follow-up reminders
+                {t("templateLanding.mail.s028")}
               </li>
             </ul>
           </div>
@@ -451,11 +453,10 @@ export default function MailTemplate() {
         <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
             <h2 className="mb-3 text-2xl font-bold tracking-tight">
-              Agent-powered email workflows
+              {t("templateLanding.mail.s029")}
             </h2>
             <p className="mb-6 text-base text-[var(--fg-secondary)]">
-              The agent reads, drafts, and organizes your email through natural
-              language. Every workflow is a script you can inspect and extend.
+              {t("templateLanding.mail.s030")}
             </p>
             <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -472,7 +473,7 @@ export default function MailTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Summarize my unread emails from this week"
+                {t("templateLanding.mail.s031")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -488,7 +489,7 @@ export default function MailTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Draft a reply to the investor update thread"
+                {t("templateLanding.mail.s032")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -504,7 +505,7 @@ export default function MailTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Archive all newsletters older than 7 days"
+                {t("templateLanding.mail.s033")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -520,7 +521,7 @@ export default function MailTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Find all emails waiting on a reply from me"
+                {t("templateLanding.mail.s034")}
               </li>
             </ul>
           </div>
@@ -561,7 +562,7 @@ export default function MailTemplate() {
       {/* Comparison table */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          How it compares
+          {t("templateLanding.mail.s035")}
         </h2>
         <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table min-w-[42rem] w-full text-sm">
@@ -582,48 +583,52 @@ export default function MailTemplate() {
             <tbody className="text-[var(--fg-secondary)]">
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Keyboard shortcuts
+                  {t("templateLanding.mail.s036")}
                 </td>
-                <td className="px-5 py-3">Basic</td>
-                <td className="px-5 py-3">Excellent</td>
+                <td className="px-5 py-3">{t("templateLanding.mail.s037")}</td>
+                <td className="px-5 py-3">{t("templateLanding.mail.s038")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Fully customizable
+                  {t("templateLanding.mail.s039")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  AI assistance
+                  {t("templateLanding.mail.s040")}
                 </td>
-                <td className="px-5 py-3">Smart compose</td>
-                <td className="px-5 py-3">AI replies</td>
+                <td className="px-5 py-3">{t("templateLanding.mail.s041")}</td>
+                <td className="px-5 py-3">{t("templateLanding.mail.s042")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Full agent: triage, draft, automate
+                  {t("templateLanding.mail.s043")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Customization
+                  {t("templateLanding.mail.s044")}
                 </td>
-                <td className="px-5 py-3">Settings only</td>
-                <td className="px-5 py-3">Themes only</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Full source code</td>
+                <td className="px-5 py-3">{t("templateLanding.mail.s045")}</td>
+                <td className="px-5 py-3">{t("templateLanding.mail.s046")}</td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  {t("templateLanding.mail.s047")}
+                </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Data ownership
+                  {t("templateLanding.mail.s048")}
                 </td>
-                <td className="px-5 py-3">Google's servers</td>
-                <td className="px-5 py-3">Vendor-hosted</td>
-                <td className="px-5 py-3 text-[var(--fg)]">You own the code</td>
+                <td className="px-5 py-3">{t("templateLanding.mail.s049")}</td>
+                <td className="px-5 py-3">{t("templateLanding.mail.s050")}</td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  {t("templateLanding.mail.s051")}
+                </td>
               </tr>
               <tr>
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Pricing
+                  {t("templateLanding.mail.s052")}
                 </td>
-                <td className="px-5 py-3">Free / Workspace</td>
-                <td className="px-5 py-3">$30/mo per user</td>
+                <td className="px-5 py-3">{t("templateLanding.mail.s053")}</td>
+                <td className="px-5 py-3">{t("templateLanding.mail.s054")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Free &amp; open source
+                  {t("templateLanding.mail.s055")}
                 </td>
               </tr>
             </tbody>
@@ -634,11 +639,10 @@ export default function MailTemplate() {
       {/* CTA */}
       <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Get started in minutes
+          {t("templateLanding.mail.s056")}
         </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Fork the template, connect your email provider, and start managing
-          your inbox with AI.
+          {t("templateLanding.mail.s057")}
         </p>
         <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink
@@ -646,14 +650,14 @@ export default function MailTemplate() {
             location="landing_page_cta"
             className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
-            Read the docs
+            {t("templateLanding.mail.s058")}
           </TemplateDocsLink>
           <Link
             data-an-prefetch="render"
             to="/templates"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
-            View all templates
+            {t("templateLanding.mail.s059")}
           </Link>
         </div>
       </section>

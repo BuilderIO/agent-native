@@ -1,3 +1,4 @@
+import { IconCheck, IconCode, IconCopy, IconPencil } from "@tabler/icons-react";
 import {
   useId,
   useEffect,
@@ -7,24 +8,24 @@ import {
   type ChangeEvent,
   type UIEvent,
 } from "react";
-import { IconCheck, IconCode, IconCopy, IconPencil } from "@tabler/icons-react";
-import { cn } from "../../utils.js";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../../components/ui/popover.js";
+import { cn } from "../../utils.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import { defineBlock } from "../types.js";
 import type { BlockReadProps, BlockEditProps } from "../types.js";
-import { ltrCodeBlockProps } from "../code-block-direction.js";
-import { CodeSurface, DEFAULT_CODE_MAX_LINES } from "./HighlightedCode.js";
+import { CodeFilenameLabel } from "./code-filename-label.js";
 import {
   highlightCode,
   inferLanguageFromFilename,
   normalizeCodeLanguage,
 } from "./code-highlight.js";
-import { CodeFilenameLabel } from "./code-filename-label.js";
 import { codeSchema, codeMdx, type CodeData } from "./code.config.js";
+import { CodeSurface, DEFAULT_CODE_MAX_LINES } from "./HighlightedCode.js";
 
 /**
  * Standard `code` block (STANDARD core library): THE primitive single code

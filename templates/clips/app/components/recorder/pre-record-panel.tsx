@@ -1,12 +1,6 @@
+import { agentNativePath, useT } from "@agent-native/core/client";
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-} from "react";
-import {
+  IconBlur,
   IconBrowser,
   IconCamera,
   IconChevronDown,
@@ -18,20 +12,28 @@ import {
   IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
-import { agentNativePath } from "@agent-native/core/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { CaptureInstallInlineLink } from "@/components/capture-install-options";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
+
+import { CaptureInstallInlineLink } from "@/components/capture-install-options";
+import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -39,14 +41,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
+import { DEFAULT_BLUR_PX, MAX_BLUR_PX, MIN_BLUR_PX } from "@/lib/camera-blur";
 import {
-  NO_CAMERA_DEVICE_ID,
-  NO_MIC_DEVICE_ID,
-  type DisplaySurface,
-  type RecordingMode,
-} from "./recorder-engine";
+  loadRecorderPreferences,
+  saveRecorderPreferences,
+} from "@/lib/recorder-preferences";
+import { cn } from "@/lib/utils";
+
 import type { CameraBubbleSize } from "./camera-bubble";
 import { CameraVisualizer, type CameraTestStatus } from "./camera-visualizer";
 import {
@@ -54,6 +57,12 @@ import {
   friendlyMicError,
   type MicrophoneTestStatus,
 } from "./microphone-visualizer";
+import {
+  NO_CAMERA_DEVICE_ID,
+  NO_MIC_DEVICE_ID,
+  type DisplaySurface,
+  type RecordingMode,
+} from "./recorder-engine";
 
 export interface PreRecordPanelProps {
   onStart: (opts: {
@@ -61,6 +70,8 @@ export interface PreRecordPanelProps {
     displaySurface: DisplaySurface;
     micDeviceId: string | null;
     cameraDeviceId: string | null;
+    cameraBlur: boolean;
+    cameraBlurRadius: number;
   }) => void;
   initialMode?: RecordingMode | null;
   initialDisplaySurface?: DisplaySurface | null;
@@ -182,13 +193,17 @@ export function PreRecordPanel({
   cameraSize = "md",
   onCameraSizeChange,
 }: PreRecordPanelProps) {
+  const t = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loomInputRef = useRef<HTMLInputElement>(null);
+  // Saved selections from the last visit. A `?mode=`/`?surface=` deep link
+  // (initialMode/initialDisplaySurface) still takes precedence over them.
+  const savedPrefs = useMemo(() => loadRecorderPreferences(), []);
   const [mode, setMode] = useState<RecordingMode>(
-    () => initialMode ?? "screen+camera",
+    () => initialMode ?? savedPrefs.mode ?? "screen+camera",
   );
   const [displaySurface, setDisplaySurface] = useState<DisplaySurface>(
-    () => initialDisplaySurface ?? "window",
+    () => initialDisplaySurface ?? savedPrefs.displaySurface ?? "window",
   );
   const [sourceOpen, setSourceOpen] = useState(false);
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
@@ -197,8 +212,18 @@ export function PreRecordPanel({
   const [loomError, setLoomError] = useState<string | null>(null);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
-  const [micId, setMicId] = useState<string>("default");
-  const [cameraId, setCameraId] = useState<string>("default");
+  const [micId, setMicId] = useState<string>(
+    () => savedPrefs.micId ?? "default",
+  );
+  const [cameraId, setCameraId] = useState<string>(
+    () => savedPrefs.cameraId ?? "default",
+  );
+  const [cameraBlur, setCameraBlur] = useState(
+    () => savedPrefs.cameraBlur ?? false,
+  );
+  const [cameraBlurRadius, setCameraBlurRadius] = useState(
+    () => savedPrefs.cameraBlurRadius ?? DEFAULT_BLUR_PX,
+  );
   const [enumError, setEnumError] = useState<string | null>(null);
   const [micAccessStatus, setMicAccessStatus] =
     useState<DeviceAccessStatus>("idle");
@@ -274,12 +299,60 @@ export function PreRecordPanel({
     [mics],
   );
 
+  // Reset to "default" only once a populated list genuinely excludes the saved
+  // device — an empty list means "not enumerated yet", and resetting then would
+  // wipe a restored preference before devices load.
   useEffect(() => {
     if (micId === "default" || micId === NO_MIC_DEVICE_ID) return;
-    if (!mics.some((mic) => mic.deviceId === micId)) {
+    if (mics.length > 0 && !mics.some((mic) => mic.deviceId === micId)) {
       setMicId("default");
     }
   }, [micId, mics]);
+
+  // Same guard for cameras. Not persisted, so a temporarily missing device
+  // doesn't erase the saved choice.
+  useEffect(() => {
+    if (cameraId === "default" || cameraId === NO_CAMERA_DEVICE_ID) return;
+    if (
+      cameras.length > 0 &&
+      !cameras.some((camera) => camera.deviceId === cameraId)
+    ) {
+      setCameraId("default");
+    }
+  }, [cameraId, cameras]);
+
+  // Camera-only mode needs a camera — coerce a restored "off" sentinel to
+  // "default" so Start doesn't forward it as an exact deviceId. This is the
+  // single owner of that coercion: it covers both the mode-button click and the
+  // ?mode=camera deep-link/restore path.
+  useEffect(() => {
+    if (mode === "camera" && cameraId === NO_CAMERA_DEVICE_ID) {
+      setCameraId("default");
+    }
+  }, [mode, cameraId]);
+
+  // Persist deliberate picks only (not the resets above), so an unavailable
+  // device on load can't clobber the stored preference.
+  const chooseMode = useCallback((value: RecordingMode) => {
+    setMode(value);
+    saveRecorderPreferences({ mode: value });
+  }, []);
+  const chooseDisplaySurface = useCallback((value: DisplaySurface) => {
+    setDisplaySurface(value);
+    saveRecorderPreferences({ displaySurface: value });
+  }, []);
+  const chooseMic = useCallback((value: string) => {
+    setMicId(value);
+    saveRecorderPreferences({ micId: value });
+  }, []);
+  const chooseCamera = useCallback((value: string) => {
+    setCameraId(value);
+    saveRecorderPreferences({ cameraId: value });
+  }, []);
+  const chooseCameraBlur = useCallback((value: boolean) => {
+    setCameraBlur(value);
+    saveRecorderPreferences({ cameraBlur: value });
+  }, []);
 
   const requestMicrophoneChoices = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -376,9 +449,9 @@ export function PreRecordPanel({
         void requestMicrophoneChoices();
         return;
       }
-      setMicId(value);
+      chooseMic(value);
     },
-    [requestMicrophoneChoices],
+    [requestMicrophoneChoices, chooseMic],
   );
 
   const handleMicSignalChange = useCallback((hasSignal: boolean) => {
@@ -529,17 +602,12 @@ export function PreRecordPanel({
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => {
-                  setMode(opt.value);
-                  if (
-                    opt.value === "camera" &&
-                    cameraId === NO_CAMERA_DEVICE_ID
-                  ) {
-                    setCameraId("default");
-                  }
-                }}
+                // Camera-only mode needs a camera; the [mode, cameraId] effect
+                // below coerces a restored "off" sentinel to "default" for both
+                // this click and the ?mode=camera deep-link path.
+                onClick={() => chooseMode(opt.value)}
                 className={cn(
-                  "flex min-h-20 min-w-0 flex-col justify-between rounded-xl border p-3 text-left transition-colors",
+                  "flex min-h-20 min-w-0 flex-col justify-between rounded-xl border p-3 text-start transition-colors",
                   active
                     ? "border-primary bg-primary text-primary-foreground shadow-sm"
                     : "border-border bg-background text-foreground hover:border-foreground/30 hover:bg-muted/45",
@@ -574,7 +642,7 @@ export function PreRecordPanel({
           <CollapsibleTrigger asChild>
             <button
               type="button"
-              className="flex w-full items-center gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/35"
+              className="flex w-full items-center gap-3 px-6 py-4 text-start transition-colors hover:bg-muted/35"
             >
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                 <IconDeviceDesktop className="h-4 w-4" />
@@ -605,9 +673,9 @@ export function PreRecordPanel({
                   <button
                     key={opt.value}
                     type="button"
-                    onClick={() => setDisplaySurface(opt.value)}
+                    onClick={() => chooseDisplaySurface(opt.value)}
                     className={cn(
-                      "flex min-h-[76px] flex-col rounded-lg border p-2 text-left transition-colors",
+                      "flex min-h-[76px] flex-col rounded-lg border p-2 text-start transition-colors",
                       active
                         ? "border-primary bg-primary/10 text-foreground"
                         : "border-border bg-background text-muted-foreground hover:border-foreground/40 hover:text-foreground",
@@ -637,7 +705,7 @@ export function PreRecordPanel({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="flex w-full items-center gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/35"
+            className="flex w-full items-center gap-3 px-6 py-4 text-start transition-colors hover:bg-muted/35"
           >
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
               {needsCamera ? (
@@ -703,7 +771,7 @@ export function PreRecordPanel({
                   <Switch
                     checked={audioEnabled}
                     onCheckedChange={(checked) =>
-                      setMicId(checked ? "default" : NO_MIC_DEVICE_ID)
+                      chooseMic(checked ? "default" : NO_MIC_DEVICE_ID)
                     }
                     disabled={busy}
                     aria-label="Include audio in this recording"
@@ -740,7 +808,7 @@ export function PreRecordPanel({
                     </div>
                     <Select
                       value={cameraId}
-                      onValueChange={setCameraId}
+                      onValueChange={chooseCamera}
                       disabled={!needsCamera}
                     >
                       <SelectTrigger className="h-9 min-w-0 flex-1 border-0 bg-transparent px-2 shadow-none hover:bg-muted/45 focus:ring-0 focus:ring-offset-0 disabled:opacity-60">
@@ -762,7 +830,9 @@ export function PreRecordPanel({
                       <Switch
                         checked={needsCamera}
                         onCheckedChange={(checked) =>
-                          setCameraId(checked ? "default" : NO_CAMERA_DEVICE_ID)
+                          chooseCamera(
+                            checked ? "default" : NO_CAMERA_DEVICE_ID,
+                          )
                         }
                         disabled={busy}
                         aria-label="Include camera in this recording"
@@ -774,11 +844,60 @@ export function PreRecordPanel({
                     <CameraVisualizer
                       deviceId={cameraId === "default" ? null : cameraId}
                       disabled={busy}
+                      blur={cameraBlur}
+                      blurRadius={cameraBlurRadius}
                       size={cameraSize}
                       onSizeChange={onCameraSizeChange}
                       onStatusChange={handleCameraStatusChange}
                       onPreviewChange={handleCameraPreviewChange}
                     />
+                  ) : null}
+
+                  {needsCamera ? (
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg px-1 py-1.5 hover:bg-muted/45">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                        <IconBlur className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm">
+                          {t("recorder.cameraBlurTitle")}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {t("recorder.cameraBlurDescription")}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={cameraBlur}
+                        onCheckedChange={chooseCameraBlur}
+                        disabled={busy}
+                        aria-label={t("recorder.cameraBlurToggle")}
+                      />
+                    </label>
+                  ) : null}
+
+                  {needsCamera && cameraBlur ? (
+                    <div className="flex items-center gap-3 px-1 pb-1">
+                      <span className="w-14 shrink-0 text-[11px] text-muted-foreground">
+                        {t("recorder.cameraBlurIntensityLabel")}
+                      </span>
+                      <Slider
+                        value={[cameraBlurRadius]}
+                        min={MIN_BLUR_PX}
+                        max={MAX_BLUR_PX}
+                        step={1}
+                        disabled={busy}
+                        onValueChange={(value) =>
+                          setCameraBlurRadius(value[0] ?? DEFAULT_BLUR_PX)
+                        }
+                        onValueCommit={(value) =>
+                          saveRecorderPreferences({
+                            cameraBlurRadius: value[0] ?? DEFAULT_BLUR_PX,
+                          })
+                        }
+                        aria-label={t("recorder.cameraBlurIntensityAria")}
+                        className="flex-1"
+                      />
+                    </div>
                   ) : null}
                 </div>
               ) : null}
@@ -818,6 +937,8 @@ export function PreRecordPanel({
                 micDeviceId: micId === "default" ? null : micId,
                 cameraDeviceId:
                   needsCamera && cameraId !== "default" ? cameraId : null,
+                cameraBlur: needsCamera ? cameraBlur : false,
+                cameraBlurRadius,
               })
             }
             className={cn("h-12 gap-2", onCancel ? "flex-1" : "w-full")}

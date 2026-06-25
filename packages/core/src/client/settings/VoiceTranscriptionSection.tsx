@@ -10,8 +10,6 @@
  * mirrors the server transcription route's key/env resolution.
  */
 
-import React, { useCallback, useEffect, useState } from "react";
-import { agentNativePath } from "../api-path.js";
 import {
   IconAlertCircle,
   IconCheck,
@@ -22,6 +20,9 @@ import {
   IconLockOpen,
   IconMicrophone,
 } from "@tabler/icons-react";
+import React, { useCallback, useEffect, useState } from "react";
+
+import { agentNativePath } from "../api-path.js";
 import {
   openBuilderConnectPopup,
   useBuilderStatus,
@@ -506,7 +507,7 @@ export function VoiceTranscriptionSection() {
             {showAdvanced ? (
               <IconChevronDown size={12} />
             ) : (
-              <IconChevronRight size={12} />
+              <IconChevronRight size={12} className="rtl:-scale-x-100" />
             )}
             Add API keys
           </span>
@@ -763,7 +764,7 @@ function ProviderOption({
       aria-pressed={selected}
       aria-disabled={disabled || undefined}
       // Theme tokens; streaming agent owns layout.
-      className={`w-full text-left rounded-md border px-2.5 py-2 flex items-start gap-2 ${
+      className={`w-full text-start rounded-md border px-2.5 py-2 flex items-start gap-2 ${
         selected
           ? "border-primary bg-primary/10"
           : "border-border bg-accent/30 hover:bg-accent/50"
@@ -944,7 +945,7 @@ function SystemAudioStatus() {
         <button
           type="button"
           onClick={openPrivacy}
-          className="ml-1 inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+          className="ms-1 inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
         >
           <IconLockOpen size={10} />
           Open System Settings

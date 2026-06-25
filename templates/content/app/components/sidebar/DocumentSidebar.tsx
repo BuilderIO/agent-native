@@ -1,47 +1,82 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  closestCenter,
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import type { Document, DocumentTreeNode } from "@shared/api";
-import {
-  IconPlus,
-  IconSearch,
-  IconStar,
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
-  IconFolderOpen,
-  IconChevronRight,
-} from "@tabler/icons-react";
-import { toast } from "sonner";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
   useCodeMode,
+  useT,
 } from "@agent-native/core/client";
 import {
   ExtensionSlot,
   ExtensionsSidebarSection,
 } from "@agent-native/core/client/extensions";
-import { NotionButton } from "./NotionButton";
-import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
+import { OrgSwitcher } from "@agent-native/core/client/org";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  pointerWithin,
+  rectIntersection,
+  useSensor,
+  useSensors,
+  useDroppable,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable";
+import type { Document, DocumentTreeNode } from "@shared/api";
+import {
+  IconDatabase,
+  IconFileText,
+  IconPlus,
+  IconSearch,
+  IconStar,
+  IconSettings,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+  IconFolderOpen,
+  IconChevronRight,
+  IconRestore,
+  IconTrashX,
+} from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import { ThemeToggle } from "@/components/ThemeToggle";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  useCreateContentDatabase,
+  useRestoreContentDatabase,
+  useTrashedContentDatabases,
+} from "@/hooks/use-content-database";
 import {
   useDocuments,
   useCreateDocument,
@@ -52,11 +87,15 @@ import {
   filterDocumentTreeDocuments,
 } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
+
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  documentSection,
+  isDocumentDropTargetId,
+  resolveDocumentSidebarMove,
+  type SidebarDocumentSection,
+} from "./document-sidebar-dnd";
+import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
+import { NotionButton } from "./NotionButton";
 
 function nanoid(size = 12): string {
   const chars =
@@ -130,7 +169,46 @@ type SidebarSectionId =
   | "local-files"
   | "shared-copies"
   | "private"
-  | "organization";
+  | "organization"
+  | "trash";
+
+function rootDropSectionForSidebarSection(
+  id: SidebarSectionId,
+): SidebarDocumentSection | null {
+  if (id === "private") return "private";
+  if (id === "organization") return "org";
+  return null;
+}
+
+function RootDropZone({
+  section,
+  activeDropTargetId,
+  activeDragSection,
+  children,
+}: {
+  section: SidebarDocumentSection;
+  activeDropTargetId: string | null;
+  activeDragSection: SidebarDocumentSection | null;
+  children: ReactNode;
+}) {
+  const id = `root:${section}`;
+  const { setNodeRef } = useDroppable({
+    id,
+    disabled: !!activeDragSection && activeDragSection !== section,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "rounded-md",
+        activeDropTargetId === id && "bg-primary/10 ring-1 ring-primary/30",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
 
 export function DocumentSidebar({
   activeDocumentId,
@@ -143,10 +221,14 @@ export function DocumentSidebar({
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  const t = useT();
   const { data: documents = [], isLoading } = useDocuments();
   const createDocument = useCreateDocument();
+  const createDatabase = useCreateContentDatabase(null);
   const deleteDocument = useDeleteDocument();
   const moveDocument = useMoveDocument();
+  const restoreContentDatabase = useRestoreContentDatabase();
+  const { data: trashedDatabases } = useTrashedContentDatabases();
   const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
   const [searchQuery, setSearchQuery] = useState("");
@@ -163,8 +245,15 @@ export function DocumentSidebar({
     "shared-copies": false,
     private: false,
     organization: false,
+    trash: false,
   });
+  const [activeDropTargetId, setActiveDropTargetId] = useState<string | null>(
+    null,
+  );
+  const [activeDragSection, setActiveDragSection] =
+    useState<SidebarDocumentSection | null>(null);
   const localFilesActive = location.pathname.startsWith("/local-files");
+  const settingsActive = location.pathname.startsWith("/settings");
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
@@ -225,10 +314,24 @@ export function DocumentSidebar({
   const activeDocument = activeDocumentId
     ? documents.find((doc) => doc.id === activeDocumentId)
     : null;
+  const trashItems = trashedDatabases?.databases ?? [];
+  const sortableDocumentIds = useMemo(
+    () => treeDocuments.map((document) => document.id),
+    [treeDocuments],
+  );
   const parentByDocumentId = useMemo(
     () => new Map(documents.map((doc) => [doc.id, doc.parentId])),
     [documents],
   );
+  const sidebarCollisionDetection = useCallback<CollisionDetection>((args) => {
+    const pointerCollisions = pointerWithin(args).filter((collision) =>
+      isDocumentDropTargetId(String(collision.id)),
+    );
+    if (pointerCollisions.length > 0) return pointerCollisions;
+    return rectIntersection(args).filter((collision) =>
+      isDocumentDropTargetId(String(collision.id)),
+    );
+  }, []);
 
   const activeAncestorIds = useMemo(() => {
     const ids = new Set<string>();
@@ -371,6 +474,25 @@ export function DocumentSidebar({
     ],
   );
 
+  const handleCreateDatabase = useCallback(
+    async (parentId?: string) => {
+      try {
+        const result = await createDatabase.mutateAsync({
+          parentId: parentId ?? null,
+          title: "Untitled database",
+        });
+        navigateToDocument(result.database.documentId);
+        onNavigate?.();
+      } catch (err) {
+        toast.error("Failed to create database", {
+          description:
+            err instanceof Error ? err.message : "Something went wrong",
+        });
+      }
+    },
+    [createDatabase, navigateToDocument, onNavigate],
+  );
+
   const handleDelete = useCallback(
     async (id: string) => {
       const deletedIds = collectDocumentSubtreeIds(documents, id);
@@ -441,87 +563,62 @@ export function DocumentSidebar({
     ],
   );
 
-  const handleReorderPage = useCallback(
-    async (id: string, overId: string) => {
-      if (id === overId) return;
-      const current = documents.find((doc) => doc.id === id);
-      const target = documents.find((doc) => doc.id === overId);
-      if (!current || !target) return;
-      if (current.parentId !== target.parentId) {
-        return;
-      }
+  const clearDragState = useCallback(() => {
+    setActiveDragSection(null);
+    setActiveDropTargetId(null);
+  }, []);
 
-      const siblings = documents
-        .filter((doc) => doc.parentId === current.parentId)
-        .sort(compareDocumentsByPosition);
-      const currentIndex = siblings.findIndex((doc) => doc.id === id);
-      const nextIndex = siblings.findIndex((doc) => doc.id === overId);
-      if (currentIndex < 0 || nextIndex < 0 || currentIndex === nextIndex) {
-        return;
-      }
-
-      const reordered = arrayMove(siblings, currentIndex, nextIndex);
-      const nextPositionById = new Map(
-        reordered.map((doc, index) => [doc.id, index]),
+  const handleDragStart = useCallback(
+    (event: DragStartEvent) => {
+      const activeDocument = documents.find(
+        (document) => document.id === String(event.active.id),
       );
-      const changed = reordered.filter(
-        (doc) => doc.position !== nextPositionById.get(doc.id),
+      setActiveDragSection(
+        activeDocument ? documentSection(activeDocument) : null,
       );
-      if (changed.length === 0) return;
-      if (changed.some((doc) => doc.canEdit === false)) {
-        toast.error("Cannot reorder pages", {
-          description: "One of the affected pages is read-only.",
-        });
-        return;
-      }
-
-      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
-        const cachedDocs: Document[] =
-          (old as { documents?: Document[] })?.documents ??
-          (Array.isArray(old) ? old : documents);
-        const nextDocs = cachedDocs.map((doc) => {
-          const nextPosition = nextPositionById.get(doc.id);
-          return nextPosition === undefined
-            ? doc
-            : { ...doc, position: nextPosition };
-        });
-        return withDocumentsCacheShape(old, nextDocs);
-      });
-
-      try {
-        await Promise.all(
-          changed.map((doc) =>
-            moveDocument.mutateAsync({
-              id: doc.id,
-              position: nextPositionById.get(doc.id)!,
-            }),
-          ),
-        );
-      } catch (err) {
-        queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
-        toast.error("Failed to move page", {
-          description:
-            err instanceof Error ? err.message : "Something went wrong",
-        });
-      }
     },
-    [documents, moveDocument, queryClient],
+    [documents],
   );
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const overId = event.over ? String(event.over.id) : null;
+    setActiveDropTargetId(
+      overId && isDocumentDropTargetId(overId) ? overId : null,
+    );
+  }, []);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
       const activeId = String(active.id);
       const overId = over ? String(over.id) : null;
-      if (!overId || activeId === overId) return;
-      if (parentByDocumentId.get(activeId) !== parentByDocumentId.get(overId)) {
+      clearDragState();
+      if (!overId || !isDocumentDropTargetId(overId)) return;
+      const resolution = resolveDocumentSidebarMove({
+        activeId,
+        dropTargetId: overId,
+        documents: treeDocuments,
+      });
+      if (!resolution.ok) {
         return;
       }
-      void handleReorderPage(activeId, overId);
+      void moveDocument
+        .mutateAsync({
+          id: activeId,
+          parentId: resolution.move.parentId,
+          position: resolution.move.position,
+        })
+        .catch((err) => {
+          queryClient.invalidateQueries({
+            queryKey: ["action", "list-documents"],
+          });
+          toast.error("Failed to move page", {
+            description:
+              err instanceof Error ? err.message : "Something went wrong",
+          });
+        });
     },
-    [handleReorderPage, parentByDocumentId],
+    [clearDragState, moveDocument, queryClient, treeDocuments],
   );
 
   const handleToggleFavorite = useCallback(
@@ -531,6 +628,42 @@ export function DocumentSidebar({
     [updateDocument],
   );
 
+  const handleRestoreDatabase = useCallback(
+    async (databaseId: string) => {
+      try {
+        await restoreContentDatabase.mutateAsync({ databaseId });
+        toast.success("Database restored");
+      } catch (err) {
+        toast.error("Failed to restore database", {
+          description:
+            err instanceof Error ? err.message : "Something went wrong",
+        });
+      }
+    },
+    [restoreContentDatabase],
+  );
+
+  const handlePermanentDeleteDatabase = useCallback(
+    async (documentId: string) => {
+      try {
+        await deleteDocument.mutateAsync({ id: documentId });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-trashed-content-databases"],
+        });
+        toast.success("Database permanently deleted");
+      } catch (err) {
+        toast.error("Failed to permanently delete database", {
+          description:
+            err instanceof Error ? err.message : "Something went wrong",
+        });
+      }
+    },
+    [deleteDocument, queryClient],
+  );
+
   const filteredDocuments = searchQuery
     ? documents.filter((d) =>
         d.title.toLowerCase().includes(searchQuery.toLowerCase()),
@@ -538,10 +671,7 @@ export function DocumentSidebar({
     : null;
 
   const renderDocumentTree = (nodes: DocumentTreeNode[]) => (
-    <SortableContext
-      items={nodes.map((node) => node.id)}
-      strategy={verticalListSortingStrategy}
-    >
+    <>
       {nodes.map((node) => (
         <DocumentTreeItem
           key={node.id}
@@ -555,22 +685,81 @@ export function DocumentSidebar({
             navigateToDocument(id);
             onNavigate?.();
           }}
-          onCreateChild={(parentId) => handleCreatePage(parentId)}
+          onCreateChildPage={(parentId) => handleCreatePage(parentId)}
+          onCreateChildDatabase={(parentId) => handleCreateDatabase(parentId)}
           onDelete={handleDelete}
           onToggleFavorite={handleToggleFavorite}
+          activeDropTargetId={activeDropTargetId}
+          activeDragSection={activeDragSection}
         />
       ))}
-    </SortableContext>
+    </>
   );
 
-  const renderNewPageButton = () => (
-    <button
-      className="flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-      onClick={() => handleCreatePage()}
-    >
-      <IconPlus size={14} className="shrink-0" />
-      <span>New page</span>
-    </button>
+  const renderNewButton = () => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          disabled={createDocument.isPending || createDatabase.isPending}
+        >
+          <IconPlus size={14} className="shrink-0" />
+          <span>New</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-44">
+        <DropdownMenuItem
+          disabled={createDocument.isPending}
+          onClick={() => void handleCreatePage(undefined)}
+        >
+          <IconFileText className="mr-2 size-4" />
+          Page
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={createDatabase.isPending}
+          onClick={() => void handleCreateDatabase(undefined)}
+        >
+          <IconDatabase className="mr-2 size-4" />
+          Database
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const renderCollapsedNewButton = () => (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+              disabled={createDocument.isPending || createDatabase.isPending}
+            >
+              <IconPlus size={16} />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>New</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="start" className="w-44">
+        <DropdownMenuItem
+          disabled={createDocument.isPending}
+          onClick={() => void handleCreatePage(undefined)}
+        >
+          <IconFileText className="mr-2 size-4" />
+          Page
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={createDatabase.isPending}
+          onClick={() => void handleCreateDatabase(undefined)}
+        >
+          <IconDatabase className="mr-2 size-4" />
+          Database
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   const renderLocalFilesNavButton = () => (
@@ -584,7 +773,24 @@ export function DocumentSidebar({
       onClick={() => navigate("/local-files")}
     >
       <IconFolderOpen size={15} className="shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-left">Local files</span>
+      <span className="min-w-0 flex-1 truncate text-start">Local files</span>
+    </button>
+  );
+
+  const renderSettingsNavButton = () => (
+    <button
+      className={cn(
+        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+        settingsActive
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+      )}
+      onClick={() => navigate("/settings")}
+    >
+      <IconSettings size={15} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-start">
+        {t("navigation.settings")}
+      </span>
     </button>
   );
 
@@ -601,7 +807,7 @@ export function DocumentSidebar({
       <button
         type="button"
         aria-expanded={!collapsed}
-        className="flex w-full items-center gap-1 rounded-md px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+        className="flex w-full items-center gap-1 rounded-md px-3 py-1.5 text-start text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
         onClick={() => toggleSection(id)}
       >
         <IconChevronRight
@@ -609,6 +815,7 @@ export function DocumentSidebar({
           className={cn(
             "shrink-0 transition-transform",
             !collapsed && "rotate-90",
+            "rtl:-scale-x-100",
           )}
         />
         <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -646,26 +853,38 @@ export function DocumentSidebar({
     footer?: ReactNode;
   }) => {
     const collapsed = collapsedSections[id];
+    const rootDropSection = rootDropSectionForSidebarSection(id);
+    const header = renderSectionHeader(id, label);
+    const emptyContent = (
+      <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+        {emptyLabel}
+      </div>
+    );
     return (
       <div className={className}>
-        {renderSectionHeader(id, label)}
+        {rootDropSection ? (
+          <RootDropZone
+            section={rootDropSection}
+            activeDropTargetId={activeDropTargetId}
+            activeDragSection={activeDragSection}
+          >
+            {header}
+            {!collapsed && !isLoading && nodes.length === 0
+              ? emptyContent
+              : null}
+          </RootDropZone>
+        ) : (
+          header
+        )}
         {!collapsed && (
           <>
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              {isLoading ? (
-                renderTreeSkeleton()
-              ) : nodes.length === 0 ? (
-                <div className="px-3 py-4 text-center text-sm text-muted-foreground">
-                  {emptyLabel}
-                </div>
-              ) : (
-                renderDocumentTree(nodes)
-              )}
-            </DndContext>
+            {isLoading
+              ? renderTreeSkeleton()
+              : nodes.length === 0
+                ? rootDropSection
+                  ? null
+                  : emptyContent
+                : renderDocumentTree(nodes)}
             {footer}
           </>
         )}
@@ -673,9 +892,94 @@ export function DocumentSidebar({
     );
   };
 
+  const renderTrashSection = () => {
+    if (trashItems.length === 0) return null;
+    const collapsed = collapsedSections.trash;
+
+    return (
+      <div className="mt-3 border-t border-border/60 pt-2">
+        {renderSectionHeader("trash", "Trash")}
+        {!collapsed && (
+          <div className="px-1 py-1">
+            {trashItems.map((database) => (
+              <div
+                key={database.databaseId}
+                className="group flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {database.title || "Untitled database"}
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`Restore ${database.title || "database"}`}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-50"
+                      disabled={restoreContentDatabase.isPending}
+                      onClick={() =>
+                        void handleRestoreDatabase(database.databaseId)
+                      }
+                    >
+                      <IconRestore size={14} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Restore</TooltipContent>
+                </Tooltip>
+                <AlertDialog>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <AlertDialogTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={`Delete ${database.title || "database"} permanently`}
+                          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                          disabled={deleteDocument.isPending}
+                        >
+                          <IconTrashX size={14} />
+                        </button>
+                      </AlertDialogTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>Delete permanently</TooltipContent>
+                  </Tooltip>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        Delete database permanently?
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This permanently deletes{" "}
+                        <span className="font-medium text-foreground">
+                          {database.title || "this database"}
+                        </span>{" "}
+                        and its pages. This cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        onClick={() =>
+                          void handlePermanentDeleteDatabase(
+                            database.documentId,
+                          )
+                        }
+                      >
+                        Delete permanently
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (collapsed) {
     return (
-      <div className="flex flex-col h-full w-12 border-r border-border bg-muted/30 items-center py-3 gap-1">
+      <div className="flex flex-col h-full w-12 border-e border-border bg-muted/30 items-center py-3 gap-1">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -687,17 +991,7 @@ export function DocumentSidebar({
           </TooltipTrigger>
           <TooltipContent>Expand sidebar</TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-              onClick={() => handleCreatePage()}
-            >
-              <IconPlus size={16} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>New page</TooltipContent>
-        </Tooltip>
+        {renderCollapsedNewButton()}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -714,6 +1008,22 @@ export function DocumentSidebar({
           </TooltipTrigger>
           <TooltipContent>Local files</TooltipContent>
         </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={cn(
+                "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
+                settingsActive
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => navigate("/settings")}
+            >
+              <IconSettings size={16} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{t("navigation.settings")}</TooltipContent>
+        </Tooltip>
       </div>
     );
   }
@@ -721,7 +1031,7 @@ export function DocumentSidebar({
   return (
     <div
       className={cn(
-        "relative flex h-full min-h-0 flex-col border-r border-border bg-muted/30",
+        "relative flex h-full min-h-0 flex-col border-e border-border bg-muted/30",
         width === undefined && "w-full",
       )}
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
@@ -792,7 +1102,7 @@ export function DocumentSidebar({
       )}
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="min-w-full w-max py-2 pr-2">
+        <div className="min-w-full w-max py-2 pe-2">
           {/* Search results */}
           {filteredDocuments ? (
             <>
@@ -809,7 +1119,7 @@ export function DocumentSidebar({
                     <button
                       key={doc.id}
                       className={cn(
-                        "w-full flex items-center gap-2 px-3 py-[5px] text-sm text-left rounded-md",
+                        "w-full flex items-center gap-2 px-3 py-[5px] text-sm text-start rounded-md",
                         doc.id === activeDocumentId
                           ? "bg-accent text-accent-foreground"
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -831,97 +1141,111 @@ export function DocumentSidebar({
                   ))
                 )}
               </div>
-              {renderNewPageButton()}
+              {renderNewButton()}
             </>
           ) : (
-            <>
-              {/* Favorites */}
-              {!localFileMode && favorites.length > 0 && (
-                <div className="mb-2">
-                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                    <IconStar size={10} />
-                    Favorites
+            <DndContext
+              sensors={sensors}
+              collisionDetection={sidebarCollisionDetection}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDragCancel={clearDragState}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext items={sortableDocumentIds}>
+                {/* Favorites */}
+                {!localFileMode && favorites.length > 0 && (
+                  <div className="mb-2">
+                    <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                      <IconStar size={10} />
+                      Favorites
+                    </div>
+                    {favorites.map((doc) => (
+                      <button
+                        key={doc.id}
+                        className={cn(
+                          "w-full flex items-center gap-2 px-4 py-[5px] text-sm text-start rounded-md",
+                          doc.id === activeDocumentId
+                            ? "bg-accent text-accent-foreground"
+                            : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                        )}
+                        onClick={() => {
+                          navigateToDocument(doc.id);
+                          onNavigate?.();
+                        }}
+                      >
+                        <span className="flex-shrink-0 w-5 text-center">
+                          <DocumentSidebarIcon document={doc} />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {doc.title || "Untitled"}
+                        </span>
+                      </button>
+                    ))}
                   </div>
-                  {favorites.map((doc) => (
-                    <button
-                      key={doc.id}
-                      className={cn(
-                        "w-full flex items-center gap-2 px-4 py-[5px] text-sm text-left rounded-md",
-                        doc.id === activeDocumentId
-                          ? "bg-accent text-accent-foreground"
-                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                      )}
-                      onClick={() => {
-                        navigateToDocument(doc.id);
-                        onNavigate?.();
-                      }}
-                    >
-                      <span className="flex-shrink-0 w-5 text-center">
-                        <DocumentSidebarIcon document={doc} />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">
-                        {doc.title || "Untitled"}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
+                )}
 
-              {localFileMode ? (
-                <>
-                  {renderTreeSection({
-                    id: "local-files",
-                    label: "Local files",
-                    nodes: localFileTree,
-                    emptyLabel: "No files yet",
-                    footer: renderNewPageButton(),
-                  })}
-                  {databaseTree.length > 0
-                    ? renderTreeSection({
-                        id: "shared-copies",
-                        label: "Shared copies",
-                        nodes: databaseTree,
-                        emptyLabel: "No shared copies yet",
-                        className: "mt-3",
-                      })
-                    : null}
-                </>
-              ) : (
-                <>
-                  {localFileTree.length > 0 &&
-                    renderTreeSection({
+                {localFileMode ? (
+                  <>
+                    {renderTreeSection({
                       id: "local-files",
                       label: "Local files",
                       nodes: localFileTree,
-                      emptyLabel: "No local files yet",
-                      className: "mb-2",
+                      emptyLabel: "No files yet",
+                      footer: renderNewButton(),
+                    })}
+                    {databaseTree.length > 0
+                      ? renderTreeSection({
+                          id: "shared-copies",
+                          label: "Shared copies",
+                          nodes: databaseTree,
+                          emptyLabel: "No shared copies yet",
+                          className: "mt-3",
+                        })
+                      : null}
+                    {renderTrashSection()}
+                  </>
+                ) : (
+                  <>
+                    {localFileTree.length > 0 &&
+                      renderTreeSection({
+                        id: "local-files",
+                        label: "Local files",
+                        nodes: localFileTree,
+                        emptyLabel: "No local files yet",
+                        className: "mb-2",
+                      })}
+
+                    {renderTreeSection({
+                      id: "private",
+                      label: "Private",
+                      nodes: privateTree,
+                      emptyLabel: "No private pages yet",
+                      footer: renderNewButton(),
                     })}
 
-                  {renderTreeSection({
-                    id: "private",
-                    label: "Private",
-                    nodes: privateTree,
-                    emptyLabel: "No private pages yet",
-                    footer: renderNewPageButton(),
-                  })}
-
-                  {!isLoading &&
-                    renderTreeSection({
-                      id: "organization",
-                      label: "Organization",
-                      nodes: organizationTree,
-                      emptyLabel: "No organization pages yet",
-                      className: "mt-3",
-                    })}
-                </>
-              )}
-            </>
+                    {!isLoading &&
+                      renderTreeSection({
+                        id: "organization",
+                        label: "Organization",
+                        nodes: organizationTree,
+                        emptyLabel: "No organization pages yet",
+                        className: "mt-3",
+                      })}
+                    {renderTrashSection()}
+                  </>
+                )}
+              </SortableContext>
+            </DndContext>
           )}
         </div>
       </ScrollArea>
 
       <div className="shrink-0 border-t border-border px-3 py-2">
-        {renderLocalFilesNavButton()}
+        <div className="space-y-1">
+          {renderLocalFilesNavButton()}
+          {renderSettingsNavButton()}
+        </div>
       </div>
 
       <div className="shrink-0 border-t border-border">
@@ -956,7 +1280,7 @@ export function DocumentSidebar({
       {onResize && (
         <div
           className={cn(
-            "absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 active:bg-primary/30",
+            "absolute top-0 end-0 w-1 h-full cursor-col-resize hover:bg-primary/20 active:bg-primary/30",
             isResizing && "bg-primary/30",
           )}
           onMouseDown={handleMouseDown}
