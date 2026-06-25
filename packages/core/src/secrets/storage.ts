@@ -15,11 +15,7 @@
 import { randomUUID } from "node:crypto";
 
 import { getDbExec, isPostgres } from "../db/client.js";
-import {
-  pgColumnExists,
-  pgTableExists,
-  runGuardedDdl,
-} from "../db/ddl-guard.js";
+import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   encryptSecretValue as encryptValue,
   decryptSecretValue as decryptValue,
@@ -48,23 +44,23 @@ async function ensureTable(): Promise<void> {
         // virtually always already present. Issuing `CREATE`/`ALTER` would
         // still take an ACCESS EXCLUSIVE lock — which, in a fresh background
         // worker process behind a concurrent connection on the shared Neon DB,
-        // can block ~indefinitely. So check `information_schema` first (a plain
-        // read, no lock) and run DDL ONLY for what is actually missing. When
-        // DDL must run, `runGuardedDdl` wraps it in a transaction-scoped
-        // `lock_timeout` so a contended lock fails fast instead of hanging.
-        if (!(await pgTableExists("app_secrets"))) {
-          await runGuardedDdl(createSql);
-        }
-        if (!(await pgColumnExists("app_secrets", "description"))) {
-          await runGuardedDdl(
-            `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS description TEXT`,
-          );
-        }
-        if (!(await pgColumnExists("app_secrets", "url_allowlist"))) {
-          await runGuardedDdl(
-            `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS url_allowlist TEXT`,
-          );
-        }
+        // can block ~indefinitely. `ensureTableExists` / `ensureColumnExists`
+        // check `information_schema` first (a plain read, no lock) and run DDL
+        // ONLY for what is actually missing, wrapping any DDL that must run in a
+        // transaction-scoped `lock_timeout` so a contended lock fails fast. They
+        // also re-probe after a swallowed lock-timeout and THROW if the schema
+        // is still missing, so a timed-out DDL never poisons this init memo.
+        await ensureTableExists("app_secrets", createSql);
+        await ensureColumnExists(
+          "app_secrets",
+          "description",
+          `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS description TEXT`,
+        );
+        await ensureColumnExists(
+          "app_secrets",
+          "url_allowlist",
+          `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS url_allowlist TEXT`,
+        );
         return;
       }
 

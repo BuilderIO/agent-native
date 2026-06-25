@@ -121,6 +121,118 @@ export async function pgIndexExists(
   }
 }
 
+/**
+ * Probe → guarded-DDL → re-probe sequence for one piece of on-demand schema.
+ *
+ * This is the single safe primitive every `ensureTable()` should use so a
+ * swallowed `lock_timeout` can NEVER poison a store's init memo with missing
+ * schema. The flow:
+ *
+ *   1. `probe()` — cheap, lock-free existence check (pgTableExists / etc.).
+ *      Already present → return `false` (nothing to do; the hot path takes NO
+ *      lock).
+ *   2. Missing → run `ddl` through `runGuardedDdl` (bounded `lock_timeout`).
+ *      - DDL completed → return `true`.
+ *      - DDL was swallowed by a lock-timeout (`runGuardedDdl` returned `false`)
+ *        → RE-PROBE. A concurrent connection virtually always created the
+ *        object meanwhile, so the re-probe usually now reports it present →
+ *        return `true`. But if it is STILL missing, the required schema does
+ *        NOT exist and we must NOT let the caller memoize success — so THROW.
+ *        The caller's `_initPromise` rejects and the next call retries instead
+ *        of running forever against absent schema.
+ *
+ * On SQLite the probe is always `false` (helpers no-op there) and the SQLite
+ * branch of each store keeps its own create-then-catch behaviour, so this is a
+ * Postgres-path primitive in practice. Returns `true` when the object exists
+ * after this call (either pre-existing-after-timeout-race or freshly created),
+ * `false` only when it already existed up front (no DDL issued).
+ */
+export async function ensureSchemaObject(options: {
+  /** Lock-free existence check; `true` ⇒ already present, skip DDL. */
+  probe: () => Promise<boolean>;
+  /** DDL to run only when `probe()` reports the object missing. */
+  ddl: string;
+  /** Human-readable name of what's being ensured, for the error message. */
+  label: string;
+  /** Forwarded to `runGuardedDdl`. */
+  lockTimeout?: string;
+  /** Injectable client for tests. */
+  injectedClient?: DbExec;
+}): Promise<boolean> {
+  const { probe, ddl, label, lockTimeout, injectedClient } = options;
+  if (await probe()) return false;
+  const ran = await runGuardedDdl(ddl, { lockTimeout, injectedClient });
+  if (ran) return true;
+  // The DDL was swallowed by a lock-timeout. The object is virtually always
+  // already correct by the time a contended boot retries (a concurrent
+  // connection created it), so re-probe before giving up.
+  if (await probe()) return true;
+  // Still missing after a swallowed timeout: do NOT memoize success with absent
+  // schema. Throw so the caller's init promise rejects and the next call
+  // retries, rather than leaving ensureTable "initialized" against a table/
+  // column/index that does not exist.
+  throw new Error(
+    `ensureSchemaObject: required schema "${label}" is still missing after a ` +
+      `lock-timed-out DDL; refusing to memoize init success. The next call will retry.`,
+  );
+}
+
+/**
+ * Convenience wrapper: ensure a TABLE exists (probe via `pgTableExists`).
+ * No-op-returns `false` on SQLite (probe is always false there) — callers run
+ * the SQLite create on their own branch, so this is used on the Postgres path.
+ */
+export async function ensureTableExists(
+  table: string,
+  createSql: string,
+  options: { lockTimeout?: string; injectedClient?: DbExec } = {},
+): Promise<boolean> {
+  return ensureSchemaObject({
+    probe: () => pgTableExists(table, options.injectedClient),
+    ddl: createSql,
+    label: `table ${table}`,
+    lockTimeout: options.lockTimeout,
+    injectedClient: options.injectedClient,
+  });
+}
+
+/**
+ * Convenience wrapper: ensure a COLUMN exists (probe via `pgColumnExists`).
+ * `addColumnSql` should be the full `ALTER TABLE … ADD COLUMN IF NOT EXISTS …`.
+ */
+export async function ensureColumnExists(
+  table: string,
+  column: string,
+  addColumnSql: string,
+  options: { lockTimeout?: string; injectedClient?: DbExec } = {},
+): Promise<boolean> {
+  return ensureSchemaObject({
+    probe: () => pgColumnExists(table, column, options.injectedClient),
+    ddl: addColumnSql,
+    label: `column ${table}.${column}`,
+    lockTimeout: options.lockTimeout,
+    injectedClient: options.injectedClient,
+  });
+}
+
+/**
+ * Convenience wrapper: ensure an INDEX exists (probe via `pgIndexExists`).
+ * `createIndexSql` should be the full `CREATE INDEX IF NOT EXISTS <name> …`.
+ */
+export async function ensureIndexExists(
+  indexName: string,
+  createIndexSql: string,
+  options: { lockTimeout?: string; injectedClient?: DbExec } = {},
+): Promise<boolean> {
+  return ensureSchemaObject({
+    probe: () => pgIndexExists(indexName, options.injectedClient),
+    ddl: createIndexSql,
+    label: `index ${indexName}`,
+    lockTimeout: options.lockTimeout,
+    injectedClient: options.injectedClient,
+  });
+}
+
 /** True when an error looks like a Postgres `lock_timeout` (SQLSTATE 55P03). */
 export function isLockTimeoutError(err: unknown): boolean {
   const anyErr = err as { code?: unknown; message?: unknown } | null;
