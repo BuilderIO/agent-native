@@ -24,9 +24,9 @@ import {
   useDeckVersions,
   useRestoreDeckVersion,
 } from "@/hooks/use-deck-versions";
+import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import type { DeckVersionSummary } from "../../../shared/api";
-import type { DesignSystemData } from "../../../shared/api";
 
 interface HistoryPanelProps {
   deckId: string;
@@ -34,7 +34,6 @@ interface HistoryPanelProps {
   onOpenChange: (open: boolean) => void;
   canRestore?: boolean;
   anchorRef?: RefObject<HTMLButtonElement | null>;
-  designSystem?: DesignSystemData;
 }
 
 function formatRelativeTime(dateStr: string): string {
@@ -68,7 +67,6 @@ export default function HistoryPanel({
   open,
   onOpenChange,
   canRestore = true,
-  designSystem,
 }: HistoryPanelProps) {
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
     null,
@@ -79,6 +77,9 @@ export default function HistoryPanel({
 
   const versions = versionsQuery.data?.versions ?? [];
   const selectedVersion = versionQuery.data;
+  const { designSystem: versionDesignSystem } = useDeckDesignSystem(
+    selectedVersion?.designSystemId ?? null,
+  );
   const selectedSlides = useMemo(
     () =>
       (selectedVersion?.slides ?? []).map((slide) => ({
@@ -188,7 +189,7 @@ export default function HistoryPanel({
                             | undefined
                         }
                         className="border border-border bg-black"
-                        designSystem={designSystem}
+                        designSystem={versionDesignSystem}
                       />
                       <p className="mt-1.5 truncate text-[11px] text-muted-foreground">
                         Slide {index + 1}
