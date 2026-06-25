@@ -540,6 +540,8 @@ export const RUN_DIAG_STAGE = {
   workerClaimLost: "worker_claim_lost",
   /** The agent loop started (startRun fired). */
   workerStarted: "worker_started",
+  /** Last worker setup stage reached before startRun (progressive hang localizer). */
+  workerSetupStep: "worker_setup_step",
   /** Pre-claim setup timing breakdown (diagnostic). */
   setupTimings: "setup_timings",
   /** The worker threw before/while running the loop (message carried in detail). */
