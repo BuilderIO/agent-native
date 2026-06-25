@@ -932,10 +932,10 @@ describe("plan comment thread UI model", () => {
       hasSelectedId: true,
       localPlanMode: false,
       hasBundle: false,
-      planQueryPending: false,
+      planQueryInitialPending: false,
       planQueryError: false,
       planQueryPaused: false,
-      accessStatusPending: false,
+      accessStatusInitialPending: false,
       accessStatusPaused: false,
       accessDenied: false,
     };
@@ -951,7 +951,7 @@ describe("plan comment thread UI model", () => {
     expect(
       shouldShowPlanLoadError({
         ...base,
-        planQueryPending: true,
+        planQueryInitialPending: true,
         planQueryPaused: true,
       }),
     ).toBe(false);
@@ -960,12 +960,28 @@ describe("plan comment thread UI model", () => {
       true,
     );
     expect(shouldShowPlanLoadError({ ...base, accessDenied: true })).toBe(true);
+    // Background refetches should not replace a settled error/access card with
+    // the first-load skeleton.
+    expect(
+      shouldShowPlanLoadError({
+        ...base,
+        planQueryInitialPending: true,
+        planQueryError: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowPlanLoadError({
+        ...base,
+        planQueryInitialPending: true,
+        accessDenied: true,
+      }),
+    ).toBe(true);
     // An access denial that hasn't settled yet should not flash the card.
     expect(
       shouldShowPlanLoadError({
         ...base,
         accessDenied: true,
-        accessStatusPending: true,
+        accessStatusInitialPending: true,
       }),
     ).toBe(false);
     // Healthy / local / already-loaded states never show the card.
