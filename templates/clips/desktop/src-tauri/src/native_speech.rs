@@ -884,17 +884,9 @@ pub(crate) mod macos {
                 );
             }
         }
-        // Finalize VPIO format negotiation before reading the format.
+        // Finalize VPIO format negotiation.
         objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe { engine.prepare() }))
             .map_err(|e| format!("AVAudioEngine prepare threw: {e:?}"))?;
-
-        let format = unsafe { input_node.outputFormatForBus(0) };
-        let sample_rate = unsafe { format.sampleRate() };
-        eprintln!(
-            "[whisper-mic] tap format after prepare: {} Hz, {} ch",
-            sample_rate as u32,
-            unsafe { format.channelCount() }
-        );
 
         {
             let on_samples = on_samples.clone();
@@ -946,6 +938,17 @@ pub(crate) mod macos {
             unsafe { input_node.removeTapOnBus(0) };
             return Err(format!("AVAudioEngine start failed: {msg}"));
         }
+
+        // Read the format only after the engine has started — at this point the
+        // engine has committed to its I/O configuration and the sample rate
+        // matches what the tap will actually deliver.
+        let format = unsafe { input_node.outputFormatForBus(0) };
+        let sample_rate = unsafe { format.sampleRate() };
+        eprintln!(
+            "[whisper-mic] tap format after start: {} Hz, {} ch",
+            sample_rate as u32,
+            unsafe { format.channelCount() }
+        );
 
         // Disable other-audio ducking so the separately-captured system audio
         // isn't dropped to near-silent while the mic VPIO runs.
