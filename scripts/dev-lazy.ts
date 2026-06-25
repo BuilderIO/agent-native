@@ -1396,7 +1396,7 @@ if (shouldKill) {
 }
 
 console.log("[dev-lazy] Prebuilding workspace packages...");
-execSync("pnpm exec tsx scripts/prebuild-workspace-packages.ts dev", {
+execSync("node scripts/prebuild-workspace-packages.ts dev", {
   stdio: "inherit",
 });
 

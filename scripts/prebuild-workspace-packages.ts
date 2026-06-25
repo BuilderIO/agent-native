@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
@@ -27,7 +27,11 @@ const targets: PackageTarget[] = [
     id: "core",
     name: "@agent-native/core",
     dir: "packages/core",
-    expectedOutputs: ["dist/index.js", "dist/cli/index.js"],
+    expectedOutputs: [
+      "dist/index.js",
+      "dist/cli/index.js",
+      "dist/server/index.js",
+    ],
     tsBuildInfoFiles: [
       "node_modules/.cache/tsbuildinfo/core.tsbuildinfo",
       "node_modules/.cache/tsbuildinfo/core-cli.tsbuildinfo",
@@ -37,7 +41,11 @@ const targets: PackageTarget[] = [
     id: "code-agents-ui",
     name: "@agent-native/code-agents-ui",
     dir: "packages/code-agents-ui",
-    expectedOutputs: ["dist/index.js"],
+    expectedOutputs: [
+      "dist/index.js",
+      "dist/code-agents.js",
+      "dist/styles.css",
+    ],
     tsBuildInfoFiles: [
       "node_modules/.cache/tsbuildinfo/code-agents-ui.tsbuildinfo",
     ],
@@ -59,7 +67,11 @@ const targets: PackageTarget[] = [
     id: "scheduling",
     name: "@agent-native/scheduling",
     dir: "packages/scheduling",
-    expectedOutputs: ["dist/index.js", "dist/server/providers/index.js"],
+    expectedOutputs: [
+      "dist/index.js",
+      "dist/server/index.js",
+      "dist/server/providers/index.js",
+    ],
     tsBuildInfoFiles: [
       "node_modules/.cache/tsbuildinfo/scheduling.tsbuildinfo",
     ],
@@ -81,7 +93,14 @@ const targets: PackageTarget[] = [
 ];
 
 const modeTargets: Record<PrebuildMode, string[]> = {
-  dev: ["core", "scheduling", "dispatch", "pinpoint"],
+  dev: [
+    "shared-app-config",
+    "core",
+    "code-agents-ui",
+    "scheduling",
+    "dispatch",
+    "pinpoint",
+  ],
   postinstall: [
     "shared-app-config",
     "core",

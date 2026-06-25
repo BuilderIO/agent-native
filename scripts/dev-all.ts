@@ -140,7 +140,7 @@ if (!skipDocs) {
 // missing file. The prebuild helper clears stale metadata only when expected
 // output files are absent, then runs normal builds.
 console.log(`\x1b[36m[dev-eager]\x1b[0m Prebuilding workspace packages...`);
-execSync("pnpm exec tsx scripts/prebuild-workspace-packages.ts dev", {
+execSync("node scripts/prebuild-workspace-packages.ts dev", {
   stdio: "inherit",
 });
 
