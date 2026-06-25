@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.12.3
+
+### Patch Changes
+
+- fd78baa: Localize Dispatch workspace pages and scheduling booking-link controls.
+
 ## 0.12.2
 
 ### Patch Changes
