@@ -27,10 +27,7 @@ const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/fs-routes": "8.0.1",
   "react-router": "8.0.1",
 };
-const SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES = [
-  '"@sentry/browser"',
-  '"@sentry/node"',
-];
+const SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES = ['"@sentry/*"'];
 const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
