@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import { execSync, spawn } from "child_process";
-import path from "path";
 import fs from "fs";
+import path from "path";
 import { fileURLToPath } from "url";
+
 import * as Sentry from "@sentry/node";
 
 // Resolve version once at module scope — used by both --version and --help
@@ -263,6 +264,16 @@ function findTsxBin(): string {
   const localTsx = path.resolve("node_modules/.bin/tsx");
   if (fs.existsSync(localTsx)) return localTsx;
   return "tsx";
+}
+
+function findTypeScriptCompilerBin(): string {
+  const localTsgo = path.resolve("node_modules/.bin/tsgo");
+  if (fs.existsSync(localTsgo)) return localTsgo;
+
+  const localTsc = path.resolve("node_modules/.bin/tsc");
+  if (fs.existsSync(localTsc)) return localTsc;
+
+  return "tsgo";
 }
 
 function findReactRouterBin(): string {
@@ -585,12 +596,10 @@ switch (command) {
       try {
         execSync(`${rr} typegen`, { stdio: "inherit" });
       } catch {
-        // typegen may fail if routes aren't set up yet — continue to tsc
+        // typegen may fail if routes aren't set up yet; continue to TypeScript.
       }
     }
-    const tsc = path.resolve("node_modules/.bin/tsc");
-    const tscBin = fs.existsSync(tsc) ? tsc : "tsc";
-    run(tscBin, ["--noEmit", ...args]);
+    run(findTypeScriptCompilerBin(), ["--noEmit", ...args]);
     break;
   }
 

@@ -28,12 +28,13 @@
  */
 
 import type { ReactElement } from "react";
-import type { AppLoadContext, EntryContext } from "react-router";
 import ReactDOMServer from "react-dom/server.browser";
+import type { EntryContext, RouterContextProvider } from "react-router";
 
 const { renderToReadableStream } = ReactDOMServer;
 
 import { isbot } from "isbot";
+
 import { wrapWithAnalytics } from "./analytics.js";
 
 export const streamTimeout = 5_000;
@@ -48,7 +49,7 @@ export type DocumentRequestHandler = (
   responseStatusCode: number,
   responseHeaders: Headers,
   routerContext: EntryContext,
-  loadContext: AppLoadContext,
+  loadContext: RouterContextProvider,
 ) => Promise<Response>;
 
 export function createDocumentRequestHandler(
@@ -59,7 +60,7 @@ export function createDocumentRequestHandler(
     responseStatusCode: number,
     responseHeaders: Headers,
     routerContext: EntryContext,
-    _loadContext: AppLoadContext,
+    _loadContext: RouterContextProvider,
   ): Promise<Response> {
     // HEAD requests need no body — return immediately.
     if (request.method.toUpperCase() === "HEAD") {
@@ -138,7 +139,7 @@ export async function handleDocumentRequest(
   responseStatusCode: number,
   responseHeaders: Headers,
   routerContext: EntryContext,
-  loadContext: AppLoadContext,
+  loadContext: RouterContextProvider,
 ): Promise<Response> {
   const handler = await getDefaultDocumentRequestHandler();
   return handler(

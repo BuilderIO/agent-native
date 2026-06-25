@@ -247,8 +247,8 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 
 ## 共享作曲家
 
-Agent-Native 代码使用相同的 `Agent撰写rFrame` + `Prompt撰写r` /
-从 `@agent-native/core/client/composer` 导出的 `Tiptap撰写r` 堆栈作为
+Agent-Native 代码使用相同的 `AgentComposerFrame` + `PromptComposer` /
+从 `@agent-native/core/client/composer` 导出的 `TiptapComposer` 堆栈作为
 框架代理侧边栏。不要分叉单独的
 文本区域、编码工具选择器、上传选择器、语音按钮、模型选择器或 Enter-to-submit
 类似代码表面的实现。如果主机需要一个额外的控制，请传递
@@ -256,7 +256,7 @@ Agent-Native 代码使用相同的 `Agent撰写rFrame` + `Prompt撰写r` /
 大脑聊天保持相同的交互模型和视野。
 
 Brain 的 Ask 路线使用 `AgentChatSurface`，该路线已得到支持
-标准侧边栏编辑器。代码直接使用`Prompt撰写r`，因为主机
+标准侧边栏编辑器。代码直接使用`PromptComposer`，因为主机
 拥有运行创建、成绩单和后续交付。
 
 ## 共享编码工具

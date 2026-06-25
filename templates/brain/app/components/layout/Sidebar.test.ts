@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+
+import { describe, expect, it } from "vitest";
 
 const source = readFileSync(new URL("./Sidebar.tsx", import.meta.url), "utf8");
 

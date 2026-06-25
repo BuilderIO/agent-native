@@ -247,7 +247,7 @@ export const ImpactCounterInputs = {
 
 تسعة جداول، جميعها محددة في `server/db/schema.ts`:
 
-- **`documents`** — شجرة الصفحات. الأعمدة: `id`، `parent_id`، `title`، `content` (تخفيض السعر)، `icon`، `position`، `is_favorite`، `visibility`، `owner_email`، `org_id`، `created_at`، `updated_at`.
+- **`documents`** — شجرة الصفحات. الأعمدة: `id`، `parent_id`، `title`، `content` (Markdown)، `icon`، `position`، `is_favorite`، `visibility`، `owner_email`، `org_id`، `created_at`، `updated_at`.
 - **`document_versions`** — لقطات كاملة من العنوان والمحتوى لسجل الإصدارات. استرجاع مع `restore-document-version`.
 - **`document_comments`** — التعليقات المترابطة مع `thread_id`، و`parent_id`، و`quoted_text`، و`resolved`، و`notion_comment_id` الاختياري لمزامنة Notion ثنائية الاتجاه.
 - **`document_sync_links`** — صف واحد لكل مستند مرتبط بـ Notion لتتبع معرف الصفحة البعيدة وأوقات المزامنة الأخيرة وحالة التعارض وتجزئة المحتوى والأخطاء.
@@ -385,7 +385,7 @@ export const ImpactCounterInputs = {
 
 يتم تخزين المحتوى كتخفيض. يقوم المحرر بالتحويل من وإلى نموذج Tiptap JSON في الذاكرة؛ يتم دائمًا تخفيض الصف SQL بحيث يمكن تشغيل actions والبحث ومزامنة Notion بتنسيق أساسي واحد.
 
-تتضمن جميع الجداول القابلة للتملك `owner_email` و`org_id` عبر `ownableColumns()`، بحيث يتم تحديد نطاق كل صف للمستخدم الذي قام بتسجيل الدخول (ومؤسسته النشطة بشكل اختياري) منذ لحظة إنشائه.
+تتضمن جميع الجداول القابلة للتملك `owner_email` و`org_id` عبر `ownableColumns()`, بحيث يتم تحديد نطاق كل صف للمستخدم الذي قام بتسجيل الدخول (ومؤسسته النشطة بشكل اختياري) منذ لحظة إنشائه.
 
 ### تخصيصه
 

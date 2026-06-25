@@ -2,8 +2,7 @@ import { redirect, type LoaderFunctionArgs } from "react-router";
 
 // Legacy redirect: brand containers moved from "Libraries" (/libraries) to
 // "Brand Kits" (/brand-kits).
-export function loader({ request }: LoaderFunctionArgs) {
-  const url = new URL(request.url);
+export function loader({ url }: LoaderFunctionArgs) {
   return redirect(`/brand-kits${url.search}`);
 }
 

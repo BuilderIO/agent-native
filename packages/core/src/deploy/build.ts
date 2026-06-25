@@ -14,11 +14,39 @@
  * Usage: node deploy/build.js (called automatically by `agent-native build`)
  */
 
-import path from "path";
-import fs from "fs";
 import { execFileSync } from "child_process";
+import fs from "fs";
 import { createRequire } from "module";
+import path from "path";
 import { fileURLToPath } from "url";
+
+import {
+  AGENT_BACKGROUND_FUNCTION_NAME,
+  AGENT_CHAT_PROCESS_RUN_PATH,
+} from "../agent/durable-background.js";
+import { normalizeAppBasePath } from "../server/app-base-path.js";
+import {
+  DEFAULT_SSR_CDN_CACHE_CONTROL,
+  DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+  DEFAULT_SPECULATION_RULES_PATH,
+  DEFAULT_SSR_CACHE_CONTROL,
+} from "../shared/cache-control.js";
+import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+} from "../shared/social-meta.js";
+import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
+import {
+  collectImmutableAssetPaths,
+  IMMUTABLE_ASSET_CACHE_CONTROL,
+  IMMUTABLE_ASSET_CACHE_HEADERS,
+  prefixAssetPath,
+} from "./immutable-assets.js";
 import {
   discoverApiRoutes,
   discoverPlugins,
@@ -32,33 +60,6 @@ import {
   getWorkspaceCoreExports,
   type WorkspaceCoreExports,
 } from "./workspace-core.js";
-import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
-import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
-import {
-  AGENT_BACKGROUND_FUNCTION_NAME,
-  AGENT_CHAT_PROCESS_RUN_PATH,
-} from "../agent/durable-background.js";
-import {
-  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
-  AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
-  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
-  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
-  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
-  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
-} from "../shared/social-meta.js";
-import {
-  DEFAULT_SSR_CDN_CACHE_CONTROL,
-  DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
-  DEFAULT_SPECULATION_RULES_PATH,
-  DEFAULT_SSR_CACHE_CONTROL,
-} from "../shared/cache-control.js";
-import {
-  collectImmutableAssetPaths,
-  IMMUTABLE_ASSET_CACHE_CONTROL,
-  IMMUTABLE_ASSET_CACHE_HEADERS,
-  prefixAssetPath,
-} from "./immutable-assets.js";
-import { normalizeAppBasePath } from "../server/app-base-path.js";
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";

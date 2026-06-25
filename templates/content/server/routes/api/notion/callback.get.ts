@@ -20,12 +20,14 @@
  *      protocol-relative URL like `//host/evil` falls back to `/`.
  */
 import crypto from "node:crypto";
+
 import {
   defineEventHandler,
   getQuery,
   sendRedirect,
   setResponseStatus,
 } from "h3";
+
 import {
   exchangeNotionCodeForTokens,
   getDocumentOwnerEmail,

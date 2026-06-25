@@ -1,11 +1,12 @@
+import { useT } from "@agent-native/core/client";
+import type { Document } from "@shared/api";
 import { IconFileText, IconPlus } from "@tabler/icons-react";
-import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { useCreateDocument } from "@/hooks/use-documents";
-import type { Document } from "@shared/api";
-import { toast } from "sonner";
-import { useT } from "@agent-native/core/client";
 
 function nanoid(size = 12): string {
   const chars =

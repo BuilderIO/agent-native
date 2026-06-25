@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
 import {
   DEFAULT_LOCALE,
   SUPPORTED_LOCALES,
@@ -116,6 +117,7 @@ async function main() {
       ),
     );
   }
+  errors.push(...checkLocalizedDocsProtectedIdentifiers());
 
   if (errors.length > 0) {
     console.error(`[guard:i18n-catalogs] ${errors.length} issue(s):`);
@@ -1010,6 +1012,24 @@ const localizedDocsStringProperties = [
   "title",
 ];
 
+const protectedLocalizedDocsIdentifiers = [
+  "AgentComposerFrame",
+  "PromptComposer",
+  "TiptapComposer",
+  "buildPromptComposerSubmission",
+  "encodeComposerDraft",
+  "message/send",
+];
+
+const corruptedLocalizedDocsIdentifierPatterns = [
+  /Prompt(?!Composer)[\p{L}]+r/u,
+  /Agent(?!ComposerFrame)[\p{L}]+rFrame/u,
+  /Tiptap(?!Composer)[\p{L}]+r/u,
+  /buildPrompt(?!ComposerSubmission)[\p{L}]+rSubmission/u,
+  /encode(?!ComposerDraft)[\p{L}]+Draft/u,
+  /Nachricht\/send/u,
+];
+
 function checkLocalizedDocsEmbeddedStrings(): {
   errors: string[];
   issueIds: string[];
@@ -1052,6 +1072,43 @@ function checkLocalizedDocsEmbeddedStrings(): {
     }
   }
   return { errors, issueIds: [...issueIds].sort() };
+}
+
+function checkLocalizedDocsProtectedIdentifiers(): string[] {
+  const errors: string[] = [];
+  if (!existsSync(localizedDocsDir)) return errors;
+
+  for (const locale of safeReadDir(localizedDocsDir).sort()) {
+    if (!supportedLocaleSet.has(locale)) continue;
+    const localeDir = path.join(localizedDocsDir, locale);
+    for (const file of collectMarkdownFiles(localeDir)) {
+      const relWithinLocale = path.relative(localeDir, file);
+      const sourceFile = path.join(sourceDocsDir, relWithinLocale);
+      if (!existsSync(sourceFile)) continue;
+
+      const sourceText = readFileSync(sourceFile, "utf8");
+      const localizedText = readFileSync(file, "utf8");
+      const rel = path.relative(rootDir, file);
+
+      for (const identifier of protectedLocalizedDocsIdentifiers) {
+        if (!sourceText.includes(identifier)) continue;
+        if (localizedText.includes(identifier)) continue;
+        errors.push(
+          `${rel}: protected docs identifier "${identifier}" is missing; code/API identifiers must not be translated`,
+        );
+      }
+
+      for (const pattern of corruptedLocalizedDocsIdentifierPatterns) {
+        const match = localizedText.match(pattern);
+        if (!match) continue;
+        errors.push(
+          `${rel}: likely translated/corrupted code identifier "${match[0]}" must be restored to the English API identifier`,
+        );
+      }
+    }
+  }
+
+  return errors;
 }
 
 function containsSourcePhrase(text: string, source: string) {

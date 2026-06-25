@@ -1,38 +1,4 @@
 import {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  lazy,
-  Suspense,
-} from "react";
-import type { ComponentType } from "react";
-import { useParams, useSearchParams, useNavigate } from "react-router";
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-} from "@dnd-kit/core";
-import { useDecks } from "@/context/DeckContext";
-import type { AspectRatio } from "@/lib/aspect-ratios";
-import { shortcutLabel } from "@/lib/utils";
-import EditorSidebar from "@/components/editor/EditorSidebar";
-import EditorToolbar from "@/components/editor/EditorToolbar";
-import SlideEditor from "@/components/editor/SlideEditor";
-import ImageGenPanel from "@/components/editor/ImageGenPanel";
-import GeneratingOverlay from "@/components/editor/GeneratingOverlay";
-import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
-import ImageSearchPanel from "@/components/editor/ImageSearchPanel";
-import LogoSearchPanel from "@/components/editor/LogoSearchPanel";
-import HistoryPanel from "@/components/editor/HistoryPanel";
-import ImageDropPromptPopover from "@/components/editor/ImageDropPromptPopover";
-import { QuestionFlow } from "@/components/editor/QuestionFlow";
-import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import {
   useCollaborativeDoc,
   useSession,
   emailToColor,
@@ -43,32 +9,70 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { useOrg } from "@agent-native/core/client/org";
+import type { PinpointProps } from "@agent-native/pinpoint/react";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
 import {
   IconArrowLeft,
   IconBuilding,
   IconLock,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useDeckPresence } from "@/hooks/use-deck-presence";
-import { useDeckRole } from "@/hooks/use-deck-role";
-import { useSlideComments } from "@/hooks/use-slide-comments";
+import { nanoid } from "nanoid";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  lazy,
+  Suspense,
+} from "react";
+import type { ComponentType } from "react";
+import { useParams, useSearchParams, useNavigate } from "react-router";
+
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
-import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
+import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
+import EditorSidebar from "@/components/editor/EditorSidebar";
+import EditorToolbar from "@/components/editor/EditorToolbar";
+import GeneratingOverlay from "@/components/editor/GeneratingOverlay";
+import HistoryPanel from "@/components/editor/HistoryPanel";
+import ImageDropPromptPopover from "@/components/editor/ImageDropPromptPopover";
+import ImageGenPanel from "@/components/editor/ImageGenPanel";
+import ImageSearchPanel from "@/components/editor/ImageSearchPanel";
+import LogoSearchPanel from "@/components/editor/LogoSearchPanel";
+import { QuestionFlow } from "@/components/editor/QuestionFlow";
+import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
+import { Button } from "@/components/ui/button";
+import { ToastAction } from "@/components/ui/toast";
+import { useDecks } from "@/context/DeckContext";
+import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
+import { useDeckPresence } from "@/hooks/use-deck-presence";
+import { useDeckRole } from "@/hooks/use-deck-role";
+import {
+  useSlideComments,
+  type CommentThread,
+} from "@/hooks/use-slide-comments";
+import { toast } from "@/hooks/use-toast";
+import type { AspectRatio } from "@/lib/aspect-ratios";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
 } from "@/lib/generation-state";
+import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
 import { replaceImageTargetInSlideHtml } from "@/lib/slide-image-replacement";
-import { toast } from "@/hooks/use-toast";
-import { ToastAction } from "@/components/ui/toast";
-import { Button } from "@/components/ui/button";
-import { nanoid } from "nanoid";
 import { TAB_ID } from "@/lib/tab-id";
-import type { PinpointProps } from "@agent-native/pinpoint/react";
+import { shortcutLabel } from "@/lib/utils";
 
 const Pinpoint = lazy<ComponentType<PinpointProps>>(() =>
   import("@agent-native/pinpoint/react").then((m) => ({
@@ -708,10 +712,9 @@ export default function DeckEditor() {
   });
 
   // Comments for the current slide (for badge count)
-  const { data: currentSlideThreads = [] } = useSlideComments(
-    id ?? null,
-    activeSlideId,
-  );
+  const currentSlideCommentsQuery = useSlideComments(id ?? null, activeSlideId);
+  const currentSlideThreads: CommentThread[] =
+    currentSlideCommentsQuery.data ?? [];
   const unresolvedCommentCount = currentSlideThreads.filter(
     (t) => !t.resolved,
   ).length;

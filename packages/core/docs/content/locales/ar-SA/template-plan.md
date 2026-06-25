@@ -119,7 +119,7 @@ npx skills@latest add BuilderIO/agent-native --skill visual-plan
 ### الخطط المفتوحة داخل VS Code {#vscode-extension}
 
 إذا كنت تعيش في VS Code، فقم بتثبيت
-[Agent Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
 لفتح نفس سطح مراجعة الخطة في لوحة جانبية بدلاً من إرسالك إلى
 علامة تبويب متصفح منفصلة. لا تزال أدوات الخطط تُرجع رابط الويب العادي وMCP
 تتضمن البيانات الوصفية أيضًا عملية تسليم رمز VS URL:

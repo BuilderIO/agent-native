@@ -5,6 +5,8 @@ import type {
   ContentDatabaseItem,
   DocumentProperty,
 } from "@shared/api";
+import { isEmptyPropertyValue } from "@shared/properties";
+
 import {
   type ColumnKey,
   type DatabaseColumnCalculation,
@@ -12,7 +14,6 @@ import {
   type DatabasePropertyMoveDirection,
 } from "./types";
 import { normalizeClientStringList } from "./view-config";
-import { isEmptyPropertyValue } from "@shared/properties";
 
 export { type DatabasePropertyMoveDirection };
 

@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
 import { resolveSecret } from "@agent-native/core/server";
 import {
   validateUrl,
@@ -16,6 +15,7 @@ import {
   SECONDARY_PATHS,
   COLOR_VAR_PATTERN,
 } from "@agent-native/core/server/design-token-utils";
+import { z } from "zod";
 
 function githubAccessError(
   owner: string,

@@ -1,9 +1,19 @@
 import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
+
+import type {
+  AgentChatStructuredContentPart,
+  AgentChatStructuredMessage,
+} from "../agent/types.js";
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   setActiveRun,
   updateActiveRunSeq,
   clearActiveRun,
 } from "./active-run-state.js";
+import { captureError } from "./analytics.js";
+import { agentNativePath } from "./api-path.js";
+import { unwrapAttachmentEnvelope } from "./composer/pasted-text.js";
+import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   AgentAutoContinueSignal,
   type AgentActivityTrailEntry,
@@ -11,15 +21,6 @@ import {
   readSSEStream,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
-import { agentNativePath } from "./api-path.js";
-import { formatChatErrorText, normalizeChatError } from "./error-format.js";
-import { captureError } from "./analytics.js";
-import { unwrapAttachmentEnvelope } from "./composer/pasted-text.js";
-import type { ReasoningEffort } from "../shared/reasoning-effort.js";
-import type {
-  AgentChatStructuredContentPart,
-  AgentChatStructuredMessage,
-} from "../agent/types.js";
 import type { ChatThreadScope } from "./use-chat-threads.js";
 
 export type AgentChatSurfaceKind =

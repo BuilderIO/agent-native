@@ -1,15 +1,16 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+
+import {
+  normalizeActionChatUIConfig,
+  type ActionChatUIConfig,
+} from "./action-ui.js";
 import type {
   ActionTool,
   AgentChatAttachment,
   AgentChatEvent,
 } from "./agent/types.js";
-import {
-  normalizeActionChatUIConfig,
-  type ActionChatUIConfig,
-} from "./action-ui.js";
-import type { ActionAuditConfig } from "./audit/types.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { ActionAuditConfig } from "./audit/types.js";
 
 /**
  * How an action's `run` was invoked. Tagged at each dispatch site so the action

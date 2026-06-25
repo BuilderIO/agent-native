@@ -1,4 +1,5 @@
 import { Outlet } from "react-router";
+
 import { AppLayout } from "@/components/layout/AppLayout";
 import { messagesByLocale } from "@/i18n-data";
 

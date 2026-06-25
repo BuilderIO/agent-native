@@ -1,15 +1,3 @@
-import {
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-  useNavigate,
-} from "react-router";
-import { useCallback, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useTheme } from "next-themes";
-import { IconMoon, IconSun } from "@tabler/icons-react";
 import { useDbSync } from "@agent-native/core/client";
 import {
   AppProviders,
@@ -22,14 +10,29 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
+import { IconMoon, IconSun } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import { useCallback, useState } from "react";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useNavigate,
+} from "react-router";
+import type { LinksFunction } from "react-router";
+
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { useDistillationBridge } from "@/hooks/use-distillation-bridge";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
+
 import changelog from "../CHANGELOG.md?raw";
-import type { LinksFunction } from "react-router";
-import stylesheet from "./global.css?url";
 import { i18nCatalog } from "./i18n";
+
+import stylesheet from "./global.css?url";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({

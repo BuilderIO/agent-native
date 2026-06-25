@@ -1,9 +1,3 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
-import {
-  createEmbeddedAppBridge,
-  type EmbeddedAppBridge,
-} from "@agent-native/core/embedding/bridge";
 import {
   agentNativePath,
   appPath,
@@ -18,6 +12,10 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
+  createEmbeddedAppBridge,
+  type EmbeddedAppBridge,
+} from "@agent-native/core/embedding/bridge";
+import {
   IconArrowUpRight,
   IconCheck,
   IconChevronLeft,
@@ -26,17 +24,19 @@ import {
   IconPhotoPlus,
   IconX,
 } from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -47,15 +47,17 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { DEFAULT_LIBRARY_PRESETS } from "../../shared/library-presets";
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
 import type { ImageQualityTier, StyleStrength } from "../../shared/api";
+import { DEFAULT_LIBRARY_PRESETS } from "../../shared/library-presets";
 
 type AssetTab = "all" | "generated" | "references";
 

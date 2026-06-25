@@ -1,4 +1,5 @@
 import { getUserSetting } from "@agent-native/core/settings";
+
 import type { AvailabilityConfig } from "../../shared/api.js";
 
 export const DEFAULT_BOOKING_TIMEZONE = "America/New_York";

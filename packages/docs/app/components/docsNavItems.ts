@@ -269,6 +269,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "durable-resume",
       },
       {
+        id: "durable-background-runs",
+        labelKey: "durableBackgroundRuns",
+        slug: "durable-background-runs",
+      },
+      {
         id: "blueprint-installer",
         labelKey: "blueprintInstaller",
         slug: "blueprint-installer",

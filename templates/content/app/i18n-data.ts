@@ -272,11 +272,19 @@ const databaseMessages = {
   unknown: "unknown",
   whatChanged: "What changed",
   whereItWillGo: "Where it will go",
+  openAsFullPage: "Open as full page",
+  pick: "& Pick",
+  addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
+    "Add a status, select, multi-select, or checkbox property to group.",
 };
 
 const databaseMessagesByLocale = {
   "en-US": databaseMessages,
   "zh-CN": {
+    openAsFullPage: "作为完整页面打开",
+    pick: "并选择",
+    addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
+      "添加状态、选择、多选或复选框属性来分组。",
     addAnotherSource: "添加另一个来源",
     agentNativeApps: "Agent-Native 应用",
     addDatabaseView: "添加数据库视图",
@@ -343,6 +351,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "换行显示所有内容",
   },
   "es-ES": {
+    openAsFullPage: "Abrir como página completa",
+    pick: "y elegir",
+    addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
+      "Añade una propiedad de estado, selección, selección múltiple o casilla para agrupar.",
     addAnotherSource: "Añadir otra fuente",
     agentNativeApps: "Aplicaciones Agent-Native",
     addDatabaseView: "Añadir vista de base de datos",
@@ -414,6 +426,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Ajustar todo el contenido",
   },
   "fr-FR": {
+    openAsFullPage: "Ouvrir en pleine page",
+    pick: "et choisir",
+    addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
+      "Ajoutez une propriété état, sélection, sélection multiple ou case à cocher pour regrouper.",
     addAnotherSource: "Ajouter une autre source",
     agentNativeApps: "Applications Agent-Native",
     addDatabaseView: "Ajouter une vue de base de données",
@@ -484,6 +500,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Renvoyer tout le contenu à la ligne",
   },
   "de-DE": {
+    openAsFullPage: "Als vollständige Seite öffnen",
+    pick: "und auswählen",
+    addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
+      "Fügen Sie eine Status-, Auswahl-, Mehrfachauswahl- oder Checkbox-Eigenschaft zum Gruppieren hinzu.",
     addAnotherSource: "Weitere Quelle hinzufügen",
     agentNativeApps: "Agent-Native-Apps",
     addDatabaseView: "Datenbankansicht hinzufügen",
@@ -554,6 +574,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Gesamten Inhalt umbrechen",
   },
   "ja-JP": {
+    openAsFullPage: "フルページで開く",
+    pick: "して選択",
+    addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
+      "グループ化するには、ステータス、選択、複数選択、またはチェックボックスのプロパティを追加してください。",
     addAnotherSource: "別のソースを追加",
     agentNativeApps: "Agent-Native アプリ",
     addDatabaseView: "データベースビューを追加",
@@ -623,6 +647,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "すべての内容を折り返す",
   },
   "ko-KR": {
+    openAsFullPage: "전체 페이지로 열기",
+    pick: "및 선택",
+    addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
+      "그룹화하려면 상태, 선택, 다중 선택 또는 체크박스 속성을 추가하세요.",
     addAnotherSource: "다른 소스 추가",
     agentNativeApps: "Agent-Native 앱",
     addDatabaseView: "데이터베이스 보기 추가",
@@ -690,6 +718,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "모든 콘텐츠 줄바꿈",
   },
   "pt-BR": {
+    openAsFullPage: "Abrir como página completa",
+    pick: "e escolher",
+    addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
+      "Adicione uma propriedade de status, seleção, múltipla seleção ou checkbox para agrupar.",
     addAnotherSource: "Adicionar outra fonte",
     agentNativeApps: "Apps Agent-Native",
     addDatabaseView: "Adicionar visualização de banco de dados",
@@ -759,6 +791,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Quebrar todo o conteúdo",
   },
   "hi-IN": {
+    openAsFullPage: "पूरे पेज के रूप में खोलें",
+    pick: "और चुनें",
+    addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
+      "समूह बनाने के लिए status, select, multi-select या checkbox property जोड़ें।",
     addAnotherSource: "एक और स्रोत जोड़ें",
     agentNativeApps: "Agent-Native ऐप्स",
     addDatabaseView: "डेटाबेस दृश्य जोड़ें",
@@ -827,6 +863,10 @@ const databaseMessagesByLocale = {
     wrapAllContent: "सभी सामग्री रैप करें",
   },
   "ar-SA": {
+    openAsFullPage: "فتح كصفحة كاملة",
+    pick: "واختيار",
+    addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
+      "أضف خاصية حالة أو اختيار أو اختيار متعدد أو مربع اختيار للتجميع.",
     addAnotherSource: "إضافة مصدر آخر",
     agentNativeApps: "تطبيقات Agent-Native",
     addDatabaseView: "إضافة عرض قاعدة بيانات",
@@ -7498,7 +7538,9 @@ const contentExactEnglishTranslations = {
   "de-DE": {
     editor: { versionRestoreQuestion: "Diese Version wiederherstellen?" },
   },
-  "ja-JP": { editor: { versionRestoreQuestion: "このバージョンを復元しますか？" } },
+  "ja-JP": {
+    editor: { versionRestoreQuestion: "このバージョンを復元しますか？" },
+  },
   "ko-KR": { editor: { versionRestoreQuestion: "이 버전을 복원할까요?" } },
   "pt-BR": { editor: { versionRestoreQuestion: "Restaurar esta versão?" } },
   "hi-IN": {

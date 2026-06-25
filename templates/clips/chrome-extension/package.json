@@ -7,13 +7,14 @@
     "dev": "vite build --watch",
     "dev:hot": "tsx scripts/dev.ts",
     "build": "vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "package": "pnpm build && tsx scripts/package.ts"
   },
   "devDependencies": {
-    "vite": "catalog:",
-    "typescript": "catalog:",
+    "@types/chrome": "^0.2.0",
+    "@typescript/native-preview": "catalog:",
     "tsx": "catalog:",
-    "@types/chrome": "^0.2.0"
+    "typescript": "catalog:",
+    "vite": "catalog:"
   }
 }

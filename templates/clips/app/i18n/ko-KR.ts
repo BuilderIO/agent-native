@@ -20,6 +20,13 @@ const messages = {
       "녹화를 시작하려면 Clips 확장 프로그램을 다시 여세요.",
     gotIt: "확인",
   },
+  recorder: {
+    cameraBlurTitle: "배경 흐리게",
+    cameraBlurDescription: "나는 선명하게, 뒤쪽 배경은 흐리게 유지합니다",
+    cameraBlurToggle: "카메라 배경 흐리게",
+    cameraBlurIntensityLabel: "강도",
+    cameraBlurIntensityAria: "배경 흐림 강도",
+  },
   navigation: {
     brand: "클립",
     library: "라이브러리",

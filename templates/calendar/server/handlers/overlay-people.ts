@@ -1,7 +1,8 @@
-import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
-import type { OverlayPerson } from "../../shared/api.js";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { readBody, getSession } from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
+
+import type { OverlayPerson } from "../../shared/api.js";
 
 async function uEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);

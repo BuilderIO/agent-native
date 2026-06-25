@@ -21,6 +21,7 @@
  * uniform "continue" instruction regardless of which recovery fired.
  */
 
+import type { EngineMessage } from "./engine/types.js";
 import {
   runAgentLoop,
   appendAgentLoopContinuation,
@@ -33,7 +34,6 @@ import {
   classifyToolCallJournal,
   buildResumeJournalNote,
 } from "./tool-call-journal.js";
-import type { EngineMessage } from "./engine/types.js";
 
 /**
  * Derive the per-turn tool-call journal from the durable run-event ledger and,

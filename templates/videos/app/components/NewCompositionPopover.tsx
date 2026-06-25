@@ -1,16 +1,17 @@
-import { useEffect, useState } from "react";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { IconPlus } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
 import {
   PromptComposer,
   useSendToAgentChat,
   useT,
 } from "@agent-native/core/client";
+import { IconPlus } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 type NewCompositionPopoverProps = {
   isNew: boolean;

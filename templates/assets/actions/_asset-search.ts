@@ -1,5 +1,6 @@
-import { parseJson } from "../server/lib/json.js";
 import { z } from "zod";
+
+import { parseJson } from "../server/lib/json.js";
 
 type SearchableAsset = {
   title?: string | null;

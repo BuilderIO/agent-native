@@ -1,6 +1,28 @@
+import {
+  agentNativePath,
+  appApiPath,
+  callAction,
+  useChangeVersions,
+  ChangelogDialog,
+  LanguagePicker,
+  useT,
+} from "@agent-native/core/client";
+import { extensionPath } from "@agent-native/core/client/extensions";
+import {
+  IconFlask,
+  IconTool,
+  IconChartBar,
+  IconLayoutDashboard,
+  IconSun,
+  IconMoon,
+  IconHistory,
+  IconLanguage,
+} from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router";
-import { useQuery } from "@tanstack/react-query";
+
 import {
   CommandDialog,
   CommandInput,
@@ -10,26 +32,15 @@ import {
   CommandItem,
 } from "@/components/ui/command";
 import {
-  IconFlask,
-  IconTool,
-  IconChartBar,
-  IconLayoutDashboard,
-  IconSun,
-  IconMoon,
-  IconHistory,
-} from "@tabler/icons-react";
-import { useTheme } from "next-themes";
-import { dashboards } from "@/pages/adhoc/registry";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  agentNativePath,
-  appApiPath,
-  callAction,
-  useChangeVersions,
-  ChangelogDialog,
-  useT,
-} from "@agent-native/core/client";
-import { extensionPath } from "@agent-native/core/client/extensions";
+import { dashboards } from "@/pages/adhoc/registry";
+
 import changelog from "../../../CHANGELOG.md?raw";
 import { commandPaletteKeywords } from "./command-palette-search";
 
@@ -191,6 +202,7 @@ export function CommandPalette() {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [changelogOpen, setChangelogOpen] = useState(false);
+  const [languageOpen, setLanguageOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
@@ -413,6 +425,24 @@ export function CommandPalette() {
           <CommandGroup heading={t("commandPalette.groupAppearance")}>
             <CommandItem
               onSelect={() => {
+                setOpen(false);
+                setLanguageOpen(true);
+              }}
+              keywords={commandPaletteKeywords(
+                t("settings.languageTitle"),
+                t("settings.languageLabel"),
+                "language",
+                "locale",
+                "translation",
+                "internationalization",
+                "i18n",
+              )}
+            >
+              <IconLanguage className="me-2 h-4 w-4 text-muted-foreground" />
+              {t("settings.languageTitle")}
+            </CommandItem>
+            <CommandItem
+              onSelect={() => {
                 const nextTheme = isDark ? "light" : "dark";
                 setTheme(nextTheme);
                 persistThemePreference(nextTheme);
@@ -481,6 +511,17 @@ export function CommandPalette() {
         onOpenChange={setChangelogOpen}
         markdown={changelog}
       />
+      <Dialog open={languageOpen} onOpenChange={setLanguageOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("settings.languageTitle")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label>{t("settings.languageLabel")}</Label>
+            <LanguagePicker label={t("settings.languageLabel")} />
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

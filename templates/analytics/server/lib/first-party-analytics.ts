@@ -1,5 +1,6 @@
-import { and, eq, isNull, or } from "drizzle-orm";
 import { getDbExec } from "@agent-native/core/db";
+import { and, eq, isNull, or } from "drizzle-orm";
+
 import { getDb, schema } from "../db/index.js";
 
 export interface AnalyticsScope {
@@ -419,6 +420,9 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
     throw new Error("Only read-only SELECT queries are allowed");
   }
   if (stripped.includes("?")) {
+    throw new Error("Bind placeholders are not supported in dashboard SQL");
+  }
+  if (/\$\d+\b/.test(stripped)) {
     throw new Error("Bind placeholders are not supported in dashboard SQL");
   }
 

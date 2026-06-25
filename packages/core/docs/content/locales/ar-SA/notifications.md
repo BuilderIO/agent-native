@@ -18,7 +18,7 @@ await notify(
 );
 ```
 
-```an-diagram title="مكالمة واحدة، وجهات عديدة" summary="يقوم notify() دائمًا بكتابة صف البريد الوارد الخاص بنطاق المالك، وتوجيهه إلى كل قناة مسجلة بالتوازي (أفضل جهد)، ثم إرسال الإشعارات المرسلة في ناقل الأحداث."
+```an-diagram title="مكالمة واحدة، وجهات عديدة" summary="يقوم notify() دائمًا بكتابة صف البريد الوارد الخاص بنطاق المالك, وتوجيهه إلى كل قناة مسجلة بالتوازي (أفضل جهد)، ثم إرسال الإشعارات المرسلة في ناقل الأحداث."
 {
   "html": "<div class=\"diagram-notify\"><div class=\"diagram-node\">notify(input, { owner })<br><small class=\"diagram-muted\">any server code &middot; action, automation, plugin</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel fan\" data-rough><div class=\"fan-row\"><span class=\"diagram-pill accent\">inbox</span><div class=\"diagram-box\" data-rough>notifications table &rarr; bell UI<br><small class=\"diagram-muted\">always on &middot; owner-scoped</small></div></div><div class=\"fan-row\"><span class=\"diagram-pill\">webhook</span><div class=\"diagram-box\" data-rough>POST JSON to NOTIFICATIONS_WEBHOOK_URL<br><small class=\"diagram-muted\">best-effort</small></div></div><div class=\"fan-row\"><span class=\"diagram-pill\">custom</span><div class=\"diagram-box\" data-rough>registerNotificationChannel(...)<br><small class=\"diagram-muted\">best-effort &middot; runs in parallel</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">notification.sent</span><small class=\"diagram-muted\">event bus &middot; automations can chain</small></div></div>",
   "css": ".diagram-notify{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-notify .fan{display:flex;flex-direction:column;gap:10px;padding:14px}.diagram-notify .fan-row{display:flex;align-items:center;gap:10px}.diagram-notify .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-notify .diagram-arrow{font-size:22px;line-height:1}"
@@ -220,7 +220,7 @@ export function HeaderBar() {
 ## كيفية العمل {#internals}
 
 - **نطاق المالك** — يحتوي كل صف على عمود `owner`؛ يتم تصفية كل استعلام عليه؛ يستخدم كل مسار البريد الإلكتروني للجلسة المصادق عليها. لا يرى المستخدمون أبدًا إشعارات بعضهم البعض.
-- **تكامل الاستقصاء** — تستدعي كل طفرة `recordChange()`، لذا يتم إبطال صحة القوالب التي تستخدم [`useDbSync`](/docs/client) تلقائيًا دون أي أسلاك إضافية.
+- **تكامل الاستقصاء** — تستدعي كل طفرة `recordChange()`, لذا يتم إبطال صحة القوالب التي تستخدم [`useDbSync`](/docs/client) تلقائيًا دون أي أسلاك إضافية.
 - **توزيع أفضل جهد** — يتم اكتشاف أخطاء القناة وتسجيلها؛ لا تؤدي إحدى القنوات الفاشلة إلى منع القنوات الأخرى أو الكتابة في البريد الوارد.
 - **أطلق النار وانسى** — يعود `notify()` بعد اكتمال الكتابة في البريد الوارد؛ تعمل القنوات المخصصة في الخلفية.
 

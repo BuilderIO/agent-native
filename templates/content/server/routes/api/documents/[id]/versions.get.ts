@@ -1,9 +1,10 @@
-import { defineEventHandler, createError } from "h3";
-import { and, desc, eq } from "drizzle-orm";
-import { getDb } from "../../../../db/index.js";
-import { schema } from "../../../../db/index.js";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { and, desc, eq } from "drizzle-orm";
+import { defineEventHandler, createError } from "h3";
+
+import { getDb } from "../../../../db/index.js";
+import { schema } from "../../../../db/index.js";
 
 export default defineEventHandler(async (event) => {
   const id = event.context.params!.id;

@@ -1423,6 +1423,7 @@ const arSA = {
     adapters: "Adapters",
     cliAdapters: "محولات CLI",
     processors: "معالجات داخل الحلقة",
+    durableBackgroundRuns: "تشغيلات الخلفية الدائمة",
     durableResume: "استئناف دائم",
     blueprintInstaller: "مثبّت Blueprint",
     chat: "المحادثة",

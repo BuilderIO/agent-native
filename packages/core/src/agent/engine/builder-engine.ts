@@ -13,18 +13,7 @@
  * BUILDER_GATEWAY_BASE_URL.
  */
 
-import type {
-  AgentEngine,
-  EngineCapabilities,
-  EngineContentPart,
-  EngineEvent,
-  EngineStreamOptions,
-} from "./types.js";
-import {
-  engineMessagesToBuilderGatewayAnthropic,
-  engineToolsToAnthropic,
-} from "./translate-anthropic.js";
-import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
+import { captureError } from "../../server/capture-error.js";
 import {
   clearBuilderCredentialAuthFailure,
   resolveBuilderCredentials,
@@ -35,13 +24,24 @@ import {
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
+import { BUILDER_MODEL_CONFIG } from "../model-config.js";
+import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
-import { BUILDER_MODEL_CONFIG } from "../model-config.js";
-import { captureError } from "../../server/capture-error.js";
 import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
+import {
+  engineMessagesToBuilderGatewayAnthropic,
+  engineToolsToAnthropic,
+} from "./translate-anthropic.js";
+import type {
+  AgentEngine,
+  EngineCapabilities,
+  EngineContentPart,
+  EngineEvent,
+  EngineStreamOptions,
+} from "./types.js";
 
 export const BUILDER_CAPABILITIES: EngineCapabilities = {
   thinking: true,

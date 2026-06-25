@@ -302,7 +302,7 @@ const runtime = createAgentNativeChatRuntime({
 ```
 
 전체가 필요할 때만 `<AssistantChat createAdapter={...} />`를 사용하세요
-assistant-ui 어댑터 제어. 제품을 사용할 때 `Prompt작성r`만 사용하세요.
+assistant-ui 어댑터 제어. 제품을 사용할 때 `PromptComposer`만 사용하세요.
 외부 녹취록 전체를 소유하고 있으며 Agent-Native의 작곡가만 원합니다
 필드.
 

@@ -1,10 +1,11 @@
-import { Link, NavLink, useLocation } from "react-router";
-import ThemeToggle from "./ThemeToggle";
-import { useState, useEffect, lazy, Suspense } from "react";
-import { IconMessage } from "@tabler/icons-react";
 import { FeedbackButton, useLocale, useT } from "@agent-native/core/client";
-import DocsLanguagePicker from "./DocsLanguagePicker";
+import { IconMessage } from "@tabler/icons-react";
+import { useState, useEffect, lazy, Suspense } from "react";
+import { Link, NavLink, useLocation } from "react-router";
+
 import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "./docs-locale";
+import DocsLanguagePicker from "./DocsLanguagePicker";
+import ThemeToggle from "./ThemeToggle";
 
 const SearchModal = lazy(() =>
   import("./SearchModal").then((m) => ({ default: m.SearchModal })),

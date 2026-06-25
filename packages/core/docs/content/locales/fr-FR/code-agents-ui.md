@@ -247,8 +247,8 @@ Les hôtes du navigateur devraient renvoyer une erreur `openTerminal` gracieuse 
 
 ## Compositeur partagé
 
-Le code Agent-Native utilise le même `AgentComposerrFrame` + `PromptComposerr` /
-Pile `TiptapComposerr` exportée depuis `@agent-native/core/client/composer` en tant que
+Le code Agent-Native utilise le même `AgentComposerFrame` + `PromptComposer` /
+Pile `TiptapComposer` exportée depuis `@agent-native/core/client/composer` en tant que
 barre latérale de l'agent Framework. Ne créez pas de fichier séparé
 zone de texte, sélecteur d'outil de codage, sélecteur de téléchargement, bouton vocal, sélecteur de modèle ou Entrée pour soumettre
 implémentation pour les surfaces de type Code. Si un hôte a besoin d'un contrôle supplémentaire, passez
@@ -256,7 +256,7 @@ via les points d'extension partagés du compositeur, donc la barre latérale, le
 Le chat cérébral conserve le même modèle d'interaction et le même champ visuel.
 
 La route Ask de Brain utilise `AgentChatSurface`, qui est déjà soutenue par le
-compositeur de barre latérale standard. Le code utilise `PromptComposerr` directement car l'hôte
+compositeur de barre latérale standard. Le code utilise `PromptComposer` directement car l'hôte
 est propriétaire de la création des analyses, des transcriptions et de la livraison de suivi.
 
 ## Outils de codage partagés

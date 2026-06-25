@@ -16,8 +16,7 @@ import {
   keepPreviousData,
   type UseQueryResult,
 } from "@tanstack/react-query";
-import { agentNativePath } from "../api-path.js";
-import { useChangeVersions } from "../use-change-version.js";
+
 import type {
   DbAdminDialect,
   DbAdminTableSummary,
@@ -28,6 +27,8 @@ import type {
   DbAdminMutationResult,
   DbAdminQueryResult,
 } from "../../db-admin/types.js";
+import { agentNativePath } from "../api-path.js";
+import { useChangeVersions } from "../use-change-version.js";
 
 // ─── Base path ───────────────────────────────────────────────────────────
 

@@ -7,6 +7,9 @@ import type {
   DocumentPropertyType,
   DocumentPropertyValue,
 } from "@shared/api";
+import { formulaValueText, isComputedPropertyType } from "@shared/properties";
+
+import { calendarDateKey, propertyDateValue } from "./calendar-timeline";
 import {
   type ColumnKey,
   type DatabaseConditionMoveDirection,
@@ -18,8 +21,6 @@ import {
   type SortDirection,
   type DatabaseSort,
 } from "./types";
-import { formulaValueText, isComputedPropertyType } from "@shared/properties";
-import { calendarDateKey, propertyDateValue } from "./calendar-timeline";
 export {
   normalizeClientDatabaseFilterMode,
   normalizeClientDatabaseRowDensity,

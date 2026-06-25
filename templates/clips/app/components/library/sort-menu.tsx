@@ -1,11 +1,12 @@
 import { IconArrowsSort, IconCheck } from "@tabler/icons-react";
+
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
 
 export type SortKey = "recent" | "views" | "oldest";
 

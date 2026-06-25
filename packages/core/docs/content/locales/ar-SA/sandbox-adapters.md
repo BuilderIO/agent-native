@@ -49,7 +49,7 @@ search: "المحولات، محول وضع الحماية، محول cli، رم
 
 ## الواجهة {#interface}
 
-يعيش خط التماس في قلب `packages/core/src/coding-tools/sandbox/` — `adapter.ts` (العقد)، `index.ts` (التحديد: `getSandboxAdapter()` / `registerSandboxAdapter()`)، و`local-child-process-adapter.ts` (الافتراضي). يتم توصيله داخل العبوة بواسطة `run-code.ts`؛ يقوم المضيف بتوصيل واجهة خلفية مختلفة من خلال مساعد التسجيل `index.ts` (أو، بالنسبة لواجهة Docker الخلفية، عبر [blueprint](/docs/blueprint-installer) الذي يحرر هذه الملفات مباشرة).
+يعيش خط التماس في قلب `packages/core/src/coding-tools/sandbox/` — `adapter.ts` (العقد)، `index.ts` (التحديد: `getSandboxAdapter()` / `registerSandboxAdapter()`)، و`local-child-process-adapter.ts` (الافتراضي). يتم توصيله داخل العبوة بواسطة `run-code.ts`؛ يقوم المضيف بتوصيل واجهة خلفية مختلفة من خلال مساعد التسجيل `index.ts` (أو، بالنسبة لواجهة Docker الخلفية, عبر [blueprint](/docs/blueprint-installer) الذي يحرر هذه الملفات مباشرة).
 
 ```an-file-tree title="نقطة وصل sandbox في core"
 {

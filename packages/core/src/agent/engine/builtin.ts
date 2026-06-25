@@ -6,13 +6,6 @@
  * any server plugin after startup.
  */
 
-import { registerAgentEngine } from "./registry.js";
-import {
-  createAnthropicEngine,
-  ANTHROPIC_CAPABILITIES,
-  ANTHROPIC_DEFAULT_MODEL,
-  ANTHROPIC_SUPPORTED_MODELS,
-} from "./anthropic-engine.js";
 import {
   createAISDKEngine,
   PROVIDER_CAPABILITIES,
@@ -23,11 +16,18 @@ import {
   type AISDKProvider,
 } from "./ai-sdk-engine.js";
 import {
+  createAnthropicEngine,
+  ANTHROPIC_CAPABILITIES,
+  ANTHROPIC_DEFAULT_MODEL,
+  ANTHROPIC_SUPPORTED_MODELS,
+} from "./anthropic-engine.js";
+import {
   createBuilderEngine,
   BUILDER_CAPABILITIES,
   BUILDER_DEFAULT_MODEL,
   BUILDER_SUPPORTED_MODELS,
 } from "./builder-engine.js";
+import { registerAgentEngine } from "./registry.js";
 
 let _registered = false;
 

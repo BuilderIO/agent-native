@@ -15,8 +15,7 @@ const messages = {
     title: "सेटिंग्स",
     description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
     languageTitle: "भाषा",
-    languageDescription:
-      "इंटरफ़ेस भाषा चुनें। यह प्राथमिकता आपके खाते में सहेजी जाती है।",
+    languageDescription: "इंटरफ़ेस भाषा चुनें। यह प्राथमिकता आपके खाते में सहेजी जाती है।",
     languageLabel: "इंटरफ़ेस भाषा",
     agentTitle: "एजेंट सेटिंग्स",
     agentDescription:
@@ -479,8 +478,7 @@ const messages = {
     genericTitle: "कुछ गलत हुआ",
     genericDetails: "एक अनपेक्षित त्रुटि हुई।",
     notFoundTitle: "पेज नहीं मिला",
-    notFoundDetails:
-      "यह पेज मौजूद नहीं है। इसे स्थानांतरित या हटाया गया हो सकता है।",
+    notFoundDetails: "यह पेज मौजूद नहीं है। इसे स्थानांतरित या हटाया गया हो सकता है।",
     statusTitle: "{{status}} त्रुटि",
     goHome: "होम जाएं",
   },

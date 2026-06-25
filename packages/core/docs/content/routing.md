@@ -1,11 +1,11 @@
 ---
 title: "Routing"
-description: "File-based routing for agent-native apps with React Router v7 — pages, dynamic params, and navigation."
+description: "File-based routing for agent-native apps with React Router v8 — pages, dynamic params, and navigation."
 ---
 
 # Routing
 
-Agent-native apps use **React Router v7** with file-based routing via `flatRoutes()` from `@react-router/fs-routes`. Every file in `app/routes/` becomes a URL. Templates use the dot-notation convention — dots separate URL segments inside a single filename.
+Agent-native apps use **React Router v8** with file-based routing via `flatRoutes()` from `@react-router/fs-routes`. Every file in `app/routes/` becomes a URL. Templates use the dot-notation convention — dots separate URL segments inside a single filename.
 
 ## File-Based Routing {#file-based-routing}
 

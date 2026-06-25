@@ -302,7 +302,7 @@ const runtime = createAgentNativeChatRuntime({
 ```
 
 仅在需要完整时才使用`<AssistantChat createAdapter={...} />`
-assist-ui 适配器控件。当您的产品时单独使用`Prompt撰写r`
+assist-ui 适配器控件。当您的产品时单独使用`PromptComposer`
 拥有整个外部转录本并且只想要 Agent-Native 的作曲家
 字段。
 

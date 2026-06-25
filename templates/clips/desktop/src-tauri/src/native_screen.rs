@@ -2623,8 +2623,12 @@ fn prepare_recording_file(
             if let Some(ffmpeg_path) = ffmpeg_path.as_deref() {
                 let normalized_path = normalized_recording_path(path);
                 let _ = std::fs::remove_file(&normalized_path);
-                match normalize_audio_with_ffmpeg(ffmpeg_path, path, &normalized_path, downmix_audio)
-                {
+                match normalize_audio_with_ffmpeg(
+                    ffmpeg_path,
+                    path,
+                    &normalized_path,
+                    downmix_audio,
+                ) {
                     Ok(()) => {
                         let normalized_bytes = std::fs::metadata(&normalized_path)
                             .map_err(|e| format!("normalized recording file missing: {e}"))?

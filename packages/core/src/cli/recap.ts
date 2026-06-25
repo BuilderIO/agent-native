@@ -40,12 +40,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { readPlanPublishAuth } from "./plan-publish-store.js";
 import {
   DEFAULT_PLAN_APP_URL,
   fetchPlanBlockCatalog,
   planActionEndpoint,
 } from "./plan-blocks.js";
+import { readPlanPublishAuth } from "./plan-publish-store.js";
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 import { BUILT_IN_APP_SKILLS, VISUAL_RECAP_SKILL_MD } from "./skills.js";
 
@@ -1617,6 +1617,7 @@ export function buildRecapPrompt(input: {
 const MARKER = "<!-- pr-visual-recap -->";
 const RECAP_IMAGE_URL_PATH_PATTERN =
   /\/_agent-native\/recap-image\/[0-9a-f]{32,128}\.png$/;
+const RECAP_IMAGE_CACHE_QUERY_PARAM = "v";
 const RECAP_SCREENSHOT_QUERY_PARAM = "recapScreenshot";
 const RECAP_SCREENSHOT_THEME_QUERY_PARAM = "recapScreenshotTheme";
 const GITHUB_LIGHT_CANVAS_BACKGROUND = "#ffffff";
@@ -1802,13 +1803,59 @@ function originOf(url: string): string {
   }
 }
 
+function normalizeRecapImageCacheKey(raw: string | undefined | null): string {
+  const value = (raw || "").trim();
+  if (!value) return "";
+  return value
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+}
+
+export function withRecapImageCacheKey(
+  imageUrl: string,
+  cacheKey: string | undefined | null,
+): string {
+  const key = normalizeRecapImageCacheKey(cacheKey);
+  if (!key) return imageUrl;
+  try {
+    const url = new URL(imageUrl);
+    url.hash = "";
+    url.search = "";
+    url.searchParams.set(RECAP_IMAGE_CACHE_QUERY_PARAM, key);
+    return url.toString();
+  } catch {
+    return imageUrl;
+  }
+}
+
+function recapImageCacheKeyFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const runId = normalizeRecapImageCacheKey(env.GITHUB_RUN_ID);
+  const attempt = normalizeRecapImageCacheKey(env.GITHUB_RUN_ATTEMPT);
+  if (runId && attempt) return `${runId}-${attempt}`;
+  return runId || normalizeRecapImageCacheKey(env.HEAD_SHA);
+}
+
 function trustedRecapImageUrl(raw: string | undefined, base: string): string {
   const value = (raw || "").trim();
-  return value &&
-    sameOrigin(value, base) &&
-    RECAP_IMAGE_URL_PATH_PATTERN.test(value)
-    ? value
-    : "";
+  if (!value || !sameOrigin(value, base)) return "";
+  try {
+    const url = new URL(value);
+    if (!RECAP_IMAGE_URL_PATH_PATTERN.test(url.pathname)) return "";
+    const cacheKey = normalizeRecapImageCacheKey(
+      url.searchParams.get(RECAP_IMAGE_CACHE_QUERY_PARAM),
+    );
+    url.hash = "";
+    url.search = "";
+    if (cacheKey) {
+      url.searchParams.set(RECAP_IMAGE_CACHE_QUERY_PARAM, cacheKey);
+    }
+    return url.toString();
+  } catch {
+    return "";
+  }
 }
 
 /** Build the sticky comment body from the workflow's environment. */
@@ -1917,21 +1964,48 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   );
   const darkImageUrl = trustedRecapImageUrl(env.RECAP_DARK_IMAGE_URL, base);
   const fallbackImageUrl = lightImageUrl || darkImageUrl;
-  lines.push(`Here's a [visual recap](${safeUrl}) of what changed:`);
-  lines.push("");
-  if (fallbackImageUrl) {
-    lines.push(`<a href="${safeUrl}">`);
-    lines.push(`<picture>`);
-    if (lightImageUrl && darkImageUrl) {
+
+  if (!fallbackImageUrl) {
+    const diagnostic =
+      sanitizeAgentFailureSummary((env.RECAP_SHOT_REASON || "").trim(), 500) ||
+      (env.RECAP_SHOT_OK === "true"
+        ? "Screenshot URL was missing or failed validation."
+        : "Screenshot capture or upload did not return a usable image URL.");
+    lines.push("### Visual recap — screenshot failed");
+    lines.push("");
+    lines.push(
+      "A recap was published, but the PR-comment screenshot could not be captured or uploaded. Open the interactive recap directly:",
+    );
+    lines.push("");
+    lines.push(`**Open the [full interactive recap](${safeUrl})**`);
+    lines.push("");
+    lines.push("Diagnostic:");
+    lines.push("");
+    lines.push(diagnostic);
+    if (env.DIFF_HUGE === "true") {
+      lines.push("");
       lines.push(
-        `  <source media="(prefers-color-scheme: dark)" srcset="${darkImageUrl}">`,
+        "> Large diff — this recap is a **summarized** view (top files + schema/API deltas).",
       );
     }
-    lines.push(`  <img alt="Visual recap" src="${fallbackImageUrl}">`);
-    lines.push(`</picture>`);
-    lines.push(`</a>`);
-    lines.push("");
+    lines.push("", `<!-- plan-id: ${planId} -->`);
+    if (headMarker) lines.push("", headMarker);
+    return lines.join("\n");
   }
+
+  lines.push(`Here's a [visual recap](${safeUrl}) of what changed:`);
+  lines.push("");
+  lines.push(`<a href="${safeUrl}">`);
+  lines.push(`<picture>`);
+  if (lightImageUrl && darkImageUrl) {
+    lines.push(
+      `  <source media="(prefers-color-scheme: dark)" srcset="${darkImageUrl}">`,
+    );
+  }
+  lines.push(`  <img alt="Visual recap" src="${fallbackImageUrl}">`);
+  lines.push(`</picture>`);
+  lines.push(`</a>`);
+  lines.push("");
   lines.push(`**Open the [full interactive recap](${safeUrl})**`);
   if (env.DIFF_HUGE === "true") {
     lines.push("");
@@ -2483,6 +2557,7 @@ export async function uploadRecapImage(input: {
   appUrl: string;
   token: string;
   pngPath: string;
+  cacheKey?: string;
   /** @internal test seam — defaults to global fetch */
   fetchFn?: typeof fetch;
   /** @internal test seam — defaults to waitForPublicRecapImage */
@@ -2520,16 +2595,17 @@ export async function uploadRecapImage(input: {
       );
       return null;
     }
+    const imageUrl = withRecapImageCacheKey(json.imageUrl, input.cacheKey);
     const publiclyReadable = await waitFn({
-      imageUrl: json.imageUrl,
+      imageUrl,
     });
     if (!publiclyReadable) {
       process.stderr.write(
-        `[recap shot] uploaded image was not publicly readable as image/png: ${json.imageUrl}\n`,
+        `[recap shot] uploaded image was not publicly readable as image/png: ${imageUrl}\n`,
       );
       return null;
     }
-    return json.imageUrl;
+    return imageUrl;
   } catch (err) {
     process.stderr.write(`[recap shot] image upload error: ${String(err)}\n`);
     return null;
@@ -2556,7 +2632,7 @@ const RECAP_SHOT_DEVICE_SCALE_FACTOR = 2;
  * `Function.prototype.toString` and runs it in the page, where `__name` does not
  * exist, throwing `ReferenceError: __name is not defined` and silently dropping
  * the recap's inline PR-comment screenshot. CI's trusted-workspace path runs this
- * CLI through `tsx` (esbuild), so it fires there even though the tsc-built
+ * CLI through `tsx` (esbuild), so it fires there even though the published
  * published package never emits `__name`. Defining `__name` as an identity
  * function (esbuild's helper returns the target unchanged) makes every main-world
  * payload safe regardless of how the CLI was transpiled. Kept as a raw string so
@@ -2886,7 +2962,13 @@ export async function runShot(
 
   let imageUrl: string | null = null;
   if (captured && token && appUrl) {
-    imageUrl = await uploadRecapImage({ appUrl, token, pngPath: out });
+    imageUrl = await uploadRecapImage({
+      appUrl,
+      token,
+      pngPath: out,
+      cacheKey:
+        optionalArg(args, "image-cache-key") ?? recapImageCacheKeyFromEnv(),
+    });
     if (!imageUrl) {
       reason = "screenshot captured but image upload failed";
     }
@@ -3993,7 +4075,7 @@ Usage:
   npx @agent-native/core@latest recap scan --diff <path> [--mode off|high-confidence|strict]
   npx @agent-native/core@latest recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--block-reference recap-blocks.md] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
   npx @agent-native/core@latest recap publish [--source recap-source.json] [--out recap-url.txt] [--repo owner/name] [--pr <n>] [--prev-plan-id <id>] [--source-pr-state open|closed|merged] [--source-pr-merged-at <iso>] [--app-url <url>] [--token <planToken>]
-  npx @agent-native/core@latest recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png] [--theme light|dark]
+  npx @agent-native/core@latest recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png] [--theme light|dark] [--image-cache-key <key>]
   npx @agent-native/core@latest recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
   npx @agent-native/core@latest recap agent-summary --result-file <path> [--stderr-file <path>] [--exit-code-file <path>] [--agent claude|codex]
   npx @agent-native/core@latest recap comment <find-plan-id|upsert> --repo owner/name --issue <n> --token <github-token>

@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { agentNativePath } from "@agent-native/core/client";
 import {
   IconBrandSlack,
   IconBrandTelegram,
@@ -12,6 +11,9 @@ import {
   IconLoader2,
   IconMail,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -24,7 +26,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { agentNativePath } from "@agent-native/core/client";
 
 interface EnvStatus {
   key: string;

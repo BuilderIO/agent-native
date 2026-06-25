@@ -1,11 +1,13 @@
-import { describe, expect, it } from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
-import { nextjsSourceAdapter } from "./adapters/nextjs.js";
+
+import { describe, expect, it } from "vitest";
+
 import { agentNativeTargetAdapter } from "./adapters/agent-native-target.js";
-import { createDefaultVerifiers } from "./verifiers/deterministic.js";
+import { nextjsSourceAdapter } from "./adapters/nextjs.js";
+import { selectSourceAdapter } from "./adapters/source-registry.js";
 import {
   approveMigrationRun,
   createMigrationRun,
@@ -16,9 +18,9 @@ import {
   planMigration,
   verifyMigration,
 } from "./runtime.js";
-import { selectSourceAdapter } from "./adapters/source-registry.js";
 import type { ProjectIR, SourceAdapter } from "./types.js";
 import { createBrowserVerifier } from "./verifiers/browser.js";
+import { createDefaultVerifiers } from "./verifiers/deterministic.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

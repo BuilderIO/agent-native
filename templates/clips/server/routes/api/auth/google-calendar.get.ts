@@ -16,19 +16,20 @@
  */
 
 import {
-  defineEventHandler,
-  getQuery,
-  sendRedirect,
-  setResponseStatus,
-  type H3Event,
-} from "h3";
-import {
   getSession,
   isElectron,
   encodeOAuthState,
   resolveOAuthRedirectUri,
   safeReturnPath,
 } from "@agent-native/core/server";
+import {
+  defineEventHandler,
+  getQuery,
+  sendRedirect,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+
 import {
   GOOGLE_AUTH_URL,
   GOOGLE_CALENDAR_SCOPES,

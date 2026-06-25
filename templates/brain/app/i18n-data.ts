@@ -2457,8 +2457,7 @@ const baseMessagesByLocale = {
       emptyState: "कंपनी के बारे में Brain से पूछें।",
       suggestionSecurity:
         "enterprise prospects को security के बारे में क्या बताते हैं?",
-      suggestionStaleFacts:
-        "review की जरूरत वाले stale onboarding facts खोजें।",
+      suggestionStaleFacts: "review की जरूरत वाले stale onboarding facts खोजें।",
       suggestionSyncProblems: "किन sources में sync problems हैं?",
       chats: "चैट",
       newChat: "नई चैट",

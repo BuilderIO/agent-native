@@ -247,8 +247,8 @@ Os hosts do navegador devem retornar um erro `openTerminal` normal em vez de ten
 
 ## Compositor Compartilhado
 
-O código Agent-Native usa o mesmo `AgentEscreverrFrame` + `PromptEscreverr` /
-Pilha `TiptapEscreverr` exportada de `@agent-native/core/client/composer` como
+O código Agent-Native usa o mesmo `AgentComposerFrame` + `PromptComposer` /
+Pilha `TiptapComposer` exportada de `@agent-native/core/client/composer` como
 barra lateral do agente de estrutura. Não bifurque um separado
 área de texto, seletor de ferramenta de codificação, seletor de upload, botão de voz, seletor de modelo ou Enter-to-submit
 implementação para superfícies semelhantes a código. Se um host precisar de um controle extra, passe
@@ -256,7 +256,7 @@ por meio da extensão do compositor compartilhada aponta para a barra lateral, C
 O bate-papo cerebral mantém o mesmo modelo de interação e campo visual.
 
 A rota Brain's Ask usa `AgentChatSurface`, que já é apoiada pelo
-compositor padrão da barra lateral. O código usa `PromptEscreverr` diretamente porque o host
+compositor padrão da barra lateral. O código usa `PromptComposer` diretamente porque o host
 é responsável pela criação de corridas, transcrições e entrega de acompanhamento.
 
 ## Ferramentas de codificação compartilhadas

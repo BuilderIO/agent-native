@@ -6,10 +6,11 @@ import type {
   ContentDatabaseViewType,
   DocumentProperty,
 } from "@shared/api";
-import { type DatabaseColumnCalculation } from "./types";
 import { isEmptyPropertyValue } from "@shared/properties";
+
 import { calendarDateKey, databaseItemPropertyById } from "./calendar-timeline";
 import { propertyNumberValue, propertyValueText } from "./filter-sort";
+import { type DatabaseColumnCalculation } from "./types";
 
 export function databaseResultCountLabel(
   visibleCount: number,

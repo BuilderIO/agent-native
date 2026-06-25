@@ -19,6 +19,13 @@ const messages = {
     extensionSignedInDescription: "再次打开 Clips 扩展即可开始录制。",
     gotIt: "知道了",
   },
+  recorder: {
+    cameraBlurTitle: "虚化背景",
+    cameraBlurDescription: "让你保持清晰，同时虚化身后的内容",
+    cameraBlurToggle: "虚化摄像头背景",
+    cameraBlurIntensityLabel: "强度",
+    cameraBlurIntensityAria: "背景虚化强度",
+  },
   navigation: {
     brand: "剪辑",
     library: "资料库",

@@ -1,21 +1,22 @@
 import {
-  useQueryClient,
-  keepPreviousData,
-  type QueryKey,
-} from "@tanstack/react-query";
-import {
   callAction,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
+import type { CalendarEvent, UpdateEventScope } from "@shared/api";
+import {
+  useQueryClient,
+  keepPreviousData,
+  type QueryKey,
+} from "@tanstack/react-query";
 import { nanoid } from "nanoid";
+
 import {
   applyCalendarEventRsvp,
   calendarEventOverlapsListParams,
   mergeCalendarEventIntoList,
   removeOptimisticCalendarEventFromList,
 } from "./event-list-cache";
-import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 
 type CreateEventInput = Omit<
   CalendarEvent,

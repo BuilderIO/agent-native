@@ -14,7 +14,7 @@ Importar navegador UI desde subrutas de cliente enfocadas:
 
 ```tsx
 import { AgentSidebar } from "@agent-native/core/client";
-import { PromptRedactarr } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/core/client/editor";
@@ -27,7 +27,7 @@ para que los paquetes elijan la entrada segura para el navegador.
 
 ```an-diagram title="Bajar una capa, no fuera del marco." summary="Cada capa mantiene el mismo tiempo de ejecución (acciones, estado del subproceso y sincronización SQL-backed) al tiempo que le brinda más control sobre Chrome."
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Toda la barra lateral alrededor de tu app. El caso del 80 %.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">El panel o una página de chat en tu propio layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptRedactarr&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Redactarr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Mismo runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Toda la barra lateral alrededor de tu app. El caso del 80 %.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">El panel o una página de chat en tu propio layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Redactarr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Mismo runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -107,18 +107,18 @@ campo utilizado por la barra lateral dentro de UI personalizado.
 
 | API                               | Usar cuando                                                                                                                                                                                          |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<PromptRedactarr>`                | Necesita un campo de chat listo para enviar con archivos adjuntos, comandos de barra diagonal, referencias, manejo de texto pegado, persistencia de borradores, entrada de voz y semántica de envío. |
-| `<AgentRedactarrFrame>`            | Quieres el shell visual estándar alrededor de un cuerpo de compositor personalizado.                                                                                                                 |
-| `<TiptapRedactarr>`                | Necesita el campo de chat enriquecido de nivel más bajo. Debe renderizarse dentro de un tiempo de ejecución de asistente-ui `ThreadPrimitive.Root`/compositor.                                       |
-| `buildPromptRedactarrSubmission()` | Necesita el mismo archivo adjunto y la normalización del texto pegado antes de llamar a su propio controlador de envío.                                                                              |
+| `<PromptComposer>`                | Necesita un campo de chat listo para enviar con archivos adjuntos, comandos de barra diagonal, referencias, manejo de texto pegado, persistencia de borradores, entrada de voz y semántica de envío. |
+| `<AgentComposerFrame>`            | Quieres el shell visual estándar alrededor de un cuerpo de compositor personalizado.                                                                                                                 |
+| `<TiptapComposer>`                | Necesita el campo de chat enriquecido de nivel más bajo. Debe renderizarse dentro de un tiempo de ejecución de asistente-ui `ThreadPrimitive.Root`/compositor.                                       |
+| `buildPromptComposerSubmission()` | Necesita el mismo archivo adjunto y la normalización del texto pegado antes de llamar a su propio controlador de envío.                                                                              |
 | `formatPromptWithAttachments()`   | Necesita representar los metadatos del archivo adjunto oculto en una cadena de mensaje.                                                                                                              |
 
-La mayoría de los UI personalizados deben comenzar con `PromptRedactarr`:
+La mayoría de los UI personalizados deben comenzar con `PromptComposer`:
 
 ```tsx
-import { PromptRedactarr } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 
-<PromptRedactarr
+<PromptComposer
   placeholder="Ask the agent..."
   onSubmit={async (text, files, references, options) => {
     await sendMessageToYourRuntime({ text, files, references, options });
@@ -126,7 +126,7 @@ import { PromptRedactarr } from "@agent-native/core/client/composer";
 />;
 ```
 
-Utilice `TiptapRedactarr` solo si ya está cableando primitivas de interfaz de usuario del asistente
+Utilice `TiptapComposer` solo si ya está cableando primitivas de interfaz de usuario del asistente
 tú mismo. Es el campo, no todo el tiempo de ejecución del chat.
 
 ## Representación de conversaciones {#conversation}

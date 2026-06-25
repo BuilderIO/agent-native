@@ -1,4 +1,5 @@
 import { useParams } from "react-router";
+
 import { DocumentEditor } from "@/components/editor/DocumentEditor";
 import { messagesByLocale } from "@/i18n-data";
 import { useT } from "@agent-native/core/client";

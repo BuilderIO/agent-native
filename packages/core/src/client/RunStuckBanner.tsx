@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
 import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
+
+import { trackEvent } from "./analytics.js";
 import {
   useRunStuckDetection,
   useAbortRun,
   type RunStuckState,
 } from "./use-run-stuck-detection.js";
-import { trackEvent } from "./analytics.js";
 import { cn } from "./utils.js";
 
 /**

@@ -43,7 +43,7 @@ description: "يعد كل تطبيق أصلي للوكيل متعدد المست
 }
 ```
 
-هذا هو نفس المسار المستخدم لتحديد النطاق لكل مستخدم. بالنسبة للميكانيكا على مستوى SQL، وعقد `ownableColumns()`، وحراس `accessFilter` / `resolveAccess` / `assertAccess`، راجع [Security → Data Scoping](/docs/security#data-scoping) - المصدر الوحيد للحقيقة لمسار تحديد النطاق.
+هذا هو نفس المسار المستخدم لتحديد النطاق لكل مستخدم. بالنسبة للميكانيكا على مستوى SQL، وعقد `ownableColumns()`، وحراس `accessFilter` / `resolveAccess` / `assertAccess`, راجع [Security → Data Scoping](/docs/security#data-scoping) - المصدر الوحيد للحقيقة لمسار تحديد النطاق.
 
 ## المستندات ذات الصلة {#related}
 

@@ -119,7 +119,7 @@ npx skills@latest add BuilderIO/agent-native --skill visual-plan
 ### VS Code 内でプランを開く {#vscode-extension}
 
 VS Code を使用している場合は、
-[Agent Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
 次の画面に移動する代わりに、サイド パネルで同じ計画レビュー画面を開きます
 別のブラウザタブ。プラン ツールは引き続き通常の Web リンクと MCP
 メタデータには、VS Code ハンドオフ URL も含まれています:
@@ -354,7 +354,7 @@ Agent Native デスクトップでプランを開き、プラン メニューの
 ## 認証エラーからの回復 {#auth-errors}
 
 プラン ツールが `needs auth`、`Unauthorized`、または「セッション」を返した場合
-終了しました`。再試行し続けないでください。 
+終了しました`。再試行し続けないでください。
 `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`、または OAuth 対応ホストで`/mcp` → **認証** を再実行します。
 ツールを期待する前に、新しい Codex スレッドを実行するか、関連するクライアントを再起動/リロードしてください
 更新するレジストリ。

@@ -1,13 +1,14 @@
-import path from "path";
 import fs from "fs";
-import { createRequire } from "module";
 import type { IncomingMessage, ServerResponse } from "http";
-import type { ConfigEnv, Plugin, UserConfig } from "vite";
+import { createRequire } from "module";
+import path from "path";
+import { fileURLToPath } from "url";
+
 import { nitro as nitroVitePlugin } from "nitro/vite";
-import { actionTypesPlugin } from "./action-types-plugin.js";
-import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
-import { findWorkspaceRoot } from "../scripts/utils.js";
+import type { ConfigEnv, Plugin, UserConfig } from "vite";
+
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
+import { findWorkspaceRoot } from "../scripts/utils.js";
 import { verifyEmbedSessionToken } from "../server/embed-session.js";
 import {
   EMBED_SESSION_COOKIE,
@@ -25,8 +26,8 @@ import {
   normalizeAgentNativeRouteWarmupConfig,
   type AgentNativeRouteWarmupConfigInput,
 } from "../shared/route-warmup-config.js";
-
-import { fileURLToPath } from "url";
+import { actionTypesPlugin } from "./action-types-plugin.js";
+import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1929,7 +1930,6 @@ function createAgentNativeConfig(
             // can force root.tsx and core's shared entry-server through the
             // same FrameworkContext instance.
             ...(hasDep("react-router", cwd) ? [/^react-router(\/.*)?$/] : []),
-            ...(hasDep("react-router-dom", cwd) ? ["react-router-dom"] : []),
             // Radix UI primitives are transitive deps of @agent-native/core
             // (used by FeedbackButton, AgentSidebar, ShareDialog, etc.). When
             // a consumer app SSRs a component that imports Radix, Node's
@@ -1937,7 +1937,7 @@ function createAgentNativeConfig(
             // because pnpm doesn't hoist transitive deps. Bundling them
             // through Vite resolves them via the workspace store.
             /^@radix-ui\//,
-            // scheduling ships tsc-compiled dist files that contain literal
+            // scheduling ships TypeScript-compiled dist files that contain literal
             // `@/` path-alias imports (e.g. `import { Input } from
             // "@/components/ui/input"`). In standalone (published) mode Node
             // treats the package as an external CJS dep and can't resolve

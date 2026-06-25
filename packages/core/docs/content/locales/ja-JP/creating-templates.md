@@ -159,7 +159,7 @@ export default runMigrations(
 
 ## UI を構築する {#ui}
 
-ルートは `app/routes/` に存在し、React Router v7 ファイル ルーティングを使用します。 actions または API ハンドラーを通じてデータをクエリし、デフォルトでミューテーションを楽観的にします。
+ルートは `app/routes/` に存在し、React Router v8 ファイル ルーティングを使用します。 actions または API ハンドラーを通じてデータをクエリし、デフォルトでミューテーションを楽観的にします。
 
 ```tsx
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";

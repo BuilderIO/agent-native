@@ -1,9 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { ColumnsBlockReader } from "./columns.js";
-import type { ColumnsData } from "./columns.config.js";
+
 import type { BlockRenderContext, NestedBlock } from "../types.js";
+import type { ColumnsData } from "./columns.config.js";
+import { ColumnsBlockReader } from "./columns.js";
 
 /**
  * Rendering contract for the `columns` comparison block:

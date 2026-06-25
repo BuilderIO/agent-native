@@ -1,5 +1,5 @@
-import { memo, useRef, useState, useCallback } from "react";
-import { cn, formatEmailDate, truncate } from "@/lib/utils";
+import { useT } from "@agent-native/core/client";
+import type { EmailMessage } from "@shared/types";
 import {
   IconArchive,
   IconStarFilled,
@@ -13,15 +13,16 @@ import {
   IconSend,
   IconX,
 } from "@tabler/icons-react";
-import type { EmailMessage } from "@shared/types";
-import type { ThreadSummary } from "@/lib/threads";
-import { useAccountFilter } from "@/hooks/use-account-filter";
+import { memo, useRef, useState, useCallback } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
+import { useAccountFilter } from "@/hooks/use-account-filter";
+import type { ThreadSummary } from "@/lib/threads";
+import { cn, formatEmailDate, truncate } from "@/lib/utils";
 
 interface EmailListItemProps {
   email: EmailMessage;

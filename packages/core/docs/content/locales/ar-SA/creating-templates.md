@@ -159,7 +159,7 @@ export default runMigrations(
 
 ## قم ببناء UI {#ui}
 
-توجد المسارات في `app/routes/` وتستخدم توجيه الملفات React Router v7. الاستعلام عن البيانات من خلال معالجات actions أو API، وجعل الطفرات متفائلة بشكل افتراضي.
+توجد المسارات في `app/routes/` وتستخدم توجيه الملفات React Router v8. الاستعلام عن البيانات من خلال معالجات actions أو API، وجعل الطفرات متفائلة بشكل افتراضي.
 
 ```tsx
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";

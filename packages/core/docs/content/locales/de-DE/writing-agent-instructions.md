@@ -29,32 +29,32 @@ Wenn ein Abschnitt über einen Bildschirm hinauswächst, gehört er zu einer Fer
 ```markdown
 # Projekte-App
 
-One workspace for projects, tasks, and notes. Agent and UI share the same SQL
-data and the same actions.
+Ein Arbeitsbereich für Projekte, Aufgaben und Notizen. Agent und UI teilen dieselben SQL-Daten
+und dieselben actions.
 
 ## Grundregeln
 
-- Data lives in SQL über Drizzle. Use actions for all writes.
-- All AI work goes through the agent chat; never call an LLM inline.
-- Schema changes are additive only.
+- Daten leben in SQL über Drizzle. Verwenden Sie actions für alle Schreibvorgänge.
+- Alle KI-Arbeit läuft über den Agenten-Chat; rufen Sie niemals ein LLM inline auf.
+- Schemaänderungen sind nur additiv.
 
 ## Anwendungsstatus
 
 - `navigation.view`: `home` | `project`
-- `navigation.projectId`: selected project on a project page
+- `navigation.projectId`: ausgewähltes Projekt auf einer Projektseite
 
 ## Aktionen
 
-| Action           | Purpose                     |
-| ---------------- | --------------------------- |
-| `list-projects`  | List accessible projects    |
-| `create-project` | Create a project            |
-| `update-project` | Rename or archive a project |
+| Action           | Zweck                                   |
+| ---------------- | --------------------------------------- |
+| `list-projects`  | Zugängliche Projekte auflisten          |
+| `create-project` | Ein Projekt erstellen                   |
+| `update-project` | Ein Projekt umbenennen oder archivieren |
 
 ## Fähigkeiten
 
-- `project-imports` — read before importing legacy CSV exports.
-- `sharing` — read before exposing a project to other users.
+- `project-imports` — vor dem Import alter CSV-Exporte lesen.
+- `sharing` — vor dem Freigeben eines Projekts für andere Benutzer lesen.
 ```
 
 ## Einzelquelle AGENTS.md {#single-source}
@@ -151,7 +151,7 @@ Jede Anleitung, die Sie verfassen, landet auf einer von vier Oberflächen. Wenn 
 | Oberfläche                    | Wer schreibt es            | Wenn es geladen ist                                                      | Was dorthin gehört                                                       |
 | ----------------------------- | -------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
 | `AGENTS.md`-Anweisungen       | Sie (Entwickler)           | Jede Runde als Orientierung                                              | Zweck, Kernregeln, Statusschlüssel, Aktionsindex, skills-Index           |
-| Fähigkeiten (`SKILL.md`)           | Sie (Entwickler)           | Auf Anfrage, wenn der Agent entscheidet, dass die Fähigkeit relevant ist | Schritt-für-Schritt-Anleitung für ein bestimmtes Muster, Do/Don't-Listen |
+| Fähigkeiten (`SKILL.md`)      | Sie (Entwickler)           | Auf Anfrage, wenn der Agent entscheidet, dass die Fähigkeit relevant ist | Schritt-für-Schritt-Anleitung für ein bestimmtes Muster, Do/Don't-Listen |
 | Aktionsbeschreibungen (Tools) | Sie (Entwickler)           | Jede Runde, wie die Werkzeugliste                                        | Was die Aktion bewirkt, was sie zurückgibt, Parametersemantik            |
 | `application_state`-Kontext   | Ihr UI-Code (zur Laufzeit) | Jede Runde, als Live-App-Status                                          | Aktuelle Navigation, Auswahl, fokussiertes Objekt, URL                   |
 

@@ -1,9 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { WireframeBlock } from "./wireframe.js";
-import type { WireframeData } from "./wireframe.config.js";
+
 import type { BlockRenderContext } from "../types.js";
+import type { WireframeData } from "./wireframe.config.js";
+import { WireframeBlock } from "./wireframe.js";
 
 /**
  * Rendering contract for the AUTO-HEIGHT wireframe frame.

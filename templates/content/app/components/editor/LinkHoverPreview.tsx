@@ -1,6 +1,7 @@
-import { useEffect, useState, useRef } from "react";
 import { IconUnlink, IconExternalLink, IconPencil } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/react";
+import { useEffect, useState, useRef } from "react";
+
 import {
   Tooltip,
   TooltipContent,

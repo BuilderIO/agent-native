@@ -1,14 +1,14 @@
 import { getDbExec } from "../db/client.js";
-import type {
-  FeedbackEntry,
-  FeedbackType,
-  SatisfactionScore,
-} from "./types.js";
 import {
   insertFeedback,
   upsertSatisfactionScore,
   ensureObservabilityTables,
 } from "./store.js";
+import type {
+  FeedbackEntry,
+  FeedbackType,
+  SatisfactionScore,
+} from "./types.js";
 
 function generateId(): string {
   return `fb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

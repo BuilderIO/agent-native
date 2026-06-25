@@ -1,28 +1,4 @@
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-  type MouseEvent,
-} from "react";
-import { Link, useLocation, useNavigate } from "react-router";
-import {
-  IconArchive,
-  IconClipboardCheck,
-  IconDots,
-  IconEdit,
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
-  IconMessageCircle,
-  IconPin,
-  IconPlus,
-  IconSettings,
-} from "@tabler/icons-react";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import {
   agentNativePath,
   DevDatabaseLink,
   FeedbackButton,
@@ -38,9 +14,31 @@ import {
   useT,
   type ChatThreadSummary,
 } from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { APP_TITLE } from "@/lib/app-config";
-import { usePlans } from "@/hooks/use-plans";
+import {
+  IconArchive,
+  IconClipboardCheck,
+  IconDots,
+  IconEdit,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+  IconMessageCircle,
+  IconPin,
+  IconPlus,
+  IconSettings,
+} from "@tabler/icons-react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent,
+} from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,6 +59,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { usePlans } from "@/hooks/use-plans";
+import { APP_TITLE } from "@/lib/app-config";
+import { cn } from "@/lib/utils";
 
 const PLAN_CHAT_STORAGE_KEY = "plans";
 

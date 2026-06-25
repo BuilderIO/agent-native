@@ -14,7 +14,7 @@ Agent-Native एक पूर्ण साइडबार शिप करता
 
 ```tsx
 import { AgentSidebar } from "@agent-native/core/client";
-import { Promptलिखेंr } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/core/client/editor";
@@ -27,7 +27,7 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 
 ```an-diagram title="एक परत नीचे गिराएं, ढांचे से बाहर नहीं" summary="प्रत्येक परत आपको क्रोम पर अधिक नियंत्रण प्रदान करते हुए समान रनटाइम - क्रियाएं, थ्रेड स्थिति और SQL-backed सिंक रखती है।"
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">आपके ऐप के चारों ओर पूरी साइडबार। 80% वाला केस।</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">आपके अपने layout में पैनल या चैट पेज।</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;Promptलिखेंr&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">लिखेंr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>वही runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">आपके ऐप के चारों ओर पूरी साइडबार। 80% वाला केस।</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">आपके अपने layout में पैनल या चैट पेज।</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">लिखेंr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>वही runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -107,18 +107,18 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 | API                               | कब उपयोग करें                                                                                                                                               |
 | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<Promptलिखेंr>`                | आपको अटैचमेंट, स्लैश कमांड, संदर्भ, पेस्ट-टेक्स्ट हैंडलिंग, ड्राफ्ट दृढ़ता, वॉयस इनपुट और सबमिशन सिमेंटिक्स के साथ रेडी-टू-सबमिट चैट फ़ील्ड की आवश्यकता है। |
-| `<AgentलिखेंrFrame>`            | आप कस्टम कंपोज़र बॉडी के चारों ओर मानक विज़ुअल शेल चाहते हैं।                                                                                               |
-| `<Tiptapलिखेंr>`                | आपको निम्नतम-स्तरीय रिच चैट फ़ील्ड की आवश्यकता है। इसे Assistant-ui `ThreadPrimitive.Root` / कंपोज़र रनटाइम के अंदर प्रस्तुत किया जाना चाहिए।               |
-| `buildPromptलिखेंrSubmission()` | आपको अपने स्वयं के सबमिट हैंडलर को कॉल करने से पहले समान अनुलग्नक और पेस्ट-टेक्स्ट सामान्यीकरण की आवश्यकता है।                                              |
+| `<PromptComposer>`                | आपको अटैचमेंट, स्लैश कमांड, संदर्भ, पेस्ट-टेक्स्ट हैंडलिंग, ड्राफ्ट दृढ़ता, वॉयस इनपुट और सबमिशन सिमेंटिक्स के साथ रेडी-टू-सबमिट चैट फ़ील्ड की आवश्यकता है। |
+| `<AgentComposerFrame>`            | आप कस्टम कंपोज़र बॉडी के चारों ओर मानक विज़ुअल शेल चाहते हैं।                                                                                               |
+| `<TiptapComposer>`                | आपको निम्नतम-स्तरीय रिच चैट फ़ील्ड की आवश्यकता है। इसे Assistant-ui `ThreadPrimitive.Root` / कंपोज़र रनटाइम के अंदर प्रस्तुत किया जाना चाहिए।               |
+| `buildPromptComposerSubmission()` | आपको अपने स्वयं के सबमिट हैंडलर को कॉल करने से पहले समान अनुलग्नक और पेस्ट-टेक्स्ट सामान्यीकरण की आवश्यकता है।                                              |
 | `formatPromptWithAttachments()`   | आपको छिपे हुए अनुलग्नक मेटाडेटा को एक प्रॉम्प्ट स्ट्रिंग में प्रस्तुत करना होगा।                                                                            |
 
-अधिकांश कस्टम UIs को `Promptलिखेंr` से शुरू होना चाहिए:
+अधिकांश कस्टम UIs को `PromptComposer` से शुरू होना चाहिए:
 
 ```tsx
-import { Promptलिखेंr } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 
-<Promptलिखेंr
+<PromptComposer
   placeholder="Ask the agent..."
   onSubmit={async (text, files, references, options) => {
     await sendMessageToYourRuntime({ text, files, references, options });
@@ -126,7 +126,7 @@ import { Promptलिखेंr } from "@agent-native/core/client/composer";
 />;
 ```
 
-`Tiptapलिखेंr` का उपयोग केवल तभी करें जब आप पहले से ही असिस्टेंट-यूआई प्रिमिटिव वायरिंग कर रहे हों
+`TiptapComposer` का उपयोग केवल तभी करें जब आप पहले से ही असिस्टेंट-यूआई प्रिमिटिव वायरिंग कर रहे हों
 स्वयं। यह फ़ील्ड है, संपूर्ण चैट रनटाइम नहीं.
 
 ## बातचीत प्रतिपादन {#conversation}

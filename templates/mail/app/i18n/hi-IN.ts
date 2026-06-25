@@ -257,6 +257,7 @@ const messages = {
       threadMuted: "थ्रेड म्यूट किया गया।",
       archived: "आर्काइव किया गया।",
       archivedMany: "Archived {{count}} conversations.",
+      archiveFailed: "आर्काइव विफल हुआ। बातचीत बहाल कर दी गई।",
       trashed: "कूड़ेदान में ले जाया गया।",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "शेड्यूल ईमेल भेजा गया।",

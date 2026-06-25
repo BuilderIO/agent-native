@@ -6,7 +6,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 
 - **Framework**: @agent-native/core
 - **Package manager**: pnpm
-- **Frontend**: React 18, React Router 6, TypeScript, Vite, TailwindCSS 3
+- **Frontend**: React 19, React Router 8, TypeScript, Vite, TailwindCSS 3
 - **Backend**: Nitro (via @agent-native/core) — file-based API routing
 - **UI components**: Radix UI primitives + Lucide icons
 - **Image generation**: Google Gemini via `@google/genai`

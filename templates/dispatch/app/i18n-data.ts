@@ -1728,8 +1728,7 @@ export const messagesByLocale = {
       title: "सेटिंग्स",
       description: "भाषा, कार्यस्थान, संसाधन और एजेंट प्राथमिकताएं।",
       languageTitle: "भाषा",
-      languageDescription:
-        "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
+      languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
       languageLabel: "इंटरफ़ेस भाषा",
       workspaceTitle: "कार्यस्थान",
       workspaceDescription:

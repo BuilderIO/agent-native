@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
 import { IconMoon, IconSun } from "@tabler/icons-react";
 import { useT } from "@agent-native/core/client";
 import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,

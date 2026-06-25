@@ -1,4 +1,3 @@
-import { getGeminiApiKey } from "./generation.js";
 import type {
   StyleBrief,
   VideoAspectRatio,
@@ -6,6 +5,7 @@ import type {
   VideoModel,
   VideoResolution,
 } from "../../shared/api.js";
+import { getGeminiApiKey } from "./generation.js";
 
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 

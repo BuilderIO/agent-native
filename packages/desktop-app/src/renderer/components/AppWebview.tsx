@@ -1,10 +1,12 @@
+import type { AppDefinition, AppConfig } from "@shared/app-registry";
 import {
-  forwardRef,
-  useRef,
-  useEffect,
-  useState,
-  useImperativeHandle,
-} from "react";
+  getAppUrl,
+  FRAME_PORT,
+  getTemplate,
+  getDesktopTemplateGatewayAppUrl,
+  getTemplateGatewayUrl,
+  isDefaultDesktopTemplateDevTarget,
+} from "@shared/app-registry";
 import {
   IconRefresh,
   IconCopy,
@@ -16,15 +18,14 @@ import {
   IconCircleX,
   IconLoader2,
 } from "@tabler/icons-react";
-import type { AppDefinition, AppConfig } from "@shared/app-registry";
 import {
-  getAppUrl,
-  FRAME_PORT,
-  getTemplate,
-  getDesktopTemplateGatewayAppUrl,
-  getTemplateGatewayUrl,
-  isDefaultDesktopTemplateDevTarget,
-} from "@shared/app-registry";
+  forwardRef,
+  useRef,
+  useEffect,
+  useState,
+  useImperativeHandle,
+} from "react";
+
 import { buildContentDirectoryPickerBridgeScript } from "../lib/content-directory-picker-bridge.js";
 
 const IS_DEV = window.location.protocol !== "file:";

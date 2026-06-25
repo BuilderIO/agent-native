@@ -302,7 +302,7 @@ const runtime = createAgentNativeChatRuntime({
 ```
 
 Use `<AssistantChat createAdapter={...} />` somente quando precisar de full
-controle do adaptador assistant-ui. Use `PromptEscreverr` sozinho quando seu produto
+controle do adaptador assistant-ui. Use `PromptComposer` sozinho quando seu produto
 possui toda a transcrição externa e só quer o compositor de Agent-Native
 campo.
 

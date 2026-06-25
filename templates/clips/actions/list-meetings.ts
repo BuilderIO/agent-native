@@ -14,7 +14,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
+import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
   asc,
@@ -28,9 +28,9 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import { accessFilter } from "@agent-native/core/sharing";
-import { listEvents } from "../server/lib/google-calendar-client.js";
 import {
   calendarEventToMeetingView,
   eventEndIso,
@@ -41,6 +41,7 @@ import {
   resolveCalendarAccessToken,
   type CalendarFetchError,
 } from "../server/lib/calendar-event-meetings.js";
+import { listEvents } from "../server/lib/google-calendar-client.js";
 import { booleanParam } from "./lib/cli-params.js";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;

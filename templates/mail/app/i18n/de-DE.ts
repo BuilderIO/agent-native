@@ -257,6 +257,8 @@ const messages = {
       threadMuted: "Thread stummgeschaltet.",
       archived: "Archiviert.",
       archivedMany: "Archived {{count}} conversations.",
+      archiveFailed:
+        "Archivierung fehlgeschlagen. Die Unterhaltung wurde wiederhergestellt.",
       trashed: "In den Papierkorb verschoben.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Geplante E-Mail gesendet.",

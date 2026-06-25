@@ -14,7 +14,7 @@ Importer le navigateur UI à partir des sous-chemins client ciblés :
 
 ```tsx
 import { AgentSidebar } from "@agent-native/core/client";
-import { PromptComposerr } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/core/client/editor";
@@ -27,7 +27,7 @@ les bundlers choisissent donc l'entrée sécurisée pour le navigateur.
 
 ```an-diagram title="Déposez un calque, pas hors du cadre" summary="Chaque couche conserve le même temps d'exécution (actions, état du thread et synchronisation SQL-backed) tout en vous donnant plus de contrôle sur le chrome."
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Toute la barre latérale autour de votre app. Le cas des 80 %.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">Le panneau ou une page de chat dans votre propre layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposerr&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Composerr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Même runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Toute la barre latérale autour de votre app. Le cas des 80 %.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">Le panneau ou une page de chat dans votre propre layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Composerr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Même runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -107,18 +107,18 @@ champ utilisé par la barre latérale à l'intérieur du UI personnalisé.
 
 | API                               | Utiliser quand                                                                                                                                                                                                                                |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<PromptComposerr>`                | Vous avez besoin d'un champ de discussion prêt à être soumis avec des pièces jointes, des commandes barre oblique, des références, la gestion du texte collé, la persistance des brouillons, la saisie vocale et la sémantique de soumission. |
-| `<AgentComposerrFrame>`            | Vous voulez le shell visuel standard autour d'un corps de compositeur personnalisé.                                                                                                                                                           |
-| `<TiptapComposerr>`                | Vous avez besoin du champ de discussion enrichi de niveau le plus bas. Il doit être rendu dans un runtime assistant-ui `ThreadPrimitive.Root` / composer.                                                                                     |
-| `buildPromptComposerrSubmission()` | Vous avez besoin de la même normalisation des pièces jointes et du texte collé avant d'appeler votre propre gestionnaire de soumission.                                                                                                       |
+| `<PromptComposer>`                | Vous avez besoin d'un champ de discussion prêt à être soumis avec des pièces jointes, des commandes barre oblique, des références, la gestion du texte collé, la persistance des brouillons, la saisie vocale et la sémantique de soumission. |
+| `<AgentComposerFrame>`            | Vous voulez le shell visuel standard autour d'un corps de compositeur personnalisé.                                                                                                                                                           |
+| `<TiptapComposer>`                | Vous avez besoin du champ de discussion enrichi de niveau le plus bas. Il doit être rendu dans un runtime assistant-ui `ThreadPrimitive.Root` / composer.                                                                                     |
+| `buildPromptComposerSubmission()` | Vous avez besoin de la même normalisation des pièces jointes et du texte collé avant d'appeler votre propre gestionnaire de soumission.                                                                                                       |
 | `formatPromptWithAttachments()`   | Vous devez restituer les métadonnées masquées des pièces jointes dans une chaîne d'invite.                                                                                                                                                    |
 
-La plupart des UI personnalisés devraient commencer par `PromptComposerr` :
+La plupart des UI personnalisés devraient commencer par `PromptComposer` :
 
 ```tsx
-import { PromptComposerr } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 
-<PromptComposerr
+<PromptComposer
   placeholder="Ask the agent..."
   onSubmit={async (text, files, references, options) => {
     await sendMessageToYourRuntime({ text, files, references, options });
@@ -126,7 +126,7 @@ import { PromptComposerr } from "@agent-native/core/client/composer";
 />;
 ```
 
-Utilisez `TiptapComposerr` uniquement si vous câblez déjà des primitives d'interface utilisateur de l'assistant
+Utilisez `TiptapComposer` uniquement si vous câblez déjà des primitives d'interface utilisateur de l'assistant
 vous-même. Il s'agit du champ, pas de l'intégralité du temps d'exécution du chat.
 
 ## Rendu des conversations {#conversation}

@@ -1,13 +1,15 @@
-import { Link } from "react-router";
 import {
   ChangelogSettingsCard,
   LanguagePicker,
   openAgentSettings,
   useT,
 } from "@agent-native/core/client";
+import { Link } from "react-router";
+
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+
 import changelog from "../../CHANGELOG.md?raw";
 import { messagesByLocale } from "@/i18n-data";
 

@@ -1,6 +1,7 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getIdToken } from "@/lib/auth";
 import { appApiPath } from "@agent-native/core/client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { getIdToken } from "@/lib/auth";
 
 export interface DashboardView {
   id: string;

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import { getAuthSecret } from "./better-auth-instance.js";
 import { deriveServerSecret } from "./derived-secret.js";
 

@@ -1,3 +1,4 @@
+import { IconDatabase, IconLoader2 } from "@tabler/icons-react";
 /**
  * Code-mode database admin page — the shell that hosts the table browser, the
  * table editor, and the SQL editor.
@@ -7,15 +8,15 @@
  * backend also enforces this with a 403, so this is purely a friendlier UX.
  */
 import { useEffect, useMemo, useState } from "react";
-import { IconDatabase, IconLoader2 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
-import { useCodeMode } from "../use-dev-mode.js";
+
 import type { DbAdminFilter } from "../../db-admin/types.js";
-import { useOverview } from "./useDbAdmin.js";
-import { TableBrowser } from "./TableBrowser.js";
-import { useDbAdminAgentSync, useNavigateConsumer } from "./useAgentSync.js";
-import { TableEditor } from "./TableEditor.js";
+import { useCodeMode } from "../use-dev-mode.js";
+import { cn } from "../utils.js";
 import { SqlEditor } from "./SqlEditor.js";
+import { TableBrowser } from "./TableBrowser.js";
+import { TableEditor } from "./TableEditor.js";
+import { useDbAdminAgentSync, useNavigateConsumer } from "./useAgentSync.js";
+import { useOverview } from "./useDbAdmin.js";
 
 const DIALECT_LABEL: Record<string, string> = {
   postgres: "Postgres",

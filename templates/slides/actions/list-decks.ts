@@ -1,11 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
-import { and, desc, eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import { accessFilter } from "@agent-native/core/sharing";
-import { z } from "zod";
-import { getDeckUrl } from "./_app-url.js";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, desc, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { getDeckUrl } from "./_app-url.js";
 
 function slidesDeepLink(): string {
   return buildDeepLink({ app: "slides", view: "list" });

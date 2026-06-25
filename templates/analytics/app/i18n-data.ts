@@ -22,6 +22,12 @@ const enUS = {
     updated: "Updated {{date}}",
     created: "Created {{date}}",
   },
+  dashboard: {
+    panelSettings: "Panel settings",
+    revenueOverTime: "Revenue over time",
+    recentSales: "Recent Sales",
+    recentSalesDescription: "You made 265 sales this month.",
+  },
   sidebar: {
     collapseDashboards: "Collapse dashboards",
     expandDashboards: "Expand dashboards",
@@ -694,11 +700,6 @@ const enUS = {
     unknown: "Unknown",
     operationalPain: "Operational pain",
     untitledTheme: "Untitled theme",
-  },
-  dashboard: {
-    revenueOverTime: "Revenue over time",
-    recentSales: "Recent Sales",
-    recentSalesDescription: "You made 265 sales this month.",
   },
   catalog: {
     description:
@@ -3263,6 +3264,7 @@ export const messagesByLocale = {
       loadingDashboardTitle: "正在加载仪表板标题",
     },
     dashboard: {
+      panelSettings: "面板设置",
       recentSales: "最近销售",
       recentSalesDescription: "你本月完成了 265 笔销售。",
     },
@@ -3430,6 +3432,7 @@ export const messagesByLocale = {
       loadingDashboardTitle: "Cargando título del panel",
     },
     dashboard: {
+      panelSettings: "Configuración del panel",
       recentSales: "Ventas recientes",
       recentSalesDescription: "Has realizado 265 ventas este mes.",
     },
@@ -3604,6 +3607,7 @@ export const messagesByLocale = {
       loadingDashboardTitle: "Chargement du titre du tableau de bord",
     },
     dashboard: {
+      panelSettings: "Paramètres du panneau",
       recentSales: "Ventes récentes",
       recentSalesDescription: "Vous avez réalisé 265 ventes ce mois-ci.",
     },
@@ -3784,6 +3788,7 @@ export const messagesByLocale = {
       loadingDashboardTitle: "Dashboard-Titel wird geladen",
     },
     dashboard: {
+      panelSettings: "Panel-Einstellungen",
       recentSales: "Aktuelle Verkäufe",
       recentSalesDescription: "Du hast diesen Monat 265 Verkäufe erzielt.",
     },
@@ -3964,6 +3969,7 @@ export const messagesByLocale = {
       loadingDashboardTitle: "ダッシュボードタイトルを読み込み中",
     },
     dashboard: {
+      panelSettings: "パネル設定",
       recentSales: "最近の売上",
       recentSalesDescription: "今月は 265 件の売上がありました。",
     },
@@ -4140,6 +4146,7 @@ export const messagesByLocale = {
       loadingDashboardTitle: "대시보드 제목 로드 중",
     },
     dashboard: {
+      panelSettings: "패널 설정",
       recentSales: "최근 판매",
       recentSalesDescription: "이번 달에 265건의 판매가 발생했습니다.",
     },
@@ -4315,6 +4322,7 @@ export const messagesByLocale = {
       loadingDashboardTitle: "Carregando título do dashboard",
     },
     dashboard: {
+      panelSettings: "Configurações do painel",
       recentSales: "Vendas recentes",
       recentSalesDescription: "Você fez 265 vendas este mês.",
     },
@@ -4495,6 +4503,7 @@ export const messagesByLocale = {
       loadingDashboardTitle: "डैशबोर्ड शीर्षक लोड हो रहा है",
     },
     dashboard: {
+      panelSettings: "पैनल सेटिंग्स",
       recentSales: "हाल की बिक्री",
       recentSalesDescription: "आपने इस महीने 265 बिक्री की।",
     },
@@ -4672,6 +4681,7 @@ export const messagesByLocale = {
       loadingDashboardTitle: "جار تحميل عنوان لوحة المعلومات",
     },
     dashboard: {
+      panelSettings: "إعدادات اللوحة",
       recentSales: "المبيعات الأخيرة",
       recentSalesDescription: "حققت 265 عملية بيع هذا الشهر.",
     },

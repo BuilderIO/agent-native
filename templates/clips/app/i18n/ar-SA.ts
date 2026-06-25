@@ -19,6 +19,13 @@ const messages = {
     extensionSignedInDescription: "افتح إضافة Clips مرة أخرى لبدء التسجيل.",
     gotIt: "حسنًا",
   },
+  recorder: {
+    cameraBlurTitle: "تمويه الخلفية",
+    cameraBlurDescription: "ابقَ واضحًا وموّه ما خلفك",
+    cameraBlurToggle: "تمويه خلفية الكاميرا",
+    cameraBlurIntensityLabel: "الشدة",
+    cameraBlurIntensityAria: "شدة تمويه الخلفية",
+  },
   navigation: {
     brand: "المقاطع",
     library: "المكتبة",

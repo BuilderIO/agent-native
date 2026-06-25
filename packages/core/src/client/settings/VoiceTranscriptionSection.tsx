@@ -10,8 +10,6 @@
  * mirrors the server transcription route's key/env resolution.
  */
 
-import React, { useCallback, useEffect, useState } from "react";
-import { agentNativePath } from "../api-path.js";
 import {
   IconAlertCircle,
   IconCheck,
@@ -22,6 +20,9 @@ import {
   IconLockOpen,
   IconMicrophone,
 } from "@tabler/icons-react";
+import React, { useCallback, useEffect, useState } from "react";
+
+import { agentNativePath } from "../api-path.js";
 import {
   openBuilderConnectPopup,
   useBuilderStatus,

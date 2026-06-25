@@ -1,3 +1,9 @@
+import { spawnSync } from "child_process";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { fileURLToPath } from "url";
+
 /**
  * E2E regression tests for `agent-native create`.
  *
@@ -12,11 +18,7 @@
  *   - dist/catalog.json not embedded in the built package
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import fs from "fs";
-import path from "path";
-import os from "os";
-import { spawnSync } from "child_process";
-import { fileURLToPath } from "url";
+
 import { addAppToWorkspace, createApp } from "./create.js";
 import {
   _scaffoldWorkspaceRoot,
@@ -33,8 +35,8 @@ import {
   _shouldSkipScaffoldEntry,
   _tarExtractArgs,
 } from "./create.js";
-import { workspacifyApp } from "./workspacify.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
+import { workspacifyApp } from "./workspacify.js";
 
 let tmpDir: string;
 let origCwd: string;
@@ -211,9 +213,9 @@ describe("standalone scaffold — chat template", { timeout: 60000 }, () => {
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     const deps = allDeps(pkg);
 
-    expect(deps["@react-router/dev"]).toBe("7.16.0");
-    expect(deps["@react-router/fs-routes"]).toBe("7.16.0");
-    expect(deps["react-router"]).toBe("7.16.0");
+    expect(deps["@react-router/dev"]).toBe("8.0.1");
+    expect(deps["@react-router/fs-routes"]).toBe("8.0.1");
+    expect(deps["react-router"]).toBe("8.0.1");
   });
 
   it("catalog: refs resolve to semver-like strings", async () => {
@@ -290,7 +292,7 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
  * `pnpm typecheck` and `pnpm action hello` — both used to fail out of the box:
  *
  *   1. tsconfig inherited `types: ["vite/client"]` from the UI base config, but
- *      a headless app has no Vite dep, so tsc died with TS2688.
+ *      a headless app has no Vite dep, so TypeScript died with TS2688.
  *   2. `import { defineAction } from "@agent-native/core"` resolved to the Node
  *      `default` entry, which re-exported the React client barrel and pulled
  *      `@tanstack/react-query` (uninstalled in a headless app) into the load
@@ -336,7 +338,7 @@ describe("headless onboarding guards", { timeout: 60000 }, () => {
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
- * Headless onboarding — real `pnpm install` + `tsc` + `pnpm action`
+ * Headless onboarding — real `pnpm install` + `tsgo` + `pnpm action`
  *
  * Heavyweight: scaffolds a headless app linked to the LOCAL built core, then
  * runs the exact documented commands. Gated on AGENT_NATIVE_CREATE_USE_LOCAL_CORE

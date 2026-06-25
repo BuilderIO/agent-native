@@ -119,7 +119,7 @@ Dadurch werden nur die Skill-Anweisungen installiert. Das gehostete MCP
 ### Öffnen Sie Pläne in VS Code {#vscode-extension}
 
 Wenn Sie in VS Code leben, installieren Sie
-[Agent Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
 um dieselbe Planüberprüfungsoberfläche in einem Seitenbereich zu öffnen, anstatt Sie zu einem weiterzuleiten
 separater Browser-Tab. Pläne-Tools geben weiterhin den normalen Weblink und den MCP
 Metadaten umfassen auch eine VS-Code-Übergabe URL:

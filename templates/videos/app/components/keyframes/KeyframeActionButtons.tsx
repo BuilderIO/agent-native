@@ -1,11 +1,13 @@
-import { Button } from "../ui/button";
 import { IconCopy, IconRotate, IconTrash } from "@tabler/icons-react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useT } from "@agent-native/core/client";
+
+import { Button } from "../ui/button";
 
 interface KeyframeActionButtonsProps {
   isOnKeyframe: boolean;

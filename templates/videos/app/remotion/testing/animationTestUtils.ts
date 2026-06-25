@@ -4,13 +4,13 @@
  * Helpers for testing animated components and animations
  */
 
+import type { CursorFrame } from "@/remotion/hooks/useCursorHistory";
+import { validateAnimation } from "@/remotion/utils/animationHelpers";
+import type { AnimationTrack } from "@/types";
 import type {
   ElementAnimation,
   AnimatedPropertyConfig,
 } from "@/types/elementAnimations";
-import type { CursorFrame } from "@/remotion/hooks/useCursorHistory";
-import type { AnimationTrack } from "@/types";
-import { validateAnimation } from "@/remotion/utils/animationHelpers";
 import { getAnimationValue } from "@/types/elementAnimations";
 
 /**

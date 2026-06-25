@@ -45,9 +45,9 @@ export function bookingOgLoader({
 }
 
 export function bookingOgMeta({
-  data,
+  loaderData,
 }: MetaArgs<typeof bookingOgLoader>): MetaDescriptor[] {
-  const image = data?.ogImageUrl;
+  const image = loaderData?.ogImageUrl;
   const title = messagesByLocale["en-US"].routeTitles.bookMeeting;
   return [
     { title },

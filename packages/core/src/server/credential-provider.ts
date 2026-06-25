@@ -19,8 +19,9 @@
  */
 
 import { createHash } from "node:crypto";
-import { getRequestUserEmail, getRequestOrgId } from "./request-context.js";
+
 import { isLocalDatabase } from "../db/client.js";
+import { getRequestUserEmail, getRequestOrgId } from "./request-context.js";
 
 /**
  * Decide which `app_secrets` scope a Builder/credential write should use.

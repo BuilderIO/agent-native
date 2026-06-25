@@ -247,8 +247,8 @@ Los hosts del navegador deberían devolver un elegante error `openTerminal` en l
 
 ## Compositor compartido
 
-El código Agent-Native usa el mismo `AgentRedactarrFrame` + `PromptRedactarr` /
-Pila `TiptapRedactarr` exportada desde `@agent-native/core/client/composer` como
+El código Agent-Native usa el mismo `AgentComposerFrame` + `PromptComposer` /
+Pila `TiptapComposer` exportada desde `@agent-native/core/client/composer` como
 barra lateral del agente de framework. No bifurque uno por separado
 área de texto, selector de herramientas de codificación, selector de carga, botón de voz, selector de modelo o entrada para enviar
 implementación para superficies tipo código. Si un host necesita un control adicional, pase
@@ -256,7 +256,7 @@ a través de los puntos de extensión del compositor compartido para que la barr
 El chat cerebral mantiene el mismo modelo de interacción y campo visual.
 
 La ruta Ask de Brain utiliza `AgentChatSurface`, que ya está respaldada por
-compositor de barra lateral estándar. El código usa `PromptRedactarr` directamente porque el host
+compositor de barra lateral estándar. El código usa `PromptComposer` directamente porque el host
 es propietario de la creación de ejecuciones, las transcripciones y la entrega de seguimiento.
 
 ## Herramientas de codificación compartidas

@@ -228,7 +228,7 @@ npx @agent-native/core@latest add-app
 
 **تغيير UI.** المسارات موجودة في `templates/mail/app/routes/` والمكونات في `templates/mail/app/components/email/` و`templates/mail/app/components/layout/`. يستخدم التطبيق عناصر shadcn/ui الأولية من `app/components/ui/` وأيقونات Tabler - التزم بها.
 
-**تغيير كيفية تصرف الوكيل.** توجد إرشادات الوكيل في `templates/mail/AGENTS.md` وskills في `templates/mail/.agents/skills/` (`email-drafts`، `real-time-sync`، `security`، `self-modifying-code`، وغيرها). يتم تغيير سلوك الوكيل عن طريق تعديل تخفيض السعر - وليس التعليمات البرمجية.
+**تغيير كيفية تصرف الوكيل.** توجد إرشادات الوكيل في `templates/mail/AGENTS.md` وskills في `templates/mail/.agents/skills/` (`email-drafts`، `real-time-sync`، `security`، `self-modifying-code`، وغيرها). يتم تغيير سلوك الوكيل عن طريق تعديل Markdown - وليس التعليمات البرمجية.
 
 **تغيير البيانات أو الإعدادات.** توجد مخططات جداول التتبع والهياكل ذات الصلة في `templates/mail/server/db/`. تمر إعدادات القراءة والكتابة عبر `readSetting` / `writeSetting` من `@agent-native/core/settings`. تستخدم حالة التطبيق (التنقل، والمسودات، والأوامر المفردة) `readAppState` / `writeAppState` من `@agent-native/core/application-state`.
 

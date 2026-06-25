@@ -1,13 +1,3 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Link, NavLink, useLocation, useNavigate } from "react-router";
-import {
-  IconArchive,
-  IconDots,
-  IconEdit,
-  IconPin,
-  IconPlus,
-} from "@tabler/icons-react";
-import { toast } from "sonner";
 import {
   appPath,
   DevDatabaseLink,
@@ -19,8 +9,17 @@ import {
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { navItems } from "@/lib/brain";
-import { cn } from "@/lib/utils";
+import {
+  IconArchive,
+  IconDots,
+  IconEdit,
+  IconPin,
+  IconPlus,
+} from "@tabler/icons-react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,6 +32,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { navItems } from "@/lib/brain";
+import { cn } from "@/lib/utils";
 
 const BRAIN_CHAT_STORAGE_KEY = "brain";
 const BRAIN_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${BRAIN_CHAT_STORAGE_KEY}`;

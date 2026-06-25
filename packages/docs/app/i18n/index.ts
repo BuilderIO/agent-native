@@ -2,6 +2,7 @@ import type {
   AgentNativeI18nCatalog,
   LocaleCode,
 } from "@agent-native/core/client";
+
 import enUS from "./en-US";
 
 const localeLoaders: Partial<

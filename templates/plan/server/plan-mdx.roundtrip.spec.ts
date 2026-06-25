@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { planContentSchema, type PlanContent } from "../shared/plan-content.js";
 import {
   applyPlanMdxSourcePatches,

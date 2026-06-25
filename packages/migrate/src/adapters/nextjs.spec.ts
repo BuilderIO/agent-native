@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
 import path from "path";
 import { fileURLToPath } from "url";
+
+import { describe, expect, it } from "vitest";
+
 import { detectNextJsSource, extractNextJsProject } from "./nextjs.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

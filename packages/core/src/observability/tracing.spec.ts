@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+
 import {
   type AgentSpan,
   SPAN_STATUS_ERROR,

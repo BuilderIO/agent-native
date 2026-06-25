@@ -1,20 +1,21 @@
-import { useMemo, useState } from "react";
+import { IconCheck, IconChevronDown } from "@tabler/icons-react";
 import type { Node as TiptapNode } from "@tiptap/core";
+import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import {
   NodeViewContent,
   NodeViewWrapper,
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react";
-import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import type { createLowlight } from "lowlight";
-import { IconCheck, IconChevronDown } from "@tabler/icons-react";
-import { cn } from "../utils.js";
+import { useMemo, useState } from "react";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import { cn } from "../utils.js";
 
 /**
  * A selectable language for the code-block picker. `value === null` is the

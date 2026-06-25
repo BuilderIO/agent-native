@@ -14,7 +14,7 @@ Agent-Native는 전체 사이드바를 제공하지만 사이드바는 계약이
 
 ```tsx
 import { AgentSidebar } from "@agent-native/core/client";
-import { Prompt작성r } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/core/client/editor";
@@ -27,7 +27,7 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 
 ```an-diagram title="프레임워크 외부가 아닌 레이어를 드롭다운하세요." summary="각 레이어는 동일한 런타임(작업, 스레드 상태, SQL-backed 동기화)을 유지하면서 크롬에 대한 더 많은 제어권을 제공합니다."
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">앱 주변 전체 사이드바. 80% 사용 사례.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">자체 레이아웃의 패널 또는 채팅 페이지.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;Prompt작성r&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">작성r and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>동일한 runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">앱 주변 전체 사이드바. 80% 사용 사례.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">자체 레이아웃의 패널 또는 채팅 페이지.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">작성r and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>동일한 runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -107,18 +107,18 @@ BYOD(Bring-Your-Own) 에이전트 엔드포인트의 경우 다음 중 하나를
 
 | API                               | 다음 경우에 사용                                                                                                                                 |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `<Prompt작성r>`                | 첨부 파일, 슬래시 명령, 참조, 붙여넣은 텍스트 처리, 초안 지속성, 음성 입력 및 제출 의미 체계가 포함된 제출 준비가 완료된 채팅 필드가 필요합니다. |
-| `<Agent작성rFrame>`            | 사용자 정의 작성기 본체 주변에 표준 시각적 셸이 필요합니다.                                                                                      |
-| `<Tiptap작성r>`                | 최하위 리치채팅 필드가 필요합니다. Assistant-ui `ThreadPrimitive.Root` / 작곡가 런타임 내에서 렌더링되어야 합니다.                               |
-| `buildPrompt작성rSubmission()` | 자신의 제출 핸들러를 호출하기 전에 동일한 첨부 파일과 붙여넣은 텍스트 정규화가 필요합니다.                                                       |
+| `<PromptComposer>`                | 첨부 파일, 슬래시 명령, 참조, 붙여넣은 텍스트 처리, 초안 지속성, 음성 입력 및 제출 의미 체계가 포함된 제출 준비가 완료된 채팅 필드가 필요합니다. |
+| `<AgentComposerFrame>`            | 사용자 정의 작성기 본체 주변에 표준 시각적 셸이 필요합니다.                                                                                      |
+| `<TiptapComposer>`                | 최하위 리치채팅 필드가 필요합니다. Assistant-ui `ThreadPrimitive.Root` / 작곡가 런타임 내에서 렌더링되어야 합니다.                               |
+| `buildPromptComposerSubmission()` | 자신의 제출 핸들러를 호출하기 전에 동일한 첨부 파일과 붙여넣은 텍스트 정규화가 필요합니다.                                                       |
 | `formatPromptWithAttachments()`   | 숨겨진 첨부 파일 메타데이터를 프롬프트 문자열로 렌더링해야 합니다.                                                                               |
 
-대부분의 사용자 정의 UI는 `Prompt작성r`로 시작해야 합니다:
+대부분의 사용자 정의 UI는 `PromptComposer`로 시작해야 합니다:
 
 ```tsx
-import { Prompt작성r } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 
-<Prompt작성r
+<PromptComposer
   placeholder="Ask the agent..."
   onSubmit={async (text, files, references, options) => {
     await sendMessageToYourRuntime({ text, files, references, options });
@@ -126,7 +126,7 @@ import { Prompt작성r } from "@agent-native/core/client/composer";
 />;
 ```
 
-이미 보조 UI 프리미티브를 연결한 경우에만 `Tiptap작성r`를 사용하세요.
+이미 보조 UI 프리미티브를 연결한 경우에만 `TiptapComposer`를 사용하세요.
 당신 자신. 전체 채팅 런타임이 아닌 필드입니다.
 
 ## 대화 렌더링 {#conversation}

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { runAgentLoop } from "./production-agent.js";
-import type { Processor } from "./processors.js";
+
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
+import type { Processor } from "./processors.js";
+import { runAgentLoop } from "./production-agent.js";
 import type { ActionEntry as ProductionActionEntry } from "./production-agent.js";
 import type { AgentChatEvent } from "./types.js";
 

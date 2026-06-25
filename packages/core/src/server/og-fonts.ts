@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
 import {
   LIBERATION_SANS_BOLD_BASE64,
   LIBERATION_SANS_REGULAR_BASE64,

@@ -1,5 +1,65 @@
 # @agent-native/skills
 
+## 0.2.94
+
+### Patch Changes
+
+- Updated dependencies [6d04136]
+  - @agent-native/core@0.77.2
+
+## 0.2.93
+
+### Patch Changes
+
+- Updated dependencies [e3a084f]
+  - @agent-native/core@0.77.1
+
+## 0.2.92
+
+### Patch Changes
+
+- 2a03c35: Adopt the native TypeScript and oxfmt package build baselines.
+- Updated dependencies [2a03c35]
+- Updated dependencies [dd40496]
+- Updated dependencies [2a03c35]
+- Updated dependencies [2a03c35]
+- Updated dependencies [2a03c35]
+- Updated dependencies [2a03c35]
+- Updated dependencies [2a03c35]
+- Updated dependencies [2a03c35]
+- Updated dependencies [2a03c35]
+- Updated dependencies [2a03c35]
+- Updated dependencies [2a03c35]
+- Updated dependencies [2a03c35]
+- Updated dependencies [2a03c35]
+- Updated dependencies [2a03c35]
+- Updated dependencies [2a03c35]
+- Updated dependencies [2a03c35]
+- Updated dependencies [2a03c35]
+  - @agent-native/core@0.77.0
+
+## 0.2.91
+
+### Patch Changes
+
+- Updated dependencies [64f90ca]
+  - @agent-native/core@0.76.14
+
+## 0.2.90
+
+### Patch Changes
+
+- Updated dependencies [d12772c]
+  - @agent-native/core@0.76.13
+
+## 0.2.89
+
+### Patch Changes
+
+- Updated dependencies [93292e4]
+- Updated dependencies [93292e4]
+  - @agent-native/core@0.76.12
+
 ## 0.2.88
 
 ### Patch Changes

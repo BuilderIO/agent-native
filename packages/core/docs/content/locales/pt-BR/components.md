@@ -14,7 +14,7 @@ Importar navegador UI de subcaminhos de cliente em foco:
 
 ```tsx
 import { AgentSidebar } from "@agent-native/core/client";
-import { PromptEscreverr } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/core/client/editor";
@@ -27,7 +27,7 @@ para que os empacotadores escolham a entrada segura para o navegador.
 
 ```an-diagram title="Desça uma camada, não fora da estrutura" summary="Cada camada mantém o mesmo tempo de execução – ações, estado do thread e sincronização SQL-backed – enquanto oferece mais controle sobre o cromo."
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Sidebar inteira em volta do app. O caso de 80%.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">O painel ou uma página de chat no seu próprio layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptEscreverr&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Escreverr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Mesmo runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Sidebar inteira em volta do app. O caso de 80%.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">O painel ou uma página de chat no seu próprio layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Escreverr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Mesmo runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -107,18 +107,18 @@ campo usado pela barra lateral dentro do UI personalizado.
 
 | API                               | Usar quando                                                                                                                                                                                     |
 | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<PromptEscreverr>`                | Você precisa de um campo de bate-papo pronto para envio com anexos, comandos de barra, referências, manipulação de texto colado, persistência de rascunho, entrada de voz e semântica de envio. |
-| `<AgentEscreverrFrame>`            | Você deseja o shell visual padrão em torno de um corpo de compositor personalizado.                                                                                                             |
-| `<TiptapEscreverr>`                | Você precisa do campo de bate-papo avançado de nível mais baixo. Ele deve ser renderizado dentro de um runtime assistant-ui `ThreadPrimitive.Root`/composer.                                    |
-| `buildPromptEscreverrSubmission()` | Você precisa do mesmo anexo e da mesma normalização do texto colado antes de chamar seu próprio manipulador de envio.                                                                           |
+| `<PromptComposer>`                | Você precisa de um campo de bate-papo pronto para envio com anexos, comandos de barra, referências, manipulação de texto colado, persistência de rascunho, entrada de voz e semântica de envio. |
+| `<AgentComposerFrame>`            | Você deseja o shell visual padrão em torno de um corpo de compositor personalizado.                                                                                                             |
+| `<TiptapComposer>`                | Você precisa do campo de bate-papo avançado de nível mais baixo. Ele deve ser renderizado dentro de um runtime assistant-ui `ThreadPrimitive.Root`/composer.                                    |
+| `buildPromptComposerSubmission()` | Você precisa do mesmo anexo e da mesma normalização do texto colado antes de chamar seu próprio manipulador de envio.                                                                           |
 | `formatPromptWithAttachments()`   | Você precisa renderizar metadados de anexos ocultos em uma string de prompt.                                                                                                                    |
 
-A maioria dos UIs personalizados devem começar com `PromptEscreverr`:
+A maioria dos UIs personalizados devem começar com `PromptComposer`:
 
 ```tsx
-import { PromptEscreverr } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 
-<PromptEscreverr
+<PromptComposer
   placeholder="Ask the agent..."
   onSubmit={async (text, files, references, options) => {
     await sendMessageToYourRuntime({ text, files, references, options });
@@ -126,7 +126,7 @@ import { PromptEscreverr } from "@agent-native/core/client/composer";
 />;
 ```
 
-Use `TiptapEscreverr` somente se você já estiver conectando primitivos assistant-ui
+Use `TiptapComposer` somente se você já estiver conectando primitivos assistant-ui
 você mesmo. É o campo, não todo o tempo de execução do chat.
 
 ## Renderização de conversa {#conversation}

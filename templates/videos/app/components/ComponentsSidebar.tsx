@@ -1,7 +1,8 @@
-import { libraryComponents } from "@/remotion/componentRegistry";
-import { cn } from "@/lib/utils";
 import { IconBox, IconStack2 } from "@tabler/icons-react";
 import { useT } from "@agent-native/core/client";
+
+import { cn } from "@/lib/utils";
+import { libraryComponents } from "@/remotion/componentRegistry";
 
 type ComponentsSidebarProps = {
   open: boolean;

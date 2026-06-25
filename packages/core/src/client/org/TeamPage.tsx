@@ -1,4 +1,3 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
 import {
   IconBuilding,
   IconUserPlus,
@@ -20,6 +19,16 @@ import {
   IconPlus,
   IconAlertTriangle,
 } from "@tabler/icons-react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+
+import type { DomainMatchOrg } from "../../org/types.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import {
   useOrg,
   useOrgMembers,
@@ -38,14 +47,6 @@ import {
   type InviteRole,
   type SyncA2ASecretResult,
 } from "./hooks.js";
-import type { DomainMatchOrg } from "../../org/types.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
-import { useT } from "../i18n.js";
 
 export interface TeamPageProps {
   /**

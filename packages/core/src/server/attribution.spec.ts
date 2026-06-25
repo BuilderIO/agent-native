@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import {
   deriveReferralSource,
   deriveSignupAttribution,
@@ -99,6 +100,12 @@ describe("deriveReferralSource", () => {
   it("plan public paths derive plan_share", () => {
     expect(deriveReferralSource({ landing_path: "/p/abc" })).toBe("plan_share");
     expect(deriveReferralSource({ landing_path: "/plan/abc" })).toBe(
+      "plan_share",
+    );
+    expect(deriveReferralSource({ landing_path: "/plans/abc" })).toBe(
+      "plan_share",
+    );
+    expect(deriveReferralSource({ landing_path: "/recaps/abc" })).toBe(
       "plan_share",
     );
     expect(deriveReferralSource({ landing_path: "/share-plan/abc" })).toBe(

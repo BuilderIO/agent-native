@@ -26,7 +26,7 @@ description: "نموذج الأمان لتطبيقات الوكيل الأصلي
 
 يترك هذا سطحًا صغيرًا عليك التفكير فيه:
 
-- **أ. ضع علامة على جداولك لتحديد النطاق.** أضف `owner_email` (و `org_id` لبيانات الفريق) عبر [`ownableColumns()`](#data-scoping)، وقم بتوجيه Drizzle للقراءة/الكتابة من خلال [access guards](#access-guards).
+- **أ. ضع علامة على جداولك لتحديد النطاق.** أضف `owner_email` (و `org_id` لبيانات الفريق) عبر [`ownableColumns()`](#data-scoping), وقم بتوجيه Drizzle للقراءة/الكتابة من خلال [access guards](#access-guards).
 - **ب. التحقق من صحة المدخلات الخارجية وتوجيهها.** أعط كل إجراء Zod [`schema:`](#input-validation)، وأرسل أي جلب من جانب الخادم للمستخدم/الوكيل URL من خلال [SSRF guard](#ssrf).
 
 احصل على هذين الأمرين بشكل صحيح والباقي هو الإعدادات الافتراضية. [Production Checklist](#production-checklist) هو تأكيد من صفحة واحدة قبل الشحن.
@@ -97,7 +97,7 @@ await exec(`INSERT INTO notes (title) VALUES ('${title}')`);
 - لا تستخدم أبدًا `dangerouslySetInnerHTML` مع المحتوى الذي يتحكم فيه المستخدم
 - لا تستخدم مطلقًا `innerHTML` أو `eval()` أو `document.write()`
 - لتحرير النص المنسق، استخدم TipTap (تبعية إطار العمل) — حيث يتم التنقيح من خلال مخططه
-- لعرض تخفيض السعر، استخدم `react-markdown` - فهو يتحول إلى عناصر React بأمان
+- لعرض Markdown، استخدم `react-markdown` - فهو يتحول إلى عناصر React بأمان
 
 ## الجلب من جانب الخادم (SSRF) {#ssrf}
 

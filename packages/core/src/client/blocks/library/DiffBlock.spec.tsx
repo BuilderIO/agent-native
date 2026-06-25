@@ -3,6 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { BlockRenderContext } from "../types.js";
 import { DiffRead, diffLines } from "./DiffBlock.js";
 import { NarrowContainerProvider } from "./narrow-container.js";

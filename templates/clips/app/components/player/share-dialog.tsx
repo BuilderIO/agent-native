@@ -1,10 +1,3 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import {
-  IconCode,
-  IconExternalLink,
-  IconLink,
-  IconMail,
-} from "@tabler/icons-react";
 import {
   appBasePath,
   appPath,
@@ -13,16 +6,13 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+  IconCode,
+  IconExternalLink,
+  IconLink,
+  IconMail,
+} from "@tabler/icons-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+
 import {
   CopyField,
   GeneralAccessSelect,
@@ -36,6 +26,18 @@ import {
   type Visibility,
 } from "@/components/sharing/share-ui";
 import { SlackShareHint } from "@/components/sharing/slack-share-hint";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+
 import { buildAgentApiUrls } from "../../../shared/agent-context";
 import { isLoomEmbedUrl } from "../../../shared/loom";
 import { withShareAttribution } from "../../../shared/share-attribution";

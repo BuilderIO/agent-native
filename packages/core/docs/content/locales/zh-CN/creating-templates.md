@@ -159,7 +159,7 @@ export default runMigrations(
 
 ## 构建 UI {#ui}
 
-路由位于 `app/routes/` 中并使用 React Router v7 文件路由。通过actions或API处理程序查询数据，并默认使突变乐观。
+路由位于 `app/routes/` 中并使用 React Router v8 文件路由。通过actions或API处理程序查询数据，并默认使突变乐观。
 
 ```tsx
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";

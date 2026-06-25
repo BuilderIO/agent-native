@@ -1,5 +1,3 @@
-import { useRef } from "react";
-import { useLocation } from "react-router";
 import {
   appBasePath,
   appPath,
@@ -11,6 +9,8 @@ import type {
   DispatchExtensionConfig,
   DispatchNavItem,
 } from "@agent-native/dispatch/components";
+import { useRef } from "react";
+import { useLocation } from "react-router";
 
 export interface NavigationState {
   view: string;

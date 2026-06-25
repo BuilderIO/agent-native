@@ -128,7 +128,7 @@ export default defineAction({
 }
 ```
 
-يتم إنشاء `getDb` لكل تطبيق عبر `createGetDb(schema)` في `server/db/index.ts`، لذلك تقوم المسارات المخصصة باستيراده من القالب (`../../db/index.js`)، وليس من `@agent-native/core/db`؛ انظر [Database — Where the DB Client Lives](/docs/database#db-client). لا تقم بتشغيل `db.select().from(ownableTable)` غير النطاق في المسارات المخصصة.
+يتم إنشاء `getDb` لكل تطبيق عبر `createGetDb(schema)` في `server/db/index.ts`، لذلك تقوم المسارات المخصصة باستيراده من القالب (`../../db/index.js`), وليس من `@agent-native/core/db`؛ انظر [Database — Where the DB Client Lives](/docs/database#db-client). لا تقم بتشغيل `db.select().from(ownableTable)` غير النطاق في المسارات المخصصة.
 
 ## مكونات الخادم الإضافية {#server-plugins}
 

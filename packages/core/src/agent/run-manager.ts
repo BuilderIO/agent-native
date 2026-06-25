@@ -1,6 +1,5 @@
-import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
-import { EngineError } from "./engine/types.js";
 import { captureError } from "../server/capture-error.js";
+import { EngineError } from "./engine/types.js";
 import {
   insertRun,
   insertRunEvent,
@@ -20,6 +19,7 @@ import {
   setRunError,
   STALE_RUN_ERROR_EVENT,
 } from "./run-store.js";
+import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
 
 export interface ActiveRun {
   runId: string;

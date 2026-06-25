@@ -135,10 +135,10 @@ if (!skipDocs) {
 }
 
 // Prebuild core once before templates boot. Templates import from
-// @agent-native/core/server; if tsc --watch is mid-rewrite of dist/ when a
+// @agent-native/core/server; if tsgo --watch is mid-rewrite of dist/ when a
 // template SSR-imports it, named exports come back undefined (e.g.
 // "createAgentChatPlugin is not a function"). Building first guarantees a
-// complete dist; tsc --watch then takes over for incremental rebuilds.
+// complete dist; tsgo --watch then takes over for incremental rebuilds.
 console.log(`\x1b[36m[dev-eager]\x1b[0m Prebuilding @agent-native/core...`);
 execSync("pnpm --filter @agent-native/core build", { stdio: "inherit" });
 
@@ -178,7 +178,7 @@ templatePorts.forEach(({ name, port }, i) => {
 // Core TypeScript watch
 names.push("core");
 commands.push(
-  "pnpm --filter @agent-native/core exec tsc --watch --preserveWatchOutput",
+  "pnpm --filter @agent-native/core exec tsgo --watch --preserveWatchOutput",
 );
 
 // Local Dev Frame

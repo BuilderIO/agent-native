@@ -3,6 +3,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { ToolCallDisplay } from "./tool-call-display.js";
 import {

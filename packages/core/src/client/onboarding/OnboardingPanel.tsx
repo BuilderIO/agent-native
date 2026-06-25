@@ -1,13 +1,3 @@
-import { agentNativePath } from "../api-path.js";
-/**
- * <OnboardingPanel /> — the setup checklist that sits above the agent chat.
- *
- * The active step is expanded; completed steps collapse with a green check;
- * remaining steps sit dimmed below. Each method renders differently based on
- * its `kind` (link / form / builder-cli-auth / agent-task).
- */
-
-import React, { useState, useEffect } from "react";
 import {
   IconCheck,
   IconChecklist,
@@ -18,20 +8,30 @@ import {
   IconKey,
   IconLoader2,
 } from "@tabler/icons-react";
-import { useOnboarding } from "./use-onboarding.js";
-import { useOnboardingPreviewMode } from "./use-preview-mode.js";
-import { sendToAgentChat } from "../agent-chat.js";
-import { useDevMode } from "../use-dev-mode.js";
-import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+/**
+ * <OnboardingPanel /> — the setup checklist that sits above the agent chat.
+ *
+ * The active step is expanded; completed steps collapse with a green check;
+ * remaining steps sit dimmed below. Each method renders differently based on
+ * its `kind` (link / form / builder-cli-auth / agent-task).
+ */
+import React, { useState, useEffect } from "react";
+
 import type {
   OnboardingMethod,
   OnboardingStepStatus,
 } from "../../onboarding/types.js";
+import { sendToAgentChat } from "../agent-chat.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import { useDevMode } from "../use-dev-mode.js";
+import { useOnboarding } from "./use-onboarding.js";
+import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
 type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
 

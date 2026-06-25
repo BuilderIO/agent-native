@@ -1,11 +1,12 @@
-import { Link } from "react-router";
-import { useState, type SyntheticEvent } from "react";
 import {
   normalizeLocaleCode,
   trackEvent,
   useLocale,
   useT,
 } from "@agent-native/core/client";
+import { useState, type SyntheticEvent } from "react";
+import { Link } from "react-router";
+
 import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
 import { sitePathForLocale } from "../components/docs-locale";
 import arSA from "../i18n/ar-SA";

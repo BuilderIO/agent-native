@@ -247,8 +247,8 @@ Browser-Hosts sollten einen ordnungsgemäßen `openTerminal`-Fehler zurückgeben
 
 ## Gemeinsamer Komponist
 
-Agent-Native-Code verwendet dasselbe `AgentVerfassenrFrame` + `PromptVerfassenr` /
-`TiptapVerfassenr`-Stack wurde aus `@agent-native/core/client/composer` als
+Agent-Native-Code verwendet dasselbe `AgentComposerFrame` + `PromptComposer` /
+`TiptapComposer`-Stack wurde aus `@agent-native/core/client/composer` als
 Framework-Agent-Seitenleiste. Verzweigen Sie kein separates
 Textbereich, Codierungstool-Auswahl, Upload-Auswahl, Sprachschaltfläche, Modellauswahl oder Enter-to-Submit
 Implementierung für Code-ähnliche Oberflächen. Wenn ein Host ein zusätzliches Steuerelement benötigt, übergeben Sie
@@ -256,7 +256,7 @@ es über die freigegebenen Verfassenr-Erweiterungspunkte, also die Seitenleiste,
 Brain-Chat behält das gleiche Interaktionsmodell und Gesichtsfeld bei.
 
 Die Ask-Route von Brain verwendet `AgentChatSurface`, das bereits von
-Standard-Sidebar-Verfassenr. Der Code verwendet `PromptVerfassenr` direkt, weil der Host
+Standard-Sidebar-Verfassenr. Der Code verwendet `PromptComposer` direkt, weil der Host
 ist für die Lauferstellung, die Transkripte und die Nachbereitung verantwortlich.
 
 ## Gemeinsame Codierungstools

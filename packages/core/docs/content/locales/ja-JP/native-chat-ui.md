@@ -302,7 +302,7 @@ const runtime = createAgentNativeChatRuntime({
 ```
 
 完全に必要な場合にのみ `<AssistantChat createAdapter={...} />` を使用してください
-assistant-ui adapter control. Use `Prompt作成r` by itself when your product
+assistant-ui adapter control. Use `PromptComposer` by itself when your product
 外部トランスクリプト全体を所有しており、Agent-Native の作曲者のみを必要としています
 フィールド。
 

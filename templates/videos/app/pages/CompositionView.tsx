@@ -1,14 +1,3 @@
-import { useRef, useState, useEffect, useCallback } from "react";
-import { useSearchParams } from "react-router";
-import { VideoPlayer, type VideoPlayerHandle } from "@/components/VideoPlayer";
-import { Timeline } from "@/components/Timeline";
-import { CameraToolbar } from "@/components/CameraToolbar";
-import { CursorPositioningOverlay } from "@/components/CursorPositioningOverlay";
-import {
-  IconDeviceFloppy,
-  IconTrash,
-  IconAdjustments,
-} from "@tabler/icons-react";
 import {
   appBasePath,
   callAction,
@@ -18,17 +7,22 @@ import {
   useT,
 } from "@agent-native/core/client";
 import type { CollabUser } from "@agent-native/core/client";
-import { useComposition } from "@/contexts/CompositionContext";
-import { useTimeline } from "@/contexts/TimelineContext";
-import { usePlayback } from "@/contexts/PlaybackContext";
-import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
-import { cn } from "@/lib/utils";
+import {
+  IconDeviceFloppy,
+  IconTrash,
+  IconAdjustments,
+} from "@tabler/icons-react";
+import { useRef, useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router";
+
+import { CameraToolbar } from "@/components/CameraToolbar";
+import { CollabPresenceBar } from "@/components/CollabPresenceBar";
+import { CursorPositioningOverlay } from "@/components/CursorPositioningOverlay";
+import { Timeline } from "@/components/Timeline";
 import {
   TweaksPanel,
   DEFAULT_COMPOSITION_TWEAKS,
 } from "@/components/TweaksPanel";
-import { CollabPresenceBar } from "@/components/CollabPresenceBar";
-import NewComposition from "@/pages/NewComposition";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,6 +38,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { VideoPlayer, type VideoPlayerHandle } from "@/components/VideoPlayer";
+import { useComposition } from "@/contexts/CompositionContext";
+import { usePlayback } from "@/contexts/PlaybackContext";
+import { useTimeline } from "@/contexts/TimelineContext";
+import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
+import { cn } from "@/lib/utils";
+import NewComposition from "@/pages/NewComposition";
 
 type CompositionViewProps = {
   onCameraKeyframeClick?: (trackType: "camera" | "cursor") => void;

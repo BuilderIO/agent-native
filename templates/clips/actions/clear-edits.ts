@@ -11,12 +11,13 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
+import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { DEFAULT_EDITS, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
-import { writeAppState } from "@agent-native/core/application-state";
-import { DEFAULT_EDITS, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 export default defineAction({

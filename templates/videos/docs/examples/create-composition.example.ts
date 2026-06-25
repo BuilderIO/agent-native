@@ -13,6 +13,7 @@
  * 3. Run in browser console or integrate into your workflow
  */
 
+import { BlankComposition as MyComponent } from "@/remotion/compositions/BlankComposition"; // Your component
 import { addComposition, type CompositionEntry } from "@/remotion/registry";
 import {
   createCameraTrack,
@@ -23,7 +24,6 @@ import {
   validateComposition,
   secondsToFrames,
 } from "@/utils/compositionHelpers";
-import { BlankComposition as MyComponent } from "@/remotion/compositions/BlankComposition"; // Your component
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 

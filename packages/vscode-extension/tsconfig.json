@@ -2,8 +2,8 @@
   "compilerOptions": {
     "ignoreDeprecations": "6.0",
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+    "module": "Node16",
+    "moduleResolution": "Node16",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

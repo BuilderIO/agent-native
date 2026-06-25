@@ -1,5 +1,6 @@
-import { getCookie, getHeader, setCookie, type H3Event } from "h3";
 import { randomUUID } from "node:crypto";
+
+import { getCookie, getHeader, setCookie, type H3Event } from "h3";
 
 const PUBLIC_VIEWER_COOKIE = "content_public_viewer";
 const PUBLIC_VIEWER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;

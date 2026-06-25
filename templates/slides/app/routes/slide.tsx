@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router";
-import { IconExternalLink } from "@tabler/icons-react";
 import {
   appBasePath,
   isInAgentEmbed,
   postNavigate,
   useT,
 } from "@agent-native/core/client";
+import { IconExternalLink } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
+
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";

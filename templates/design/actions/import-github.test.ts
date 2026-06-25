@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import importGithub from "./import-github";
 
 const originalGitHubToken = process.env.GITHUB_TOKEN;

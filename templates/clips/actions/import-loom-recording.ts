@@ -3,8 +3,10 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { buildDeepLink } from "@agent-native/core/server";
+import { extractLoomVideoId, normalizeLoomShareUrl } from "@shared/loom.js";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
@@ -13,13 +15,12 @@ import {
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
-import { extractLoomVideoId, normalizeLoomShareUrl } from "@shared/loom.js";
+import { hasRequestVideoStorage } from "../server/lib/video-storage.js";
 import {
   fetchLoomTranscript,
   loomTranscriptUnavailableMessage,
 } from "./lib/loom-transcript.js";
 import { downloadLoomVideo } from "./lib/loom-video.js";
-import { hasRequestVideoStorage } from "../server/lib/video-storage.js";
 
 const LoomOembedSchema = z
   .object({

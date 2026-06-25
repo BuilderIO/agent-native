@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { beforeEach, describe, expect, it } from "vitest";
+
 import { AUTH_REDIRECT_QUERY_PARAM } from "../shared/auth-redirect-url.js";
 import { stripAuthRedirectParamFromUrl } from "./auth-redirect-url.js";
 

@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
 import type {
   ContentDatabaseItem,
   ContentDatabaseSource,
@@ -12,6 +11,8 @@ import type {
   DocumentPropertyType,
   DocumentPropertyValue,
 } from "@shared/api";
+import { describe, expect, it } from "vitest";
+
 import {
   addDatabaseView,
   appendDatabaseFilter,
@@ -1188,6 +1189,10 @@ describe("database item preview", () => {
       documentId: "database-doc",
       title: "Content calendar",
       databaseId: "database",
+      databaseDocumentId: "database-doc",
+      databaseHostDocumentId: "database-doc",
+      databaseRenderMode: "page",
+      databaseNavigationInstanceId: "database-doc:database",
       databaseSourceType: undefined,
       databaseSourceName: undefined,
       databaseSourceTable: undefined,
@@ -1598,6 +1603,10 @@ describe("database item preview", () => {
       documentId: "database-doc",
       title: "Content calendar",
       databaseId: "database",
+      databaseDocumentId: "database-doc",
+      databaseHostDocumentId: "database-doc",
+      databaseRenderMode: "page",
+      databaseNavigationInstanceId: "database-doc:database",
       databaseSourceType: undefined,
       databaseSourceName: undefined,
       databaseSourceTable: undefined,

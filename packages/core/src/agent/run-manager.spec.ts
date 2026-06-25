@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentChatEvent } from "./types.js";
+
 import { EngineError } from "./engine/types.js";
+import type { AgentChatEvent } from "./types.js";
 
 vi.mock("./run-store.js", () => ({
   insertRun: vi.fn(() => Promise.resolve()),
@@ -35,6 +36,8 @@ vi.mock("./run-store.js", () => ({
   },
 }));
 
+import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
@@ -51,7 +54,6 @@ import {
   subscribeToRun,
   TERMINAL_RUN_RECONNECT_WINDOW_MS,
 } from "./run-manager.js";
-import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   getRunAbortState,
   getRunStatus,
@@ -69,7 +71,6 @@ import {
   reapIfStale,
   reapUnclaimedBackgroundRun,
 } from "./run-store.js";
-import { registerErrorCaptureProvider } from "../server/capture-error.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
 const originalRetentionEnv = process.env.AGENT_RUN_RETENTION_MS;

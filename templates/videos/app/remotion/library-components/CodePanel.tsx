@@ -1,8 +1,9 @@
 import React from "react";
 import { AbsoluteFill, useVideoConfig } from "remotion";
+
+import { AnimatedElement } from "@/remotion/components/AnimatedElement";
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";
 import { useInteractiveComponent } from "@/remotion/hooks/useInteractiveComponent";
-import { AnimatedElement } from "@/remotion/components/AnimatedElement";
 import { createCameraTrack, createCursorTrack } from "@/remotion/trackHelpers";
 import type { AnimationTrack, AnimationShorthand } from "@/types";
 
@@ -820,7 +821,7 @@ export const CodePanel = createInteractiveComposition<CodePanelProps>({
               />
               <InternalFileItem
                 icon="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/73d662436f5fd4e2fe902fd900a6e61f9c20a7e0?placeholderIfAbsent=true"
-                name=".prettierrc"
+                name=".oxfmtrc.json"
                 x={18}
                 y={240}
               />

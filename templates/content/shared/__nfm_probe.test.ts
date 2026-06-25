@@ -1,5 +1,7 @@
-import { describe, it } from "vitest";
 import fs from "node:fs";
+
+import { describe, it } from "vitest";
+
 import {
   VISUAL_INDENT,
   parseNfmForEditor,

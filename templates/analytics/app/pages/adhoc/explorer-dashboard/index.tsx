@@ -1,43 +1,3 @@
-import { useState, useEffect, useCallback } from "react";
-import { useSearchParams, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  IconPlus,
-  IconTrash,
-  IconPencil,
-  IconArchive,
-  IconDots,
-  IconEye,
-  IconEyeOff,
-} from "@tabler/icons-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { toast } from "sonner";
 import {
   PresenceBar,
   useCollaborativeDoc,
@@ -52,16 +12,6 @@ import {
   useT,
   type CollabUser,
 } from "@agent-native/core/client";
-import {
-  resourceCanEdit,
-  resourceCanManage,
-  type ResourceAccess,
-} from "@/lib/resource-access";
-import {
-  DashboardTitleSkeleton,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
-import { DashboardChartCard } from "./ChartCard";
 import {
   DndContext,
   closestCenter,
@@ -78,11 +28,63 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import {
+  IconPlus,
+  IconTrash,
+  IconPencil,
+  IconArchive,
+  IconDots,
+  IconEye,
+  IconEyeOff,
+} from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useCallback } from "react";
+import { useSearchParams, useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import {
+  DashboardTitleSkeleton,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  resourceCanEdit,
+  resourceCanManage,
+  type ResourceAccess,
+} from "@/lib/resource-access";
+
 import { DashboardSkeleton } from "../DashboardSkeleton";
+import { DashboardChartCard } from "./ChartCard";
 
 export interface DashboardChart {
   id: string;

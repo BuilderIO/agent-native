@@ -1427,6 +1427,7 @@ const hiIN = {
     adapters: "Adapters",
     cliAdapters: "CLI adapters",
     processors: "In-loop processors",
+    durableBackgroundRuns: "टिकाऊ पृष्ठभूमि रन",
     durableResume: "Durable resume",
     blueprintInstaller: "Blueprint installer",
     chat: "चैट",

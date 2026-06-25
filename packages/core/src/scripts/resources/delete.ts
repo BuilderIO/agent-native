@@ -7,7 +7,6 @@
  *   pnpm action resource-delete --path <path> [--scope personal|shared]
  */
 
-import { parseArgs, fail } from "../utils.js";
 import {
   canWriteLocalWorkspaceResourcePath,
   resourceDeleteByPath,
@@ -15,6 +14,7 @@ import {
   WORKSPACE_OWNER,
 } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { parseArgs, fail } from "../utils.js";
 
 export default async function resourceDeleteScript(
   args: string[],

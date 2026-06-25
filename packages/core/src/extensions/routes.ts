@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+
 import {
   defineEventHandler,
   getMethod,
@@ -6,14 +7,38 @@ import {
   setResponseHeader,
   type H3Event,
 } from "h3";
-import { readBody } from "../server/h3-helpers.js";
+
+import { getDbExec, isPostgres } from "../db/client.js";
+import { getOrgContext } from "../org/context.js";
+import {
+  resolveKeyReferencesWithRequestScopes,
+  validateUrlAllowlist,
+  getResolvedKeyAllowlist,
+  type ResolvedKeyReference,
+} from "../secrets/substitution.js";
 import { getSession } from "../server/auth.js";
+import { readBody } from "../server/h3-helpers.js";
 import {
   runWithRequestContext,
   getRequestOrgId,
 } from "../server/request-context.js";
-import { getOrgContext } from "../org/context.js";
-import { getDbExec, isPostgres } from "../db/client.js";
+import { ForbiddenError, resolveAccess } from "../sharing/access.js";
+import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
+import { buildExtensionHtml, EXTENSION_IFRAME_CSP } from "./html-shell.js";
+import {
+  getLocalExtension,
+  isLocalExtensionRow,
+  listLocalExtensions,
+  type LocalExtensionRow,
+} from "./local.js";
+import {
+  collectSecretValues,
+  normalizeExtensionProxyMethod,
+  readResponseTextWithLimit,
+  redactSecrets,
+  redactString,
+  sanitizeOutboundHeaders,
+} from "./proxy-security.js";
 import {
   listExtensions,
   getExtension,
@@ -31,34 +56,11 @@ import {
   ensureExtensionsTables,
   type ExtensionRow,
 } from "./store.js";
-import {
-  getLocalExtension,
-  isLocalExtensionRow,
-  listLocalExtensions,
-  type LocalExtensionRow,
-} from "./local.js";
-import { buildExtensionHtml, EXTENSION_IFRAME_CSP } from "./html-shell.js";
 import { getThemeVars } from "./theme.js";
-import {
-  resolveKeyReferencesWithRequestScopes,
-  validateUrlAllowlist,
-  getResolvedKeyAllowlist,
-  type ResolvedKeyReference,
-} from "../secrets/substitution.js";
-import {
-  collectSecretValues,
-  normalizeExtensionProxyMethod,
-  readResponseTextWithLimit,
-  redactSecrets,
-  redactString,
-  sanitizeOutboundHeaders,
-} from "./proxy-security.js";
 import {
   createSsrfSafeDispatcher,
   isBlockedExtensionUrlWithDns,
 } from "./url-safety.js";
-import { ForbiddenError, resolveAccess } from "../sharing/access.js";
-import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
 
 export function createExtensionsHandler() {
   return defineEventHandler(async (event: H3Event) => {

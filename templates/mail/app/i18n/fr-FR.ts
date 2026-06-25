@@ -257,6 +257,7 @@ const messages = {
       threadMuted: "Conversation mise en sourdine.",
       archived: "Archivé.",
       archivedMany: "Archived {{count}} conversations.",
+      archiveFailed: "Échec de l’archivage. La conversation a été restaurée.",
       trashed: "Déplacé vers la corbeille.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programmé envoyé.",

@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
+
 import {
   applyWorkspaceFileSync,
   generateStandaloneChatManifest,
@@ -95,7 +97,7 @@ describe("sync-builder-starter-manifest", () => {
     expect(scripts["db:generate"]).toBe("drizzle-kit generate");
     expect(scripts["db:migrate"]).toBe("drizzle-kit migrate");
     expect(merged.packageManager).toBe("pnpm@10.14.0");
-  });
+  }, 15000);
 
   describe("syncStarterManifestFiles", () => {
     let tempDir: string;

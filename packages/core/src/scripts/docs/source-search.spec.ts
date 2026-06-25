@@ -1,10 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { describe, expect, it, beforeAll, afterEach } from "vitest";
-import sourceSearch from "./source-search.js";
+
 import { materializeSourceCorpus } from "../../../scripts/materialize-source-corpus.mjs";
 import { captureCliOutput } from "../../server/cli-capture.js";
+import sourceSearch from "./source-search.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(currentDir, "../../..");
@@ -32,7 +34,7 @@ async function runSourceSearch(args: string[]): Promise<string> {
 describe("source-search", { timeout: 60000 }, () => {
   beforeAll(() => {
     materializeSourceCorpus();
-  });
+  }, 60000);
 
   afterEach(() => {
     fs.rmSync(scopeFixtureRoot, { recursive: true, force: true });

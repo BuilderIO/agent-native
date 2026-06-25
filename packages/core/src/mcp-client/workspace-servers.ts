@@ -1,11 +1,12 @@
 import crypto from "node:crypto";
+
 import { getDbExec } from "../db/client.js";
+import type { SecretScope } from "../secrets/register.js";
 import { readAppSecret } from "../secrets/storage.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
-import type { SecretScope } from "../secrets/register.js";
 import type { McpHttpServerConfig, McpServerConfig } from "./config.js";
 import {
   hashEmail,

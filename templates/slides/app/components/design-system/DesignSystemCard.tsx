@@ -1,11 +1,13 @@
-import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
 import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
-import type { DesignSystemData } from "../../../shared/api";
+import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+import type { DesignSystemData } from "../../../shared/api";
 
 interface DesignSystemCardProps {
   id: string;

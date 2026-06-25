@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import { inArray } from "drizzle-orm";
 import { accessFilter } from "@agent-native/core/sharing";
+import { inArray } from "drizzle-orm";
 import { z } from "zod";
-import type { Booking } from "../shared/api.js";
+
 import { getDb, schema } from "../server/db/index.js";
+import type { Booking } from "../shared/api.js";
 
 function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
   let fieldResponses: Record<string, string | boolean> | undefined;

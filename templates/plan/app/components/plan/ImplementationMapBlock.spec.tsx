@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
+import { BlockRegistryProvider } from "@agent-native/core/blocks";
+import type { PlanBlock } from "@shared/plan-content";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BlockRegistryProvider } from "@agent-native/core/blocks";
-import type { PlanBlock } from "@shared/plan-content";
+
 import { PlanBlockView } from "./DocumentArea";
 import { createPlanBlockRenderContext, planBlockRegistry } from "./planBlocks";
 
@@ -52,16 +53,19 @@ describe("implementation-map display-time conversion to file-tree", () => {
           path: ".github/workflows/pr-visual-recap.yml",
           title: "Rewrite the recap job",
           note: "NOTE_REWRITE",
+          snippet: "name: Recap rewrite",
         },
         {
           path: ".github/workflows/pr-visual-recap.yml",
           title: "Backend branch — Claude",
           note: "NOTE_CLAUDE",
+          snippet: "name: Recap Claude",
         },
         {
           path: ".github/workflows/pr-visual-recap.yml",
           title: "Backend branch — Codex",
           note: "NOTE_CODEX",
+          snippet: "name: Recap Codex",
         },
       ],
     },

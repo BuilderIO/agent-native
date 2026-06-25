@@ -5,8 +5,8 @@
  * so that agent text changes merge cleanly with concurrent editor edits.
  */
 
-import * as Y from "yjs";
 import DiffMatchPatch from "diff-match-patch";
+import * as Y from "yjs";
 
 const dmp = new DiffMatchPatch();
 

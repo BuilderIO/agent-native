@@ -119,7 +119,7 @@ Alle Methoden werden über `POST /_agent-native/a2a` im JSON-RPC 2.0-Format aufg
 | `tasks/get`      | Eine Aufgabe nach ID abrufen – wird verwendet, um eine asynchrone Aufgabe bis zum Abschluss abzurufen                                                                   | `id`                          |
 | `tasks/cancel`   | Eine laufende Aufgabe abbrechen                                                                                                                                         | `id`                          |
 
-```an-api title="Primärer A2A-Endpunkt" summary="Alle JSON-RPC-Methoden sind hier POSTed. Nachricht/send angezeigt."
+```an-api title="Primärer A2A-Endpunkt" summary="Alle JSON-RPC-Methoden sind hier POSTed. message/send angezeigt."
 {
   "method": "POST",
   "path": "/_agent-native/a2a",

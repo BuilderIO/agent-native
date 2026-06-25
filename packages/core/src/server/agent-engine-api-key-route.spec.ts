@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
 import type { H3Event } from "h3";
+import { describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.fn();
 const mockGetOrgContext = vi.fn();

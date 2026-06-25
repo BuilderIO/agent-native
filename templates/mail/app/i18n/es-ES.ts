@@ -258,6 +258,7 @@ const messages = {
       threadMuted: "Conversación silenciada.",
       archived: "Archivado.",
       archivedMany: "Archived {{count}} conversations.",
+      archiveFailed: "No se pudo archivar. La conversación se restauró.",
       trashed: "Movido a la papelera.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programado enviado.",

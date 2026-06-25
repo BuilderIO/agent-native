@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
 import { useLocale } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client";
+import type { ReactNode } from "react";
+
 import { sitePathForLocale } from "../components/docs-locale";
 import { withDefaultSocialImage } from "../seo";
-import { useT } from "@agent-native/core/client";
 
 const UPDATED_AT = "June 24, 2026";
 

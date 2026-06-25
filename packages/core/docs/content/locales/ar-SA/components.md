@@ -14,7 +14,7 @@ description: "العناصر الأساسية العامة React للوكيل ا
 
 ```tsx
 import { AgentSidebar } from "@agent-native/core/client";
-import { Promptإنشاءr } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/core/client/editor";
@@ -27,7 +27,7 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 
 ```an-diagram title="المنسدلة طبقة، وليس خارج الإطار" summary="تحتفظ كل طبقة بنفس وقت التشغيل — الإجراءات، وحالة مؤشر الترابط، ومزامنة SQL-backed — بينما تمنحك مزيدًا من التحكم في Chrome."
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">الشريط الجانبي بأكمله حول تطبيقك. حالة 80%.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">اللوحة أو صفحة الدردشة في التخطيط الخاص بك.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + وقت التشغيل</span><small class=\"diagram-muted\">امتلك الكروم؛ قم بتمرير BYO AgentChatRuntime بشكل اختياري.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;Promptإنشاءr&gt; &middot; &lt;محادثة الوكيل&gt;</span><small class=\"diagram-muted\">الملحن والنسخة الأولية فقط.</small></div><div class=\"diagram-rail\" data-rough>نفس وقت التشغيل: الإجراءات &middot; حالة الخيط &middot; BYO-backed مزامنة</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">الشريط الجانبي بأكمله حول تطبيقك. حالة 80%.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">اللوحة أو صفحة الدردشة في التخطيط الخاص بك.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + وقت التشغيل</span><small class=\"diagram-muted\">امتلك الكروم؛ قم بتمرير BYO AgentChatRuntime بشكل اختياري.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;محادثة الوكيل&gt;</span><small class=\"diagram-muted\">الملحن والنسخة الأولية فقط.</small></div><div class=\"diagram-rail\" data-rough>نفس وقت التشغيل: الإجراءات &middot; حالة الخيط &middot; BYO-backed مزامنة</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -107,18 +107,18 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 | API                               | استخدم عندما                                                                                                                                                     |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<Promptإنشاءr>`                | تحتاج إلى حقل دردشة جاهز للإرسال يحتوي على المرفقات، وأوامر الشرطة المائلة، والمراجع، ومعالجة النص الملصق، واستمرارية المسودة، والإدخال الصوتي، ودلالات الإرسال. |
-| `<AgentإنشاءrFrame>`            | تريد الغلاف المرئي القياسي حول نص الملحن المخصص.                                                                                                                 |
-| `<Tiptapإنشاءr>`                | أنت بحاجة إلى حقل الدردشة الغنية ذي المستوى الأدنى. ويجب أن يتم عرضه داخل واجهة المستخدم المساعدة `ThreadPrimitive.Root` / وقت تشغيل الملحن.                     |
-| `buildPromptإنشاءrSubmission()` | تحتاج إلى نفس المرفقات وتسوية النص الملصق قبل استدعاء معالج الإرسال الخاص بك.                                                                                    |
+| `<PromptComposer>`                | تحتاج إلى حقل دردشة جاهز للإرسال يحتوي على المرفقات، وأوامر الشرطة المائلة، والمراجع، ومعالجة النص الملصق، واستمرارية المسودة، والإدخال الصوتي، ودلالات الإرسال. |
+| `<AgentComposerFrame>`            | تريد الغلاف المرئي القياسي حول نص الملحن المخصص.                                                                                                                 |
+| `<TiptapComposer>`                | أنت بحاجة إلى حقل الدردشة الغنية ذي المستوى الأدنى. ويجب أن يتم عرضه داخل واجهة المستخدم المساعدة `ThreadPrimitive.Root` / وقت تشغيل الملحن.                     |
+| `buildPromptComposerSubmission()` | تحتاج إلى نفس المرفقات وتسوية النص الملصق قبل استدعاء معالج الإرسال الخاص بك.                                                                                    |
 | `formatPromptWithAttachments()`   | تحتاج إلى عرض بيانات تعريف المرفقات المخفية في سلسلة مطالبة.                                                                                                     |
 
-يجب أن تبدأ معظم UI المخصصة بـ `Promptإنشاءr`:
+يجب أن تبدأ معظم UI المخصصة بـ `PromptComposer`:
 
 ```tsx
-import { Promptإنشاءr } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 
-<Promptإنشاءr
+<PromptComposer
   placeholder="Ask the agent..."
   onSubmit={async (text, files, references, options) => {
     await sendMessageToYourRuntime({ text, files, references, options });
@@ -126,7 +126,7 @@ import { Promptإنشاءr } from "@agent-native/core/client/composer";
 />;
 ```
 
-استخدم `Tiptapإنشاءr` فقط إذا كنت تقوم بالفعل بتوصيل عناصر واجهة المستخدم المساعدة
+استخدم `TiptapComposer` فقط إذا كنت تقوم بالفعل بتوصيل عناصر واجهة المستخدم المساعدة
 نفسك. إنه الحقل، وليس وقت تشغيل الدردشة بالكامل.
 
 ## عرض المحادثة {#conversation}
@@ -198,20 +198,20 @@ import {
 
 ## محرر منسق {#rich-editor}
 
-استخدم `@agent-native/core/client/editor` عندما تحتاج إلى محرر تخفيض السعر المشترك
+استخدم `@agent-native/core/client/editor` عندما تحتاج إلى محرر Markdown المشترك
 السطح الذي تستخدمه الخطط والمحتوى والموارد والمستندات التعاونية
 التجارب.
 
 | API                              | استخدم عندما                                                                                       |
 | -------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `<SharedRichEditor>`             | أنت بحاجة إلى المحرر الحالي القابل للتكوين مع تسلسل تخفيض السعر، وYjs الاختيارية، وإضافات التطبيق. |
+| `<SharedRichEditor>`             | أنت بحاجة إلى المحرر الحالي القابل للتكوين مع تسلسل Markdown، وYjs الاختيارية، وإضافات التطبيق. |
 | `<RichMarkdownEditor>`           | أنت بحاجة إلى الاسم المستعار المتوافق مع الإصدارات السابقة للمحرر الغني المشترك.                   |
-| `createSharedEditorExtensions()` | أنت تقوم بإنشاء محرر Tiptap الخاص بك ولكنك تريد مخطط إطار العمل ولهجات تخفيض السعر.                |
+| `createSharedEditorExtensions()` | أنت تقوم بإنشاء محرر Tiptap الخاص بك ولكنك تريد مخطط إطار العمل ولهجات Markdown.                |
 | `<SlashCommandMenu>`             | تحتاج إلى أمر الشرطة المائلة المشترك UI لسطح Tiptap مخصص.                                          |
 | `<BubbleToolbar>`                | تحتاج إلى شريط أدوات التحديد المشترك للعلامات والروابط وactions المضمنة المخصصة.                   |
 | `createRegistryBlockNode()`      | تحتاج إلى عقد كتلة مدعومة بالتسجيل داخل محرر غني.                                                  |
 | `uploadEditorImage()`            | تريد إجراء تحميل صورة إطار العمل خلف كتلة الصور المشتركة للمحرر.                                   |
-| `useCollabReconcile()`           | أنت تقوم بربط سطح محرر مخصص بمستند Yjs مع الحفاظ على تخفيض السعر كحالة محفوظة.                     |
+| `useCollabReconcile()`           | أنت تقوم بربط سطح محرر مخصص بمستند Yjs مع الحفاظ على Markdown كحالة محفوظة.                     |
 
 المحرر الأساسي الذي يتم التحكم فيه هو مجرد تخفيض للداخل وتخفيض للخارج:
 

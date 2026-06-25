@@ -1,8 +1,3 @@
-import { useEffect, useRef, useState } from "react";
-import type { FocusEvent } from "react";
-import { LogicalSize } from "@tauri-apps/api/dpi";
-import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   IconLoader2,
   IconPlayerPauseFilled,
@@ -10,6 +5,11 @@ import {
   IconRefresh,
   IconTrash,
 } from "@tabler/icons-react";
+import { LogicalSize } from "@tauri-apps/api/dpi";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useRef, useState } from "react";
+import type { FocusEvent } from "react";
 
 const OVERLAY_SHADOW_GUTTER = 18;
 const TOOLBAR_CONTENT_WIDTH = 72;

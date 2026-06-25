@@ -14,7 +14,7 @@ Agent-Native 附带了完整的侧边栏，但侧边栏不是合同。
 
 ```tsx
 import { AgentSidebar } from "@agent-native/core/client";
-import { Prompt撰写r } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/core/client/editor";
@@ -27,7 +27,7 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 
 ```an-diagram title="下拉一层，不脱离框架" summary="每个层都保持相同的运行时 - 操作、线程状态和 SQL-backed 同步 - 同时让您更好地控制镶边。"
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">围绕应用的完整侧边栏。80% 的常见场景。</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">你自己布局中的面板或聊天页。</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;Prompt撰写r&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">撰写r and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>同一 runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">围绕应用的完整侧边栏。80% 的常见场景。</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">你自己布局中的面板或聊天页。</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">撰写r and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>同一 runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -107,18 +107,18 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 | API                               | 何时使用                                                                                                       |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `<Prompt撰写r>`                | 您需要一个随时可以提交的聊天字段，其中包含附件、斜线命令、参考、粘贴文本处理、草稿持久性、语音输入和提交语义。 |
-| `<Agent撰写rFrame>`            | 您需要自定义 撰写r 主体周围的标准视觉外壳。                                                                 |
-| `<Tiptap撰写r>`                | 您需要最低级别的丰富聊天字段。它必须在 Assistant-ui `ThreadPrimitive.Root` / 撰写r 运行时内呈现。           |
-| `buildPrompt撰写rSubmission()` | 在调用您自己的提交处理程序之前，您需要相同的附件和粘贴文本规范化。                                             |
+| `<PromptComposer>`                | 您需要一个随时可以提交的聊天字段，其中包含附件、斜线命令、参考、粘贴文本处理、草稿持久性、语音输入和提交语义。 |
+| `<AgentComposerFrame>`            | 您需要自定义 撰写r 主体周围的标准视觉外壳。                                                                 |
+| `<TiptapComposer>`                | 您需要最低级别的丰富聊天字段。它必须在 Assistant-ui `ThreadPrimitive.Root` / 撰写r 运行时内呈现。           |
+| `buildPromptComposerSubmission()` | 在调用您自己的提交处理程序之前，您需要相同的附件和粘贴文本规范化。                                             |
 | `formatPromptWithAttachments()`   | 您需要将隐藏的附件元数据呈现到提示字符串中。                                                                   |
 
-大多数自定义 UI 应以 `Prompt撰写r` 开头：
+大多数自定义 UI 应以 `PromptComposer` 开头：
 
 ```tsx
-import { Prompt撰写r } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 
-<Prompt撰写r
+<PromptComposer
   placeholder="Ask the agent..."
   onSubmit={async (text, files, references, options) => {
     await sendMessageToYourRuntime({ text, files, references, options });
@@ -126,7 +126,7 @@ import { Prompt撰写r } from "@agent-native/core/client/composer";
 />;
 ```
 
-仅当您已经连接 Assistant-ui 原语时才使用 `Tiptap撰写r`
+仅当您已经连接 Assistant-ui 原语时才使用 `TiptapComposer`
 你自己。这是字段，而不是整个聊天运行时。
 
 ## 对话渲染 {#conversation}

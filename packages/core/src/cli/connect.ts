@@ -30,9 +30,9 @@
  * Node-only CLI module. Uses Node built-ins, @clack/prompts, and global fetch.
  */
 
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
-import { spawn } from "node:child_process";
 import path from "node:path";
 
 import { findWorkspaceRoot } from "../mcp/workspace-resolve.js";

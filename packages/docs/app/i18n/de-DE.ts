@@ -1430,6 +1430,7 @@ const deDE = {
     adapters: "Adapter",
     cliAdapters: "CLI-Adapter",
     processors: "In-Loop-Prozessoren",
+    durableBackgroundRuns: "Dauerhafte Hintergrundläufe",
     durableResume: "Dauerhafte Wiederaufnahme",
     blueprintInstaller: "Blueprint-Installer",
     chat: "Chat",

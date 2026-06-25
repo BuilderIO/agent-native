@@ -1,3 +1,18 @@
+import { recordChange } from "@agent-native/core/server";
+import {
+  getAllSettings,
+  getOrgSetting,
+  getUserSetting,
+  deleteOrgSetting,
+  deleteUserSetting,
+} from "@agent-native/core/settings";
+import {
+  accessFilter,
+  assertAccess,
+  roleSatisfies,
+  resolveAccess,
+  type ShareRole,
+} from "@agent-native/core/sharing";
 /**
  * Dashboards + analyses store — SQL first, legacy settings-KV as
  * read-only fallback. Writes always go to SQL.
@@ -13,21 +28,7 @@
  * - `adhoc-analysis-{id}`          → owner=caller,   legacy visibility from its source key
  */
 import { and, eq, isNotNull, isNull } from "drizzle-orm";
-import {
-  accessFilter,
-  assertAccess,
-  roleSatisfies,
-  resolveAccess,
-  type ShareRole,
-} from "@agent-native/core/sharing";
-import { recordChange } from "@agent-native/core/server";
-import {
-  getAllSettings,
-  getOrgSetting,
-  getUserSetting,
-  deleteOrgSetting,
-  deleteUserSetting,
-} from "@agent-native/core/settings";
+
 import { getDb, schema } from "../db/index.js";
 
 export type DashboardKind = "explorer" | "sql";

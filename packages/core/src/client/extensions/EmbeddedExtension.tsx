@@ -1,25 +1,20 @@
-import { agentNativePath } from "../api-path.js";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router";
 import {
   IconDots,
   IconExternalLink,
   IconLayoutSidebarRightCollapse,
   IconTrash,
 } from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router";
+
+import { extensionPath } from "../../extensions/path.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import {
-  isAllowedExtensionPath,
-  sanitizeExtensionRequestOptions,
-  checkBridgePolicy,
-  type BridgePolicyContext,
-  type ExtensionBridgeRole,
-} from "./iframe-bridge.js";
 import {
   Tooltip,
   TooltipContent,
@@ -35,7 +30,13 @@ import {
   extensionLoadError,
   shouldRetryExtensionLoad,
 } from "./extension-load-error.js";
-import { extensionPath } from "../../extensions/path.js";
+import {
+  isAllowedExtensionPath,
+  sanitizeExtensionRequestOptions,
+  checkBridgePolicy,
+  type BridgePolicyContext,
+  type ExtensionBridgeRole,
+} from "./iframe-bridge.js";
 
 interface Extension {
   id: string;

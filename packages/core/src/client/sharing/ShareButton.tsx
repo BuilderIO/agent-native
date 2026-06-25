@@ -1,17 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import type {
-  KeyboardEvent as ReactKeyboardEvent,
-  UIEvent as ReactUIEvent,
-} from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import * as Select from "@radix-ui/react-select";
 import {
   IconLock,
   IconBuilding,
@@ -25,17 +12,31 @@ import {
   IconSearchOff,
   IconShare3,
 } from "@tabler/icons-react";
-import * as Select from "@radix-ui/react-select";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  UIEvent as ReactUIEvent,
+} from "react";
+
+import { agentNativePath } from "../api-path.js";
+import { writeClipboardText } from "../clipboard.js";
 import {
   Popover,
   PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import { writeClipboardText } from "../clipboard.js";
 import { useActionQuery, useActionMutation } from "../use-action.js";
 import { cn } from "../utils.js";
-import { agentNativePath } from "../api-path.js";
 
 export interface ShareButtonProps {
   resourceType: string;

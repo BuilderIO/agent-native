@@ -1,3 +1,7 @@
+import { getSession } from "@agent-native/core/server";
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -7,26 +11,23 @@ import {
   setResponseStatus,
 } from "h3";
 import { nanoid } from "nanoid";
-import { and, eq } from "drizzle-orm";
 import pLimit from "p-limit";
-import { getSession } from "@agent-native/core/server";
-import { runWithRequestContext } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+
+import { serializeAsset } from "../../actions/_helpers.js";
+import { IMAGE_CATEGORIES, MAX_ASSET_UPLOAD_FILES } from "../../shared/api.js";
+import type { ImageCategory, ImageRole } from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
 import { createAssetFromBuffer, mediaTypeFromMime } from "../lib/assets.js";
-import {
-  filterDuplicateAssetUploads,
-  hashAssetBuffer,
-} from "../lib/upload-dedupe.js";
 import {
   hasRasterImageSignature,
   hasVideoSignature,
 } from "../lib/image-processing.js";
-import { getObject } from "../lib/storage.js";
 import { nowIso, parseJson, stringifyJson } from "../lib/json.js";
-import { IMAGE_CATEGORIES, MAX_ASSET_UPLOAD_FILES } from "../../shared/api.js";
-import type { ImageCategory, ImageRole } from "../../shared/api.js";
-import { serializeAsset } from "../../actions/_helpers.js";
+import { getObject } from "../lib/storage.js";
+import {
+  filterDuplicateAssetUploads,
+  hashAssetBuffer,
+} from "../lib/upload-dedupe.js";
 
 const MIME_BY_EXT: Record<string, string> = {
   png: "image/png",

@@ -8,13 +8,11 @@ import {
   useBuilderStatus,
   useT,
 } from "@agent-native/core/client";
-import changelog from "../../CHANGELOG.md?raw";
 import {
   useOnboarding,
   type OnboardingMethod,
   type OnboardingStepStatus,
 } from "@agent-native/core/client/onboarding";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   IconAlertCircle,
   IconCheck,
@@ -26,6 +24,7 @@ import {
   IconLoader2,
   IconPhoto,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
   useMemo,
@@ -33,6 +32,8 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+
+import { PageShell } from "@/components/layout/PageShell";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -51,8 +52,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PageShell } from "@/components/layout/PageShell";
 import { cn } from "@/lib/utils";
+
+import changelog from "../../CHANGELOG.md?raw";
 
 type ImageGenerationConfig = {
   builderEnabled?: boolean;

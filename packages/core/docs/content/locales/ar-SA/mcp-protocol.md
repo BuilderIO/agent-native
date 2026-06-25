@@ -114,7 +114,7 @@ POST https://your-app.example.com/_agent-native/mcp
 }
 ```
 
-إذا أعلن أحد الإجراءات عن `mcpApp`، فإن الخادم يعلن أيضًا عن ملحق تطبيقات MCP الرسمي (`io.modelcontextprotocol/ui`) ويدعم `resources/list`، و`resources/templates/list`، و`resources/read` لمورد التطبيق. يمكن للمضيفين الذين يعرضون تطبيقات MCP إظهار UI المضمنة؛ لا يزال بإمكان المضيفين الذين لا يستخدمون الأداة الاتصال بالأداة واستخدام البديل للارتباط العميق. يجب أن يستخدم منتج UI `embedApp()` بحيث يكون السطح المضمن هو مسار تطبيق React الحقيقي، أو مسار مركّز يعرض مكون React مشترك مثل مخطط Analytics، وليس تنفيذ HTML عادي منفصل. يصدر الخادم كلاً من بيانات تعريف تطبيقات MCP القياسية وبيانات تعريف توافق ChatGPT Apps SDK حتى يتمكن المضيفون القادرون على التطبيق من العثور على نفس مورد `ui://`. تتضمن مصفوفة الامتداد الرسمية الحالية Claude، وClaude Desktop، وVS Code GitHub Copilot، وGoose، وPostman، وMCPJam، وChatGPT، وCursor؛ يختلف دعم المضيف حسب الإصدار والخطة، لذا استخدم [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) للحصول على إرشادات موجهة للمستخدم.
+إذا أعلن أحد الإجراءات عن `mcpApp`، فإن الخادم يعلن أيضًا عن ملحق تطبيقات MCP الرسمي (`io.modelcontextprotocol/ui`) ويدعم `resources/list`، و`resources/templates/list`، و`resources/read` لمورد التطبيق. يمكن للمضيفين الذين يعرضون تطبيقات MCP إظهار UI المضمنة؛ لا يزال بإمكان المضيفين الذين لا يستخدمون الأداة الاتصال بالأداة واستخدام البديل للارتباط العميق. يجب أن يستخدم منتج UI `embedApp()` بحيث يكون السطح المضمن هو مسار تطبيق React الحقيقي، أو مسار مركّز يعرض مكون React مشترك مثل مخطط Analytics، وليس تنفيذ HTML عادي منفصل. يصدر الخادم كلاً من بيانات تعريف تطبيقات MCP القياسية وبيانات تعريف توافق ChatGPT Apps SDK حتى يتمكن المضيفون القادرون على التطبيق من العثور على نفس مورد `ui://`. تتضمن مصفوفة الامتداد الرسمية الحالية Claude، وClaude Desktop، وVS Code GitHub Copilot، وGoose، وPostman، وMCPJam، وChatGPT، وCursor؛ يختلف دعم المضيف حسب الإصدار والخطة, لذا استخدم [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) للحصول على إرشادات موجهة للمستخدم.
 
 ### جسر تضمين التطبيق MCP {#mcp-app-embed-bridge}
 
@@ -169,7 +169,7 @@ POST https://your-app.example.com/_agent-native/mcp
 | `ACCESS_TOKEN`                       | الرمز المميز لحامله الثابت — يرسل العميل `Authorization: Bearer <token>`                                     |
 | `ACCESS_TOKENS`                      | قائمة مفصولة بفواصل من الرموز المميزة لحاملها الثابتة الصالحة                                                |
 | `A2A_SECRET`                         | المصادقة المستندة إلى JWT - يتم التحقق من الرموز المميزة تشفيرًا                                             |
-| _(لم يتم ضبط أي شيء، الاسترجاع فقط)_ | لا توجد مصادقة مطلوبة لتحقيقات التطوير المحلية                                                               |
+| _(لم يتم ضبط أي شيء, الاسترجاع فقط)_ | لا توجد مصادقة مطلوبة لتحقيقات التطوير المحلية                                                               |
 
 بالنسبة للمضيفين MCP القادرين على OAuth، قم بتكوين الخادم البعيد URL بدون رؤوس ثابتة:
 

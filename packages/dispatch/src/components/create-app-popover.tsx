@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   PromptComposer,
   agentNativePath,
@@ -19,12 +18,14 @@ import {
   IconLoader2,
   IconPlus,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
 
 interface VaultSecretOption {
   id: string;

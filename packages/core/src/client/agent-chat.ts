@@ -7,24 +7,24 @@
  * stay inside the embedded app so its own AgentSidebar can receive them.
  */
 
-import {
-  getFramePostMessageTargetOrigin,
-  isTrustedFrameMessage,
-} from "./frame.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import { agentNativePath } from "./api-path.js";
+import {
+  isInBuilderFrame,
+  isTrustedBuilderMessage,
+  sendToBuilderChat,
+} from "./builder-frame.js";
 import {
   isEmbedAuthActive,
   isEmbedMcpChatBridgeActive,
   markEmbedMcpChatBridgeActive,
   readEmbedMcpChatBridgeFlagFromUrl,
 } from "./embed-auth.js";
-import { sendMcpAppHostMessage } from "./mcp-app-host.js";
 import {
-  isInBuilderFrame,
-  isTrustedBuilderMessage,
-  sendToBuilderChat,
-} from "./builder-frame.js";
-import { agentNativePath } from "./api-path.js";
+  getFramePostMessageTargetOrigin,
+  isTrustedFrameMessage,
+} from "./frame.js";
+import { sendMcpAppHostMessage } from "./mcp-app-host.js";
 
 export type AgentChatRequestMode = "act" | "plan";
 

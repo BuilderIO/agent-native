@@ -14,7 +14,7 @@ Browser UI aus fokussierten Client-Unterpfaden importieren:
 
 ```tsx
 import { AgentSidebar } from "@agent-native/core/client";
-import { PromptVerfassenr } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/core/client/editor";
@@ -27,7 +27,7 @@ daher wählen Bundler den browsersicheren Eintrag.
 
 ```an-diagram title="Lassen Sie eine Ebene nach unten fallen, nicht aus dem Framework heraus" summary="Jede Ebene behält die gleiche Laufzeit bei – Aktionen, Thread-Status und SQL-backed-Synchronisierung – und gibt Ihnen gleichzeitig mehr Kontrolle über Chrome."
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Ganze Seitenleiste um deine App. Der 80%-Fall.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">Das Panel oder eine Chat-Seite in deinem eigenen Layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptVerfassenr&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Verfassenr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Gleiche Runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Ganze Seitenleiste um deine App. Der 80%-Fall.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">Das Panel oder eine Chat-Seite in deinem eigenen Layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Verfassenr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Gleiche Runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -107,18 +107,18 @@ Feld, das von der Seitenleiste im benutzerdefinierten UI verwendet wird.
 
 | API                               | Verwenden wenn                                                                                                                                                                               |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<PromptVerfassenr>`                | Sie benötigen ein zum Senden bereites Chatfeld mit Anhängen, Schrägstrichbefehlen, Referenzen, Handhabung von eingefügtem Text, Entwurfspersistenz, Spracheingabe und Übermittlungssemantik. |
-| `<AgentVerfassenrFrame>`            | Sie möchten die standardmäßige visuelle Hülle um einen benutzerdefinierten Verfassenr-Körper herum.                                                                                            |
-| `<TiptapVerfassenr>`                | Sie benötigen das Rich-Chat-Feld der untersten Ebene. Es muss innerhalb einer Assistant-UI `ThreadPrimitive.Root` / Verfassenr-Laufzeitumgebung gerendert werden.                              |
-| `buildPromptVerfassenrSubmission()` | Sie benötigen die gleiche Normalisierung von Anhängen und eingefügtem Text, bevor Sie Ihren eigenen Submit-Handler aufrufen.                                                                 |
+| `<PromptComposer>`                | Sie benötigen ein zum Senden bereites Chatfeld mit Anhängen, Schrägstrichbefehlen, Referenzen, Handhabung von eingefügtem Text, Entwurfspersistenz, Spracheingabe und Übermittlungssemantik. |
+| `<AgentComposerFrame>`            | Sie möchten die standardmäßige visuelle Hülle um einen benutzerdefinierten Verfassenr-Körper herum.                                                                                            |
+| `<TiptapComposer>`                | Sie benötigen das Rich-Chat-Feld der untersten Ebene. Es muss innerhalb einer Assistant-UI `ThreadPrimitive.Root` / Verfassenr-Laufzeitumgebung gerendert werden.                              |
+| `buildPromptComposerSubmission()` | Sie benötigen die gleiche Normalisierung von Anhängen und eingefügtem Text, bevor Sie Ihren eigenen Submit-Handler aufrufen.                                                                 |
 | `formatPromptWithAttachments()`   | Sie müssen versteckte Anhangsmetadaten in eine Eingabeaufforderungszeichenfolge rendern.                                                                                                     |
 
-Die meisten benutzerdefinierten UIs sollten mit `PromptVerfassenr` beginnen:
+Die meisten benutzerdefinierten UIs sollten mit `PromptComposer` beginnen:
 
 ```tsx
-import { PromptVerfassenr } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/core/client/composer";
 
-<PromptVerfassenr
+<PromptComposer
   placeholder="Ask the agent..."
   onSubmit={async (text, files, references, options) => {
     await sendMessageToYourRuntime({ text, files, references, options });
@@ -126,7 +126,7 @@ import { PromptVerfassenr } from "@agent-native/core/client/composer";
 />;
 ```
 
-Verwenden Sie `TiptapVerfassenr` nur, wenn Sie bereits Assistant-UI-Primitive verdrahten
+Verwenden Sie `TiptapComposer` nur, wenn Sie bereits Assistant-UI-Primitive verdrahten
 selbst. Es ist das Feld, nicht die gesamte Chat-Laufzeit.
 
 ## Konversations-Rendering {#conversation}

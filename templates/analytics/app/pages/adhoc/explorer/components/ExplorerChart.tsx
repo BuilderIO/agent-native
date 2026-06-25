@@ -1,3 +1,4 @@
+import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useT } from "@agent-native/core/client";
 import {
@@ -12,12 +13,13 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
+
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
-import type { ExplorerConfig } from "../types";
 import type { QueryMetricsResult } from "@/lib/query-metrics";
+
+import type { ExplorerConfig } from "../types";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 

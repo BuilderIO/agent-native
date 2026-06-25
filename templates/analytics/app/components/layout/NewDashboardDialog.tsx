@@ -1,15 +1,16 @@
-import { useState } from "react";
 import {
   useSendToAgentChat,
   PromptComposer,
   useT,
 } from "@agent-native/core/client";
+import { IconPlus } from "@tabler/icons-react";
+import { useState } from "react";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { IconPlus } from "@tabler/icons-react";
 
 const DASHBOARD_CONTEXT =
   "The user wants to create a new analytics dashboard. " +

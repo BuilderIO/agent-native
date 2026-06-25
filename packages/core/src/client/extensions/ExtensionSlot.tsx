@@ -1,14 +1,14 @@
-import { agentNativePath } from "../api-path.js";
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconPlus } from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+
+import { sendToAgentChat } from "../agent-chat.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import { sendToAgentChat } from "../agent-chat.js";
-import { EmbeddedExtension } from "./EmbeddedExtension.js";
 import {
   Tooltip,
   TooltipContent,
@@ -16,6 +16,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { EmbeddedExtension } from "./EmbeddedExtension.js";
 
 interface SlotInstall {
   installId: string;

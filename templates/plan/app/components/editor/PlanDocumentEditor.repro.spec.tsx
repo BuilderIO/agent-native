@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 
+import type { PlanContent } from "@shared/plan-content";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PlanContent } from "@shared/plan-content";
+
 import { PlanDocumentEditor } from "./PlanDocumentEditor";
 
 const IMAGE_SRC = "https://cdn.example.com/cat.png";

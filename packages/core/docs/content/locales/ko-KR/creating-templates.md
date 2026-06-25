@@ -159,7 +159,7 @@ export default runMigrations(
 
 ## UI 구축 {#ui}
 
-경로는 `app/routes/`에 있으며 React 라우터 v7 파일 라우팅을 사용합니다. actions 또는 API 핸들러를 통해 데이터를 쿼리하고 기본적으로 돌연변이를 낙관적으로 만듭니다.
+경로는 `app/routes/`에 있으며 React 라우터 v8 파일 라우팅을 사용합니다. actions 또는 API 핸들러를 통해 데이터를 쿼리하고 기본적으로 돌연변이를 낙관적으로 만듭니다.
 
 ```tsx
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";

@@ -257,6 +257,7 @@ const messages = {
       threadMuted: "تم كتم السلسلة.",
       archived: "تمت الأرشفة.",
       archivedMany: "Archived {{count}} conversations.",
+      archiveFailed: "فشلت الأرشفة. تمت استعادة المحادثة.",
       trashed: "تم النقل إلى المهملات.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "تم إرسال البريد المجدول.",

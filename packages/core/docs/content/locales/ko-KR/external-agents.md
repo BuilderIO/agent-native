@@ -402,7 +402,7 @@ function composeDeepLink(draft: Record<string, string>): string {
   return buildDeepLink({
     app: "mail",
     view: "inbox",
-    compose: encode작성Draft(draft), // base64url JSON → compose-<id> draft
+    compose: encodeComposerDraft(draft), // base64url JSON → compose-<id> draft
   });
 }
 

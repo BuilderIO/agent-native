@@ -7,16 +7,13 @@ import {
 } from "@agent-native/core/server";
 import { asc, eq } from "drizzle-orm";
 import { getRequestURL, setResponseHeader, type H3Event } from "h3";
+
 import {
   buildAgentApiUrls,
   buildRecommendedFrames,
   CLIP_AGENT_CONTEXT_VERSION,
   toAgentTranscriptSegments,
 } from "../../shared/agent-context.js";
-import {
-  normalizeTranscriptSegments,
-  parseTranscriptSegments,
-} from "../../shared/transcript-segments.js";
 import {
   parseBrowserDiagnosticsRow,
   type BrowserDiagnosticsData,
@@ -25,6 +22,10 @@ import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "../../shared/loom.js";
+import {
+  normalizeTranscriptSegments,
+  parseTranscriptSegments,
+} from "../../shared/transcript-segments.js";
 import { getDb, schema } from "../db/index.js";
 import { verifySharePassword } from "./share-password.js";
 

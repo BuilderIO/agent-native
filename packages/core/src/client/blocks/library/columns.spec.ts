@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { columnsBlock } from "./columns.js";
+
 import type { ColumnsData } from "./columns.config.js";
+import { columnsBlock } from "./columns.js";
 
 const sample: ColumnsData = {
   columns: [

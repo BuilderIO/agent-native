@@ -1,5 +1,5 @@
-import { installRouteChunkRecovery } from "./route-chunk-recovery.js";
 import { stripAuthRedirectParamFromUrl } from "./auth-redirect-url.js";
+import { installRouteChunkRecovery } from "./route-chunk-recovery.js";
 
 installRouteChunkRecovery();
 stripAuthRedirectParamFromUrl();

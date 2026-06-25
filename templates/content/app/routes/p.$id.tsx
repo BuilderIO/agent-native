@@ -60,11 +60,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
   };
 }
 
-export const meta: MetaFunction<typeof loader> = ({ data }) => {
-  const title = data?.document?.title ?? "Public document";
+export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
+  const title = loaderData?.document?.title ?? "Public document";
   const description = buildPublicDocumentDescription({
     title,
-    content: data?.document?.content,
+    content: loaderData?.document?.content,
   });
   return [
     { title },

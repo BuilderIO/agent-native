@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { createEmbeddedAppBridge, sendEmbeddedAppMessage } from "./bridge.js";
 
 function fakeWindow(

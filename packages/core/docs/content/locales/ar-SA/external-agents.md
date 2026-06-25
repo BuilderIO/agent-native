@@ -348,7 +348,7 @@ Claude Code calls: manage-draft(to: "john@example.com", subject: "Q3 Report", bo
 
 ### جسر تطبيقات MCP من الدرجة الأولى {#mcp-app-bridge}
 
-يبدأ `embedApp()` من هدف `link` للإجراء، وينشئ جلسة تضمين قصيرة الأجل، ويطلق مسار التطبيق الموقع. تستخدم شبكة Claude مسار زرع أحادي الإطار؛ يحصل ChatGPT على إطار iframe للمسار يتم التحكم فيه باستخدام مضيف `window.openai` APIs. تعرض كافة المسارات مسار React العادي. تستدعي المسارات المائية مباشرة `ui/update-model-context` و`ui/message` و`ui/open-link` و`ui/request-display-mode` عبر الجسر المضيف؛ يقوم مسار ChatGPT بترحيل نفس الطلبات عبر `agentNative.mcpHost.*` postMessage. `embedApp({ height })` الافتراضي هو `560px` ويتم تثبيته على `320-900px`.
+يبدأ `embedApp()` من هدف `link` للإجراء، وينشئ جلسة تضمين قصيرة الأجل, ويطلق مسار التطبيق الموقع. تستخدم شبكة Claude مسار زرع أحادي الإطار؛ يحصل ChatGPT على إطار iframe للمسار يتم التحكم فيه باستخدام مضيف `window.openai` APIs. تعرض كافة المسارات مسار React العادي. تستدعي المسارات المائية مباشرة `ui/update-model-context` و`ui/message` و`ui/open-link` و`ui/request-display-mode` عبر الجسر المضيف؛ يقوم مسار ChatGPT بترحيل نفس الطلبات عبر `agentNative.mcpHost.*` postMessage. `embedApp({ height })` الافتراضي هو `560px` ويتم تثبيته على `320-900px`.
 
 راجع [MCP Apps](/docs/mcp-apps) للحصول على تفاصيل الجسر الكاملة - الزرع مقابل الإطار المتحكم فيه، وأوضاع التضمين، وجداول `ui/*` وpostMessage، وقواعد `embedStartUrl`، وقواعد CSP، وتضمين الامتداد `srcDoc`، وتثبيت الارتفاع، وعميل الجسر المضيف الكامل API.
 
@@ -400,7 +400,7 @@ function composeDeepLink(draft: Record<string, string>): string {
   return buildDeepLink({
     app: "mail",
     view: "inbox",
-    compose: encodeإنشاءDraft(draft), // base64url JSON → compose-<id> draft
+    compose: encodeComposerDraft(draft), // base64url JSON → compose-<id> draft
   });
 }
 
@@ -424,7 +424,7 @@ export default defineAction({
 
 ### تطبيقات MCP الاختيارية UI {#mcp-apps}
 
-يمكن لـ Actions الإعلان عن مورد UI المضمّن باستخدام `mcpApp` للمضيفين الذين يدعمون ملحق MCP Apps. استخدم `embedRoute({ title, openLabel, path })` كغلاف ملائم، أو قم بتعيين `embedApp(...)` إلى `mcpApp.resource` مباشرة. كل تطبيق MCP هو طريق React حقيقي، وليس عنصر واجهة مستخدم عادي منفصل HTML. احتفظ دائمًا بمنشئ `link` - يستخدمه مضيفو CLI فقط، والعملاء الأقدم، والمضيفون من غير MCP-Apps كبديل.
+يمكن لـ Actions الإعلان عن مورد UI المضمّن باستخدام `mcpApp` للمضيفين الذين يدعمون ملحق MCP Apps. استخدم `embedRoute({ title, openLabel, path })` كغلاف ملائم, أو قم بتعيين `embedApp(...)` إلى `mcpApp.resource` مباشرة. كل تطبيق MCP هو طريق React حقيقي، وليس عنصر واجهة مستخدم عادي منفصل HTML. احتفظ دائمًا بمنشئ `link` - يستخدمه مضيفو CLI فقط، والعملاء الأقدم، والمضيفون من غير MCP-Apps كبديل.
 
 راجع [MCP Apps](/docs/mcp-apps) للحصول على دليل التأليف الكامل - `embedRoute` مقابل `embedApp`، وشكل تكوين `mcpApp`، وCSP، والارتفاع، ومسار التضمين `sendToAgentChat()`، ومساعدي عميل جسر المضيف.
 
@@ -432,7 +432,7 @@ export default defineAction({
 
 إن منشئ `link` **نقي ومتزامن — لا يوجد إدخال/إخراج، ولا انتظار**. يتم تشغيله بأقصى جهد: يتم ابتلاع رمية أو `null` أو `undefined` و **مطلقًا** يفشل استدعاء الأداة. فهو يقرأ فقط `args` و`result` للمكالمة؛ يجب ألا يستعلم عن قاعدة البيانات، أو يقرأ حالة التطبيق، أو يتصل بـ actions أخرى. قم بإرجاع `null` عندما لا يكون هناك شيء لفتحه.
 
-ترجع `buildDeepLink({ app, view, params?, to?, compose? })` المسار النسبي للتطبيق `/_agent-native/open?app=…&view=…&<recordId>=…`. تحول طبقة MCP ذلك إلى شبكة مطلقة URL (`toAbsoluteOpenUrl`، باستخدام أصل الطلب)، وسطح مكتب `agentnative://open?…` URL (`toDesktopOpenUrl`)، وامتداد VS Code URL (`toVsCodeOpenUrl`) لـ `vscode://builder.agent-native/open?url=…`؛ يستخدم رابط تخفيض السعر سطح المكتب URL عندما يشير العميل إلى `target: "desktop"`.
+ترجع `buildDeepLink({ app, view, params?, to?, compose? })` المسار النسبي للتطبيق `/_agent-native/open?app=…&view=…&<recordId>=…`. تحول طبقة MCP ذلك إلى شبكة مطلقة URL (`toAbsoluteOpenUrl`، باستخدام أصل الطلب)، وسطح مكتب `agentnative://open?…` URL (`toDesktopOpenUrl`), وامتداد VS Code URL (`toVsCodeOpenUrl`) لـ `vscode://builder.agent-native/open?url=…`؛ يستخدم رابط Markdown سطح المكتب URL عندما يشير العميل إلى `target: "desktop"`.
 
 ### مسار `/_agent-native/open` {#open-route}
 

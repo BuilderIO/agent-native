@@ -400,7 +400,7 @@ function composeDeepLink(draft: Record<string, string>): string {
   return buildDeepLink({
     app: "mail",
     view: "inbox",
-    compose: encodeEscreverDraft(draft), // base64url JSON → compose-<id> draft
+    compose: encodeComposerDraft(draft), // base64url JSON → compose-<id> draft
   });
 }
 

@@ -1,11 +1,11 @@
 ---
 title: "라우팅"
-description: "React 라우터 v7을 사용한 에이전트 기반 앱을 위한 파일 기반 라우팅 — 페이지, 동적 매개변수 및 탐색."
+description: "React 라우터 v8을 사용한 에이전트 기반 앱을 위한 파일 기반 라우팅 — 페이지, 동적 매개변수 및 탐색."
 ---
 
 # 라우팅
 
-에이전트 네이티브 앱은 `@react-router/fs-routes`에서 `flatRoutes()`를 통한 파일 기반 라우팅과 함께 **React 라우터 v7**을 사용합니다. `app/routes/`의 모든 파일은 URL가 됩니다. 템플릿은 점 표기법 규칙을 사용합니다. 점은 단일 파일 이름 내에서 URL 세그먼트를 구분합니다.
+에이전트 네이티브 앱은 `@react-router/fs-routes`에서 `flatRoutes()`를 통한 파일 기반 라우팅과 함께 **React 라우터 v8**을 사용합니다. `app/routes/`의 모든 파일은 URL가 됩니다. 템플릿은 점 표기법 규칙을 사용합니다. 점은 단일 파일 이름 내에서 URL 세그먼트를 구분합니다.
 
 ## 파일 기반 라우팅 {#file-based-routing}
 

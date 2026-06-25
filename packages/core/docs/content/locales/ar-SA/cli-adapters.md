@@ -60,7 +60,7 @@ const ffmpeg = new ShellCliAdapter({
 });
 ```
 
-الخيارات: `command` (مطلوب)، `description` (مطلوب)، `name` (افتراضي `command`)، `env` (مدمج مع `process.env`)، `cwd` (افتراضي `process.cwd()`)، و`timeoutMs` (افتراضي) `30000`).
+الخيارات: `command` (مطلوب)، `description` (مطلوب)، `name` (افتراضي `command`)، `env` (مدمج مع `process.env`)، `cwd` (افتراضي `process.cwd()`), و`timeoutMs` (افتراضي) `30000`).
 
 للحصول على مصادقة مخصصة، أو تحليل المخرجات، أو المعالجة المسبقة/اللاحقة، قم بتنفيذ `CliAdapter` مباشرةً بدلاً من استخدام `ShellCliAdapter`.
 

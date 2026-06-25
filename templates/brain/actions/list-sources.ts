@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
+import { accessFilter } from "@agent-native/core/sharing";
 import { and, count, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
-import { accessFilter } from "@agent-native/core/sharing";
+
 import { getDb, schema } from "../server/db/index.js";
-import { parseJson, serializeSource } from "../server/lib/brain.js";
 import { nextBrainSourceSyncAt } from "../server/jobs/sync-sources.js";
+import { parseJson, serializeSource } from "../server/lib/brain.js";
 import { sourceProviderSchema } from "./_schemas.js";
 
 async function sourceRecordCount(sourceId: string): Promise<number> {

@@ -1,3 +1,4 @@
+import type { AppDefinition } from "@shared/app-registry";
 import {
   IconMail,
   IconCalendar,
@@ -24,7 +25,7 @@ import {
   IconWorld,
   IconPhoto,
 } from "@tabler/icons-react";
-import type { AppDefinition } from "@shared/app-registry";
+
 import { UpdateIndicator } from "./UpdateIndicator.js";
 
 const agentNativeIconUrl = new URL(

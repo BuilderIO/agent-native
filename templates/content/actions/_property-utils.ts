@@ -1,6 +1,26 @@
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, asc, eq, inArray, sql, type InferSelectModel } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  sql,
+  type InferSelectModel,
+} from "drizzle-orm";
+
 import { getDb, schema } from "../server/db/index.js";
+import type {
+  ContentDatabaseFilter,
+  ContentDatabaseFilterMode,
+  ContentDatabaseSort,
+  ContentDatabaseView,
+  ContentDatabaseViewConfig,
+  ContentDatabaseColumnCalculation,
+  ContentDatabaseRowDensity,
+  ContentDatabaseOpenPagesIn,
+  DocumentProperty,
+} from "../shared/api.js";
 import {
   DEFAULT_BLOCKS_FIELD_NAME,
   defaultPropertyOptions,
@@ -21,23 +41,13 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
-import type {
-  ContentDatabaseFilter,
-  ContentDatabaseFilterMode,
-  ContentDatabaseSort,
-  ContentDatabaseView,
-  ContentDatabaseViewConfig,
-  ContentDatabaseColumnCalculation,
-  ContentDatabaseRowDensity,
-  ContentDatabaseOpenPagesIn,
-  DocumentProperty,
-} from "../shared/api.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
 type ContentDatabaseRow = InferSelectModel<typeof schema.contentDatabases>;
 type ContentDatabaseItemRow = InferSelectModel<
   typeof schema.contentDatabaseItems
 >;
+type DbClient = ReturnType<typeof getDb>;
 
 export function nanoid(size = 12): string {
   const chars =
@@ -76,7 +86,12 @@ export async function getDatabaseForDocument(
   const [database] = await db
     .select()
     .from(schema.contentDatabases)
-    .where(eq(schema.contentDatabases.documentId, documentId));
+    .where(
+      and(
+        eq(schema.contentDatabases.documentId, documentId),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    );
   return database ?? null;
 }
 
@@ -97,7 +112,12 @@ export async function getDatabaseMembershipForDocument(
       schema.contentDatabases,
       eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
     )
-    .where(eq(schema.contentDatabaseItems.documentId, documentId));
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.documentId, documentId),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    );
   return row ?? null;
 }
 
@@ -117,7 +137,12 @@ export async function getDatabaseById(
   const [database] = await db
     .select()
     .from(schema.contentDatabases)
-    .where(eq(schema.contentDatabases.id, databaseId));
+    .where(
+      and(
+        eq(schema.contentDatabases.id, databaseId),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    );
   return database ?? null;
 }
 
@@ -816,8 +841,8 @@ export async function countBlocksFieldsForDatabase(
 // creating a duplicate.
 async function findExistingPrimaryBlocksDefinition(
   databaseId: string,
+  db: DbClient = getDb(),
 ): Promise<string | null> {
-  const db = getDb();
   const definitions = await db
     .select({
       id: schema.documentPropertyDefinitions.id,
@@ -849,8 +874,9 @@ export async function seedDefaultBlocksField(args: {
   ownerEmail: string;
   orgId: string | null;
   now: string;
+  db?: DbClient;
 }): Promise<string | null> {
-  const db = getDb();
+  const db = args.db ?? getDb();
 
   // Deterministic id keyed to the database so concurrent claimants converge on
   // the same value; the UNIQUE primary-key on definitions also rejects a
@@ -864,6 +890,7 @@ export async function seedDefaultBlocksField(args: {
   // path. The atomic UPDATE (column still NULL) makes this race-safe.
   const existingPrimary = await findExistingPrimaryBlocksDefinition(
     args.databaseId,
+    db,
   );
   if (existingPrimary) {
     await db

@@ -8,6 +8,20 @@
  */
 import { appBasePath, captureClientException } from "@agent-native/core/client";
 import {
+  chunkUploadUrl,
+  pickMimeType,
+  pickMimeTypeCandidates,
+} from "@shared/recording-core";
+
+import {
+  createBackgroundBlurStream,
+  type CameraBlurHandle,
+} from "@/lib/camera-blur";
+import {
+  createCameraCompositeStream,
+  type CameraCompositeHandle,
+} from "@/lib/camera-composite";
+import {
   COMPRESS_THRESHOLD_BYTES,
   COMPRESSION_ENABLED,
   MAX_UPLOAD_BYTES,
@@ -15,15 +29,6 @@ import {
   formatMb,
   type CompressionResult,
 } from "@/lib/compress";
-import {
-  createCameraCompositeStream,
-  type CameraCompositeHandle,
-} from "@/lib/camera-composite";
-import {
-  chunkUploadUrl,
-  pickMimeType,
-  pickMimeTypeCandidates,
-} from "@shared/recording-core";
 
 // Re-exported for existing callers; the canonical impls live in
 // @shared/recording-core and are shared with the Chrome extension recorder.
@@ -75,6 +80,15 @@ export interface RecorderEngineOptions {
   cameraDeviceId?: string | null;
   /** Camera bubble size selected in the pre-record UI. */
   cameraBubbleSize?: "sm" | "md" | "lg";
+  /**
+   * Blur the camera background (sharp person, blurred surroundings) for both the
+   * live preview bubble and the baked-in recording composite. Resolved at
+   * `acquire()` time. Silently no-ops (records un-blurred) if segmentation is
+   * unavailable in the browser.
+   */
+  cameraBlur?: boolean;
+  /** Background blur radius in px when `cameraBlur` is on. Defaults to ~12. */
+  cameraBlurRadius?: number;
   /** Chunk size in ms (MediaRecorder timeslice). Default 2000. */
   chunkIntervalMs?: number;
   /** Base URL for the chunk upload endpoint. Default `/api/uploads/:id/chunk`. */
@@ -99,6 +113,11 @@ export interface RecorderEngineOptions {
    * `onError`, this does NOT transition the engine into the `error` state.
    */
   onWarning?: (message: string) => void;
+  /**
+   * Fired when the camera ends (unplugged / revoked) any time after acquire,
+   * so the UI can drop the on-page camera bubble to match the recorded output.
+   */
+  onCameraEnded?: () => void;
   /**
    * Called when the display stream's video track ends because the user clicked
    * the browser's native "Stop sharing" button. When provided, the engine
@@ -360,6 +379,17 @@ export class RecorderEngine {
 
   private displayStream: MediaStream | null = null;
   private cameraStream: MediaStream | null = null;
+  /**
+   * Raw getUserMedia camera stream. When background blur is active,
+   * `cameraStream` points at the processed (blurred) derivative and this field
+   * keeps the original so teardown stops the real camera tracks and the
+   * disconnect handler can observe the hardware ending.
+   */
+  private rawCameraStream: MediaStream | null = null;
+  private cameraBlur: CameraBlurHandle | null = null;
+  // True once the camera is acquired, through preview/countdown/recording, until
+  // teardown — gates disconnect handling outside the recording state.
+  private cameraLive = false;
   private micStream: MediaStream | null = null;
   private combinedStream: MediaStream | null = null;
   private previewStream: MediaStream | null = null;
@@ -697,13 +727,10 @@ export class RecorderEngine {
         }
       }
 
-      // Camera / mic disconnects mid-recording (USB webcam unplugged, mic
-      // permission revoked, a Bluetooth input dropping) are NON-fatal: the
-      // recording continues with whatever inputs remain, and we surface a
-      // non-blocking warning. We use the same recording/paused guard as the
-      // display handler so the `ended` events fired by `cleanupTracks()` during
-      // a normal stop()/cancel() (state is `stopping`/`idle` by then) are
-      // ignored rather than treated as a disconnect.
+      // Camera / mic disconnects (USB webcam unplugged, permission revoked,
+      // Bluetooth dropped) are NON-fatal: keep whatever inputs remain and warn.
+      // The handlers gate on `cameraLive`/state so the `ended` events fired by
+      // `cleanupTracks()` during a normal stop/cancel are ignored.
       if (this.cameraStream) {
         for (const track of this.cameraStream.getVideoTracks()) {
           track.addEventListener("ended", () => {
@@ -718,6 +745,37 @@ export class RecorderEngine {
             this.onMicTrackEnded();
           });
         }
+      }
+
+      // Camera is live from here through preview/countdown/recording until
+      // teardown — set before the async blur setup so a disconnect during that
+      // window is handled, not inherited as a dead stream.
+      if (this.cameraStream) this.cameraLive = true;
+
+      // Swap the raw camera for its blurred derivative, which both the preview
+      // bubble and the recording composite read ("what you see is what's
+      // recorded"). createBackgroundBlurStream never throws — it falls back to
+      // the raw stream on failure.
+      if (this.opts.cameraBlur && this.cameraStream) {
+        this.rawCameraStream = this.cameraStream;
+        const handle = await createBackgroundBlurStream(this.cameraStream, {
+          blurPx: this.opts.cameraBlurRadius,
+        });
+        if (this.cameraDisconnectNotified) {
+          // Webcam ended while the pipeline was loading: discard it and drop the
+          // dead camera rather than inheriting a frozen processed stream.
+          handle.cleanup();
+          this.cameraStream = null;
+        } else {
+          this.cameraBlur = handle;
+          this.cameraStream = this.cameraBlur.stream;
+        }
+      }
+
+      if (this.opts.mode === "camera" && !this.cameraStream) {
+        throw new Error(
+          "Camera disconnected before recording could start. Reconnect it and try again.",
+        );
       }
 
       this.previewStream =
@@ -1414,6 +1472,12 @@ export class RecorderEngine {
       return combined;
     }
 
+    // Camera dropped before start (disconnected during setup/countdown):
+    // record screen-only rather than compositing a dead stream.
+    if (!this.cameraStream) {
+      return this.buildDisplayRecordingStream();
+    }
+
     // Screen + camera: display capture does not reliably include our separate
     // DOM bubble once the user records another app/window, so the saved
     // recording must composite the camera feed before MediaRecorder sees it.
@@ -1705,14 +1769,23 @@ export class RecorderEngine {
   }
 
   private cleanupTracks(): void {
+    // Clear before stopping tracks so the `ended` events our own stop() fires
+    // aren't mistaken for a disconnect.
+    this.cameraLive = false;
     this.audioMixSources = [];
     this.audioMixCtx?.close().catch(() => {});
     this.audioMixCtx = null;
     this.cameraComposite?.cleanup();
     this.cameraComposite = null;
+    // Tear down the blur pipeline (segmenter, hidden video, processed capture)
+    // before stopping streams. `rawCameraStream` holds the real hardware tracks
+    // when blur is active; stop those so the camera indicator clears.
+    this.cameraBlur?.cleanup();
+    this.cameraBlur = null;
     for (const s of [
       this.displayStream,
       this.cameraStream,
+      this.rawCameraStream,
       this.micStream,
       this.combinedStream,
     ]) {
@@ -1727,6 +1800,7 @@ export class RecorderEngine {
     }
     this.displayStream = null;
     this.cameraStream = null;
+    this.rawCameraStream = null;
     this.micStream = null;
     this.combinedStream = null;
     this.previewStream = null;
@@ -1764,16 +1838,28 @@ export class RecorderEngine {
    * warn the user.
    */
   private onCameraTrackEnded() {
-    if (this.state !== "recording" && this.state !== "paused") return;
+    if (!this.cameraLive) return;
     if (this.cameraDisconnectNotified) return;
     this.cameraDisconnectNotified = true;
-    for (const track of this.cameraStream?.getVideoTracks() ?? []) {
+    this.cameraLive = false;
+    // Tear down the blur pipeline so the composite's camera <video> sees its
+    // (blurred) track end and self-hides, instead of freezing on a stale frame.
+    if (this.cameraBlur) {
+      this.cameraBlur.cleanup();
+      this.cameraBlur = null;
+    }
+    for (const track of [
+      ...(this.rawCameraStream?.getVideoTracks() ?? []),
+      ...(this.cameraStream?.getVideoTracks() ?? []),
+    ]) {
       try {
         track.stop();
       } catch {
         // ignore — the track has already ended.
       }
     }
+    // Drop the on-page bubble to match the recorded output (screen-only now).
+    this.opts.onCameraEnded?.();
     this.emitWarning(
       "Camera disconnected — recording continues without webcam.",
     );

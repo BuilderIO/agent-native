@@ -1,22 +1,22 @@
-import { and, desc, eq, inArray, isNull, like, or } from "drizzle-orm";
 import { readAppState } from "@agent-native/core/application-state";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
-import { getSetting, putSetting } from "@agent-native/core/settings";
 import {
   resourceDeleteByPath,
   resourcePut,
   SHARED_OWNER,
 } from "@agent-native/core/resources/store";
 import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { getSetting, putSetting } from "@agent-native/core/settings";
+import {
   accessFilter,
   assertAccess,
   resolveAccess,
   type ResolvedAccess,
 } from "@agent-native/core/sharing";
-import { getDb, schema } from "../db/index.js";
+import { and, desc, eq, inArray, isNull, like, or } from "drizzle-orm";
+
 import {
   DEFAULT_BRAIN_SETTINGS,
   type BrainCaptureKind,
@@ -30,6 +30,7 @@ import {
   type BrainSourceProvider,
   type BrainSourceStatus,
 } from "../../shared/types.js";
+import { getDb, schema } from "../db/index.js";
 import { sanitizeCaptureForStorage } from "./capture-sanitization.js";
 
 export const BRAIN_SETTINGS_KEY = "brain-settings";

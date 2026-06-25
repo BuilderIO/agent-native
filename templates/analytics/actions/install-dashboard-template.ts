@@ -1,10 +1,16 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
+  applyText,
+  hasCollabState,
+  seedFromText,
+} from "@agent-native/core/collab";
+import {
   buildDeepLink,
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { z } from "zod";
+
 import {
   applyCatalogMetadata,
   cloneDashboardConfig,
@@ -13,11 +19,6 @@ import {
   listDashboardCatalog,
 } from "../server/lib/dashboard-catalog";
 import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
-import {
-  applyText,
-  hasCollabState,
-  seedFromText,
-} from "@agent-native/core/collab";
 
 async function syncToCollab(
   dashboardId: string,

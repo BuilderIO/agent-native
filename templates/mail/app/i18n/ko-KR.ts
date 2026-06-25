@@ -257,6 +257,7 @@ const messages = {
       threadMuted: "스레드를 음소거했습니다.",
       archived: "보관했습니다.",
       archivedMany: "Archived {{count}} conversations.",
+      archiveFailed: "보관에 실패했습니다. 대화가 복원되었습니다.",
       trashed: "휴지통으로 이동했습니다.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "예약 이메일을 보냈습니다.",

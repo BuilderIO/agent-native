@@ -247,8 +247,8 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 
 ## 공유 작곡가
 
-Agent-Native 코드는 동일한 `Agent작성rFrame` + `Prompt작성r` /
-`@agent-native/core/client/composer`에서 내보낸 `Tiptap작성r` 스택
+Agent-Native 코드는 동일한 `AgentComposerFrame` + `PromptComposer` /
+`@agent-native/core/client/composer`에서 내보낸 `TiptapComposer` 스택
 프레임워크 에이전트 사이드바. 별도의 포크를 사용하지 마세요
 텍스트 영역, 코딩 도구 선택기, 업로드 선택기, 음성 버튼, 모델 선택기 또는 Enter-submit
 코드와 유사한 표면 구현. 호스트에 추가 제어가 필요한 경우 통과
@@ -256,7 +256,7 @@ Agent-Native 코드는 동일한 `Agent작성rFrame` + `Prompt작성r` /
 브레인 채팅은 동일한 상호작용 모델과 시야를 유지합니다.
 
 Brain의 Ask 경로는 이미 지원되는 `AgentChatSurface`를 사용합니다.
-표준 사이드바 작성기. 코드는 호스트가 `Prompt작성r`를 직접 사용하므로
+표준 사이드바 작성기. 코드는 호스트가 `PromptComposer`를 직접 사용하므로
 실행 생성, 기록 및 후속 전달을 담당합니다.
 
 ## 공유 코딩 도구

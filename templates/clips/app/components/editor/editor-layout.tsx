@@ -10,7 +10,6 @@
  * the agent and UI stay in sync via `useDbSync` + the `refresh-signal` poke.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   agentNativePath,
   appBasePath,
@@ -18,6 +17,7 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 // Client-side app-state helpers — the `@agent-native/core/application-state`
@@ -54,8 +54,6 @@ async function writeAppStateClient(key: string, value: unknown): Promise<void> {
   }
 }
 
-import { cn } from "@/lib/utils";
-import { computePeaks, type WaveformPeaks } from "@/lib/waveform-peaks";
 import {
   parsePlaybackSpeed,
   readPlaybackSpeedPreference,
@@ -67,15 +65,17 @@ import {
   formatMs,
   type EditsJson,
 } from "@/lib/timestamp-mapping";
+import { cn } from "@/lib/utils";
+import { computePeaks, type WaveformPeaks } from "@/lib/waveform-peaks";
 
+import { ChaptersEditor } from "./chapters-editor";
 import { EditorToolbar } from "./editor-toolbar";
-import { Waveform } from "./waveform";
-import { TrimHandles } from "./trim-handles";
+import { StitchManager } from "./stitch-manager";
+import { ThumbnailPicker } from "./thumbnail-picker";
 import { Timeline } from "./timeline";
 import { TranscriptEditor } from "./transcript-editor";
-import { ChaptersEditor } from "./chapters-editor";
-import { ThumbnailPicker } from "./thumbnail-picker";
-import { StitchManager } from "./stitch-manager";
+import { TrimHandles } from "./trim-handles";
+import { Waveform } from "./waveform";
 
 export interface EditorLayoutProps {
   recordingId: string;
