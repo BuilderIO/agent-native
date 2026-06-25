@@ -99,13 +99,21 @@ function AccountAvatar({
   fallbackClassName: string;
 }) {
   const [imageFailed, setImageFailed] = useState(false);
+  const [stablePhotoUrl, setStablePhotoUrl] = useState(photoUrl ?? null);
+
+  useEffect(() => {
+    if (!photoUrl || photoUrl === stablePhotoUrl) return;
+    setStablePhotoUrl(photoUrl);
+    setImageFailed(false);
+  }, [photoUrl, stablePhotoUrl]);
+
   const shouldLoadRemoteAvatar =
-    !!photoUrl && !isMcpEmbedSurface() && !imageFailed;
+    !!stablePhotoUrl && !isMcpEmbedSurface() && !imageFailed;
 
   if (shouldLoadRemoteAvatar) {
     return (
       <img
-        src={photoUrl}
+        src={stablePhotoUrl}
         alt=""
         className={imageClassName}
         referrerPolicy="no-referrer"

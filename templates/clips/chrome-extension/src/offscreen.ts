@@ -19,6 +19,10 @@
 import { scheduleReadyChime } from "@shared/recording-audio";
 import { chunkUploadUrl, pickMimeType } from "@shared/recording-core";
 
+import { captureExtensionError, initExtensionSentry } from "./sentry";
+
+initExtensionSentry("offscreen");
+
 type CaptureMode = "screen" | "camera";
 
 type AcquireMessage = {
@@ -117,6 +121,8 @@ type ActiveRecording = {
   resolveStopped: (result: UploadResult) => void;
   rejectStopped: (error: Error) => void;
 };
+
+const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
 
 let prepared: PreparedStreams | null = null;
 let activeRecording: ActiveRecording | null = null;
@@ -399,11 +405,44 @@ async function uploadChunk(
       Boolean(recording.authToken),
       text.slice(0, 200),
     );
-    throw new Error(
+    const error = new Error(
       data?.error || `Upload failed (${res.status}): ${text || res.statusText}`,
     );
+    captureExtensionError(error, {
+      tags: {
+        surface: "offscreen",
+        recordingStep: "chunk-upload",
+        httpStatus: String(res.status),
+        isFinal: extra.isFinal ? "true" : "false",
+      },
+      extra: {
+        recordingId: recording.recordingId,
+        chunkIndex: index,
+        chunkBytes: blob.size,
+        total: extra.total,
+        mimeType: blob.type || recording.mimeType,
+        responseBodyTail: text.slice(0, 2000),
+        hadAuth: Boolean(recording.authToken),
+      },
+    });
+    throw error;
   }
   return data;
+}
+
+async function uploadBlobInSlices(
+  recording: ActiveRecording,
+  blob: Blob,
+): Promise<void> {
+  const totalSlices = Math.max(1, Math.ceil(blob.size / UPLOAD_SLICE_BYTES));
+  for (let sliceIndex = 0; sliceIndex < totalSlices; sliceIndex += 1) {
+    if (recording.cancelled || recording.uploadFailure) return;
+    const start = sliceIndex * UPLOAD_SLICE_BYTES;
+    const end = Math.min(start + UPLOAD_SLICE_BYTES, blob.size);
+    const slice = blob.slice(start, end, blob.type || recording.mimeType);
+    const index = recording.chunkIndex++;
+    await uploadChunk(recording, slice, index);
+  }
 }
 
 function stopStreams(streams: (MediaStream | null)[]): void {
@@ -616,14 +655,25 @@ async function begin(message: BeginMessage): Promise<{
     ) {
       return;
     }
-    const index = recording.chunkIndex++;
     // Record the failure and stop, but do NOT re-throw: re-throwing leaves a
     // rejected promise that surfaces as an "Uncaught (in promise)" error (bad
     // look in a Chrome Web Store review). finalizeStop reads recording.upload-
     // Failure and surfaces it through the normal error path instead.
-    const upload = uploadChunk(recording, event.data, index).catch((err) => {
+    const upload = uploadBlobInSlices(recording, event.data).catch((err) => {
       recording.uploadFailure =
         err instanceof Error ? err : new Error(String(err));
+      captureExtensionError(recording.uploadFailure, {
+        tags: {
+          surface: "offscreen",
+          recordingStep: "dataavailable-upload",
+        },
+        extra: {
+          recordingId: recording.recordingId,
+          blobBytes: event.data.size,
+          chunkIndex: recording.chunkIndex,
+          mimeType: event.data.type || recording.mimeType,
+        },
+      });
       reportStatus(recording.sessionId, "error", {
         error: recording.uploadFailure.message,
       });
@@ -687,6 +737,20 @@ function startRecorderNow(recording: ActiveRecording): void {
       hasCamera: recording.hasCamera,
     });
   } catch (err) {
+    captureExtensionError(err, {
+      tags: {
+        surface: "offscreen",
+        recordingStep: "recorder-start",
+      },
+      extra: {
+        recordingId: recording.recordingId,
+        mimeType: recording.mimeType,
+        width: recording.dimensions.width,
+        height: recording.dimensions.height,
+        hasAudio: recording.hasAudio,
+        hasCamera: recording.hasCamera,
+      },
+    });
     reportStatus(recording.sessionId, "error", {
       recordingId: recording.recordingId,
       error: err instanceof Error ? err.message : "Could not start recording.",
@@ -766,6 +830,18 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     cleanup(recording);
     if (activeRecording === recording) activeRecording = null;
     const error = err instanceof Error ? err : new Error(String(err));
+    captureExtensionError(error, {
+      tags: {
+        surface: "offscreen",
+        recordingStep: "finalize-stop",
+      },
+      extra: {
+        recordingId: recording.recordingId,
+        chunkCount: recording.chunkIndex,
+        mimeType: recording.mimeType,
+        durationMs: Math.max(0, Date.now() - recording.startedAtMs),
+      },
+    });
     reportStatus(recording.sessionId, "error", {
       recordingId: recording.recordingId,
       error: error.message,

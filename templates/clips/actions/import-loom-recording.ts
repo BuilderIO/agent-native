@@ -11,6 +11,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
   nanoid,
+  ownerEmailMatches,
   parseSpaceIds,
   requireOrganizationAccess,
   stringifySpaceIds,
@@ -148,7 +149,7 @@ export default defineAction({
         .where(
           and(
             eq(schema.recordings.id, args.recordingId),
-            eq(schema.recordings.ownerEmail, ownerEmail),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           ),
         );
       if (!existingRecording) {

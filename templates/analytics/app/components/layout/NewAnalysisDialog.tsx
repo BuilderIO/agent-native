@@ -60,8 +60,8 @@ export function NewAnalysisDialog() {
   const status = statusData as DataSourceStatusResponse | undefined;
   const envStatus = credentialRowsFromStatus(status);
   const configuredSources = useMemo(
-    () => getConfiguredDataSources(envStatus),
-    [envStatus],
+    () => getConfiguredDataSources(envStatus, status),
+    [envStatus, status],
   );
   const configuredSourceNames = configuredSources.map((source) => source.name);
   const statusMessage = status?.message || status?.error;

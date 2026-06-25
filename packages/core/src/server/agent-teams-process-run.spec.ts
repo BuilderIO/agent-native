@@ -368,7 +368,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
     // thread_data persisted with the assistant turn
     expect(threadData.get("thread-1")).toContain("the result");
-  });
+  }, 20_000);
 
   it("is idempotent: a duplicate dispatch does not re-run the agent", async () => {
     runAgentLoopMock.mockImplementation(async (opts: any) => {

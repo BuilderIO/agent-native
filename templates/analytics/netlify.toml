@@ -5,6 +5,7 @@ publish = "templates/analytics/dist"
 functions = "templates/analytics/.netlify/functions-internal"
 
 [build.environment]
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
 AGENT_PROD_CODE_EXECUTION = "sandboxed"

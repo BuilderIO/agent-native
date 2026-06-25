@@ -17,6 +17,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   getActiveOrganizationId,
+  ownerEmailMatches,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 
@@ -82,7 +83,9 @@ export default defineAction({
     if (args.view === "library") {
       const email = getRequestUserEmail();
       if (email) {
-        whereClauses.push(eq(schema.recordings.ownerEmail, email));
+        whereClauses.push(
+          ownerEmailMatches(schema.recordings.ownerEmail, email),
+        );
       }
       if (orgId) {
         whereClauses.push(eq(schema.recordings.organizationId, orgId));

@@ -14,6 +14,7 @@ registerShareableResource({
   titleColumn: "title",
   getResourcePath: (recording) => `/r/${recording.id}`,
   getDb,
+  ownerAccessIgnoresOrg: true,
 });
 
 registerShareableResource({

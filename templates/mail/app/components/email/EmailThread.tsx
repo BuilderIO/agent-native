@@ -408,7 +408,10 @@ export function EmailThread({
           (t.latestMessage.threadId || t.latestMessage.id) === nextThreadId,
       );
       setSelectedIds?.(new Set());
-      void ensureThread(nextThreadId, nextThread?.latestMessage.accountEmail);
+      void ensureThread(
+        nextThreadId,
+        nextThread?.latestMessage.accountEmail,
+      ).catch(() => {});
       onNavigateThread?.(nextThreadId);
       navigate(`/${view}/${nextThreadId}${routeSearchSuffix}`);
     },

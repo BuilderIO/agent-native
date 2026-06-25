@@ -13,7 +13,23 @@ import { getDb, schema } from "../db/index.js";
 export function getCurrentOwnerEmail(): string {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
-  return email;
+  return normalizeOwnerEmail(email);
+}
+
+export function normalizeOwnerEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export function ownerEmailMatches(column: unknown, email: string) {
+  return sql`lower(${column as any}) = ${normalizeOwnerEmail(email)}`;
+}
+
+export function sameOwnerEmail(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  if (!a || !b) return false;
+  return normalizeOwnerEmail(a) === normalizeOwnerEmail(b);
 }
 
 export async function getEventOwnerContext(event: H3Event): Promise<{
@@ -258,7 +274,7 @@ export async function getRecordingOrThrow(id: string): Promise<RecordingRow> {
         eq(schema.recordings.id, id),
         // visibility check happens at the action layer via the framework
         // sharing helpers; this is just the ownership-or-visible fallback.
-        eq(schema.recordings.ownerEmail, ownerEmail),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
       ),
     );
   if (!row) throw new Error(`Recording not found: ${id}`);

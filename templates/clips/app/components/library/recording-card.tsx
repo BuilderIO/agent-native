@@ -117,13 +117,29 @@ export function RecordingCard({
     return (local || "?").slice(0, 2).toUpperCase();
   }, [recording.ownerEmail]);
 
-  const handleOpen = useCallback(() => {
-    if (selectionMode) {
-      onToggleSelect?.(recording.id);
-    } else {
-      navigate(`/r/${recording.id}`);
-    }
-  }, [navigate, onToggleSelect, recording.id, selectionMode]);
+  const recordingPath = `/r/${recording.id}`;
+
+  const handleOpen = useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      const shouldOpenNewTab =
+        event.button === 1 ||
+        (event.button === 0 && (event.metaKey || event.ctrlKey));
+
+      if (shouldOpenNewTab) {
+        event.preventDefault();
+        event.stopPropagation();
+        window.open(recordingPath, "_blank", "noopener,noreferrer");
+        return;
+      }
+
+      if (selectionMode) {
+        onToggleSelect?.(recording.id);
+      } else {
+        navigate(recordingPath);
+      }
+    },
+    [navigate, onToggleSelect, recording.id, recordingPath, selectionMode],
+  );
 
   const handleCheckbox = useCallback(
     (e: React.MouseEvent) => {
@@ -145,6 +161,7 @@ export function RecordingCard({
     <div
       role="article"
       onClick={handleOpen}
+      onAuxClick={handleOpen}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       className={cn(

@@ -23,6 +23,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   getActiveOrganizationId,
+  ownerEmailMatches,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
@@ -168,7 +169,7 @@ async function fetchFoldersForSpace(spaceId: string | null) {
     .from(schema.folders)
     .where(
       and(
-        eq(schema.folders.ownerEmail, ownerEmail),
+        ownerEmailMatches(schema.folders.ownerEmail, ownerEmail),
         spaceId
           ? eq(schema.folders.spaceId, spaceId)
           : isNull(schema.folders.spaceId),

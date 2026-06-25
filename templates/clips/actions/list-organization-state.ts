@@ -20,6 +20,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
+  ownerEmailMatches,
   requireOrganizationAccess,
 } from "../server/lib/recordings.js";
 
@@ -128,7 +129,7 @@ export default defineAction({
             eq(schema.folders.organizationId, organizationId),
             or(
               isNotNull(schema.folders.spaceId),
-              eq(schema.folders.ownerEmail, ownerEmail),
+              ownerEmailMatches(schema.folders.ownerEmail, ownerEmail),
             ),
           ),
         )

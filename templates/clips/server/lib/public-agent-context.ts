@@ -51,6 +51,13 @@ export type PublicAgentAccessResult =
 
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES = 200 * 1024 * 1024;
 
+function sameOwnerEmail(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  return !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 export class RecordingMediaFetchError extends Error {
   constructor(
     message: string,
@@ -195,7 +202,7 @@ export async function loadPublicAgentAccess(
 
   const session = await getSession(event).catch(() => null);
   const viewerIsOwner = Boolean(
-    session?.email && session.email === recording.ownerEmail,
+    session?.email && sameOwnerEmail(session.email, recording.ownerEmail),
   );
 
   if (recording.visibility !== "public" && !viewerIsOwner) {
