@@ -271,6 +271,14 @@ export default function RecordingPage() {
   const isLoomRecording = isLoomRecordingSource(recording);
   const canUseNativeEditor = canEdit && !isLoomEmbedBacked;
   const canDelete = role === "owner";
+  const canDownloadVideo = Boolean(
+    recording?.videoUrl &&
+    !isLoomEmbedBacked &&
+    (role === "owner" ||
+      role === "admin" ||
+      role === "editor" ||
+      recording?.enableDownloads),
+  );
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
     setRetryingFinalize(true);
@@ -793,9 +801,14 @@ export default function RecordingPage() {
             </Button>
           </ShareRecordingPopover>
 
-          {canDelete ? (
+          {canDelete || canDownloadVideo ? (
             <DeleteRecordingMenu
               recordingId={recording.id}
+              canDelete={canDelete}
+              canDownload={canDownloadVideo}
+              videoUrl={recording.videoUrl}
+              recordingTitle={recording.title}
+              videoFormat={recording.videoFormat}
               onDeleted={() => navigate("/library", { replace: true })}
             />
           ) : null}
