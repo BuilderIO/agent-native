@@ -19,7 +19,7 @@ Le site de documentation est l'implémentation de référence. Aujourd'hui, il e
 
 La configuration de `publicMcp: true` expose en outre le actions activé en tant que point de terminaison public MCP, permettant aux agents externes de les appeler directement (voir [MCP Protocol](/docs/mcp-protocol)).
 
-```an-diagram title="What a public route publishes" summary="A public route fans out into agent-friendly representations. Reading the route is separate from calling tools — tool access stays opt-in."
+```an-diagram title="Ce qu'une voie publique publie" summary="Un itinéraire public se déploie en représentations conviviales pour les agents. La lecture de l'itinéraire est distincte de l'appel aux outils : l'accès aux outils reste facultatif."
 {
   "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>Public route<br><small class=\"diagram-muted\">derived from route access settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">.md mirror</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">Tools stay private</span><small class=\"diagram-muted\">publicMcp + publicAgent.expose required</small></div></div>",
   "css": ".diagram-web{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-web .diagram-arrow{font-size:22px;line-height:1}.diagram-web .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.diagram-web .gate{display:flex;flex-direction:column;gap:4px;align-items:flex-start}"
@@ -83,7 +83,7 @@ L'accès aux pages publiques et l'accès aux outils publics sont distincts. Un i
 
 Pour exposer une action via un protocole d'agent public, l'action doit s'inscrire :
 
-```an-annotated-code title="Opting one safe action onto the public surface"
+```an-annotated-code title="Opter pour une action sécuritaire sur la surface publique"
 {
   "filename": "actions/search-docs.ts",
   "language": "ts",

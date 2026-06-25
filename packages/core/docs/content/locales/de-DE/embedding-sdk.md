@@ -11,7 +11,7 @@ wird bereits verwendet. Wenn Sie sich immer noch zwischen Headless-Agenten, Rich
 Eingebetteter Sidecar oder eine vollständige App, beginnen Sie mit
 [Agent Surfaces](/docs/agent-surfaces).
 
-```an-diagram title="The embedding membrane" summary="The host app supplies server-side auth and live page context; Agent-Native runs the durable sidecar and reaches the open tab through client actions and host commands."
+```an-diagram title="Die Einbettungsmembran" summary="Die Host-App stellt serverseitige Authentifizierung und Live-Seitenkontext bereit; Agent-Native führt den dauerhaften Sidecar aus und erreicht die geöffnete Registerkarte über Client-Aktionen und Host-Befehle."
 {
   "html": "<div class=\"diagram-embed\"><div class=\"diagram-box\" data-rough><strong>Host SaaS app</strong><small class=\"diagram-muted\">your UI, your auth</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">getContext &rarr;</div><div class=\"diagram-pill\">&larr; client actions</div><div class=\"diagram-pill\">&larr; host commands</div></div><div class=\"diagram-panel center\" data-rough><strong>Agent-Native sidecar</strong><small class=\"diagram-muted\">durable chat · app state · extensions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL<br><small class=\"diagram-muted\">framework tables</small></div></div>",
   "css": ".diagram-embed{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-embed .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -373,7 +373,7 @@ const hostTools = createAgentNativeHostTools({
 
 Für einen Kollegen im CLAW-Stil kann der Iframe auch seinen Live-Browser-Tab beim Sidecar-Backend registrieren. Der Agent erhält dann normale Backend-Tools, die eine Anfrage in die Warteschlange stellen, der Iframe beansprucht sie, die Hostseite führt sie aus und das Backend gibt das Ergebnis an den Agenten zurück.
 
-```an-diagram title="Server-mediated browser-session bridge" summary="A backend tool enqueues work; the registered tab claims it, runs it on the live page, and the result returns to the agent — so a backend/Slack/A2A agent can still touch the open tab."
+```an-diagram title="Serververmittelte Browser-Sitzungsbrücke" summary="Ein Backend-Tool stellt Arbeit in die Warteschlange. Der registrierte Tab beansprucht es, führt es auf der Live-Seite aus und das Ergebnis wird an den Agenten zurückgegeben – sodass ein backend/Slack/A2A-Agent weiterhin auf den geöffneten Tab zugreifen kann."
 {
   "html": "<div class=\"diagram-bridge\"><div class=\"diagram-node\" data-rough>Backend agent<br><small class=\"diagram-muted\">chat · Slack · A2A</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>enqueue request<br><small class=\"diagram-muted\">/_agent-native/browser-sessions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Live tab claims it<br><small class=\"diagram-muted\">registered bridge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">result &rarr; agent</div></div>",
   "css": ".diagram-bridge{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}"

@@ -153,11 +153,14 @@ export { PROVIDER_TO_ENV };
 /**
  * Grace window + poll interval for the foreground circuit-breaker that confirms
  * a background worker actually CLAIMED a 202-dispatched run before recovering
- * inline. The grace is long enough for a cold-start worker to win the claim
- * (~1-2s typical) and short enough to recover quickly within the foreground's
- * ~40s soft-timeout.
+ * inline. The grace must cover the worker's cold-start + per-request init before
+ * it reaches `claimBackgroundRun`: light apps win the claim in ~1-2s, but heavy
+ * apps (e.g. analytics) were observed in prod taking >8s, so an 8s grace made
+ * their worker lose the race every time and always fall back to inline (adding
+ * ~8s latency with no background budget). 15s covers the slow apps while staying
+ * well within the foreground's ~40s soft-timeout.
  */
-export const BACKGROUND_CLAIM_GRACE_MS = 8_000;
+export const BACKGROUND_CLAIM_GRACE_MS = 15_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
 
 export type BackgroundDispatchOutcome =
@@ -4569,18 +4572,24 @@ export function createProductionAgentHandler(
       // again, but its duplicate-PK collision is swallowed, so an existing
       // `background-processing` row is reused — no double row.
       if (backgroundOutcome.reason === "worker-never-claimed") {
-        // The async 202 landed but no worker claimed within grace — the generated
-        // wrapper never reached the route. Record it so the failure is visible on
-        // the run even though the user still gets a working (inline) turn.
+        // The async 202 landed but no worker claimed within grace. PRESERVE the
+        // bg-fn's last-recorded diag_stage (route_entered / auth_failed / ... or
+        // "none" if it never reached the route) in the recovery detail BEFORE we
+        // overwrite diag_stage — otherwise foreground_inline_recovery clobbers
+        // the only clue to WHY the worker died (its own logs are unreadable).
+        const priorClaim = await readBackgroundRunClaim(runId).catch(
+          () => null,
+        );
+        const priorDiag = priorClaim?.diagStage ?? "none";
         console.error(
           "[agent-chat] background worker did not claim the 202-dispatched run " +
-            "within grace; recovering inline:",
+            `within grace; recovering inline. bgFnPriorDiag=${priorDiag}`,
           runId,
         );
         await recordRunDiagnostic(
           runId,
           RUN_DIAG_STAGE.foregroundInlineRecovery,
-          "202 dispatched but no worker claimed within the foreground grace window",
+          `202 dispatched but no worker claimed within grace; bgFnPriorDiag=${priorDiag}`,
         ).catch(() => {});
       }
       // Fall through to the inline `startRun` path below.

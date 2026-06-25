@@ -3,6 +3,7 @@ import type {
   DisplaySurface,
   RecordingMode,
 } from "@/components/recorder/recorder-engine";
+import { MAX_BLUR_PX, MIN_BLUR_PX } from "@/lib/camera-blur";
 
 /**
  * Last-used recorder selections, remembered across `/record` visits via
@@ -21,6 +22,8 @@ export interface RecorderPreferences {
   micId: string;
   cameraId: string;
   cameraSize: CameraBubbleSize;
+  cameraBlur: boolean;
+  cameraBlurRadius: number;
 }
 
 const STORAGE_KEY = "clips:recorder-preferences";
@@ -46,6 +49,18 @@ export function loadRecorderPreferences(): Partial<RecorderPreferences> {
     if (typeof parsed.cameraId === "string") prefs.cameraId = parsed.cameraId;
     if (VALID_SIZES.includes(parsed.cameraSize as CameraBubbleSize)) {
       prefs.cameraSize = parsed.cameraSize as CameraBubbleSize;
+    }
+    if (typeof parsed.cameraBlur === "boolean") {
+      prefs.cameraBlur = parsed.cameraBlur;
+    }
+    if (
+      typeof parsed.cameraBlurRadius === "number" &&
+      Number.isFinite(parsed.cameraBlurRadius)
+    ) {
+      prefs.cameraBlurRadius = Math.min(
+        MAX_BLUR_PX,
+        Math.max(MIN_BLUR_PX, parsed.cameraBlurRadius),
+      );
     }
     return prefs;
   } catch {

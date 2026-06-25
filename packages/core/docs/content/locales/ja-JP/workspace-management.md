@@ -9,7 +9,7 @@ description: "分岐、CODEOWNERS、PR レビュー、Dispatch が git レベル
 
 このガイドでは、エージェント ネイティブ ワークスペースの実行の運用面、つまり分岐方法、誰が何をレビューするか、コード所有権の設定方法、ディスパッチ コントロール プレーンをガバナンス モデルにどのように適合させるかについて説明します。
 
-```an-diagram title="Two governance planes" summary="Git governs code; Dispatch governs runtime. They are complementary — don't replicate one inside the other."
+```an-diagram title="2 つのガバナンス プレーン" summary="Git はコードを管理します。 Dispatch は実行時間を管理します。これらは補完的であり、一方の内部で他方を複製しないでください。"
 {
   "html": "<div class=\"gov\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Git / GitHub</span><strong>Code governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">CODEOWNERS</span><span class=\"diagram-pill\">branch protection</span><span class=\"diagram-pill\">PR review</span><span class=\"diagram-pill\">git log / blame</span></div></div><div class=\"diagram-pill diagram-muted\">+</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Dispatch</span><strong>Runtime governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">vault secrets &amp; grants</span><span class=\"diagram-pill\">workspace resources</span><span class=\"diagram-pill\">agent profiles</span><span class=\"diagram-pill\">approvals &amp; audit</span></div></div></div>",
   "css": ".gov{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.gov .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:240px}.gov .gov-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}"
@@ -47,13 +47,13 @@ main                         ← production
 
 コード ガバナンスは、リポジトリ ルートにあるいくつかのファイルによって構成されます。
 
-```an-file-tree title="Governance config in the repo"
+```an-file-tree title="repo 内のガバナンス設定"
 {
   "entries": [
-    { "path": ".github/CODEOWNERS", "note": "Auto-assigns reviewers per changed path" },
-    { "path": ".github/labeler.yml", "note": "Auto-labels PRs by app" },
-    { "path": "pnpm-workspace.yaml", "note": "Workspace-level — broad review" },
-    { "path": "package.json", "note": "Workspace-level — platform team owns" }
+    { "path": ".github/CODEOWNERS", "note": "変更パスごとに reviewers を自動割り当て" },
+    { "path": ".github/labeler.yml", "note": "app ごとに PR へ自動ラベル付け" },
+    { "path": "pnpm-workspace.yaml", "note": "Workspace レベル: 広範な review" },
+    { "path": "package.json", "note": "Workspace レベル: platform team が所有" }
   ]
 }
 ```

@@ -7,9 +7,9 @@ description: "Nitro 서버 경로, 플러그인, 프레임워크 탑재 경로, 
 
 에이전트 기반 앱은 서버 경로 및 플러그인에 [Nitro](https://nitro.build)를 사용합니다. 대부분의 제품 동작은 [Actions](/docs/actions)에 있어야 합니다. 사용자 정의 경로는 actions가 적합하지 않은 프로토콜 표면(업로드, 스트리밍, 공개 페이지, webhooks, OAuth 콜백 및 공급자별 API)을 위한 것입니다.
 
-```an-diagram title="What runs on the server" summary="Actions are the default. Custom file routes and framework-mounted routes share the same Nitro app and the same SQL database."
+```an-diagram title="서버에서 실행되는 것" summary="조치가 기본값입니다. 사용자 정의 파일 경로와 프레임워크 탑재 경로는 동일한 Nitro 앱과 동일한 SQL 데이터베이스를 공유합니다."
 {
-  "html": "<div class=\"diagram-server\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">Browser / UI</div><div class=\"diagram-node\">Agent loop</div><div class=\"diagram-node\">External clients<br><small class=\"diagram-muted\">HTTP · MCP · A2A</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Nitro server</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">default surface</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/_agent-native/*</span><small class=\"diagram-muted\">framework routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/api/*</span><small class=\"diagram-muted\">custom file routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">plugins</span><small class=\"diagram-muted\">startup: migrations, jobs</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL database<br><small class=\"diagram-muted\">Drizzle · the coordination point</small></div></div>",
+  "html": "<div class=\"diagram-server\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">브라우저 / UI</div><div class=\"diagram-node\">에이전트 루프</div><div class=\"diagram-node\">외부 클라이언트<br><small class=\"diagram-muted\">HTTP · MCP · A2A</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Nitro 서버</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">기본 표면</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/_agent-native/*</span><small class=\"diagram-muted\">framework routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/api/*</span><small class=\"diagram-muted\">custom file routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">plugins</span><small class=\"diagram-muted\">startup: migrations, jobs</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL 데이터베이스<br><small class=\"diagram-muted\">Drizzle · the coordination point</small></div></div>",
   "css": ".diagram-server{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-server .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-server .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.diagram-server .diagram-row{display:flex;align-items:center;gap:8px}.diagram-server .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -103,15 +103,27 @@ UI와 에이전트는 동일한 기능을 공유합니다.
 
 프레임워크에 의해 마운트된 Actions는 요청 컨텍스트와 함께 자동으로 실행됩니다. 사용자 지정 경로는 그렇지 않습니다. 사용자 정의 경로가 소유 가능한 리소스를 읽거나 쓰는 경우 세션을 로드하고 작업을 래핑합니다.
 
-```an-annotated-code title="Scoping a custom route to the request user"
+```an-annotated-code title="요청 사용자에 대한 커스텀 경로 범위 지정"
 {
   "filename": "server/routes/api/projects.get.ts",
   "language": "ts",
-  "code": "import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});",
+  "code": "import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.project공유s));\n    },\n  );\n});",
   "annotations": [
-    { "lines": "7-10", "label": "Custom routes have no auto-context", "note": "Unlike actions, a file route must load the session itself and fail closed when there is no authenticated user." },
-    { "lines": "12-13", "label": "Establish request context", "note": "`runWithRequestContext` makes the user/org available to scoping helpers for the duration of the work." },
-    { "lines": "18-19", "label": "Scope ownable reads", "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here." }
+    {
+      "lines": "7-10",
+      "label": "Custom routes have no auto-context",
+      "note": "Unlike actions, a file route must load the session itself and fail closed when there is no authenticated user."
+    },
+    {
+      "lines": "12-13",
+      "label": "Establish request context",
+      "note": "`runWithRequestContext` makes the user/org available to scoping helpers for the duration of the work."
+    },
+    {
+      "lines": "18-19",
+      "label": "Scope ownable reads",
+      "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+    }
   ]
 }
 ```
@@ -171,9 +183,9 @@ export default runMigrations(
 
 데이터베이스가 조정 지점이기 때문에 이는 서버리스 및 다중 인스턴스 배포 전반에 걸쳐 작동합니다. actions 외부에 사용자 정의 변형을 작성하는 경우 프레임워크 도우미를 사용하거나 적절한 동기화 무효화를 내보내 UI 새로 고침을 엽니다.
 
-```an-diagram title="SQL-backed sync loop" summary="No watchers, no sticky state. A write bumps a version in SQL; every client polls the version and refetches."
+```an-diagram title="SQL-backed 동기화 루프" summary="감시자도 없고 끈끈한 상태도 없습니다. 쓰기는 SQL의 버전과 충돌합니다. 모든 클라이언트는 버전을 폴링하고 다시 가져옵니다."
 {
-  "html": "<div class=\"diagram-sync\"><div class=\"diagram-box\" data-rough>Action / helper<br><small class=\"diagram-muted\">mutates data</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>SQL database</strong><small class=\"diagram-muted\">sync version increments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">useDbSync()<br><small class=\"diagram-muted\">polls /_agent-native/poll</small></div><div class=\"diagram-pill ok\">invalidate caches &rarr; UI refreshes</div></div></div>",
+  "html": "<div class=\"diagram-sync\"><div class=\"diagram-box\" data-rough>Action / helper<br><small class=\"diagram-muted\">mutates data</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>SQL 데이터베이스</strong><small class=\"diagram-muted\">sync version increments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">useDbSync()<br><small class=\"diagram-muted\">polls /_agent-native/poll</small></div><div class=\"diagram-pill ok\">invalidate caches &rarr; UI refreshes</div></div></div>",
   "css": ".diagram-sync{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sync .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -201,7 +213,7 @@ export default runMigrations(
 4. 즉시 200을 반환합니다.
 5. 새로운 프로세서 실행이 에이전트 루프를 실행하고 결과를 게시하도록 합니다.
 
-```an-diagram title="Integration queue pattern" summary="The webhook handler returns in milliseconds; a separate signed execution runs the slow agent work."
+```an-diagram title="통합 대기열 패턴" summary="웹훅 핸들러는 밀리초 단위로 반환됩니다. 별도의 서명된 실행은 느린 에이전트 작업을 실행합니다."
 {
   "html": "<div class=\"diagram-webhook\"><div class=\"diagram-box\" data-rough>Inbound webhook<br><small class=\"diagram-muted\">Slack · Stripe · email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Handler</strong><div class=\"diagram-step\"><span class=\"diagram-pill\">1</span><small class=\"diagram-muted\">verify signature</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><small class=\"diagram-muted\">insert work into SQL</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">3</span><small class=\"diagram-muted\">self-fire processor</small></div><div class=\"diagram-step\"><span class=\"diagram-pill ok\">4</span><small class=\"diagram-muted\">return 200 now</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Signed processor<br><small class=\"diagram-muted\">runs agent loop, posts result</small></div></div>",
   "css": ".diagram-webhook{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-webhook .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-webhook .diagram-step{display:flex;align-items:center;gap:8px}.diagram-webhook .diagram-arrow{font-size:22px;line-height:1}"

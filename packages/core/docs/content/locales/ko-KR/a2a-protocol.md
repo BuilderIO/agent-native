@@ -20,7 +20,7 @@ A2A is the substrate for cross-app delegation in this framework — most promine
 - **작업** — 각 메시지는 수명 주기(제출됨, 작업 중, 완료됨, 실패, 취소됨)가 있는 작업을 생성합니다.
 - **JWT 전달자 인증** — 프로덕션 A2A에는 `A2A_SECRET` 또는 명시적인 레거시 `apiKeyEnv`가 필요합니다.
 
-```an-diagram title="One agent hands work to another" summary="A mail agent discovers the analytics agent's card, sends a JSON-RPC message, and gets a completed task back."
+```an-diagram title="한 상담원이 다른 상담원에게 일을 맡깁니다." summary="메일 에이전트는 분석 에이전트의 카드를 발견하고 JSON-RPC 메시지를 보낸 다음 완료된 작업을 돌려받습니다."
 {
   "html": "<div class=\"diagram-handoff\"><div class=\"diagram-card\"><strong>Mail agent</strong><small class=\"diagram-muted\">needs analytics</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">GET /.well-known/agent-card.json</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">POST /_agent-native/a2a<br><small class=\"diagram-muted\">message/send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-pill ok\">task · completed</div></div><div class=\"diagram-card\" data-rough><strong>Analytics agent</strong><small class=\"diagram-muted\">runs run-query, returns result</small></div></div>",
   "css": ".diagram-handoff{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-handoff .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-handoff .diagram-arrow{font-size:20px;line-height:1}"
@@ -146,7 +146,7 @@ _(버전은 다를 수 있습니다. 현재 `protocolVersion`에 대해서는 `/
 
 `message/send`가 `async: true`와 함께 호출되면 JSON-RPC 핸들러는 작업을 대기열에 추가하고 POST를 내부 `/_agent-native/a2a/_process-task` 경로로 자체 실행하므로 핸들러는 자체 전체 시간 초과로 새로운 함수 실행에서 실행됩니다. 이 경로는 작업 ID(5분 수명, `A2A_SECRET`로 서명됨)에 바인딩된 HMAC 토큰으로 인증됩니다. `/_agent-native/a2a` JSON-RPC 경로 앞에 마운트되므로 h3의 접두사 일치가 이를 삼키지 않습니다.
 
-```an-diagram title="Async task lifecycle on serverless" summary="async:true returns working in milliseconds, then a fresh execution runs the agent loop while the caller polls."
+```an-diagram title="서버리스의 비동기 작업 수명 주기" summary="async:true는 밀리초 단위로 작업을 반환하고 호출자가 폴링하는 동안 새로 실행하면 에이전트 루프가 실행됩니다."
 {
   "html": "<div class=\"diagram-async\"><div class=\"diagram-box\" data-rough>message/send<br><small class=\"diagram-muted\">async: true</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">enqueue task</span><span class=\"diagram-pill warn\">return working</span><small class=\"diagram-muted\">~milliseconds</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>self-fire POST /_agent-native/a2a/_process-task<br><small class=\"diagram-muted\">HMAC token · fresh execution · full timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">tasks/get (poll)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">completed</div></div></div>",
   "css": ".diagram-async{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-async .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-arrow{font-size:20px;line-height:1}",
@@ -160,7 +160,7 @@ _(버전은 다를 수 있습니다. 현재 `protocolVersion`에 대해서는 `/
 
 메시지에는 입력된 부분이 포함되어 있습니다. 즉, 텍스트, 구조화된 데이터 및 파일이 모두 하나의 메시지로 전달될 수 있습니다.
 
-```an-annotated-code title="A2A message with typed parts"
+```an-annotated-code title="A2A 입력된 부분이 있는 메시지"
 {
   "language": "json",
   "code": "{\n  \"role\": \"user\",\n  \"parts\": [\n    { \"type\": \"text\", \"text\": \"Show signups by source\" },\n    { \"type\": \"data\", \"data\": { \"dateRange\": \"last-30d\" } },\n    {\n      \"type\": \"file\",\n      \"file\": { \"name\": \"report.csv\", \"mimeType\": \"text/csv\", \"bytes\": \"...\" }\n    }\n  ]\n}",

@@ -73,21 +73,20 @@ const messages = {
     signIn: "تسجيل الدخول",
   },
   chat: {
-    suggestionShipped: "What shipped in the last week?",
-    suggestionUi: "What does the new checkout UI look like?",
-    suggestionAuth: "When did the auth API change?",
-    suggestionApi: "What is the shape of the billing API?",
-    emptyState: "Ask Plan",
-    placeholder:
-      "Ask what shipped, what changed, or what the current code shows...",
-    heading: "Ask Plan",
+    suggestionShipped: "ما الذي صدر خلال الأسبوع الماضي؟",
+    suggestionUi: "كيف تبدو واجهة الدفع الجديدة؟",
+    suggestionAuth: "متى تغيّرت واجهة API للمصادقة؟",
+    suggestionApi: "ما شكل واجهة API للفوترة؟",
+    emptyState: "اسأل Plan",
+    placeholder: "اسأل عما تم إصداره أو تغييره أو ما يعرضه الكود الحالي...",
+    heading: "اسأل Plan",
     description:
-      "Search merged PR recaps, inspect visual blocks, and publish code answers as diagrams, wireframes, API specs, and data models.",
+      "ابحث في ملخصات PR المدمجة، وافحص الكتل المرئية، وانشر إجابات الكود كمخططات وإطارات سلكية ومواصفات API ونماذج بيانات.",
   },
   guest: {
     banner:
-      "You're browsing as a guest. Sign in to create plans, leave comments, and keep your work.",
-    signIn: "Sign in",
+      "أنت تتصفح كضيف. سجّل الدخول لإنشاء الخطط وترك التعليقات والاحتفاظ بعملك.",
+    signIn: "تسجيل الدخول",
   },
 };
 

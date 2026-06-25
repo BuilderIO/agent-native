@@ -68,19 +68,19 @@ const messages = {
     description: "صف الفيديو الذي تريد إنشاءه",
     placeholder: "صف الفيديو الذي تريد إنشاءه...",
     timedOut:
-      "The composition request timed out. Please try again from the sidebar.",
-    generating: "Generating...",
+      "انتهت مهلة طلب التركيب. يرجى المحاولة مرة أخرى من الشريط الجانبي.",
+    generating: "جارٍ الإنشاء...",
   },
   notFound: {
-    message: "This page doesn't exist yet. Continue prompting to build it out.",
-    backToStudio: "Back to Studio",
+    message: "هذه الصفحة غير موجودة بعد. واصل الطلب لبنائها.",
+    backToStudio: "العودة إلى Studio",
   },
   designSystems: {
-    new: "New Design System",
-    setupBrand: "Set up your brand",
-    emptyTitle: "Set up your brand identity",
+    new: "نظام تصميم جديد",
+    setupBrand: "إعداد علامتك التجارية",
+    emptyTitle: "إعداد هوية علامتك التجارية",
     emptyDescription:
-      "Create a design system with your brand colors, typography, and logos. Every new composition will follow your visual identity.",
+      "أنشئ نظام تصميم بألوان علامتك وخطوطها وشعاراتها. سيتبع كل تركيب جديد هويتك البصرية.",
   },
 };
 

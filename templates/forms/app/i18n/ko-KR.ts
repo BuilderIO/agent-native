@@ -57,7 +57,7 @@ const messages = {
   common: {
     retry: "Retry",
     back: "Back",
-    signIn: "Sign in",
+    signIn: "로그인",
     done: "Done",
     select: "Select",
     clearAll: "Clear all",
@@ -93,7 +93,7 @@ const messages = {
     bulkMovedToArchive: "{{formattedCount}} forms moved to Archive",
     published: "Form published",
     unpublished: "Form unpublished",
-    signInPrompt: "Sign in to see your forms.",
+    signInPrompt: "양식을 보려면 로그인하세요.",
     loadFailed: "Couldn't load forms",
     archive: "Archive",
     selectedCount: "{{formattedCount}} selected",

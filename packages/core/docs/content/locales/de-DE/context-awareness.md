@@ -24,7 +24,7 @@ Sechs Muster lösen dieses Problem:
 5. **Prompte Übergabe** – UI steuert den Anruf `sendToAgentChat()`, wenn ein Klick zum Agentenwechsel werden soll
 6. **`navigate`** – ein einmaliger Befehl vom Agenten, der dem UI mitteilt, wohin er gehen soll
 
-```an-diagram title="How the agent sees what you see" summary="The UI writes lightweight state keys; view-screen hydrates them into real records; the agent can write navigate back to move the UI."
+```an-diagram title="Wie der Agent sieht, was Sie sehen" summary="Die Benutzeroberfläche schreibt leichtgewichtige Statusschlüssel. view-screen verwandelt sie in echte Aufzeichnungen; Der Agent kann zurücknavigieren, um die Benutzeroberfläche zu verschieben."
 {
   "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI writes</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">view, open ids</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">rows, blocks, shapes</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Agent acts<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">agent moves the UI</small></div></div>",
   "css": ".diagram-ctx{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-ctx .col{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-ctx .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-ctx .diagram-arrow{font-size:22px;line-height:1}"
@@ -191,7 +191,7 @@ Verwenden Sie `pending-selection-context` für einmalige Abläufe „Auf genau d
 
 Jede Vorlage sollte eine `view-screen`-Aktion haben. Es liest den Navigations- und Auswahlstatus, ruft die relevanten Daten ab und gibt eine Momentaufnahme dessen zurück, was der Benutzer sieht. Das sind die Augen des Agenten.
 
-```an-annotated-code title="view-screen — the agent's eyes"
+```an-annotated-code title="Ansichtsbildschirm – die Augen des Agenten"
 {
   "filename": "actions/view-screen.ts",
   "language": "ts",
@@ -365,7 +365,7 @@ So funktioniert es:
 - Bei der Verarbeitung von Synchronisierungsereignissen filtert der UI Ereignisse heraus, die seinem eigenen `ignoreSource`-Wert entsprechen – sodass er die Daten, die er gerade geschrieben hat, nicht erneut abruft.
 - Ereignisse von Agenten, anderen Registerkarten und actions kommen weiterhin normal durch
 
-```an-diagram title="Source tagging stops self-refetch jitter" summary="A tab ignores sync events stamped with its own TAB_ID, but still reacts to agent and other-tab writes."
+```an-diagram title="Durch die Quellenmarkierung wird der Jitter beim Selbst-Refetch gestoppt" summary="Ein Tab ignoriert Synchronisierungsereignisse, die mit seinem eigenen TAB_ID gestempelt sind, reagiert aber weiterhin auf Agent- und andere Tab-Schreibvorgänge."
 {
   "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">This tab writes<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Server stores source<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">no refetch, no flicker</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">UI updates live</small></div></div>",
   "css": ".diagram-jitter{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jitter .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-jitter .diagram-arrow{font-size:22px;line-height:1}"

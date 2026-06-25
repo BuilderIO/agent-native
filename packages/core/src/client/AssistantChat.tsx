@@ -646,9 +646,7 @@ export interface AssistantChatProps {
   dynamicSuggestions?: AgentDynamicSuggestionsOption;
   /** Optional content rendered at the bottom of the scrollable thread, after messages. */
   threadFooterSlot?: AssistantChatThreadFooterSlot;
-  /** Optional content rendered in the empty state, above the suggestion buttons.
-   *  Used by MultiTabAssistantChat to surface "previous chats for this design"
-   *  when the current thread is empty but the scope has other threads. */
+  /** Optional content rendered in the empty state, above the suggestion buttons. */
   emptyStateAddon?: React.ReactNode;
   /** Whether to show the header bar. Default: true */
   showHeader?: boolean;

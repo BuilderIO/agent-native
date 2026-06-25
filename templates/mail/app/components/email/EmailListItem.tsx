@@ -21,6 +21,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useT } from "@agent-native/core/client";
 
 interface EmailListItemProps {
   email: EmailMessage;
@@ -158,6 +159,7 @@ export const EmailListItem = memo(function EmailListItem({
   onSwipeSnooze,
   highlight,
 }: EmailListItemProps) {
+  const t = useT();
   const { allAccounts } = useAccountFilter();
   const isMultiAccount = allAccounts.length > 1;
 
@@ -597,7 +599,7 @@ export const EmailListItem = memo(function EmailListItem({
                     <IconSend className="h-3.5 w-3.5 rtl:-scale-x-100" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Send now</TooltipContent>
+                <TooltipContent>{t("mail.sendLater.sendNow")}</TooltipContent>
               </Tooltip>
             )}
             {onCancelSchedule && (
@@ -611,7 +613,9 @@ export const EmailListItem = memo(function EmailListItem({
                     <IconX className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Cancel scheduled send</TooltipContent>
+                <TooltipContent>
+                  {t("mail.sendLater.cancelScheduledSend")}
+                </TooltipContent>
               </Tooltip>
             )}
             {onTrash && (
@@ -625,7 +629,7 @@ export const EmailListItem = memo(function EmailListItem({
                     <IconTrash className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Move to Trash</TooltipContent>
+                <TooltipContent>{t("mail.actions.moveToTrash")}</TooltipContent>
               </Tooltip>
             )}
             <Tooltip>

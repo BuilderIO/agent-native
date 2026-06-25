@@ -17,9 +17,9 @@ agent-native add provider stripe | claude
 agent-native add channel discord  | codex
 ```
 
-```an-diagram title="add prints a recipe; your coding agent applies it" summary="agent-native emits a Markdown blueprint to stdout (diagnostics to stderr); you pipe it into Claude Code or Codex, which edits your live repo with full context."
+```an-diagram title="إضافة مطبوعات وصفة؛ يقوم وكيل الترميز الخاص بك بتطبيقه" summary="agent-native يُصدر مخطط Markdown إلى stdout (التشخيص إلى stderr)؛ تقوم بتوصيله إلى Claude Code أو Codex، والذي يقوم بتحرير الريبو المباشر الخاص بك بالسياق الكامل."
 {
-  "html": "<div class=\"diagram-bp\"><div class=\"diagram-node\" data-rough>agent-native add<br><small class=\"diagram-muted\">&lt;kind&gt; &lt;name|URL&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Markdown blueprint<br><small class=\"diagram-muted\">stdout · files to touch · rules · Verify</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>Coding agent<br><small class=\"diagram-muted\">claude · codex</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">edits your live repo</div></div>",
+  "html": "<div class=\"diagram-bp\"><div class=\"diagram-node\" data-rough>agent-native إضافة<br><small class=\"diagram-muted\">&lt;عطوف&gt; &lt;الاسم|URL&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>مخطط تخفيض السعر<br><small class=\"diagram-muted\">stdout · ملفات للمس · قواعد · التحقق</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>وكيل الترميز<br><small class=\"diagram-muted\">كلود · المخطوطة</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">يقوم بتحرير الريبو المباشر الخاص بك</div></div>",
   "css": ".diagram-bp{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bp .diagram-arrow{font-size:22px;line-height:1}.diagram-bp .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```

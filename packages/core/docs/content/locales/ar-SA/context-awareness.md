@@ -24,9 +24,9 @@ description: "كيف يعرف الوكيل ما ينظر إليه المستخد
 5. **التسليم الفوري** -- تستدعي عناصر التحكم UI `sendToAgentChat()` عندما تتحول النقرة إلى وكيل
 6. **`navigate`** -- أمر يتم تنفيذه مرة واحدة من الوكيل لإخبار UI بالمكان الذي يجب أن يذهب إليه
 
-```an-diagram title="How the agent sees what you see" summary="The UI writes lightweight state keys; view-screen hydrates them into real records; the agent can write navigate back to move the UI."
+```an-diagram title="كيف يرى الوكيل ما تراه" summary="تكتب واجهة المستخدم مفاتيح حالة خفيفة الوزن؛ تعمل شاشة العرض على ترطيبها وتحويلها إلى سجلات حقيقية؛ يمكن للوكيل كتابة التنقل مرة أخرى لتحريك واجهة المستخدم."
 {
-  "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI writes</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">view, open ids</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">rows, blocks, shapes</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Agent acts<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">agent moves the UI</small></div></div>",
+  "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">يكتب واجهة المستخدم</span><div class=\"diagram-node\">ملاحة<br><small class=\"diagram-muted\">عرض، معرفات مفتوحة</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">مرشحات قابلة للمشاركة</small></div><div class=\"diagram-node\">اختيار<br><small class=\"diagram-muted\">الصفوف والكتل والأشكال</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">يقرأ الدولة &middot; جلب السجلات</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">تصرفات الوكيل<br><small class=\"diagram-muted\">على الكائن الحقيقي</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">التنقل<br><small class=\"diagram-muted\">يقوم الوكيل بنقل واجهة المستخدم</small></div></div>",
   "css": ".diagram-ctx{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-ctx .col{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-ctx .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-ctx .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -191,16 +191,32 @@ await setClientAppState(
 
 يجب أن يحتوي كل قالب على إجراء `view-screen`. فهو يقرأ حالة التنقل والاختيار، ويجلب البيانات ذات الصلة، ويعيد لقطة لما يراه المستخدم. هذه هي عيون الوكيل.
 
-```an-annotated-code title="view-screen — the agent's eyes"
+```an-annotated-code title="شاشة العرض - عيون الوكيل"
 {
   "filename": "actions/view-screen.ts",
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { readAppState } from \"@agent-native/core/application-state\";\nimport { eq, inArray } from \"drizzle-orm\";\nimport { z } from \"zod\";\nimport { getDb, schema } from \"../server/db/index.js\";\n\nexport default defineAction({\n  description:\n    \"See what the user is currently looking at on screen.\",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState(\"navigation\")) as any;\n    const selection = (await readAppState(\"selection\")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === \"inbox\") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === \"email.messages\") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return \"No application state found. Is the app running?\";\n    }\n    return screen;\n  },\n});",
   "annotations": [
-    { "lines": "10-11", "label": "Tool surface", "note": "The agent reads this description to know it can call `view-screen` to see the current UI." },
-    { "lines": "13", "label": "http: false", "note": "Internal action — not exposed over HTTP. The agent and `pnpm action` call it, not the browser." },
-    { "lines": "15-16", "label": "Read state", "note": "Pulls the lightweight `navigation` and `selection` keys the UI wrote." },
-    { "lines": "23-37", "label": "Hydrate", "note": "Turns those IDs into **fresh** records straight from SQL, so the agent verifies the live object before acting." }
+    {
+      "lines": "10-11",
+      "label": "سطح الأداة",
+      "note": "يقرأ الوكيل هذا الوصف ليعرف أنه يمكنه الاتصال بـ `view-screen` لرؤية واجهة المستخدم الحالية."
+    },
+    {
+      "lines": "13",
+      "label": "http: خطأ",
+      "note": "الإجراء الداخلي — لم يتم الكشف عنه عبر HTTP. الوكيل و `pnpm action` يسمونه، وليس المتصفح."
+    },
+    {
+      "lines": "15-16",
+      "label": "قراءة الدولة",
+      "note": "يسحب المفاتيح `navigation` و`selection` خفيفة الوزن التي كتبتها واجهة المستخدم."
+    },
+    {
+      "lines": "23-37",
+      "label": "هيدرات",
+      "note": "يحول هذه المعرفات إلى سجلات **حديثة** مباشرة من SQL، بحيث يتحقق الوكيل من الكائن المباشر قبل التصرف."
+    }
   ]
 }
 ```
@@ -365,9 +381,9 @@ useDbSync({
 - عند معالجة أحداث المزامنة، يقوم UI بتصفية الأحداث المطابقة لقيمة `ignoreSource` الخاصة به -- لذلك لا يقوم بإعادة جلب البيانات التي كتبها للتو
 - لا تزال الأحداث من الوكلاء وعلامات التبويب الأخرى وactions تحدث بشكل طبيعي
 
-```an-diagram title="Source tagging stops self-refetch jitter" summary="A tab ignores sync events stamped with its own TAB_ID, but still reacts to agent and other-tab writes."
+```an-diagram title="تعمل علامات المصدر على إيقاف عدم استقرار الإرجاع الذاتي" summary="تتجاهل علامة التبويب أحداث المزامنة التي تم ختمها بـ TAB_ID الخاص بها، ولكنها لا تزال تتفاعل مع عمليات كتابة الوكيل وعلامات التبويب الأخرى."
 {
-  "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">This tab writes<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Server stores source<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">no refetch, no flicker</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">UI updates live</small></div></div>",
+  "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">علامة التبويب هذه تكتب<br><small class=\"diagram-muted\">طلب X-المصدر: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>مصدر مخازن الخادم<br>على الحدث</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">المصدر == TAB_ID &rarr; تم تجاهله</div><small class=\"diagram-muted\">لا الإعادة، لا وميض</small><div class=\"diagram-pill ok\">وكيل / علامة التبويب الأخرى &rarr; مُطبَّق</div><small class=\"diagram-muted\">تحديثات واجهة المستخدم مباشرة</small></div></div>",
   "css": ".diagram-jitter{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jitter .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-jitter .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

@@ -17,7 +17,7 @@ description: "قم بتكوين مساحة تخزين تحميل الملفات 
 2. **موفر Builder.io** — مدمج، يتم تنشيطه تلقائيًا عند اتصال Builder.io
 3. **الاحتياطي SQL** — يخزن الملفات بتنسيق base64 في قاعدة البيانات (مناسب للتطوير، وليس للإنتاج)
 
-```an-diagram title="Provider resolution order" summary="uploadFile() picks the first configured provider in order. The SQL fallback always exists so uploads work with zero setup."
+```an-diagram title="ترتيب حل الموفر" summary="uploadFile() يختار الموفر الأول الذي تم تكوينه بالترتيب. الخيار الاحتياطي SQL موجود دائمًا، لذا تعمل التحميلات بدون أي إعداد."
 {
   "html": "<div class=\"diagram-upload\"><div class=\"diagram-box\" data-rough>uploadFile()<br><small class=\"diagram-muted\">POST /_agent-native/file-upload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-step\"><span class=\"diagram-pill accent\">1</span><div class=\"diagram-node\">User-registered<br><small class=\"diagram-muted\">registerFileUploadProvider() — S3, R2, GCS…</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><div class=\"diagram-node\">Builder.io<br><small class=\"diagram-muted\">auto when connected — CDN-served</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill warn\">3</span><div class=\"diagram-node\">SQL fallback<br><small class=\"diagram-muted\">base64 in DB — dev only</small></div></div></div></div>",
   "css": ".diagram-upload{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-upload .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-upload .diagram-step{display:flex;align-items:center;gap:8px}.diagram-upload .diagram-arrow{font-size:22px;line-height:1}"

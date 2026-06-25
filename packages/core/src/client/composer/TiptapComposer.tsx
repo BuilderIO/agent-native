@@ -743,6 +743,11 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "deepseek-v3-1": "DeepSeek v3.1",
 };
 
+export const MODEL_SELECTOR_POPOVER_STYLE = {
+  fontSize: 13,
+  maxHeight: "min(500px, var(--radix-popover-content-available-height, 500px))",
+} satisfies React.CSSProperties;
+
 function friendlyModelName(model: string): string {
   if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
   // Claude: claude-{tier}-{major}-{minor}[-dateYYYYMMDD] → Tier Major.Minor
@@ -982,19 +987,7 @@ function ModelSelector({
         collisionPadding={8}
         data-agent-native-composer-popover="true"
         className="z-[260] box-border w-72 overflow-y-auto rounded-lg border-border p-0 py-1 shadow-lg"
-        style={
-          providerGroups.length > 0
-            ? {
-                fontSize: 13,
-                height:
-                  "min(500px, var(--radix-popover-content-available-height, 500px))",
-              }
-            : {
-                fontSize: 13,
-                maxHeight:
-                  "min(500px, var(--radix-popover-content-available-height, 500px))",
-              }
-        }
+        style={MODEL_SELECTOR_POPOVER_STYLE}
       >
         {showBuilderCta && (
           <>

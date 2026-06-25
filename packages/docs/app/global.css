@@ -1187,10 +1187,10 @@ html.dark .shiki span {
 
 /* Embedded blocks ship with the block library's own surface, which is a touch
  * lighter than the docs' code blocks (the plan `--muted`, ~#262626 in dark, vs.
- * our ~#111 code fences). Align both the inner code surfaces (annotated-code,
- * API examples) AND the block CONTAINERS — file-tree, API-endpoint card, diagram
- * frame — to the docs code palette (`--code-bg` / `--code-border`) so an embedded
- * block reads as the same unified surface as a plain ``` fence on the page. */
+ * our ~#111 code fences). Align inner code surfaces (annotated-code, API
+ * examples) and code-like block containers to the docs code palette
+ * (`--code-bg` / `--code-border`) so an embedded block reads as the same unified
+ * surface as a plain ``` fence on the page. */
 .docs-article .docs-block .bg-plan-code,
 .docs-article .docs-block .bg-plan-block {
   background-color: var(--code-bg) !important;
@@ -1199,8 +1199,9 @@ html.dark .shiki span {
   border-color: var(--code-border) !important;
 }
 .docs-article .docs-block .plan-diagram-frame {
-  --wf-paper: var(--code-bg);
-  border: 1px solid var(--code-border);
+  --wf-paper: transparent;
+  border: 0;
+  background: transparent;
 }
 
 /* Prev / Next navigation */

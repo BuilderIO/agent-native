@@ -26,7 +26,7 @@ description: "Dispatch를 ID 기관으로 사용하여 ID 페더레이션을 통
 
 흐름은 표준 승인 → 서명된 토큰 → 콜백 리디렉션이며, 신뢰 경계를 넘는 유일한 것은 이메일입니다.
 
-```an-diagram title="Identity federation flow" summary="Dispatch authenticates the human and returns a short-lived signed assertion of one thing — the verified email. The app links by email and mints its own local session."
+```an-diagram title="ID 페더레이션 흐름" summary="Dispatch은 사람을 인증하고 확인된 이메일이라는 단기간 서명된 주장을 반환합니다. 앱은 이메일로 연결되며 자체 로컬 세션을 시작합니다."
 {
   "html": "<div class=\"diagram-sso\"><div class=\"diagram-card\" data-rough><strong>Client app</strong><small class=\"diagram-muted\">own user store</small></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill\">authorize</span></div><div class=\"diagram-card\" data-rough><strong>Dispatch</strong><small class=\"diagram-muted\">identity authority</small><span class=\"diagram-pill accent\">authenticates human</span></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill accent\">302 + signed JWT</span></div><div class=\"diagram-card\" data-rough><strong>App callback</strong><small class=\"diagram-muted\">verify signature · scope:identity · exp &le; 2 min</small><span class=\"diagram-pill ok\">JIT-link by email</span><span class=\"diagram-pill ok\">mint local session</span></div></div>",
   "css": ".diagram-sso{display:flex;align-items:stretch;gap:12px;flex-wrap:wrap}.diagram-sso .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px}.diagram-sso .diagram-step{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}.diagram-sso .diagram-arrow{font-size:22px;line-height:1}"
@@ -109,7 +109,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 
 적시 링크는 확인된 이메일에 전적으로 기반한 단일 결정입니다.
 
-```an-diagram title="JIT-link decision" summary="Linking is keyed on the verified email and is additive only — existing accounts are reused unchanged, new emails create a fresh local user."
+```an-diagram title="JIT-link 결정" summary="연결은 확인된 이메일에 입력되며 추가로만 이루어집니다. 기존 계정은 변경 없이 재사용되고, 새 이메일은 새로운 로컬 사용자를 생성합니다."
 {
   "html": "<div class=\"diagram-jit\"><div class=\"diagram-node\" data-rough>Verified email<br><small class=\"diagram-muted\">from signed identity JWT</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-branch\"><div class=\"diagram-box\" data-rough>Local user exists?<span class=\"diagram-pill ok\">yes &rarr; reuse unchanged</span><span class=\"diagram-pill accent\">no &rarr; create local user</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Mint normal local session</div></div></div>",
   "css": ".diagram-jit{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jit .diagram-node{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-jit .diagram-branch{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jit .diagram-box{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-jit .diagram-arrow{font-size:22px;line-height:1}"

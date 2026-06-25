@@ -17,6 +17,7 @@ import {
 } from "react-i18next";
 import { callAction } from "./use-action.js";
 import { setClientAppState } from "./application-state.js";
+import defaultEnglishMessages from "../templates/default/app/i18n/en-US.js";
 import {
   DEFAULT_LOCALE,
   LOCALE_HYDRATION_GLOBAL,
@@ -79,6 +80,7 @@ export interface AgentNativeI18nProviderProps {
 
 interface LocaleContextValue {
   locale: LocaleCode;
+  sourceLocale: LocaleCode;
   preference: LocalePreference;
   dir: "ltr" | "rtl";
   metadata: LocaleMetadata;
@@ -437,13 +439,14 @@ export function AgentNativeI18nProvider({
   const context = useMemo<LocaleContextValue>(
     () => ({
       locale,
+      sourceLocale,
       preference,
       dir: localeDirection(locale),
       metadata: LOCALE_METADATA[locale],
       setPreference,
       loading,
     }),
-    [loading, locale, preference, setPreference],
+    [loading, locale, preference, setPreference, sourceLocale],
   );
 
   return (
@@ -459,6 +462,10 @@ export function useLocale(): LocaleContextValue {
     throw new Error("useLocale must be used within AgentNativeI18nProvider");
   }
   return value;
+}
+
+export function useOptionalLocale(): LocaleContextValue | null {
+  return useContext(LocaleContext);
 }
 
 const CORE_FALLBACK_MESSAGES: Record<string, string> = {
@@ -517,7 +524,55 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "codeRequired.setupRequired": "Setup required",
   "codeRequired.branchCreated": "Branch created",
   "codeRequired.close": "Close",
+  "agentPanel.useBuilder": "Use Builder",
+  "agentPanel.openDesktopToEditCode": "Open Desktop to edit code",
+  "agentPanel.codeUnavailableDescription":
+    "Source-code changes and CLI access are available in the Agent Native Desktop app.",
+  "agentPanel.downloadDesktop": "Download Desktop",
+  "agentPanel.chatMode": "Chat mode",
+  "agentPanel.chat": "Chat",
+  "agentPanel.cliTerminalMode": "CLI terminal mode",
+  "agentPanel.cli": "CLI",
+  "agentPanel.workspaceMode": "Workspace files, agents, skills, and tasks",
+  "agentPanel.workspace": "Workspace",
+  "agentPanel.newChat": "New chat",
+  "agentPanel.newTerminal": "New terminal",
+  "agentPanel.panelOptions": "Agent panel options",
+  "agentPanel.collapseSidebar": "Collapse sidebar",
+  "agentPanel.hideChats": "Hide chats",
+  "agentPanel.allChats": "All chats",
+  "agentPanel.settings": "Settings",
+  "agentPanel.feedback": "Feedback",
+  "agentPanel.exitFullscreen": "Exit fullscreen",
+  "agentPanel.fullscreen": "Fullscreen",
+  "agentPanel.closeTab": "Close tab",
+  "agentPanel.closeOtherTabs": "Close other tabs",
+  "agentPanel.closeAllTabs": "Close all tabs",
+  "agentPanel.clearChat": "Clear chat",
+  "agentPanel.cliRequiresDevMode": "CLI requires dev mode",
+  "agentPanel.cliRequiresDevModeDescription":
+    "Run this app locally with pnpm dev or use Builder.io to access the CLI terminal.",
+  "agentPanel.toggleAgent": "Toggle agent",
 };
+
+function flattenMessages(
+  value: unknown,
+  prefix = "",
+  out: Record<string, string> = {},
+) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+  for (const [key, child] of Object.entries(value)) {
+    const nextKey = prefix ? `${prefix}.${key}` : key;
+    if (typeof child === "string") {
+      out[nextKey] = child;
+    } else {
+      flattenMessages(child, nextKey, out);
+    }
+  }
+  return out;
+}
+
+const DEFAULT_ENGLISH_MESSAGES = flattenMessages(defaultEnglishMessages);
 
 function interpolateFallbackMessage(
   template: string,
@@ -534,18 +589,29 @@ function fallbackMessage(key: string, options?: Record<string, unknown>) {
   const pluralKey =
     Number.isFinite(count) && count === 1 ? `${key}_one` : `${key}_other`;
   const template =
-    CORE_FALLBACK_MESSAGES[pluralKey] ?? CORE_FALLBACK_MESSAGES[key];
+    DEFAULT_ENGLISH_MESSAGES[pluralKey] ??
+    DEFAULT_ENGLISH_MESSAGES[key] ??
+    CORE_FALLBACK_MESSAGES[pluralKey] ??
+    CORE_FALLBACK_MESSAGES[key];
   return template ? interpolateFallbackMessage(template, options) : key;
 }
 
 export function useT() {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
+  const context = useContext(LocaleContext);
+  const sourceLocale = context?.sourceLocale ?? DEFAULT_LOCALE;
   return useCallback(
     (key: string, options?: Record<string, unknown>) => {
       const translated = t(key, options);
-      return translated === key ? fallbackMessage(key, options) : translated;
+      if (translated !== key) return translated;
+      const getFixedT = (
+        i18n as { getFixedT?: (locale: LocaleCode) => typeof t }
+      ).getFixedT;
+      const sourceFallback = getFixedT?.(sourceLocale)(key, options);
+      if (sourceFallback && sourceFallback !== key) return sourceFallback;
+      return fallbackMessage(key, options);
     },
-    [t],
+    [i18n, sourceLocale, t],
   );
 }
 

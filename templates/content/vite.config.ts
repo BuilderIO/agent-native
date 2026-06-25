@@ -1,13 +1,13 @@
 import { reactRouter } from "@react-router/dev/vite";
 import fs from "node:fs";
 import path from "node:path";
-import { defineConfig } from "@agent-native/core/vite";
+import { agentNative } from "@agent-native/core/vite";
 import {
   findAgentNativeManifest,
   getLocalArtifactApp,
   type LocalArtifactOptions,
 } from "@agent-native/core/local-artifacts";
-import type { Plugin } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import {
   isLocalComponentWorkspaceStoreFile,
   localComponentWorkspaceStoreDir,
@@ -383,14 +383,19 @@ const cloudflareSsrStubs =
     : [];
 
 export default defineConfig({
-  plugins: [contentLocalComponentsPlugin(), reactRouter()],
-  fsAllow: [
-    ...(localWorkspaceRoot ? [localWorkspaceRoot] : []),
-    ...dynamicLocalComponentDirs,
+  plugins: [
+    contentLocalComponentsPlugin(),
+    reactRouter(),
+    agentNative({
+      fsAllow: [
+        ...(localWorkspaceRoot ? [localWorkspaceRoot] : []),
+        ...dynamicLocalComponentDirs,
+      ],
+      // shiki only runs in AssistantChat's useEffect — keep it out of the
+      // CF Pages Functions bundle (25 MiB limit).
+      ssrStubs: ["shiki", ...cloudflareSsrStubs],
+    }),
   ],
-  // shiki only runs in AssistantChat's useEffect — keep it out of the
-  // CF Pages Functions bundle (25 MiB limit).
-  ssrStubs: ["shiki", ...cloudflareSsrStubs],
   optimizeDeps: {
     include: [
       "yjs",

@@ -46,7 +46,7 @@ UI와 에이전트 actions는 두 모드 모두에서 동일한 모양을 유지
 편집자는 여전히 문서를 편집합니다. 차이점은 해당 문서가 해결되는지 여부입니다.
 SQL 행 또는 로컬 파일
 
-```an-diagram title="Same actions, two sources of truth" summary="The UI and agent call identical actions in both modes. The action layer decides whether each call resolves to SQL rows or repo files."
+```an-diagram title="동일한 행동, 두 가지 진실 소스" summary="UI와 에이전트는 두 모드에서 동일한 작업을 호출합니다. 작업 계층은 각 호출이 SQL 행 또는 repo 파일로 확인되는지 여부를 결정합니다."
 {
   "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">Content UI</div><div class=\"diagram-node\">Agent + actions<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">Database mode</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">hosted · sharing · comments · history</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">Git review · coding-agent edits</small></div></div></div>",
   "css": ".diagram-mode{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mode .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mode .diagram-arrow{font-size:22px;line-height:1}.diagram-mode .resolve{display:flex;gap:12px;flex-wrap:wrap}.diagram-mode .diagram-panel{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
@@ -57,21 +57,21 @@ SQL 행 또는 로컬 파일
 
 콘텐츠 작업공간은 다음과 같이 작을 수 있습니다:
 
-```an-file-tree title="A Content workspace repo"
+```an-file-tree title="Content workspace repo"
 {
   "entries": [
-    { "path": "agent-native.json", "note": "declares which folders are content roots and their kinds" },
-    { "path": "docs/", "note": "content root — shows in the sidebar as pages" },
+    { "path": "agent-native.json", "note": "어떤 폴더가 콘텐츠 루트인지와 그 종류를 선언" },
+    { "path": "docs/", "note": "콘텐츠 루트: 사이드바에 페이지로 표시" },
     { "path": "docs/getting-started.mdx" },
     { "path": "docs/guides/custom-components.mdx" },
-    { "path": "blog/", "note": "content root" },
+    { "path": "blog/", "note": "콘텐츠 루트" },
     { "path": "blog/launch-post.mdx" },
-    { "path": "resources/", "note": "content root" },
+    { "path": "resources/", "note": "콘텐츠 루트" },
     { "path": "resources/messaging/positioning.md" },
-    { "path": "components/", "note": "NOT a content root — preview component library MDX can import" },
+    { "path": "components/", "note": "콘텐츠 루트 아님: MDX가 import할 수 있는 preview 컴포넌트 라이브러리" },
     { "path": "components/FrameworkTabs.tsx" },
     { "path": "components/Callout.tsx" },
-    { "path": "extensions/", "note": "NOT a content root — local extension library (sandboxed widgets)" },
+    { "path": "extensions/", "note": "콘텐츠 루트 아님: 로컬 extension 라이브러리(sandboxed widgets)" },
     { "path": "extensions/doc-status/extension.json" },
     { "path": "extensions/doc-status/index.html" }
   ]

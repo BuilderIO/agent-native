@@ -57,7 +57,7 @@ const messages = {
   common: {
     retry: "Retry",
     back: "Back",
-    signIn: "Sign in",
+    signIn: "साइन इन करें",
     done: "Done",
     select: "Select",
     clearAll: "Clear all",
@@ -93,7 +93,7 @@ const messages = {
     bulkMovedToArchive: "{{formattedCount}} forms moved to Archive",
     published: "Form published",
     unpublished: "Form unpublished",
-    signInPrompt: "Sign in to see your forms.",
+    signInPrompt: "अपने forms देखने के लिए sign in करें।",
     loadFailed: "Couldn't load forms",
     archive: "Archive",
     selectedCount: "{{formattedCount}} selected",

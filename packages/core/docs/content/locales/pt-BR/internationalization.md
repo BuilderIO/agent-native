@@ -115,6 +115,8 @@ e deixe rotas, nomes de ações, campos de protocolo, variáveis de ambiente e n
 não traduzido. Se uma localidade não tiver Markdown traduzido para uma página, o site de documentos
 volta para o inglês para essa página enquanto ainda localiza a navegação e o Chrome.
 
+O Markdown dos docs pode incluir blocos visuais estruturados `an-*`. Traduza os campos de texto visíveis quando fizer sentido, como títulos de file-tree e `entries[].note`, corpos de callout, labels de tabs e labels/notes de annotated-code. Mantenha identificadores estáveis sem alterações: nomes de arquivo, paths, env vars, strings de rota, nomes de actions, language tags, trechos de código, chaves JSON e nomes de protocolo.
+
 ## Actions e persistência
 
 Todo aplicativo herda:

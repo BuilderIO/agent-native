@@ -40,7 +40,7 @@ El backend predeterminado genera un proceso secundario de Nodo local bloqueado. 
 
 Mantener el contrato restringido significa que un adaptador remoto hereda la misma postura de seguridad. El proceso principal mantiene la propiedad de todo lo que contiene secretos: construye el módulo sandbox, ejecuta el puente localhost (que contiene el contexto de solicitud y aplica listas de host permitidas + guardias SSRF), limpia el entorno y formatea la salida. Un adaptador solo recibe un origen de módulo **no secreto** ya preparado más límites de recursos; es responsable únicamente de _ejecutarlo_ y capturar el estado stdout/stderr/exit.
 
-```an-diagram title="The parent keeps the secrets; the adapter only runs code" summary="run-code builds the module and runs the loopback bridge; the adapter receives a non-secret module + limits and returns stdout/stderr/exit."
+```an-diagram title="El padre guarda los secretos; el adaptador solo ejecuta código" summary="run-code construye el módulo y ejecuta el puente loopback; el adaptador recibe un módulo no secreto + límites y devuelve stdout/stderr/exit."
 {
   "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>Parent process</strong><small class=\"diagram-muted\">builds module · loopback bridge · env scrub · output format</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">local child · Docker · remote · durable</small></div></div>",
   "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -51,14 +51,14 @@ Mantener el contrato restringido significa que un adaptador remoto hereda la mis
 
 La costura se encuentra en el núcleo en `packages/core/src/coding-tools/sandbox/` — `adapter.ts` (el contrato), `index.ts` (selección: `getSandboxAdapter()` / `registerSandboxAdapter()`) y `local-child-process-adapter.ts` (el valor predeterminado). Está cableado en el paquete por `run-code.ts`; un host conecta un backend diferente a través del asistente de registro `index.ts` (o, para un backend Docker, a través del [blueprint](/docs/blueprint-installer) que edita estos archivos directamente).
 
-```an-file-tree title="The sandbox seam in core"
+```an-file-tree title="El punto de unión del sandbox en core"
 {
   "title": "packages/core/src/coding-tools/sandbox/",
   "entries": [
-    { "path": "adapter.ts", "note": "the SandboxAdapter contract (SandboxRunRequest / SandboxRunResult)" },
-    { "path": "index.ts", "note": "selection: getSandboxAdapter() / registerSandboxAdapter()" },
-    { "path": "local-child-process-adapter.ts", "note": "the default backend — locked-down Node child process" },
-    { "path": "../run-code.ts", "note": "wires the seam; never changes when you swap backends" }
+    { "path": "adapter.ts", "note": "El contrato SandboxAdapter (SandboxRunRequest / SandboxRunResult)" },
+    { "path": "index.ts", "note": "Selección: getSandboxAdapter() / registerSandboxAdapter()" },
+    { "path": "local-child-process-adapter.ts", "note": "Backend predeterminado: proceso hijo de Node bloqueado" },
+    { "path": "../run-code.ts", "note": "Conecta ese punto; no cambia al sustituir backends" }
   ]
 }
 ```

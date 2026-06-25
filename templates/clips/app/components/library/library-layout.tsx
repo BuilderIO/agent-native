@@ -235,6 +235,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       <AgentSidebar
         position="right"
         defaultOpen={!isMobile}
+        animateMobile={false}
+        animateDesktop={false}
         emptyStateText={t("navigation.agentEmptyState")}
         suggestions={[
           t("navigation.agentSuggestionSummary"),

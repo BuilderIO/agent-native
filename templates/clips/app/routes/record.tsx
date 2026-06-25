@@ -874,6 +874,8 @@ export default function RecordRoute() {
     displaySurface: DisplaySurface;
     micDeviceId: string | null;
     cameraDeviceId: string | null;
+    cameraBlur: boolean;
+    cameraBlurRadius: number;
   } | null>(null);
   const tickRef = useRef<number | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
@@ -949,6 +951,8 @@ export default function RecordRoute() {
       displaySurface: DisplaySurface;
       micDeviceId: string | null;
       cameraDeviceId: string | null;
+      cameraBlur: boolean;
+      cameraBlurRadius: number;
     }) => {
       const blockedFeature = isEmbeddedWindow()
         ? getPolicyBlockedCaptureLabel({
@@ -994,6 +998,8 @@ export default function RecordRoute() {
           micDeviceId: opts.micDeviceId,
           cameraDeviceId: opts.cameraDeviceId,
           cameraBubbleSize: cameraSize,
+          cameraBlur: opts.cameraBlur,
+          cameraBlurRadius: opts.cameraBlurRadius,
           uploadUrl: "",
           abortUrl: "",
           onError: (err) => {
@@ -1006,6 +1012,13 @@ export default function RecordRoute() {
           // recording keeps going; just let the user know what happened.
           onWarning: (message) => {
             toast.warning(message);
+          },
+          // Camera ended (unplugged / revoked): drop the on-page bubble, and in
+          // camera-only mode clear the fullscreen preview too (it renders from
+          // previewStream) so neither freezes on the last frame.
+          onCameraEnded: () => {
+            setCameraStream(null);
+            if (opts.mode === "camera") setPreviewStream(null);
           },
           // Track the surface the user actually chose (and any mid-recording
           // switch) so the live camera bubble is hidden only when the full

@@ -35,7 +35,7 @@ Si vous souhaitez le plus petit environnement d'exécution d'action uniquement s
 
 C'est ça le point. Chat est un shell par défaut mince et utile pour votre propre agent, et non un produit de domaine prétendant être générique.
 
-```an-diagram title="What ships in the Chat shell" summary="A thin chat surface over the framework's standard runtime — actions, durable threads, live sync, and auth — with room to add your own UI."
+```an-diagram title="Ce qui est livré dans le shell Chat" summary="Une fine surface de discussion sur le temps d'exécution standard du framework (actions, threads durables, synchronisation en direct et authentification) avec de la place pour ajouter votre propre interface utilisateur."
 {
   "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">Thread list<br><small class=\"diagram-muted\">create · reopen · pin · archive</small></div><div class=\"diagram-node\">Full-page chat<br><small class=\"diagram-muted\">framework chat surface on /</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">Core SQL tables<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">Live sync &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">login · orgs · sessions</small></div></div></div>",
   "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -74,14 +74,14 @@ npx @agent-native/core@latest create my-agent --headless
   suggestions, état vide, compositeur ou mise en page environnante ici.
 - `AGENTS.md` indique à l'agent intégré comment travailler dans cette application.
 
-```an-file-tree title="Chat template layout"
+```an-file-tree title="Structure du modèle Chat"
 {
   "entries": [
-    { "path": "actions/hello.ts", "note": "the one example action; replace or add actions beside it" },
-    { "path": "actions/view-screen.ts", "note": "standard context action the agent reads" },
-    { "path": "actions/navigate.ts", "note": "standard navigation action" },
-    { "path": "app/routes/_index.tsx", "note": "renders the full-page chat surface; edit suggestions, empty state, composer" },
-    { "path": "AGENTS.md", "note": "chat-first guidance the built-in agent reads" }
+    { "path": "actions/hello.ts", "note": "L'action d'exemple ; remplacez-la ou ajoutez des actions à côté" },
+    { "path": "actions/view-screen.ts", "note": "Action de contexte standard que l'agent lit" },
+    { "path": "actions/navigate.ts", "note": "Action de navigation standard" },
+    { "path": "app/routes/_index.tsx", "note": "Rend la surface de chat pleine page ; modifiez suggestions, état vide et composer" },
+    { "path": "AGENTS.md", "note": "Guidage orienté chat lu par l'agent intégré" }
   ]
 }
 ```

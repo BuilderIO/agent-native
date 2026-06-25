@@ -13,7 +13,7 @@ Skills は `.agents/skills/<name>/SKILL.md` にあり、エージェント向け
 
 すべてのスキルのフロントマター `name` および `description` は常にシステム プロンプトの skills ブロックに挿入されるため、エージェントは skills が何であるかを認識します。エージェントがスキルがタスクに関連すると判断すると、完全なスキル本体がオンデマンドでロードされます (`docs-search` 経由でも表示されます)。これが、説明を短くし、トリガー固有にすることが重要である理由です。説明は、残りをロードするかどうかを決定する前にエージェントが読み取る唯一の内容です。
 
-```an-diagram title="Progressive disclosure" summary="Only the name + description of every skill is always in context. The full body loads on demand when the task matches."
+```an-diagram title="段階的な開示" summary="すべてのスキルの名前と説明のみが常にコンテキストに含まれます。タスクが一致すると、ボディ全体がオンデマンドでロードされます。"
 {
   "html": "<div class=\"sk-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Always in the system prompt</span><div class=\"sk-list\"><span class=\"diagram-pill\">storing-data &mdash; <small class=\"diagram-muted\">add data models&hellip;</small></span><span class=\"diagram-pill\">real-time-sync &mdash; <small class=\"diagram-muted\">wire polling&hellip;</small></span><span class=\"diagram-pill\">create-skill &mdash; <small class=\"diagram-muted\">add a skill&hellip;</small></span></div><small class=\"diagram-muted\">just name + description (cheap)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><small class=\"diagram-muted\">task matches a description</small><span class=\"diagram-pill accent\">load on demand</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Full <code>SKILL.md</code> body<br><small class=\"diagram-muted\">rules, code, do/don't</small></div></div>",
   "css": ".sk-flow{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.sk-flow .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:240px}.sk-flow .sk-list{display:flex;flex-direction:column;gap:6px}.sk-flow .center{display:flex;flex-direction:column;align-items:center;gap:6px}.sk-flow .diagram-arrow{font-size:22px}"
@@ -80,7 +80,7 @@ Skills は `.agents/skills/<name>/SKILL.md` にあり、エージェント向け
 
 各スキルは、YAML フロントマターを持つ Markdown ファイルです:
 
-```an-annotated-code title="Anatomy of a SKILL.md"
+```an-annotated-code title="SKILL.md の構造"
 {
   "filename": ".agents/skills/project-imports/SKILL.md",
   "language": "markdown",
@@ -130,7 +130,7 @@ scope: dev
 
 これは、`.claude/skills` を読み取るだけの Claude コードに依存する古いハックを置き換えます。`scope: dev` は、開発とランタイムの分割を第一級の明示的な選択にします。
 
-```an-diagram title="Which agent loads which skill" summary="scopedecides whether the in-app runtime agent sees a skill.dev skills are visible only to your coding agent."
+```an-diagram title="どのエージェントがどのスキルをロードするか" summary="スコープは、アプリ内ランタイム エージェントがスキルを認識するかどうかを決定します。dev スキルは、コーディング エージェントにのみ表示されます。"
 {
 "html": "<div class=\"sc-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill\">.agents/skills/</span><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: both</span><small class=\"diagram-muted\">default</small></div><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: runtime</span></div><div class=\"sc-row\"><span class=\"diagram-pill warn\">scope: dev</span></div></div><div class=\"sc-targets\"><div class=\"diagram-box\">Runtime agent<br><small class=\"diagram-muted\">reads <code>both</code> + <code>runtime</code></small></div><div class=\"diagram-box\">Coding agent<br><small class=\"diagram-muted\">Claude Code reads <code>.claude/skills/</code> + <code>dev</code></small></div></div></div>",
 "css": ".sc-grid{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}.sc-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.sc-grid .sc-row{display:flex;align-items:center;gap:8px}.sc-grid .sc-targets{display:flex;flex-direction:column;gap:10px}"

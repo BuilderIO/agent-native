@@ -388,23 +388,51 @@ export async function claimBackgroundRun(runId: string): Promise<boolean> {
  * the claim; a terminal `status` means the run already resolved. Returns null if
  * the row is missing.
  */
-export async function readBackgroundRunClaim(
-  runId: string,
-): Promise<{ dispatchMode: string | null; status: string | null } | null> {
+export async function readBackgroundRunClaim(runId: string): Promise<{
+  dispatchMode: string | null;
+  status: string | null;
+  diagStage: string | null;
+} | null> {
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT dispatch_mode, status FROM agent_runs WHERE id = ? LIMIT 1`,
+    sql: `SELECT dispatch_mode, status, diag_stage FROM agent_runs WHERE id = ? LIMIT 1`,
     args: [runId],
   });
   const row = rows?.[0] as
-    | { dispatch_mode?: string | null; status?: string | null }
+    | {
+        dispatch_mode?: string | null;
+        status?: string | null;
+        diag_stage?: string | null;
+      }
     | undefined;
   if (!row) return null;
   return {
     dispatchMode: row.dispatch_mode ?? null,
     status: row.status ?? null,
+    diagStage: row.diag_stage ?? null,
   };
+}
+
+/**
+ * Resolve the authenticated owner email for a run by joining it to its chat
+ * thread. The durable background worker's self-dispatch is cookieless
+ * (HMAC-only — see `AGENT_CHAT_PROCESS_RUN_PATH`), so it has no session for the
+ * normal owner resolution and would otherwise be treated as unauthenticated.
+ * The thread's `owner_email` was written by the authenticated foreground when it
+ * created the thread, so it is a trusted, non-forgeable owner source: only the
+ * HMAC-signed `runId` selects the row, and the caller cannot influence which
+ * owner that row maps to. Returns null when the run (or its thread) is missing.
+ */
+export async function getRunOwnerEmail(runId: string): Promise<string | null> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT t.owner_email AS owner_email FROM agent_runs r JOIN chat_threads t ON r.thread_id = t.id WHERE r.id = ? LIMIT 1`,
+    args: [runId],
+  });
+  const row = rows?.[0] as { owner_email?: string | null } | undefined;
+  return row?.owner_email ?? null;
 }
 
 /**
@@ -517,19 +545,6 @@ export const RUN_DIAG_STAGE = {
    * recovered by running the turn inline. The run still completes for the user.
    */
   foregroundInlineRecovery: "foreground_inline_recovery",
-  /**
-   * bg-fn wrapper self-diagnostics (the generated `server-agent-background`
-   * wrapper reports these via the `_bg-diag` route, since its own logs are
-   * unreadable). `bgfnWrapperEntered`: the wrapper actually ran in the bg-fn
-   * isolate. `bgfnHandoffReturned`: the in-isolate handoff to the Nitro handler
-   * RETURNED — detail carries the HTTP status (404=route mismatch, 401=auth,
-   * 2xx/5xx=route ran). `bgfnWrapperThrew`: the import/handoff THREW before
-   * returning — detail carries the error. Read in the pre-grace window before
-   * the circuit-breaker overwrites diag_stage.
-   */
-  bgfnWrapperEntered: "bgfn_wrapper_entered",
-  bgfnHandoffReturned: "bgfn_handoff_returned",
-  bgfnWrapperThrew: "bgfn_wrapper_threw",
 } as const;
 
 export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];

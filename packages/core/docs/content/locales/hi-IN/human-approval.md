@@ -14,7 +14,7 @@ description: "उच्च-परिणाम वाली कार्रवा
 
 `needsApproval` को `defineAction` पर सेट करें। यह एक बूलियन या विधेय को स्वीकार करता है:
 
-```an-annotated-code title="Gating the one consequential action"
+```an-annotated-code title="एक परिणामी कार्रवाई गेटिंग"
 {
   "filename": "actions/send-email.ts",
   "language": "ts",
@@ -70,7 +70,7 @@ description: "उच्च-परिणाम वाली कार्रवा
 
 ## एंड-टू-एंड {#flow}
 
-```an-diagram title="The approval interrupt" summary="A gated call pauses the turn before run() fires. Approval re-issues the turn carrying the call's key; only then does the side effect happen."
+```an-diagram title="अनुमोदन में रुकावट" summary="एक गेटेड कॉल रन() सक्रिय होने से पहले टर्न को रोक देती है। अनुमोदन कॉल की कुंजी ले जाने वाले टर्न को फिर से जारी करता है; तभी दुष्प्रभाव होता है।"
 {
   "html": "<div class=\"diagram-approve\"><div class=\"diagram-box\" data-rough>Agent calls send-email</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel warn\" data-rough><strong>Gate truthy, call not yet approved</strong><small class=\"diagram-muted\">loop emits tool_start + approval_required { tool, input, approvalKey }</small><span class=\"diagram-pill warn\">turn pauses &mdash; run() did NOT execute</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Human clicks Approve in chat<br><small class=\"diagram-muted\">client re-issues the turn with approvedToolCalls: [approvalKey]</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel ok\" data-rough><span class=\"diagram-pill ok\">Gate sees the key &rarr; run() executes &rarr; email sends</span></div></div>",
   "css": ".diagram-approve{display:flex;flex-direction:column;align-items:center;gap:8px}.diagram-approve .diagram-panel{display:flex;flex-direction:column;gap:6px;align-items:center;padding:12px 16px;text-align:center}.diagram-approve .diagram-arrow{font-size:22px;line-height:1}"

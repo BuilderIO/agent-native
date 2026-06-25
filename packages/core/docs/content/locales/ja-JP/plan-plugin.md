@@ -14,7 +14,7 @@ Agent-Native **プラン** アプリは、1 つのインストール可能なバ
 - **2 つの skills** — `/visual-plan` (正規のエントリ ポイント) と `/visual-recap`。
 - **プラン MCP コネクタ** — `https://plan.agent-native.com` (MCP エンドポイント `https://plan.agent-native.com/_agent-native/mcp`、サーバー名 `plan`) でホストされているアプリに対して登録されています。
 
-```an-diagram title="Three routes, one bundle" summary="The universal CLI, Claude Code plugin, and Codex plugin all install the same two skills plus the hosted Plan connector."
+```an-diagram title="3つのルート、1つのバンドル" summary="ユニバーサル CLI、Claude Code プラグイン、および Codex プラグインはすべて、同じ 2 つのスキルとホストされたプラン コネクタをインストールします。"
 {
   "html": "<div class=\"diagram-routes\"><div class=\"diagram-col\"><div class=\"diagram-node\">Universal CLI<br><small class=\"diagram-muted\">skills add visual-plan</small></div><div class=\"diagram-node\">Claude Code plugin<br><small class=\"diagram-muted\">/plugin install</small></div><div class=\"diagram-node\">Codex plugin<br><small class=\"diagram-muted\">codex plugin add</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">/visual-plan</span><span class=\"diagram-pill accent\">/visual-recap</span><small class=\"diagram-muted\">two skills</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com/_agent-native/mcp</small></div></div>",
   "css": ".diagram-routes{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-routes .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-routes .diagram-arrow{font-size:22px;line-height:1}.diagram-routes .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-routes .center .diagram-pill{margin:2px}"
@@ -82,7 +82,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 コメント、スクリーンショット、プラン履歴は、明示的にユーザーが指定するまで利用できません
 後で公開します。
 
-```an-diagram title="Hosted vs. local-files mode" summary="By default skills publish through the connector; local-files mode writes MDX to disk and previews via a localhost bridge instead."
+```an-diagram title="ホスト ファイル モードとローカル ファイル モード" summary="デフォルトでは、スキルはコネクタを通じて公開されます。ローカル ファイル モードは、MDX をディスクに書き込み、代わりにローカルホスト ブリッジ経由でプレビューします。"
 {
   "html": "<div class=\"diagram-modes\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Default · hosted</span><strong>Publish to the Plan app</strong><small class=\"diagram-muted\">MCP connector &rarr; hosted DB &rarr; share links, comments, history, screenshots</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Local-files privacy</span><strong>Write MDX to disk</strong><small class=\"diagram-muted\">plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost bridge &rarr; hosted Plan UI reads local source. No DB writes until <code>publish-visual-plan</code>.</small></div></div>",
   "css": ".diagram-modes{display:flex;gap:14px;flex-wrap:wrap}.diagram-modes .diagram-card{flex:1 1 260px;display:flex;flex-direction:column;gap:6px;padding:16px 18px}"

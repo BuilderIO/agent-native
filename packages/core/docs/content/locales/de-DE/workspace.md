@@ -11,9 +11,9 @@ Jede agentennative App wird mit einem **Arbeitsbereich** ausgeliefert: der Anpas
 
 Der Clou: **Es sind SQL-Zeilen, keine Dateisystemdateien.** Jeder Benutzer erhält seinen eigenen Arbeitsbereich, der in der Datenbank gespeichert wird. Es muss keine Entwicklungsbox gestartet werden, kein Container pro Benutzer, keine Dateien müssen gemountet werden. Ein mandantenfähiges SaaS kann jedem Benutzer praktisch kostenlos einen vollständig anpassbaren Agenten zur Verfügung stellen, da alles aus Zeilen besteht – persönlicher Speicher, persönliche MCP-Server, persönliche skills, persönliche Subagenten – und die gemeinsame Codebasis sie alle gleichzeitig hostet.
 
-```an-diagram title="A Claude-Code workspace, but stored in SQL" summary="The same customization layer — instructions, skills, memory, agents, jobs, MCP — except every file is a row in a shared multi-tenant database."
+```an-diagram title="Ein Claude-Code-Arbeitsbereich, aber gespeichert in SQL" summary="Dieselbe Anpassungsebene – Anweisungen, Fähigkeiten, Speicher, Agenten, Jobs, MCP – außer dass jede Datei eine Zeile in einer gemeinsam genutzten, mandantenfähigen Datenbank ist."
 {
-  "html": "<div class=\"ws-map\"><div class=\"diagram-card cc\"><span class=\"diagram-pill warn\">Claude Code / Codex</span><small class=\"diagram-muted\">~/.claude/ on a local disk</small><div class=\"ws-files\"><span class=\"diagram-box\">CLAUDE.md</span><span class=\"diagram-box\">skills/</span><span class=\"diagram-box\">memory</span><span class=\"diagram-box\">mcp.json</span></div><small class=\"diagram-muted\">one codebase per developer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card an\"><span class=\"diagram-pill accent\">Agent-native workspace</span><small class=\"diagram-muted\">rows in one SQL database</small><div class=\"ws-rows\"><span class=\"diagram-pill\">AGENTS.md</span><span class=\"diagram-pill\">skills/&hellip;</span><span class=\"diagram-pill\">memory/&hellip;</span><span class=\"diagram-pill\">mcp-servers/&hellip;</span></div><small class=\"diagram-muted\">one codebase, many users, scoped <code>u:&lt;email&gt;:&hellip;</code></small></div></div>",
+  "html": "<div class=\"ws-map\"><div class=\"diagram-card cc\"><span class=\"diagram-pill warn\">Claude Code / Codex</span><small class=\"diagram-muted\">~/.claude/ on a local disk</small><div class=\"ws-files\"><span class=\"diagram-box\">CLAUDE.md</span><span class=\"diagram-box\">skills/</span><span class=\"diagram-box\">memory</span><span class=\"diagram-box\">mcp.json</span></div><small class=\"diagram-muted\">one codebase per developer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card an\"><span class=\"diagram-pill accent\">Agent-native workspace</span><small class=\"diagram-muted\">rows in one SQL-Datenbank</small><div class=\"ws-rows\"><span class=\"diagram-pill\">AGENTS.md</span><span class=\"diagram-pill\">skills/&hellip;</span><span class=\"diagram-pill\">memory/&hellip;</span><span class=\"diagram-pill\">mcp-servers/&hellip;</span></div><small class=\"diagram-muted\">one codebase, many users, scoped <code>u:&lt;email&gt;:&hellip;</code></small></div></div>",
   "css": ".ws-map{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ws-map .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:220px}.ws-map .ws-files,.ws-map .ws-rows{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}.ws-map .diagram-arrow{font-size:24px}"
 }
 ```
@@ -51,7 +51,7 @@ Die kanonischen Pfade, die steuern, wie der Agent jede Ressource nutzt:
 
 Diese Pfade gelten für alle drei Bereiche – Arbeitsbereich, Organisation/App und Persönlich. Der spätere Bereich gewinnt, wenn derselbe Pfad auf mehreren Ebenen vorhanden ist.
 
-```an-diagram title="Three scopes, one effective file" summary="The runtime resolves the same path across workspace, app, and personal scopes on read — the most specific scope wins."
+```an-diagram title="Drei Bereiche, eine effektive Datei" summary="Die Laufzeit löst beim Lesen den gleichen Pfad über Arbeitsbereiche, Apps und persönliche Bereiche hinweg auf – der spezifischste Bereich gewinnt."
 {
   "html": "<div class=\"ws-stack\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Workspace</span><small class=\"diagram-muted\">company-wide defaults from Dispatch</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Organization / app</span><small class=\"diagram-muted\">team override for one app</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Personal</span><small class=\"diagram-muted\">per-user override &mdash; wins</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Effective <code>context/brand.md</code></div></div>",
   "css": ".ws-stack{display:flex;flex-direction:column;align-items:flex-start;gap:8px}.ws-stack .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px;min-width:280px}.ws-stack .diagram-arrow{font-size:20px;align-self:center}.ws-stack code{font-size:.85em}.ws-stack .diagram-box{align-self:center;margin-top:4px}"
@@ -217,7 +217,7 @@ Verwenden Sie sie, wenn Sie einen fokussierten Delegaten mit eigenem Namen, eige
 
 Benutzerdefinierte Agenten verwenden YAML-Frontmatter und Markdown-Anweisungen:
 
-```an-annotated-code title="A custom agent profile"
+```an-annotated-code title="Ein benutzerdefiniertes Agentenprofil"
 {
   "filename": "agents/design.md",
   "language": "markdown",

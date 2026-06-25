@@ -23,9 +23,9 @@ Codex، أو رمز Claude، أو Markdown، أو خطة التنفيذ المل
 سطح المراجعة نفسه، بحيث يمكنك التعليق والتعليق وإرسال التعليقات مرة أخرى إلى
 الوكيل بنفس الطريقة.
 
-```an-diagram title="Two commands, one review surface" summary="Both commands publish through the hosted Plan MCP connector into the same annotate-and-comment surface."
+```an-diagram title="أمرين، وسطح مراجعة واحد" summary="يتم نشر كلا الأمرين من خلال موصل Plan MCP المستضاف في نفس سطح التعليق التوضيحي والتعليق."
 {
-  "html": "<div class=\"diagram-plan\"><div class=\"diagram-col\"><div class=\"diagram-node\"><span class=\"diagram-pill accent\">/visual-plan</span><small class=\"diagram-muted\">before code — architecture, UI, refactor</small></div><div class=\"diagram-node\"><span class=\"diagram-pill\">/visual-recap</span><small class=\"diagram-muted\">after code — PR, commit, branch, diff</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Review surface<br><small class=\"diagram-muted\">diagrams · wireframes · annotated code · comments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-node\">Coding agent<br><small class=\"diagram-muted\">feedback handed back</small></div></div>",
+  "html": "<div class=\"diagram-plan\"><div class=\"diagram-col\"><div class=\"diagram-node\"><span class=\"diagram-pill accent\">/visual-plan</span><small class=\"diagram-muted\">قبل الكود - البنية وواجهة UI وإعادة التنظيم</small></div><div class=\"diagram-node\"><span class=\"diagram-pill\">/visual-recap</span><small class=\"diagram-muted\">بعد الكود - PR و commit و branch و diff</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">موصل Plan MCP<br><small class=\"diagram-muted\">plan.agent-native.com</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">سطح المراجعة<br><small class=\"diagram-muted\">مخططات · إطارات سلكية · كود مشروح · تعليقات</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-node\">وكيل البرمجة<br><small class=\"diagram-muted\">تمت إعادة الملاحظات</small></div></div>",
   "css": ".diagram-plan{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-plan .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-plan .diagram-arrow{font-size:22px;line-height:1}.diagram-plan .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}"
 }
 ```
@@ -33,7 +33,7 @@ Codex، أو رمز Claude، أو Markdown، أو خطة التنفيذ المل
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Checkout redesign plan</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Approve</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>Current wireframe</div><div class='wf-box'>Proposed wireframe</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>Implementation plan</strong><div class='wf-box'>Decision: keep existing checkout shell</div><div class='wf-box'>Annotated code walkthrough</div><div class='wf-box'>Open questions</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Pin on primary CTA</div><div class='wf-box'>Question for agent</div><div class='wf-box'>Resolved copy note</div><button class='primary'>Hand back feedback</button></aside></div>"
+  "html": "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>خطة إعادة تصميم الدفع</h1><div style='flex:1'></div><button>مشاركة</button><button class='primary'>موافقة</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>الإطار السلكي الحالي</div><div class='wf-box'>الإطار السلكي المقترح</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>خطة التنفيذ</strong><div class='wf-box'>قرار: الإبقاء على غلاف الدفع الحالي</div><div class='wf-box'>شرح الكود مع التعليقات</div><div class='wf-box'>أسئلة مفتوحة</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>التعليقات</strong><div class='wf-box'>تثبيت على CTA الأساسي</div><div class='wf-box'>سؤال للوكيل</div><div class='wf-box'>ملاحظة نصية محلولة</div><button class='primary'>إرجاع الملاحظات</button></aside></div>"
 }
 ```
 
@@ -570,7 +570,8 @@ const riskCardServerBlock = defineBlock<RiskCardData>({
   Read: ServerReadStub,
   placement: ["block"],
   label: "Risk card",
-  description: "A markdown risk note with a low, medium, or high severity.",
+  description:
+    "ملاحظة مخاطر بصيغة markdown بدرجة خطورة منخفضة أو متوسطة أو عالية.",
 });
 
 export function registerPlanBlocks(registry: BlockRegistry): void {
@@ -622,7 +623,8 @@ const riskCardBlock = defineBlock<RiskCardData>({
   placement: ["block"],
   editSurface: "panel",
   label: "Risk card",
-  description: "A markdown risk note with a low, medium, or high severity.",
+  description:
+    "ملاحظة مخاطر بصيغة markdown بدرجة خطورة منخفضة أو متوسطة أو عالية.",
   empty: () => ({ severity: "medium", body: "Describe the risk." }),
 });
 

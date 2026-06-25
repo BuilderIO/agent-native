@@ -54,7 +54,7 @@ const messages = {
   common: {
     retry: "Retry",
     back: "Back",
-    signIn: "Sign in",
+    signIn: "登录",
     done: "Done",
     select: "Select",
     clearAll: "Clear all",
@@ -90,7 +90,7 @@ const messages = {
     bulkMovedToArchive: "{{formattedCount}} forms moved to Archive",
     published: "Form published",
     unpublished: "Form unpublished",
-    signInPrompt: "Sign in to see your forms.",
+    signInPrompt: "登录以查看你的表单。",
     loadFailed: "Couldn't load forms",
     archive: "Archive",
     selectedCount: "{{formattedCount}} selected",

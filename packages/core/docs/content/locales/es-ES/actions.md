@@ -19,7 +19,7 @@ Una definición, siete consumidores. Este es el peldaño 3 del [ladder](/docs/wh
 Si estás decidiendo si exponer una operación sin cabeza, en el chat, en un
 sidecar integrado o como pantalla de aplicación completa, consulte [Agent Surfaces](/docs/agent-surfaces).
 
-```an-diagram title="One definition, seven consumers" summary="A single defineAction() fans out to every surface — agent, UI, HTTP, MCP, A2A, and CLI — with one validated schema and one run() body."
+```an-diagram title="Una definición, siete consumidores" summary="Un único defineAction() se distribuye en todas las superficies (agente, UI, HTTP, MCP, A2A y CLI) con un esquema validado y un cuerpo run()."
 {
   "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agent tool<br><small class=\"diagram-muted\">JSON Schema in context</small></div><div class=\"diagram-node\">React hooks<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">imperative client</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP tool<br><small class=\"diagram-muted\">external hosts</small></div><div class=\"diagram-node\">A2A tool<br><small class=\"diagram-muted\">other agent-native apps</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
   "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
@@ -79,15 +79,15 @@ alrededor de actions, no es un requisito previo requerido para la acción en sí
 
 ## Definir una acción {#defining}
 
-```an-annotated-code title="Anatomy of an action"
+```an-annotated-code title="Anatomía de una acción."
 {
   "filename": "actions/reply-to-email.ts",
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});",
   "annotations": [
-    { "lines": "5", "label": "Tool surface", "note": "`description` is what the agent reads to decide when to call this. The per-field `.describe()` calls flow into the JSON Schema too." },
-    { "lines": "6-9", "label": "Contrato tipado", "note": "One schema validates input from **every** surface and is converted to JSON Schema for the model. Invalid inputs never reach `run`." },
-    { "lines": "10-13", "label": "One implementation", "note": "The `run` body is the single source of truth — the UI button and the agent tool both execute exactly this." }
+    { "lines": "5", "label": "Superficie de herramienta", "note": "`description` es lo que lee el agente para decidir cuándo llamar a esto. Las llamadas `.describe()` de cada campo también pasan al JSON Schema." },
+    { "lines": "6-9", "label": "Contrato tipado", "note": "Un schema valida la entrada de **todas** las superficies y se convierte a JSON Schema para el modelo. Las entradas no válidas nunca llegan a `run`." },
+    { "lines": "10-13", "label": "Una implementación", "note": "El cuerpo de `run` es la única fuente de verdad: el botón de la UI y la herramienta del agente ejecutan exactamente esto." }
   ]
 }
 ```
@@ -150,19 +150,19 @@ export default defineAction({
 
 Para una acción `GET`, se pasa `leadId` como parámetro de consulta: `/_agent-native/actions/get-lead?leadId=abc`.
 
-```an-api title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead"
+```an-api title="Endpoint de accion montado automaticamente" method="GET" path="/_agent-native/actions/get-lead"
 {
   "method": "GET",
   "path": "/_agent-native/actions/get-lead",
-  "summary": "Every action is mounted here automatically — the filename is the action name.",
-  "description": "POST by default; `http: { method: \"GET\" }` makes it a GET. The React hooks and `callAction` always call this path by name, regardless of any `http.path` override.",
-  "auth": "Session cookie; frontend calls carry `X-Agent-Native-Frontend: 1`",
+  "summary": "Cada accion se monta aqui automaticamente: el nombre del archivo es el nombre de la accion.",
+  "description": "POST por defecto; `http: { method: \"GET\" }` lo convierte en GET. Los hooks de React y `callAction` siempre llaman a esta ruta por nombre, sin importar cualquier override de `http.path`.",
+  "auth": "Cookie de sesion; las llamadas del frontend llevan `X-Agent-Native-Frontend: 1`",
   "params": [
-    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET args arrive as query params; POST args arrive in the JSON body." }
+    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "Los argumentos GET llegan como query params; los argumentos POST llegan en el cuerpo JSON." }
   ],
   "responses": [
-    { "status": "200", "description": "The action's return value as JSON." },
-    { "status": "400", "description": "Input failed schema validation before run() fired." }
+    { "status": "200", "description": "El valor de retorno de la accion como JSON." },
+    { "status": "400", "description": "La entrada fallo la validacion del schema antes de que run() se ejecutara." }
   ]
 }
 ```

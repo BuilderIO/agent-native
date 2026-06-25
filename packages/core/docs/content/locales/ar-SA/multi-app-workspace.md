@@ -45,16 +45,16 @@ npx @agent-native/core@latest create my-company-platform
 
 تحصل على pnpm monorepo مع الحزمة المشتركة الخاصة، و`package.json` الجذري الذي يربط اكتشاف مساحة العمل، و`.env` مشترك، ودليل فرعي واحد لكل تطبيق اخترته:
 
-```an-file-tree title="A scaffolded workspace"
+```an-file-tree title="workspace مولد"
 {
   "entries": [
-    { "path": "package.json", "note": "declares agent-native.workspaceCore" },
+    { "path": "package.json", "note": "يعلن agent-native.workspaceCore" },
     { "path": "pnpm-workspace.yaml", "note": "packages: [\"packages/*\", \"apps/*\"]" },
-    { "path": ".env.example", "note": "shared ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ..." },
+    { "path": ".env.example", "note": "ANTHROPIC_API_KEY و A2A_SECRET و DATABASE_URL و ... مشتركة" },
     { "path": "packages/shared/", "note": "@my-company-platform/shared" },
-    { "path": "packages/shared/src/server/", "note": "plugin overrides only when needed" },
-    { "path": "packages/shared/src/client/", "note": "shared React code only when needed" },
-    { "path": "packages/shared/AGENTS.md", "note": "workspace-wide instructions" },
+    { "path": "packages/shared/src/server/", "note": "plugin overrides عند الحاجة فقط" },
+    { "path": "packages/shared/src/client/", "note": "React code مشترك عند الحاجة فقط" },
+    { "path": "packages/shared/AGENTS.md", "note": "تعليمات على مستوى workspace" },
     { "path": "apps/mail/" },
     { "path": "apps/calendar/" },
     { "path": "apps/forms/" }
@@ -115,7 +115,7 @@ pnpm dev
 
 يتم الدمج حسب اسم الملف. إذا كان التطبيق يوفر ملفًا محليًا موجودًا أيضًا في المنبع، فسيفوز الملف المحلي. إذا لم يحدث ذلك، فسيتم تطبيق الإصدار المشترك لمساحة العمل. إذا لم توفر المشاركة واحدًا أيضًا، فسيتم تفعيل إطار العمل الافتراضي. وينطبق هذا على المكونات الإضافية، skills، وactions، و`AGENTS.md`.
 
-```an-diagram title="Three layers, merged by file name" summary="Each app resolves plugins, skills, actions, and AGENTS.md from app-local first, then the shared package, then the framework default."
+```an-diagram title="ثلاث طبقات، مدمجة حسب اسم الملف" summary="يحل كل تطبيق المكونات الإضافية والمهارات والإجراءات وAGENTS.md من التطبيق المحلي أولاً، ثم الحزمة المشتركة، ثم إطار العمل الافتراضي."
 {
   "html": "<div class=\"layer\"><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">1 &middot; App local</span><small class=\"diagram-muted\"><code>apps/&lt;name&gt;/</code> &mdash; highest priority</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2 &middot; Workspace shared</span><small class=\"diagram-muted\"><code>packages/shared/</code> &mdash; the mid-layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">3 &middot; Framework default</span><small class=\"diagram-muted\"><code>@agent-native/core</code> &mdash; lowest</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box ok\">first match wins</div></div>",
   "css": ".layer{display:flex;flex-direction:column;align-items:center;gap:6px}.layer .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 16px;width:320px}.layer .diagram-arrow{font-size:18px;line-height:1}.layer .diagram-box{margin-top:2px}"
@@ -225,7 +225,7 @@ npx @agent-native/core@latest deploy
 
 تم إنشاء كل تطبيق باستخدام `APP_BASE_PATH=/<name>` و`VITE_APP_BASE_PATH=/<name>` ويتم إصداره من خلال الإعداد المسبق المحدد Nitro. يعد Cloudflare Pages هو الإعداد المسبق الافتراضي ويستخدم عامل إرسال في `dist/_worker.js` بالإضافة إلى `_routes.json`. Netlify مدعوم مع `npx @agent-native/core@latest deploy --preset netlify`؛ فهو يصدر وظائف التطبيق ضمن `.netlify/functions-internal/<app>-server` ويقوم بإنشاء عمليات إعادة توجيه تترك الأصول الثابتة غير قسرية بحيث يخدم CDN الملفات أولاً. Vercel مدعوم بـ `npx @agent-native/core@latest deploy --preset vercel`؛ فهو يكتب حزمة `.vercel/output` الجذرية باستخدام Vercel’s Build Output API.
 
-```an-diagram title="Unified deploy: one origin, one path per app" summary="Every app ships behind a single origin, so login sessions and cross-app A2A are free."
+```an-diagram title="النشر الموحد: أصل واحد ومسار واحد لكل تطبيق" summary="يأتي كل تطبيق من مصدر واحد، لذا فإن جلسات تسجيل الدخول والتطبيقات المشتركة A2A مجانية."
 {
   "html": "<div class=\"deploy\"><div class=\"diagram-box accent\">your-agents.com<br><small class=\"diagram-muted\">one DNS record &middot; one cert &middot; one CDN</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"deploy-apps\"><div class=\"diagram-box\">/mail/*</div><div class=\"diagram-box\">/calendar/*</div><div class=\"diagram-box\">/forms/*</div></div><div class=\"diagram-pill ok\">shared login cookie on the apex &bull; same-origin A2A, no CORS</div></div>",
   "css": ".deploy{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.deploy .deploy-apps{display:flex;flex-direction:column;gap:8px}.deploy .diagram-arrow{font-size:24px}.deploy .diagram-pill{flex-basis:100%}"

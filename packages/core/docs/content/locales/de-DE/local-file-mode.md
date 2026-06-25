@@ -46,7 +46,7 @@ UI und Agent actions sollten in beiden Modi die gleiche Form behalten. Ein Inhal
 Editor bearbeitet weiterhin Dokumente; Der Unterschied besteht darin, ob diese Dokumente aufgelöst werden
 in SQL Zeilen oder lokale Dateien.
 
-```an-diagram title="Same actions, two sources of truth" summary="The UI and agent call identical actions in both modes. The action layer decides whether each call resolves to SQL rows or repo files."
+```an-diagram title="Gleiche Handlungen, zwei Quellen der Wahrheit" summary="Die Benutzeroberfläche und der Agent rufen in beiden Modi identische Aktionen auf. Die Aktionsschicht entscheidet, ob jeder Aufruf in SQL-Zeilen oder Repo-Dateien aufgelöst wird."
 {
   "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">Content UI</div><div class=\"diagram-node\">Agent + actions<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">Database mode</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">hosted · sharing · comments · history</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">Git review · coding-agent edits</small></div></div></div>",
   "css": ".diagram-mode{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mode .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mode .diagram-arrow{font-size:22px;line-height:1}.diagram-mode .resolve{display:flex;gap:12px;flex-wrap:wrap}.diagram-mode .diagram-panel{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
@@ -57,21 +57,21 @@ in SQL Zeilen oder lokale Dateien.
 
 Ein Inhaltsarbeitsbereich kann so klein sein:
 
-```an-file-tree title="A Content workspace repo"
+```an-file-tree title="Ein Content-Workspace-Repo"
 {
   "entries": [
-    { "path": "agent-native.json", "note": "declares which folders are content roots and their kinds" },
-    { "path": "docs/", "note": "content root — shows in the sidebar as pages" },
+    { "path": "agent-native.json", "note": "Deklariert, welche Ordner Content-Roots sind und welche Arten sie haben" },
+    { "path": "docs/", "note": "Content-Root: erscheint in der Sidebar als Seiten" },
     { "path": "docs/getting-started.mdx" },
     { "path": "docs/guides/custom-components.mdx" },
-    { "path": "blog/", "note": "content root" },
+    { "path": "blog/", "note": "Content-Root" },
     { "path": "blog/launch-post.mdx" },
-    { "path": "resources/", "note": "content root" },
+    { "path": "resources/", "note": "Content-Root" },
     { "path": "resources/messaging/positioning.md" },
-    { "path": "components/", "note": "NOT a content root — preview component library MDX can import" },
+    { "path": "components/", "note": "KEIN Content-Root: Preview-Komponentenbibliothek, die MDX importieren kann" },
     { "path": "components/FrameworkTabs.tsx" },
     { "path": "components/Callout.tsx" },
-    { "path": "extensions/", "note": "NOT a content root — local extension library (sandboxed widgets)" },
+    { "path": "extensions/", "note": "KEIN Content-Root: lokale Extension-Bibliothek (sandboxed Widgets)" },
     { "path": "extensions/doc-status/extension.json" },
     { "path": "extensions/doc-status/index.html" }
   ]

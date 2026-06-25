@@ -23,9 +23,9 @@ commit, bifurcación o git diff: en una revisión de código visual a gran altur
 la misma superficie de revisión, para que pueda anotar, comentar y enviar comentarios al
 agente de la misma manera.
 
-```an-diagram title="Two commands, one review surface" summary="Both commands publish through the hosted Plan MCP connector into the same annotate-and-comment surface."
+```an-diagram title="Dos comandos, una superficie de revisión" summary="Ambos comandos publican a través del conector alojado Plan MCP en la misma superficie de anotaciones y comentarios."
 {
-  "html": "<div class=\"diagram-plan\"><div class=\"diagram-col\"><div class=\"diagram-node\"><span class=\"diagram-pill accent\">/visual-plan</span><small class=\"diagram-muted\">before code — architecture, UI, refactor</small></div><div class=\"diagram-node\"><span class=\"diagram-pill\">/visual-recap</span><small class=\"diagram-muted\">after code — PR, commit, branch, diff</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Review surface<br><small class=\"diagram-muted\">diagrams · wireframes · annotated code · comments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-node\">Coding agent<br><small class=\"diagram-muted\">feedback handed back</small></div></div>",
+  "html": "<div class=\"diagram-plan\"><div class=\"diagram-col\"><div class=\"diagram-node\"><span class=\"diagram-pill accent\">/visual-plan</span><small class=\"diagram-muted\">antes del codigo: arquitectura, UI, refactor</small></div><div class=\"diagram-node\"><span class=\"diagram-pill\">/visual-recap</span><small class=\"diagram-muted\">despues del codigo: PR, commit, rama, diff</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Conector MCP de Plan<br><small class=\"diagram-muted\">plan.agent-native.com</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Superficie de revision<br><small class=\"diagram-muted\">diagramas · wireframes · codigo anotado · comentarios</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-node\">Agente de codigo<br><small class=\"diagram-muted\">feedback devuelto</small></div></div>",
   "css": ".diagram-plan{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-plan .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-plan .diagram-arrow{font-size:22px;line-height:1}.diagram-plan .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}"
 }
 ```
@@ -33,7 +33,7 @@ agente de la misma manera.
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Checkout redesign plan</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Approve</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>Current wireframe</div><div class='wf-box'>Proposed wireframe</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>Implementation plan</strong><div class='wf-box'>Decision: keep existing checkout shell</div><div class='wf-box'>Annotated code walkthrough</div><div class='wf-box'>Open questions</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Pin on primary CTA</div><div class='wf-box'>Question for agent</div><div class='wf-box'>Resolved copy note</div><button class='primary'>Hand back feedback</button></aside></div>"
+  "html": "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Plan de rediseño del checkout</h1><div style='flex:1'></div><button>Compartir</button><button class='primary'>Aprobar</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>Wireframe actual</div><div class='wf-box'>Wireframe propuesto</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>Plan de implementación</strong><div class='wf-box'>Decisión: conservar el shell actual del checkout</div><div class='wf-box'>Recorrido de código anotado</div><div class='wf-box'>Preguntas abiertas</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comentarios</strong><div class='wf-box'>Pin en el CTA principal</div><div class='wf-box'>Pregunta para el agente</div><div class='wf-box'>Nota de copy resuelta</div><button class='primary'>Devolver feedback</button></aside></div>"
 }
 ```
 
@@ -570,7 +570,8 @@ const riskCardServerBlock = defineBlock<RiskCardData>({
   Read: ServerReadStub,
   placement: ["block"],
   label: "Risk card",
-  description: "A markdown risk note with a low, medium, or high severity.",
+  description:
+    "Una nota de riesgo en markdown con severidad baja, media o alta.",
 });
 
 export function registerPlanBlocks(registry: BlockRegistry): void {
@@ -622,7 +623,8 @@ const riskCardBlock = defineBlock<RiskCardData>({
   placement: ["block"],
   editSurface: "panel",
   label: "Risk card",
-  description: "A markdown risk note with a low, medium, or high severity.",
+  description:
+    "Una nota de riesgo en markdown con severidad baja, media o alta.",
   empty: () => ({ severity: "medium", body: "Describe the risk." }),
 });
 

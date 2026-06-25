@@ -13,7 +13,7 @@ Skills vive en `.agents/skills/<name>/SKILL.md` y contiene orientación detallad
 
 El frontmatter de cada habilidad, `name` y `description`, siempre se inyecta en el bloque skills del indicador del sistema para que el agente sepa qué skills existe. El conjunto completo de habilidades se carga según demanda cuando el agente decide que una habilidad es relevante para la tarea (también aparece a través de `docs-search`). Esta es la razón por la que es importante mantener descripciones breves y específicas para cada activador: la descripción es lo único que lee el agente antes de decidir si carga el resto.
 
-```an-diagram title="Progressive disclosure" summary="Only the name + description of every skill is always in context. The full body loads on demand when the task matches."
+```an-diagram title="Divulgación progresiva" summary="Sólo el nombre + descripción de cada habilidad está siempre en contexto. El cuerpo completo se carga según demanda cuando la tarea coincide."
 {
   "html": "<div class=\"sk-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Always in the system prompt</span><div class=\"sk-list\"><span class=\"diagram-pill\">storing-data &mdash; <small class=\"diagram-muted\">add data models&hellip;</small></span><span class=\"diagram-pill\">real-time-sync &mdash; <small class=\"diagram-muted\">wire polling&hellip;</small></span><span class=\"diagram-pill\">create-skill &mdash; <small class=\"diagram-muted\">add a skill&hellip;</small></span></div><small class=\"diagram-muted\">just name + description (cheap)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><small class=\"diagram-muted\">task matches a description</small><span class=\"diagram-pill accent\">load on demand</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Full <code>SKILL.md</code> body<br><small class=\"diagram-muted\">rules, code, do/don't</small></div></div>",
   "css": ".sk-flow{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.sk-flow .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:240px}.sk-flow .sk-list{display:flex;flex-direction:column;gap:6px}.sk-flow .center{display:flex;flex-direction:column;align-items:center;gap:6px}.sk-flow .diagram-arrow{font-size:22px}"
@@ -80,7 +80,7 @@ No crees una habilidad cuando:
 
 Cada habilidad es un archivo Markdown con frontmatter YAML:
 
-```an-annotated-code title="Anatomy of a SKILL.md"
+```an-annotated-code title="Anatomía de un SKILL.md"
 {
   "filename": ".agents/skills/project-imports/SKILL.md",
   "language": "markdown",
@@ -130,7 +130,7 @@ El tiempo de ejecución nativo del agente lee skills de `.agents/skills/`. El c�
 
 Esto reemplaza el antiguo truco de confiar en el código Claude que solo lee `.claude/skills`: `scope: dev` hace que la división entre desarrollo y tiempo de ejecución sea una opción explícita de primera clase.
 
-```an-diagram title="Which agent loads which skill" summary="scopedecides whether the in-app runtime agent sees a skill.dev skills are visible only to your coding agent."
+```an-diagram title="¿Qué agente carga qué habilidad?" summary="El alcance decide si el agente de tiempo de ejecución en la aplicación ve una habilidad. Las habilidades de desarrollo son visibles solo para su agente de codificación."
 {
 "html": "<div class=\"sc-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill\">.agents/skills/</span><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: both</span><small class=\"diagram-muted\">default</small></div><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: runtime</span></div><div class=\"sc-row\"><span class=\"diagram-pill warn\">scope: dev</span></div></div><div class=\"sc-targets\"><div class=\"diagram-box\">Runtime agent<br><small class=\"diagram-muted\">reads <code>both</code> + <code>runtime</code></small></div><div class=\"diagram-box\">Coding agent<br><small class=\"diagram-muted\">Claude Code reads <code>.claude/skills/</code> + <code>dev</code></small></div></div></div>",
 "css": ".sc-grid{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}.sc-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.sc-grid .sc-row{display:flex;align-items:center;gap:8px}.sc-grid .sc-targets{display:flex;flex-direction:column;gap:10px}"

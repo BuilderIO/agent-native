@@ -10,7 +10,7 @@ Lista de verificación de **Configuración** en la barra lateral del agente. Man
 al chat del agente: conecte un motor de IA, opcionalmente apunte la aplicación a compartido
 infraestructura y agregue proveedores solo cuando los necesite.
 
-```an-diagram title="The setup checklist" summary="Only Connect an AI engine is required. The panel tracks completion and auto-hides once everything required is done."
+```an-diagram title="La lista de verificación de configuración" summary="Solo se requiere conectar un motor de IA. El panel realiza un seguimiento de la finalización y se oculta automáticamente una vez que se hace todo lo necesario."
 {
   "html": "<div class=\"ob\"><div class=\"diagram-card\"><span class=\"diagram-pill warn\">required</span><strong>Connect an AI engine</strong><small class=\"diagram-muted\">Connect Builder (one click) or paste an LLM key</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Database</strong><small class=\"diagram-muted\">set <code>DATABASE_URL</code></small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Authentication</strong><small class=\"diagram-muted\">OAuth / access token</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Email delivery</strong><small class=\"diagram-muted\">Resend / SendGrid</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">all required done &rarr; panel auto-hides</div></div>",
   "css": ".ob{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ob .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 14px}.ob .diagram-arrow{font-size:22px}"
@@ -114,7 +114,7 @@ Todas las rutas se encuentran bajo `/_agent-native/onboarding/`:
 
 ### Agregar un paso desde una plantilla
 
-```an-annotated-code title="Registering a custom onboarding step"
+```an-annotated-code title="Registrar un paso de incorporación personalizado"
 {
   "filename": "server/plugins/my-onboarding.ts",
   "language": "ts",

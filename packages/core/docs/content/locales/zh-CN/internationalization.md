@@ -115,6 +115,8 @@ function SettingsPage() {
 未翻译。如果某个语言环境没有为页面翻译 Markdown，则文档站点
 该页面恢复为英语，同时仍本地化导航和 Chrome。
 
+Docs Markdown 可能包含结构化的 `an-*` 可视块。请在合理时翻译其中面向用户的文本字段，例如 file-tree 标题和 `entries[].note`、callout 正文、tab 标签以及 annotated-code 的 labels/notes。保持稳定标识符不变：文件名、路径、env vars、路由字符串、action 名称、language tags、代码片段、JSON keys 和协议名称。
+
 ## Actions和坚持
 
 每个应用程序都会继承：

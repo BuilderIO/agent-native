@@ -40,7 +40,7 @@ Das Standard-Backend erzeugt einen gesperrten lokalen untergeordneten Knotenproz
 
 Wenn der Vertrag eng gefasst bleibt, erbt ein Remote-Adapter denselben Sicherheitsstatus. Der übergeordnete Prozess behält das Eigentum an allem, was Geheimnisse enthält: Er erstellt das Sandbox-Modul, führt die Localhost-Bridge aus (die den Anforderungskontext enthält und Host-Zulassungslisten + SSRF-Guards anwendet), bereinigt die Umgebung und formatiert die Ausgabe. Ein Adapter erhält nur eine bereits vorbereitete, **nicht geheime** Modulquelle plus Ressourcenlimits – er ist allein dafür verantwortlich, sie auszuführen und den stdout/stderr/exit-Status zu erfassen.
 
-```an-diagram title="The parent keeps the secrets; the adapter only runs code" summary="run-code builds the module and runs the loopback bridge; the adapter receives a non-secret module + limits and returns stdout/stderr/exit."
+```an-diagram title="Der Elternteil behält die Geheimnisse; Der Adapter führt nur Code aus" summary="run-code erstellt das Modul und führt die Loopback-Brücke aus; Der Adapter empfängt ein nicht geheimes Modul + Limits und gibt stdout/stderr/exit zurück."
 {
   "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>Parent process</strong><small class=\"diagram-muted\">builds module · loopback bridge · env scrub · output format</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">local child · Docker · remote · durable</small></div></div>",
   "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -51,14 +51,14 @@ Wenn der Vertrag eng gefasst bleibt, erbt ein Remote-Adapter denselben Sicherhei
 
 Die Naht befindet sich im Kern bei `packages/core/src/coding-tools/sandbox/` – `adapter.ts` (der Vertrag), `index.ts` (Auswahl: `getSandboxAdapter()` / `registerSandboxAdapter()`) und `local-child-process-adapter.ts` (die Standardeinstellung). Die Verkabelung erfolgt im Gehäuse durch `run-code.ts`; Ein Host verbindet ein anderes Backend über den Registrierungshelfer `index.ts` (oder, für ein Docker-Backend, über [blueprint](/docs/blueprint-installer), der diese Dateien direkt bearbeitet).
 
-```an-file-tree title="The sandbox seam in core"
+```an-file-tree title="Die Sandbox-Nahtstelle in core"
 {
   "title": "packages/core/src/coding-tools/sandbox/",
   "entries": [
-    { "path": "adapter.ts", "note": "the SandboxAdapter contract (SandboxRunRequest / SandboxRunResult)" },
-    { "path": "index.ts", "note": "selection: getSandboxAdapter() / registerSandboxAdapter()" },
-    { "path": "local-child-process-adapter.ts", "note": "the default backend — locked-down Node child process" },
-    { "path": "../run-code.ts", "note": "wires the seam; never changes when you swap backends" }
+    { "path": "adapter.ts", "note": "Der SandboxAdapter-Vertrag (SandboxRunRequest / SandboxRunResult)" },
+    { "path": "index.ts", "note": "Auswahl: getSandboxAdapter() / registerSandboxAdapter()" },
+    { "path": "local-child-process-adapter.ts", "note": "Das Standard-Backend: gesperrter Node-Child-Prozess" },
+    { "path": "../run-code.ts", "note": "Verdrahtet die Nahtstelle; ändert sich nie beim Backend-Wechsel" }
   ]
 }
 ```

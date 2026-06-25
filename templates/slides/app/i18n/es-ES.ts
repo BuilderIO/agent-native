@@ -51,15 +51,15 @@ const messages = {
     collapseSidebar: "Contraer barra lateral",
   },
   notFound: {
-    message: "This page doesn't exist yet.",
-    backToDecks: "Back to Decks",
+    message: "Esta página aún no existe.",
+    backToDecks: "Volver a las presentaciones",
   },
   designSystems: {
-    new: "New Design System",
-    setupBrand: "Set up your brand",
-    emptyTitle: "Set up your brand identity",
+    new: "Nuevo sistema de diseño",
+    setupBrand: "Configura tu marca",
+    emptyTitle: "Configura tu marca identity",
     emptyDescription:
-      "Create a design system with your brand colors, typography, and logos. Every new deck will follow your visual identity.",
+      "Crea un sistema de diseno con los colores, la tipografia y los logotipos de tu marca. Cada nueva presentacion seguira tu identidad visual.",
   },
 };
 

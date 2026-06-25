@@ -19,7 +19,7 @@ Actions は、アプリの動作に関する唯一の信頼できる情報源で
 操作をヘッドレス、チャット、またはチャットで公開するかどうかを決定している場合
 埋め込みサイドカー、またはアプリの全画面として、[Agent Surfaces](/docs/agent-surfaces) を参照してください。
 
-```an-diagram title="One definition, seven consumers" summary="A single defineAction() fans out to every surface — agent, UI, HTTP, MCP, A2A, and CLI — with one validated schema and one run() body."
+```an-diagram title="1 つの定義、7 人の消費者" summary="単一の defineAction() は、1 つの検証済みスキーマと 1 つの run() 本体を備えたすべてのサーフェス (エージェント、UI、HTTP、MCP、A2A、および CLI) にファンアウトされます。"
 {
   "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agent tool<br><small class=\"diagram-muted\">JSON Schema in context</small></div><div class=\"diagram-node\">React hooks<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">imperative client</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP tool<br><small class=\"diagram-muted\">external hosts</small></div><div class=\"diagram-node\">A2A tool<br><small class=\"diagram-muted\">other agent-native apps</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
   "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
@@ -79,15 +79,15 @@ actions 付近ですが、アクション自体の必要な前提条件ではあ
 
 ## アクションの定義 {#defining}
 
-```an-annotated-code title="Anatomy of an action"
+```an-annotated-code title="アクションの構造"
 {
   "filename": "actions/reply-to-email.ts",
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});",
   "annotations": [
-    { "lines": "5", "label": "Tool surface", "note": "`description` is what the agent reads to decide when to call this. The per-field `.describe()` calls flow into the JSON Schema too." },
-    { "lines": "6-9", "label": "型付き契約", "note": "One schema validates input from **every** surface and is converted to JSON Schema for the model. Invalid inputs never reach `run`." },
-    { "lines": "10-13", "label": "One implementation", "note": "The `run` body is the single source of truth — the UI button and the agent tool both execute exactly this." }
+    { "lines": "5", "label": "ツール面", "note": "`description` は、エージェントがこれをいつ呼び出すか判断するために読む内容です。各フィールドの `.describe()` も JSON Schema に反映されます。" },
+    { "lines": "6-9", "label": "型付き契約", "note": "1つの schema が**すべて**のサーフェスからの入力を検証し、モデル向けに JSON Schema へ変換します。無効な入力が `run` に届くことはありません。" },
+    { "lines": "10-13", "label": "単一の実装", "note": "`run` 本体が唯一の信頼できる実装です。UI ボタンとエージェントツールはどちらもこれをそのまま実行します。" }
   ]
 }
 ```
@@ -150,19 +150,19 @@ export default defineAction({
 
 `GET` アクションの場合、`leadId` はクエリ パラメーター `/_agent-native/actions/get-lead?leadId=abc` として渡されます。
 
-```an-api title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead"
+```an-api title="自動マウントされる action エンドポイント" method="GET" path="/_agent-native/actions/get-lead"
 {
   "method": "GET",
   "path": "/_agent-native/actions/get-lead",
-  "summary": "Every action is mounted here automatically — the filename is the action name.",
-  "description": "POST by default; `http: { method: \"GET\" }` makes it a GET. The React hooks and `callAction` always call this path by name, regardless of any `http.path` override.",
-  "auth": "Session cookie; frontend calls carry `X-Agent-Native-Frontend: 1`",
+  "summary": "すべての action はここに自動でマウントされます。ファイル名が action 名になります。",
+  "description": "デフォルトは POST です。`http: { method: \"GET\" }` で GET になります。React hooks と `callAction` は、`http.path` の上書きに関係なく常にこのパスを名前で呼び出します。",
+  "auth": "セッション cookie。フロントエンド呼び出しには `X-Agent-Native-Frontend: 1` が付きます",
   "params": [
-    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET args arrive as query params; POST args arrive in the JSON body." }
+    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET 引数は query params として届き、POST 引数は JSON body に届きます。" }
   ],
   "responses": [
-    { "status": "200", "description": "The action's return value as JSON." },
-    { "status": "400", "description": "Input failed schema validation before run() fired." }
+    { "status": "200", "description": "action の戻り値を JSON として返します。" },
+    { "status": "400", "description": "run() が実行される前に入力が schema 検証に失敗しました。" }
   ]
 }
 ```

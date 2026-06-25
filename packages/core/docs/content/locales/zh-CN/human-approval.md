@@ -14,7 +14,7 @@ description: "在高后果操作运行之前暂停代理 - defineAction 的 need
 
 在 `defineAction` 上设置 `needsApproval`。它接受布尔值或谓词：
 
-```an-annotated-code title="Gating the one consequential action"
+```an-annotated-code title="限制一项后果性行动"
 {
   "filename": "actions/send-email.ts",
   "language": "ts",
@@ -70,7 +70,7 @@ description: "在高后果操作运行之前暂停代理 - defineAction 的 need
 
 ## 端到端 {#flow}
 
-```an-diagram title="The approval interrupt" summary="A gated call pauses the turn before run() fires. Approval re-issues the turn carrying the call's key; only then does the side effect happen."
+```an-diagram title="审批中断" summary="门控调用会在 run() 触发之前暂停回合。批准重新发出携带呼叫密钥的回合；只有这样，副作用才会发生。"
 {
   "html": "<div class=\"diagram-approve\"><div class=\"diagram-box\" data-rough>Agent calls send-email</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel warn\" data-rough><strong>Gate truthy, call not yet approved</strong><small class=\"diagram-muted\">loop emits tool_start + approval_required { tool, input, approvalKey }</small><span class=\"diagram-pill warn\">turn pauses &mdash; run() did NOT execute</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Human clicks Approve in chat<br><small class=\"diagram-muted\">client re-issues the turn with approvedToolCalls: [approvalKey]</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel ok\" data-rough><span class=\"diagram-pill ok\">Gate sees the key &rarr; run() executes &rarr; email sends</span></div></div>",
   "css": ".diagram-approve{display:flex;flex-direction:column;align-items:center;gap:8px}.diagram-approve .diagram-panel{display:flex;flex-direction:column;gap:6px;align-items:center;padding:12px 16px;text-align:center}.diagram-approve .diagram-arrow{font-size:22px;line-height:1}"

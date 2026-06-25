@@ -115,6 +115,8 @@ et laissez les routes, les noms d'action, les champs de protocole, les variables
 non traduit. Si un paramètre régional n'a pas de Markdown traduit pour une page, le site de documentation
 revient à l'anglais pour cette page tout en localisant la navigation et Chrome.
 
+Le Markdown des docs peut inclure des blocs visuels structurés `an-*`. Traduisez leurs champs de prose visibles quand cela a du sens, comme les titres file-tree et `entries[].note`, les corps de callout, les labels d'onglets et les labels/notes annotated-code. Gardez les identifiants stables inchangés : noms de fichiers, chemins, env vars, chaînes de route, noms d'actions, language tags, extraits de code, clés JSON et noms de protocole.
+
 ## Actions et persistance
 
 Chaque application hérite :

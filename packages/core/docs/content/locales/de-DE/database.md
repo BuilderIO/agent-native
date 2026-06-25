@@ -7,7 +7,7 @@ description: "Verbinden Sie eine portable SQL-Datenbank mit Ihrer agentennativen
 
 Agent-native Apps verwenden [Drizzle ORM](https://orm.drizzle.team) und unterstützen portable SQL-Backends. Für alles, was über die lokale Entwicklung hinausgeht, verbinden Sie eine persistente SQL-Datenbank – Postgres, libSQL/Turso oder ein anderes Drizzle-kompatibles Backend – indem Sie `DATABASE_URL` festlegen. Wenn diese Variable nicht gesetzt ist, greift die App auf eine lokale SQLite-Datei ohne Konfiguration zurück, sodass Sie sofort mit der Entwicklung beginnen können.
 
-```an-diagram title="One schema, many backends" summary="App code uses the framework's dialect-agnostic helpers. The dialect is auto-detected from DATABASE_URL at runtime; unset means a local SQLite file."
+```an-diagram title="Ein Schema, viele Backends" summary="App-Code verwendet die dialektunabhängigen Helfer des Frameworks. Der Dialekt wird zur Laufzeit automatisch von DATABASE_URL erkannt; unset bedeutet eine lokale SQLite-Datei."
 {
   "html": "<div class=\"diagram-db\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">@agent-native/core/db/schema</span><small class=\"diagram-muted\">table · text · integer · real · now</small><small class=\"diagram-muted\">+ Drizzle query DSL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>DATABASE_URL<br><small class=\"diagram-muted\">dialect auto-detected</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Postgres<br><small class=\"diagram-muted\">Neon · Supabase</small></span><span class=\"diagram-pill\">libSQL / Turso</span><span class=\"diagram-pill\">Cloudflare D1</span><span class=\"diagram-pill warn\">SQLite file<br><small class=\"diagram-muted\">unset = local dev only</small></span></div></div>",
   "css": ".diagram-db{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-db .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-db .diagram-arrow{font-size:22px;line-height:1}.diagram-db .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
@@ -162,7 +162,7 @@ Alle Aktualisierungen des Datenbankschemas müssen **streng additiv** erfolgen.
 
 Anstatt direkt zu pushen, sollten Schemaänderungen über SQL-Migrationen angewendet werden, die beim Anwendungsstart ausgeführt werden. Implementieren Sie additive Migrationen innerhalb eines Server-Plugins (z. B. `server/plugins/db.ts`), indem Sie den `runMigrations()`-Helper des Frameworks aufrufen:
 
-```an-annotated-code title="An additive migration plugin"
+```an-annotated-code title="Ein additives Migrations-Plugin"
 {
   "filename": "server/plugins/db.ts",
   "language": "ts",

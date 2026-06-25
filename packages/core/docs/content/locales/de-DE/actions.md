@@ -19,7 +19,7 @@ Eine Definition, sieben Verbraucher. Dies ist Sprosse 3 des [ladder](/docs/what-
 Wenn Sie entscheiden, ob Sie einen Vorgang kopflos, im Chat oder in einem
 eingebetteter Sidecar oder als vollständiger App-Bildschirm, siehe [Agent Surfaces](/docs/agent-surfaces).
 
-```an-diagram title="One definition, seven consumers" summary="A single defineAction() fans out to every surface — agent, UI, HTTP, MCP, A2A, and CLI — with one validated schema and one run() body."
+```an-diagram title="Eine Definition, sieben Verbraucher" summary="Ein einzelner defineAction() verteilt sich auf jede Oberfläche – Agent, UI, HTTP, MCP, A2A und CLI – mit einem validierten Schema und einem run()-Körper."
 {
   "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agent tool<br><small class=\"diagram-muted\">JSON Schema in context</small></div><div class=\"diagram-node\">React hooks<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">imperative client</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP tool<br><small class=\"diagram-muted\">external hosts</small></div><div class=\"diagram-node\">A2A tool<br><small class=\"diagram-muted\">other agent-native apps</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
   "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
@@ -79,15 +79,15 @@ um actions, keine erforderliche Voraussetzung für die Aktion selbst.
 
 ## Eine Aktion definieren {#defining}
 
-```an-annotated-code title="Anatomy of an action"
+```an-annotated-code title="Anatomie einer Handlung"
 {
   "filename": "actions/reply-to-email.ts",
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});",
   "annotations": [
-    { "lines": "5", "label": "Tool surface", "note": "`description` is what the agent reads to decide when to call this. The per-field `.describe()` calls flow into the JSON Schema too." },
-    { "lines": "6-9", "label": "Typisierter Vertrag", "note": "One schema validates input from **every** surface and is converted to JSON Schema for the model. Invalid inputs never reach `run`." },
-    { "lines": "10-13", "label": "One implementation", "note": "The `run` body is the single source of truth — the UI button and the agent tool both execute exactly this." }
+    { "lines": "5", "label": "Tool-Oberflaeche", "note": "`description` liest der Agent, um zu entscheiden, wann er diese Action aufruft. Die `.describe()`-Aufrufe pro Feld fliessen ebenfalls ins JSON Schema." },
+    { "lines": "6-9", "label": "Typisierter Vertrag", "note": "Ein schema validiert Eingaben von **jeder** Oberfläche und wird für das Modell in JSON Schema umgewandelt. Ungültige Eingaben erreichen `run` nie." },
+    { "lines": "10-13", "label": "Eine Implementierung", "note": "Der `run`-Body ist die einzige Quelle der Wahrheit: UI-Button und Agent-Tool fuehren genau das aus." }
   ]
 }
 ```
@@ -150,19 +150,19 @@ export default defineAction({
 
 Für eine `GET`-Aktion wird `leadId` als Abfrageparameter übergeben: `/_agent-native/actions/get-lead?leadId=abc`.
 
-```an-api title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead"
+```an-api title="Automatisch gemounteter Action-Endpunkt" method="GET" path="/_agent-native/actions/get-lead"
 {
   "method": "GET",
   "path": "/_agent-native/actions/get-lead",
-  "summary": "Every action is mounted here automatically — the filename is the action name.",
-  "description": "POST by default; `http: { method: \"GET\" }` makes it a GET. The React hooks and `callAction` always call this path by name, regardless of any `http.path` override.",
-  "auth": "Session cookie; frontend calls carry `X-Agent-Native-Frontend: 1`",
+  "summary": "Jede Action wird hier automatisch gemountet - der Dateiname ist der Action-Name.",
+  "description": "Standard ist POST; `http: { method: \"GET\" }` macht daraus GET. React-Hooks und `callAction` rufen diesen Pfad immer per Namen auf, unabhaengig von jedem `http.path` Override.",
+  "auth": "Session-Cookie; Frontend-Aufrufe tragen `X-Agent-Native-Frontend: 1`",
   "params": [
-    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET args arrive as query params; POST args arrive in the JSON body." }
+    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET-Argumente kommen als Query-Parameter an; POST-Argumente im JSON-Body." }
   ],
   "responses": [
-    { "status": "200", "description": "The action's return value as JSON." },
-    { "status": "400", "description": "Input failed schema validation before run() fired." }
+    { "status": "200", "description": "Der Rueckgabewert der Action als JSON." },
+    { "status": "400", "description": "Die Eingabe ist vor dem Start von run() an der Schema-Validierung gescheitert." }
   ]
 }
 ```

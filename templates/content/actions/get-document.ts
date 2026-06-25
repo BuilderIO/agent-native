@@ -13,6 +13,7 @@ import {
 import {
   getDatabaseByDocumentId,
   getDatabaseItemByDocumentId,
+  isSoftDeletedDatabaseDocument,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
 import { serializeDocumentSource } from "./_document-source.js";
@@ -48,6 +49,9 @@ export default defineAction({
 
     const access = await resolveAccess("document", args.id);
     if (!access) throw new Error(`Document "${args.id}" not found`);
+    if (await isSoftDeletedDatabaseDocument(args.id)) {
+      throw new Error(`Document "${args.id}" not found`);
+    }
     const doc = access.resource;
     const database = await getDatabaseByDocumentId(doc.id);
     const databaseMembership = await getDatabaseItemByDocumentId(doc.id);

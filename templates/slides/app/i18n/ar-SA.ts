@@ -50,15 +50,15 @@ const messages = {
     collapseSidebar: "طي الشريط الجانبي",
   },
   notFound: {
-    message: "This page doesn't exist yet.",
-    backToDecks: "Back to Decks",
+    message: "هذه الصفحة غير موجودة بعد.",
+    backToDecks: "العودة إلى العروض",
   },
   designSystems: {
-    new: "New Design System",
-    setupBrand: "Set up your brand",
-    emptyTitle: "Set up your brand identity",
+    new: "نظام تصميم جديد",
+    setupBrand: "إعداد علامتك التجارية",
+    emptyTitle: "إعداد علامتك التجارية identity",
     emptyDescription:
-      "Create a design system with your brand colors, typography, and logos. Every new deck will follow your visual identity.",
+      "أنشئ نظام تصميم بألوان علامتك وخطوطها وشعاراتها. سيتبع كل عرض جديد هويتك البصرية.",
   },
 };
 

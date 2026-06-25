@@ -33,6 +33,7 @@ import {
   type ParsedBlockBase,
   type SerializableBlock,
 } from "@agent-native/core/blocks/server";
+import { inlineDatabaseBlockConfig } from "./inline-database-block";
 
 /**
  * Register the content block library (the dev-doc + OpenAPI + standard
@@ -56,6 +57,7 @@ export function registerContentBlocks(registry: BlockRegistry): void {
   registerLibraryBlockConfigs(registry, {
     overrides: { table: { type: "table-block" } },
   });
+  registry.register(inlineDatabaseBlockConfig);
 }
 
 /**

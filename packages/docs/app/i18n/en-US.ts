@@ -18,6 +18,17 @@ const enUS = {
     privacy: "Privacy",
     terms: "Terms",
   },
+  feedback: {
+    label: "Feedback",
+    placeholder: "Tell us what would make these docs better.",
+  },
+  demoVideo: {
+    visualPlanningAria: "Agent-Native visual planning demo",
+  },
+  docBlocks: {
+    blockLabel: "{{alias}} block",
+    unknownBlockType: "unknown block type",
+  },
   theme: {
     light: "light",
     dark: "dark",
@@ -71,11 +82,11 @@ const enUS = {
       titleLine1: "Agentic Applications",
       titleAccent: "You Own",
       body: "Start with a chat-first app and the app-agent loop. Add actions, screens, jobs, and workflows as your agent grows.",
-      primaryCta: "Start with Chat",
+      primaryCta: "Start with a Template",
       secondaryCta: "View the Docs",
     },
     code: {
-      quickStartComment: "Start with a chat-first app",
+      quickStartComment: "Start with a full app template",
       skillInstallComment:
         "Add agent-native planning to a coding agent you already use",
       frameworkComment:
@@ -115,7 +126,6 @@ const enUS = {
     templates: {
       title: "Fork and customize a fully-featured app",
       eyebrow: "100% free and open source",
-      body: "When an action needs screens, start from a vetted app you can customize. Chat is the minimal app scaffold; domain templates add product workflows, example data, and agent-ready actions.",
       cta: "View all templates",
     },
     skills: {
@@ -294,8 +304,8 @@ const enUS = {
     eyebrow: "100% free and open source",
     body: "Fork a template, run it locally, and let the agent evolve it. You own the code and can customize everything.",
     community:
-      "Every template is forkable and open source. The community can build and share their own.",
-    createYourOwn: "Create your own",
+      "Want a blank app instead? Start from scratch with the framework guide.",
+    createYourOwn: "Start from scratch",
   },
   templateCard: {
     pasteIntoTerminal: "Paste into your terminal.",
@@ -1067,6 +1077,13 @@ const enUS = {
     },
   },
   skillsPage: {
+    metaTitle: "Agent Skills - Visual Plan and Visual Recap for coding agents",
+    metaDescription:
+      "Install Agent-Native app-backed skills your coding agent can use for visual planning and PR recaps.",
+    metaOgDescription:
+      "Give your coding agent slash commands powered by Agent-Native apps you can host, inspect, and customize.",
+    metaKeywords:
+      "agent skills, visual plan, visual recap, coding agent, Claude Code, Codex, PR review, planning, agent-native",
     heroTitle: "Give your coding agent new superpowers",
     heroBody:
       "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation and visual PR recaps after changes land.",
@@ -1391,6 +1408,7 @@ const enUS = {
     cliAdapters: "CLI Adapters",
     processors: "In-Loop Processors",
     durableResume: "Durable Resume",
+    durableBackgroundRuns: "Durable Background Runs",
     blueprintInstaller: "Blueprint Installer",
     chat: "Chat",
     calendar: "Calendar",

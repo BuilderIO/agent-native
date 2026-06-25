@@ -14,7 +14,7 @@ description: "결과가 높은 작업이 실행되기 전에 에이전트를 일
 
 `defineAction`에 `needsApproval`를 설정합니다. 부울 또는 조건자를 허용합니다:
 
-```an-annotated-code title="Gating the one consequential action"
+```an-annotated-code title="하나의 결과적 행동 게이팅"
 {
   "filename": "actions/send-email.ts",
   "language": "ts",
@@ -72,7 +72,7 @@ description: "결과가 높은 작업이 실행되기 전에 에이전트를 일
 
 ## 엔드 투 엔드 {#flow}
 
-```an-diagram title="The approval interrupt" summary="A gated call pauses the turn before run() fires. Approval re-issues the turn carrying the call's key; only then does the side effect happen."
+```an-diagram title="승인 중단" summary="게이트 호출은 run()이 실행되기 전에 차례를 일시 중지합니다. 승인은 통화 키를 가지고 있는 차례를 재발행합니다. 그래야만 부작용이 발생합니다."
 {
   "html": "<div class=\"diagram-approve\"><div class=\"diagram-box\" data-rough>Agent calls send-email</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel warn\" data-rough><strong>Gate truthy, call not yet approved</strong><small class=\"diagram-muted\">loop emits tool_start + approval_required { tool, input, approvalKey }</small><span class=\"diagram-pill warn\">turn pauses &mdash; run() did NOT execute</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Human clicks Approve in chat<br><small class=\"diagram-muted\">client re-issues the turn with approvedToolCalls: [approvalKey]</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel ok\" data-rough><span class=\"diagram-pill ok\">Gate sees the key &rarr; run() executes &rarr; email sends</span></div></div>",
   "css": ".diagram-approve{display:flex;flex-direction:column;align-items:center;gap:8px}.diagram-approve .diagram-panel{display:flex;flex-direction:column;gap:6px;align-items:center;padding:12px 16px;text-align:center}.diagram-approve .diagram-arrow{font-size:22px;line-height:1}"

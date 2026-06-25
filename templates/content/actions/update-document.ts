@@ -14,6 +14,8 @@ import {
   updateLocalFileDocument,
 } from "./_local-file-documents.js";
 import { serializeDocumentSource } from "./_document-source.js";
+import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
+import type { DocumentUpdateResponse } from "../shared/api.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -43,7 +45,7 @@ export default defineAction({
       .optional()
       .describe("Favorite status (true/false)"),
   }),
-  run: async (args) => {
+  run: async (args): Promise<DocumentUpdateResponse> => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
@@ -53,6 +55,7 @@ export default defineAction({
       return {
         ...doc,
         urlPath: `/page/${doc.id}`,
+        softDeletedDatabaseIds: [],
       };
     }
 
@@ -125,6 +128,8 @@ export default defineAction({
       }
     }
 
+    let softDeletedDatabaseIds: string[] = [];
+
     if (anyChange) {
       const updates: Record<string, unknown> = {
         updatedAt: new Date().toISOString(),
@@ -145,6 +150,13 @@ export default defineAction({
           .update(schema.contentDatabases)
           .set({ title: args.title, updatedAt: updates.updatedAt as string })
           .where(eq(schema.contentDatabases.documentId, id));
+      }
+
+      if (contentChanged) {
+        softDeletedDatabaseIds = await reconcileInlineDatabasesForDocument(
+          id,
+          content ?? "",
+        );
       }
     }
 
@@ -172,6 +184,7 @@ export default defineAction({
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
       source: serializeDocumentSource(doc),
+      softDeletedDatabaseIds,
     };
   },
 });

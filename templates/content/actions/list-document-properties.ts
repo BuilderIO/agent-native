@@ -5,6 +5,7 @@ import {
   listPropertiesForDocument,
   resolvePropertyDatabaseForDocument,
 } from "./_property-utils.js";
+import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
 import "../server/db/index.js";
 
 export default defineAction({
@@ -18,6 +19,9 @@ export default defineAction({
   run: async ({ documentId }) => {
     const access = await resolveAccess("document", documentId);
     if (!access) throw new Error(`Document "${documentId}" not found`);
+    if (await isSoftDeletedDatabaseDocument(documentId)) {
+      throw new Error(`Document "${documentId}" not found`);
+    }
     const database = await resolvePropertyDatabaseForDocument(access.resource);
 
     return {

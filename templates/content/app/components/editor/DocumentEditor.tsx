@@ -211,19 +211,19 @@ function DatabaseMembershipBreadcrumb({
 function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const updateDocument = useUpdateDocument();
   const queryClient = useQueryClient();
+  const canEdit = document.canEdit ?? true;
   // The block render context (asset/upload resolvers, inline markdown reader,
   // panel popover) is stable for the editor's lifetime. Created once here and
   // provided alongside the content block registry so every registry block in the
   // editor subtree renders through the same wiring.
   const blockRenderContext = useMemo(
-    () => createContentBlockRenderContext({ documentId }),
-    [documentId],
+    () => createContentBlockRenderContext({ documentId, canEdit }),
+    [documentId, canEdit],
   );
   const navigate = useNavigate();
   const { data: documents = [] } = useDocuments();
   // Shared with DocumentToolbar via the same localStorage key — both read it.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
-  const canEdit = document.canEdit ?? true;
   const isLocalFileDocument = document.source?.mode === "local-files";
   const isLinkedLocalSourceDocument = canWriteLinkedLocalSource(
     documentId,

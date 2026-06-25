@@ -13,7 +13,7 @@ Skills موجود في `.agents/skills/<name>/SKILL.md` ويحتوي على إر
 
 يتم دائمًا إدخال المادة الأمامية لكل مهارة `name` و`description` في كتلة skills الخاصة بموجه النظام حتى يعرف العميل ما هو skills الموجود. يتم تحميل جسم المهارة بالكامل عند الطلب عندما يقرر الوكيل أن المهارة ذات صلة بالمهمة (يتم عرضها أيضًا عبر `docs-search`). ولهذا السبب فإن إبقاء الأوصاف قصيرة ومحددة للمشغل أمر مهم: الوصف هو الشيء الوحيد الذي يقرأه الوكيل قبل أن يقرر تحميل الباقي أم لا.
 
-```an-diagram title="Progressive disclosure" summary="Only the name + description of every skill is always in context. The full body loads on demand when the task matches."
+```an-diagram title="الكشف التدريجي" summary="فقط الاسم + الوصف لكل مهارة يكون دائمًا في السياق. يتم تحميل الجسم بالكامل عند الطلب عندما تتطابق المهمة."
 {
   "html": "<div class=\"sk-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Always in the system prompt</span><div class=\"sk-list\"><span class=\"diagram-pill\">storing-data &mdash; <small class=\"diagram-muted\">add data models&hellip;</small></span><span class=\"diagram-pill\">real-time-sync &mdash; <small class=\"diagram-muted\">wire polling&hellip;</small></span><span class=\"diagram-pill\">create-skill &mdash; <small class=\"diagram-muted\">add a skill&hellip;</small></span></div><small class=\"diagram-muted\">just name + description (cheap)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><small class=\"diagram-muted\">task matches a description</small><span class=\"diagram-pill accent\">load on demand</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Full <code>SKILL.md</code> body<br><small class=\"diagram-muted\">rules, code, do/don't</small></div></div>",
   "css": ".sk-flow{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.sk-flow .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:240px}.sk-flow .sk-list{display:flex;flex-direction:column;gap:6px}.sk-flow .center{display:flex;flex-direction:column;align-items:center;gap:6px}.sk-flow .diagram-arrow{font-size:22px}"
@@ -80,7 +80,7 @@ Skills موجود في `.agents/skills/<name>/SKILL.md` ويحتوي على إر
 
 كل مهارة عبارة عن ملف Markdown مع المادة الأمامية YAML:
 
-```an-annotated-code title="Anatomy of a SKILL.md"
+```an-annotated-code title="تشريح SKILL.md"
 {
   "filename": ".agents/skills/project-imports/SKILL.md",
   "language": "markdown",
@@ -130,7 +130,7 @@ scope: dev
 
 يحل هذا محل الاختراق القديم المتمثل في الاعتماد على كود Claude الذي يقرأ `.claude/skills` فقط - `scope: dev` يجعل تقسيم وقت التشغيل مقابل التطوير خيارًا صريحًا من الدرجة الأولى.
 
-```an-diagram title="Which agent loads which skill" summary="scopedecides whether the in-app runtime agent sees a skill.dev skills are visible only to your coding agent."
+```an-diagram title="أي وكيل يقوم بتحميل أي مهارة" summary="يحدد النطاق ما إذا كان وكيل وقت التشغيل داخل التطبيق يرى مهارة أم لا. تكون مهارات التطوير مرئية فقط لوكيل البرمجة الخاص بك."
 {
 "html": "<div class=\"sc-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill\">.agents/skills/</span><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: both</span><small class=\"diagram-muted\">default</small></div><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: runtime</span></div><div class=\"sc-row\"><span class=\"diagram-pill warn\">scope: dev</span></div></div><div class=\"sc-targets\"><div class=\"diagram-box\">Runtime agent<br><small class=\"diagram-muted\">reads <code>both</code> + <code>runtime</code></small></div><div class=\"diagram-box\">Coding agent<br><small class=\"diagram-muted\">Claude Code reads <code>.claude/skills/</code> + <code>dev</code></small></div></div></div>",
 "css": ".sc-grid{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}.sc-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.sc-grid .sc-row{display:flex;align-items:center;gap:8px}.sc-grid .sc-targets{display:flex;flex-direction:column;gap:10px}"

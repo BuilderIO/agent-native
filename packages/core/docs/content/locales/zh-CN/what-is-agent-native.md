@@ -50,7 +50,7 @@ description: "为什么大多数人工智能应用感觉是半成品，是什么
 
 这是第 3 级。这是代理本地的。
 
-```an-diagram title="The Ladder Principle" summary="Most teams stop at rung 1 or 2. Agent-native is rung 3 — a real app and a real agent over one shared action surface."
+```an-diagram title="阶梯原理" summary="大多数团队停在第 1 级或第 2 级。原生代理是第 3 级——一个真实的应用程序和一个共享操作界面上的真实代理。"
 {
   "html": "<div class=\"diagram-ladder\"><div class=\"diagram-card rung rung-3\"><span class=\"diagram-pill accent\">Rung 3 · agent-native</span><strong>Agent + UI as equal partners</strong><small class=\"diagram-muted\">One action surface. Every agent tool is also a button; every button runs the same logic the agent uses.</small></div><div class=\"diagram-card rung rung-2\"><span class=\"diagram-pill\">Rung 2</span><strong>A chat with tools</strong><small class=\"diagram-muted\">The agent can act — but it is still just a chat window. No dashboards, lists, or shortcuts.</small></div><div class=\"diagram-card rung rung-1\"><span class=\"diagram-pill warn\">Rung 1</span><strong>A single LLM call</strong><small class=\"diagram-muted\">Prompt in, string out. Impressive in a demo; breaks the moment reality gets messy.</small></div></div>",
   "css": ".diagram-ladder{display:flex;flex-direction:column;gap:14px}.diagram-ladder .rung{display:flex;flex-direction:column;gap:6px;padding:16px 18px}.diagram-ladder .rung-2{margin-inline-end:48px}.diagram-ladder .rung-1{margin-inline-end:96px}"
@@ -89,9 +89,9 @@ description: "为什么大多数人工智能应用感觉是半成品，是什么
 >
 > **来自代理** — 自然语言，其他代理通过 A2A、Slack、Telegram。代理写入数据库； UI 自动更新。
 
-```an-diagram title="One system, two ways in" summary="The agent and the UI write to the same actions and the same database. Whatever one does, the other sees."
+```an-diagram title="一套系统，两种方式" summary="代理和 UI 写入相同的操作和相同的数据库。无论一个人做什么，另一个人都会看到。"
 {
-  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">clicks, forms, shortcuts</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">natural language · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">SQL database</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">UI updates live</div></div>",
+  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">clicks, forms, shortcuts</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">natural language · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">SQL 数据库</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">UI updates live</div></div>",
   "css": ".diagram-parity{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-parity .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-parity .diagram-arrow{font-size:22px;line-height:1}.diagram-parity .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -159,14 +159,14 @@ Agent-native 不仅仅适合开发人员。由于代理可以编辑应用程序�
 
 如果您正在构建或扩展代理本机应用程序，那么中心模式如下：应用程序中的每个操作都是一个**操作** - 定义一次，可供代理和 UI 使用。
 
-```an-annotated-code title="One action, defined once"
+```an-annotated-code title="一个动作，定义一次"
 {
   "filename": "actions/reply-to-email.ts",
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread\",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app's server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});",
   "annotations": [
     { "lines": "5", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this as a tool." },
-    { "lines": "6", "label": "类型化契约", "note": "One zod `schema` validates input from **every** surface — agent, UI, HTTP, MCP, and A2A." },
+    { "lines": "6", "label": "类型化契约", "note": "一个 zod `schema` 会验证来自**每个**界面的输入：代理、UI、HTTP、MCP 和 A2A。" },
     { "lines": "7-10", "label": "One implementation", "note": "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this." }
   ]
 }

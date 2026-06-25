@@ -45,16 +45,16 @@ CLI 显示每个第一方模板的多选选择器。选择任意数量的邮件 
 
 您将获得一个包含私有共享包的 pnpm monorepo、一个连接工作区发现的根 `package.json`、一个共享 `.env` 以及您选择的每个应用程序的一个子目录：
 
-```an-file-tree title="A scaffolded workspace"
+```an-file-tree title="一个脚手架生成的 workspace"
 {
   "entries": [
-    { "path": "package.json", "note": "declares agent-native.workspaceCore" },
+    { "path": "package.json", "note": "声明 agent-native.workspaceCore" },
     { "path": "pnpm-workspace.yaml", "note": "packages: [\"packages/*\", \"apps/*\"]" },
-    { "path": ".env.example", "note": "shared ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ..." },
+    { "path": ".env.example", "note": "共享的 ANTHROPIC_API_KEY、A2A_SECRET、DATABASE_URL、..." },
     { "path": "packages/shared/", "note": "@my-company-platform/shared" },
-    { "path": "packages/shared/src/server/", "note": "plugin overrides only when needed" },
-    { "path": "packages/shared/src/client/", "note": "shared React code only when needed" },
-    { "path": "packages/shared/AGENTS.md", "note": "workspace-wide instructions" },
+    { "path": "packages/shared/src/server/", "note": "仅在需要时使用 plugin overrides" },
+    { "path": "packages/shared/src/client/", "note": "仅在需要时共享 React 代码" },
+    { "path": "packages/shared/AGENTS.md", "note": "整个 workspace 的指令" },
     { "path": "apps/mail/" },
     { "path": "apps/calendar/" },
     { "path": "apps/forms/" }
@@ -115,7 +115,7 @@ pnpm dev
 
 合并按文件名进行。如果应用程序提供的本地文件也存在于上游，则本地文件获胜。如果没有，则应用工作区共享版本。如果共享也没有提供，则框架默认启动。这适用于插件、skills、actions 和 `AGENTS.md`。
 
-```an-diagram title="Three layers, merged by file name" summary="Each app resolves plugins, skills, actions, and AGENTS.md from app-local first, then the shared package, then the framework default."
+```an-diagram title="三层，按文件名合并" summary="每个应用程序首先从应用程序本地解析插件、技能、操作和 AGENTS.md，然后是共享包，然后是框架默认值。"
 {
   "html": "<div class=\"layer\"><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">1 &middot; App local</span><small class=\"diagram-muted\"><code>apps/&lt;name&gt;/</code> &mdash; highest priority</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2 &middot; Workspace shared</span><small class=\"diagram-muted\"><code>packages/shared/</code> &mdash; the mid-layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">3 &middot; Framework default</span><small class=\"diagram-muted\"><code>@agent-native/core</code> &mdash; lowest</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box ok\">first match wins</div></div>",
   "css": ".layer{display:flex;flex-direction:column;align-items:center;gap:6px}.layer .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 16px;width:320px}.layer .diagram-arrow{font-size:18px;line-height:1}.layer .diagram-box{margin-top:2px}"
@@ -225,7 +225,7 @@ npx @agent-native/core@latest deploy
 
 每个应用程序均使用 `APP_BASE_PATH=/<name>` 和 `VITE_APP_BASE_PATH=/<name>` 构建，并通过选定的 Nitro 预设发出。 Cloudflare Pages 是默认预设，并使用 `dist/_worker.js` 和 `_routes.json` 的调度程序工作人员。 `npx @agent-native/core@latest deploy --preset netlify` 支持 Netlify；它在 `.netlify/functions-internal/<app>-server` 下发出应用程序功能，并生成重定向，使静态资产不受强制，因此 CDN 首先提供文件。 `npx @agent-native/core@latest deploy --preset vercel` 支持 Vercel；它使用 Vercel 的构建输出 API 编写根 `.vercel/output` 包。
 
-```an-diagram title="Unified deploy: one origin, one path per app" summary="Every app ships behind a single origin, so login sessions and cross-app A2A are free."
+```an-diagram title="统一部署：一个源，每个应用一个路径" summary="每个应用程序都遵循单一来源，因此登录会话和跨应用程序 A2A 是免费的。"
 {
   "html": "<div class=\"deploy\"><div class=\"diagram-box accent\">your-agents.com<br><small class=\"diagram-muted\">one DNS record &middot; one cert &middot; one CDN</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"deploy-apps\"><div class=\"diagram-box\">/mail/*</div><div class=\"diagram-box\">/calendar/*</div><div class=\"diagram-box\">/forms/*</div></div><div class=\"diagram-pill ok\">shared login cookie on the apex &bull; same-origin A2A, no CORS</div></div>",
   "css": ".deploy{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.deploy .deploy-apps{display:flex;flex-direction:column;gap:8px}.deploy .diagram-arrow{font-size:24px}.deploy .diagram-pill{flex-basis:100%}"

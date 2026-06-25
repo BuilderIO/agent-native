@@ -21,7 +21,7 @@ Las aplicaciones nativas del agente utilizan **React Router v7** con enrutamient
 
 Prefije un segmento con `$` para un parámetro dinámico. Prefije `_` para que sea una ruta de diseño sin ruta (sin segmento URL). Las plantillas usan `flatRoutes()`: el archivo de notación de puntos anterior es principal; el formato de carpeta anidada `inbox/route.tsx` también funciona.
 
-```an-diagram title="Pathless layout wraps the pages" summary="A _app.tsx layout (no URL segment) renders the shared shell once; matched pages render inside its <Outlet/>, so the agent sidebar never remounts on navigation."
+```an-diagram title="El diseño sin camino envuelve las páginas." summary="Un diseño _app.tsx (sin segmento URL) representa el shell compartido una vez; las páginas coincidentes se muestran dentro de su <Outlet/>, por lo que la barra lateral del agente nunca se vuelve a montar durante la navegación."
 {
 "html": "<div class=\"diagram-layout\" data-rough><div class=\"diagram-shell\"><span class=\"diagram-pill accent\">_app.tsx</span><small class=\"diagram-muted\">pathless layout · persistent shell + agent sidebar</small><div class=\"diagram-outlet\" data-rough><small class=\"diagram-muted\">&lt;Outlet/&gt; — the matched page</small><div class=\"diagram-row\"><span class=\"diagram-pill\">_index.tsx &rarr; /</span><span class=\"diagram-pill\">settings.tsx &rarr; /settings</span><span class=\"diagram-pill\">inbox.$threadId.tsx &rarr; /inbox/:threadId</span></div></div></div></div>",
 "css": ".diagram-layout .diagram-shell{display:flex;flex-direction:column;gap:8px;padding:16px}.diagram-layout .diagram-outlet{display:flex;flex-direction:column;gap:8px;padding:14px;margin-top:6px}.diagram-layout .diagram-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}"
