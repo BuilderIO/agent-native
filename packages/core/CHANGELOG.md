@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.77.10
+
+### Patch Changes
+
+- 12545bc: Keep standalone scaffold installs stable when fresh Sentry transitive packages are published.
+
 ## 0.77.9
 
 ### Patch Changes
