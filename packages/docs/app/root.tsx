@@ -6,38 +6,34 @@ import {
   ScrollRestoration,
   Link,
   isRouteErrorResponse,
+  useMatches,
   useRouteError,
   useLocation,
+  type LoaderFunctionArgs,
 } from "react-router";
 import { useState, useEffect, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   AgentNativeI18nProvider,
   AgentSidebar,
-  LOCALE_HYDRATION_GLOBAL,
-  LOCALE_STORAGE_KEY,
-  SUPPORTED_LOCALES,
   configureTracking,
   getLocaleInitScript,
-  normalizeLocalizationPreference,
   useT,
 } from "@agent-native/core/client";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 import {
   DEFAULT_DOCS_LOCALE,
-  browserDocsLocale,
-  docsLocaleFromPathname,
-  isDocsLocale,
-  isDocsPath,
   localeDirection,
+  routeLocaleFromPathname,
+  sitePathForLocale,
   type DocsLocale,
 } from "./components/docs-locale";
 import {
   canonicalPathForPath,
   docsAlternateLinksForPath,
 } from "./components/docs-seo";
-import { docsI18nCatalog } from "./i18n";
+import { docsI18nCatalog, loadDocsMessages } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
 
 import appCss from "./global.css?url";
@@ -92,39 +88,48 @@ const JSON_LD = JSON.stringify({
   ],
 });
 
-function getSiteLocaleInitScript() {
-  return `(function(){try{var supported=${JSON.stringify(
-    SUPPORTED_LOCALES,
-  )};function valid(x){return supported.indexOf(x)>=0}function canon(x){if(typeof x!=='string'||!x)return null;try{var c=Intl.getCanonicalLocales(x)[0];if(valid(c))return c;var lang=c&&c.split('-')[0].toLowerCase();for(var i=0;i<supported.length;i++){if(supported[i].split('-')[0].toLowerCase()===lang)return supported[i]}}catch(e){}return null}function storageGet(k){try{return window.localStorage.getItem(k)}catch(e){return null}}var stored=storageGet(${JSON.stringify(
-    LOCALE_STORAGE_KEY,
-  )});var pref=stored==='system'||valid(stored)?stored:'system';var locale=pref&&pref!=='system'?canon(pref):null;if(!locale){var langs=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language];for(var j=0;j<langs.length&&!locale;j++){locale=canon(langs[j])}}if(!locale)locale=${JSON.stringify(
-    DEFAULT_DOCS_LOCALE,
-  )};var dir=locale==='ar-SA'?'rtl':'ltr';var root=document.documentElement;root.setAttribute('lang',locale);root.setAttribute('dir',dir);root.setAttribute('data-locale',locale);window[${JSON.stringify(
-    LOCALE_HYDRATION_GLOBAL,
-  )}]={locale:locale,preference:{locale:pref},dir:dir};}catch(e){}})();`;
-}
-
-function readClientLocalePreference() {
-  if (typeof window === "undefined") return undefined;
-  try {
-    const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
-    return stored ? normalizeLocalizationPreference(stored).locale : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function readClientDocumentLocale(): DocsLocale | undefined {
-  if (typeof document === "undefined") return undefined;
-  const htmlLocale = document.documentElement.getAttribute("lang");
-  return isDocsLocale(htmlLocale) ? htmlLocale : undefined;
-}
-
 export function resolveLayoutLocale(pathname: string): DocsLocale {
-  if (isDocsPath(pathname)) {
-    return docsLocaleFromPathname(pathname) ?? DEFAULT_DOCS_LOCALE;
-  }
-  return readClientDocumentLocale() ?? browserDocsLocale();
+  return routeLocaleFromPathname(pathname) ?? DEFAULT_DOCS_LOCALE;
+}
+
+async function initialMessagesForLocale(locale: DocsLocale) {
+  if (locale === DEFAULT_DOCS_LOCALE) return null;
+  return loadDocsMessages(locale);
+}
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  const locale = resolveLayoutLocale(new URL(request.url).pathname);
+  return {
+    locale,
+    preference: { locale },
+    messages: await initialMessagesForLocale(locale),
+  };
+}
+
+type RootLocaleData = Awaited<ReturnType<typeof loader>>;
+
+function isRootLocaleData(data: unknown): data is RootLocaleData {
+  if (!data || typeof data !== "object") return false;
+  const value = data as Partial<RootLocaleData>;
+  return typeof value.locale === "string" && Boolean(value.preference);
+}
+
+function fallbackRootLocaleData(pathname: string): RootLocaleData {
+  const locale = resolveLayoutLocale(pathname);
+  return {
+    locale,
+    preference: { locale },
+    messages: null,
+  };
+}
+
+function useRootLocaleData() {
+  const location = useLocation();
+  const matches = useMatches();
+  const rootMatch = matches.find((match) => isRootLocaleData(match.data));
+  return isRootLocaleData(rootMatch?.data)
+    ? rootMatch.data
+    : fallbackRootLocaleData(location.pathname);
 }
 
 export const links = () => [
@@ -167,19 +172,15 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
 }
 
 function DocsI18nProvider({ children }: { children: React.ReactNode }) {
-  const location = useLocation();
-  const docsPath = isDocsPath(location.pathname);
-  const routeLocale = docsPath
-    ? (docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE)
-    : undefined;
-  const sitePreference = docsPath ? undefined : readClientLocalePreference();
+  const localeData = useRootLocaleData();
 
   return (
     <AgentNativeI18nProvider
-      key={routeLocale ?? "site"}
+      key={localeData.locale}
       catalog={docsI18nCatalog}
-      initialLocale={routeLocale}
-      initialPreference={routeLocale ?? sitePreference}
+      initialLocale={localeData.locale}
+      initialPreference={localeData.preference.locale}
+      initialMessages={localeData.messages ?? undefined}
       persistPreference={false}
     >
       {children}
@@ -327,18 +328,24 @@ function ScrollManager() {
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const location = useLocation();
-  const docsPath = isDocsPath(location.pathname);
-  const locale = resolveLayoutLocale(location.pathname);
+  const localeData = useRootLocaleData();
+  const locale = localeData.locale;
   const localeInitScript =
     typeof document !== "undefined"
       ? (document.querySelector<HTMLScriptElement>(LOCALE_INIT_SCRIPT_SELECTOR)
-          ?.innerHTML ?? getSiteLocaleInitScript())
-      : docsPath
-        ? getLocaleInitScript({
-            locale,
-          })
-        : getSiteLocaleInitScript();
+          ?.innerHTML ??
+        getLocaleInitScript({
+          locale,
+          preference:
+            locale === DEFAULT_DOCS_LOCALE ? undefined : localeData.preference,
+          messages: localeData.messages,
+        }))
+      : getLocaleInitScript({
+          locale,
+          preference:
+            locale === DEFAULT_DOCS_LOCALE ? undefined : localeData.preference,
+          messages: localeData.messages,
+        });
 
   return (
     <html lang={locale} dir={localeDirection(locale)} suppressHydrationWarning>
@@ -458,6 +465,9 @@ function RootShell({ mounted }: { mounted: boolean }) {
 
 function LocalizedError({ error }: { error: unknown }) {
   const t = useT();
+  const localeData = useRootLocaleData();
+  const localizedPath = (path: string) =>
+    sitePathForLocale(path, localeData.locale);
 
   if (isRouteErrorResponse(error) && error.status === 404) {
     return (
@@ -475,14 +485,14 @@ function LocalizedError({ error }: { error: unknown }) {
           <div className="flex items-center gap-3">
             <Link
               data-an-prefetch="render"
-              to="/"
+              to={localizedPath("/")}
               className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
             >
               {t("errors.goHome")}
             </Link>
             <Link
               data-an-prefetch="render"
-              to="/docs"
+              to={localizedPath("/docs")}
               className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
             >
               {t("errors.readDocs")}
@@ -504,7 +514,7 @@ function LocalizedError({ error }: { error: unknown }) {
         </p>
         <Link
           data-an-prefetch="render"
-          to="/"
+          to={localizedPath("/")}
           className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
         >
           {t("errors.goHome")}

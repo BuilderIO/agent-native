@@ -17,6 +17,8 @@ import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 /** Legacy slug -> current slug. Keep in sync with docs.$slug.tsx. */
 const SLUG_REDIRECTS: Record<string, string> = {
+  "core-philosophy": "key-concepts",
+  "database-adapters": "deployment",
   resources: "workspace",
   secrets: "security",
   "visual-plans": "template-plan",
@@ -27,7 +29,7 @@ function requireLocale(value: unknown): DocsLocale {
   throw new Response("Not Found", { status: 404 });
 }
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
   const locale = requireLocale(params.locale);
   const slug = params.slug!;
 
@@ -40,11 +42,13 @@ export async function loader({ params }: LoaderFunctionArgs) {
     throw redirect(docsPathForSlug(target, locale), 301);
   }
 
+  const requestPathname = new URL(request.url).pathname;
+  if (requestPathname.startsWith("/docs/")) {
+    throw redirect(docsPathForSlug(slug, locale), 301);
+  }
+
   const doc = await loadDoc(slug, locale);
   if (!doc) {
-    if (getDoc(slug, DEFAULT_DOCS_LOCALE)) {
-      throw redirect(docsPathForSlug(slug, DEFAULT_DOCS_LOCALE), 302);
-    }
     throw new Response("Not Found", { status: 404 });
   }
   return doc;

@@ -1,7 +1,8 @@
 import { Link } from "react-router";
 import { useState, type SyntheticEvent } from "react";
-import { trackEvent, useT } from "@agent-native/core/client";
+import { trackEvent, useLocale, useT } from "@agent-native/core/client";
 import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
+import { sitePathForLocale } from "../components/docs-locale";
 import { withDefaultSocialImage } from "../seo";
 
 export const meta = () =>
@@ -163,6 +164,7 @@ function SkillVideo({ skill }: { skill: Skill }) {
 }
 
 function SkillCard({ skill }: { skill: Skill }) {
+  const { locale } = useLocale();
   const t = useT();
   const featureKeys = ["feature1", "feature2"] as const;
 
@@ -195,7 +197,7 @@ function SkillCard({ skill }: { skill: Skill }) {
       <div className="mt-auto flex flex-wrap items-center gap-4 pt-1">
         <Link
           data-an-prefetch="render"
-          to={skill.docsTo}
+          to={sitePathForLocale(skill.docsTo, locale)}
           onClick={() =>
             trackEvent("skill read docs", {
               skill: skill.command,
@@ -215,7 +217,9 @@ function SkillCard({ skill }: { skill: Skill }) {
 }
 
 export default function SkillsPage() {
+  const { locale } = useLocale();
   const t = useT();
+  const localizedPath = (path: string) => sitePathForLocale(path, locale);
 
   return (
     <main className="mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
@@ -264,7 +268,7 @@ export default function SkillsPage() {
         <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
           <Link
             data-an-prefetch="render"
-            to="/docs/template-plan"
+            to={localizedPath("/docs/template-plan")}
             className="inline-flex items-center gap-1 text-sm font-medium text-[var(--fg)] no-underline hover:text-[var(--docs-accent)]"
           >
             {t("skillsPage.readVisualPlansDocs")}
@@ -272,7 +276,7 @@ export default function SkillsPage() {
           </Link>
           <Link
             data-an-prefetch="render"
-            to="/templates"
+            to={localizedPath("/templates")}
             className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
           >
             {t("skillsPage.browseTemplates")}

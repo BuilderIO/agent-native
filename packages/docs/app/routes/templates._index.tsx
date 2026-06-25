@@ -1,12 +1,14 @@
 import { Link } from "react-router";
+import { useLocale, useT } from "@agent-native/core/client";
 import {
   featuredTemplates,
   TemplateCard,
   trackEvent,
 } from "../components/TemplateCard";
-import { useT } from "@agent-native/core/client";
+import { sitePathForLocale } from "../components/docs-locale";
 
 export default function TemplatesPage() {
+  const { locale } = useLocale();
   const t = useT();
 
   return (
@@ -24,8 +26,8 @@ export default function TemplatesPage() {
       </div>
 
       <div className="grid min-w-0 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {featuredTemplates.map((t) => (
-          <TemplateCard key={t.name} template={t} />
+        {featuredTemplates.map((template) => (
+          <TemplateCard key={template.name} template={template} />
         ))}
       </div>
 
@@ -34,8 +36,8 @@ export default function TemplatesPage() {
           {t("templatesPage.community")}
         </p>
         <Link
-          data-an-prefetch="render"
-          to="/docs/getting-started"
+data-an-prefetch="render"
+          to={sitePathForLocale("/docs/getting-started", locale)}
           onClick={() =>
             trackEvent("start from scratch", { location: "templates_index" })
           }
