@@ -101,20 +101,25 @@ import {
   useSetHeaderActions,
 } from "@/components/layout/HeaderActions";
 import {
+  useDroppable,
   DndContext,
-  closestCenter,
+  pointerWithin,
   PointerSensor,
-  KeyboardSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  rectSortingStrategy,
-} from "@dnd-kit/sortable";
+  buildDashboardPanelGroups,
+  dropSlotId,
+  movePanelToDropSlot,
+  readDropSlot,
+  removePanelFromLayout,
+  sameDropSlot,
+  type DashboardDropSlot,
+} from "./dashboard-layout";
 
 const TAB_ID = generateTabId();
 
@@ -145,6 +150,35 @@ function groupDashboardTabs(tabs: string[]): {
   }
 
   return { groups, hasNestedTabs };
+}
+
+function DashboardDropLine({
+  slot,
+  activeSlot,
+  disabled,
+}: {
+  slot: DashboardDropSlot;
+  activeSlot: DashboardDropSlot | null;
+  disabled: boolean;
+}) {
+  const { setNodeRef } = useDroppable({
+    id: dropSlotId(slot),
+    data: { slot },
+    disabled,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      aria-hidden="true"
+      data-active={sameDropSlot(activeSlot, slot) ? "true" : undefined}
+      className={
+        slot.type === "row"
+          ? "dashboard-row-drop-slot"
+          : "dashboard-column-drop-slot"
+      }
+    />
+  );
 }
 
 type FetchedDashboard = {
@@ -272,9 +306,15 @@ export default function SqlDashboardPage() {
   const [descriptionInput, setDescriptionInput] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [draggingPanelId, setDraggingPanelId] = useState<string | null>(null);
+  const [activeDropSlot, setActiveDropSlot] =
+    useState<DashboardDropSlot | null>(null);
   const viewedDashboardIdRef = useRef<string | null>(null);
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  const dashboardColumns = clampDashboardColumns(
+    dashboard?.columns ?? DEFAULT_DASHBOARD_COLUMNS,
+  );
   const isDemoDashboard = dashboard?.demo?.id === "demo-node-exporter";
   const showDemoIntro =
     isDemoDashboard && searchParams.get("demoIntro") === "1";
@@ -625,10 +665,14 @@ export default function SqlDashboardPage() {
       if (!dashboard) return;
       persist({
         ...dashboard,
-        panels: dashboard.panels.filter((p) => p.id !== panelId),
+        panels: removePanelFromLayout(
+          dashboard.panels,
+          panelId,
+          dashboardColumns,
+        ),
       });
     },
-    [dashboard, persist],
+    [dashboard, dashboardColumns, persist],
   );
 
   const handleSavePanel = useCallback(
@@ -666,26 +710,42 @@ export default function SqlDashboardPage() {
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
   );
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setDraggingPanelId(String(event.active.id));
+  }, []);
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    setActiveDropSlot(readDropSlot(event.over?.data.current));
+  }, []);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
+      setDraggingPanelId(null);
+      setActiveDropSlot(null);
       if (!dashboard) return;
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-      const oldIndex = dashboard.panels.findIndex((p) => p.id === active.id);
-      const newIndex = dashboard.panels.findIndex((p) => p.id === over.id);
-      if (oldIndex === -1 || newIndex === -1) return;
+      const slot = readDropSlot(event.over?.data.current);
+      if (!slot) return;
+      const nextPanels = movePanelToDropSlot(
+        dashboard.panels,
+        String(event.active.id),
+        slot,
+        dashboardColumns,
+      );
+      if (nextPanels === dashboard.panels) return;
       persist({
         ...dashboard,
-        panels: arrayMove(dashboard.panels, oldIndex, newIndex),
+        panels: nextPanels,
       });
     },
-    [dashboard, persist],
+    [dashboard, dashboardColumns, persist],
   );
+
+  const handleDragCancel = useCallback(() => {
+    setDraggingPanelId(null);
+    setActiveDropSlot(null);
+  }, []);
 
   const handleSaveName = useCallback(() => {
     if (!dashboard) return;
@@ -778,42 +838,8 @@ export default function SqlDashboardPage() {
   // Group panels into "section blocks": each section starts a new block whose
   // grid uses the section's `columns` (falling back to the dashboard default).
   // Panels before any section go in an initial unsectioned block.
-  const dashboardColumns = clampDashboardColumns(
-    dashboard?.columns ?? DEFAULT_DASHBOARD_COLUMNS,
-  );
   const panelGroups = useMemo(() => {
-    const groups: Array<{
-      key: string;
-      section: SqlPanel | null;
-      panels: SqlPanel[];
-      columns: number;
-    }> = [];
-    let current: {
-      key: string;
-      section: SqlPanel | null;
-      panels: SqlPanel[];
-      columns: number;
-    } = {
-      key: "intro",
-      section: null,
-      panels: [],
-      columns: dashboardColumns,
-    };
-    for (const panel of visiblePanels) {
-      if (panel.chartType === "section") {
-        if (current.section || current.panels.length > 0) groups.push(current);
-        current = {
-          key: panel.id,
-          section: panel,
-          panels: [],
-          columns: clampDashboardColumns(panel.columns ?? dashboardColumns),
-        };
-      } else {
-        current.panels.push(panel);
-      }
-    }
-    if (current.section || current.panels.length > 0) groups.push(current);
-    return groups;
+    return buildDashboardPanelGroups(visiblePanels, dashboardColumns);
   }, [visiblePanels, dashboardColumns]);
 
   const handleDelete = useCallback(async () => {
@@ -1286,140 +1312,186 @@ export default function SqlDashboardPage() {
       ) : (
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={pointerWithin}
+          onDragStart={canEdit ? handleDragStart : undefined}
+          onDragOver={canEdit ? handleDragOver : undefined}
           onDragEnd={canEdit ? handleDragEnd : undefined}
+          onDragCancel={handleDragCancel}
         >
-          <SortableContext
-            items={visiblePanels.map((p) => p.id)}
-            strategy={rectSortingStrategy}
-          >
-            <div className="dashboard-grid-container flex flex-col gap-4">
-              {panelGroups.map((group) => {
-                const renderPanelCell = (panel: SqlPanel) => {
-                  const resolved = panel.config?.description
-                    ? {
-                        ...panel,
-                        config: {
-                          ...panel.config,
-                          description: interpolate(
-                            panel.config.description,
-                            vars,
-                          ),
-                        },
-                      }
-                    : panel;
-                  const remoteEditor = remoteEditingPanels.get(panel.id);
-                  return (
-                    <div
-                      key={panel.id}
-                      className="dashboard-grid-cell relative h-full"
-                      style={
-                        {
-                          ...(remoteEditor
-                            ? {
-                                outline: `2px solid ${remoteEditor.color}`,
-                                outlineOffset: 2,
-                                borderRadius: 8,
-                              }
-                            : null),
-                        } as React.CSSProperties
-                      }
-                    >
-                      {remoteEditor && (
-                        <span
-                          className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
-                          style={{
-                            backgroundColor: remoteEditor.color,
-                            color: "#fff",
-                          }}
-                        >
-                          {remoteEditor.name}
-                        </span>
-                      )}
-                      <SqlChartCard
-                        panel={resolved}
-                        resolvedSql={interpolate(
-                          serializePanelSql(panel.sql),
+          <div className="dashboard-grid-container flex flex-col gap-1">
+            {panelGroups.map((group) => {
+              const renderPanelCell = (panel: SqlPanel) => {
+                const resolved = panel.config?.description
+                  ? {
+                      ...panel,
+                      config: {
+                        ...panel.config,
+                        description: interpolate(
+                          panel.config.description,
                           vars,
-                        )}
-                        onRemove={() => removePanel(panel.id)}
-                        onEdit={() => openEditPanel(panel)}
-                        onSaveSql={(sql) => handleSavePanel({ ...panel, sql })}
-                        editable={canEdit}
-                      />
-                    </div>
-                  );
-                };
-
-                const renderSection = (section: SqlPanel) => {
-                  const remoteEditor = remoteEditingPanels.get(section.id);
-                  const resolved = section.config?.description
-                    ? {
-                        ...section,
-                        config: {
-                          ...section.config,
-                          description: interpolate(
-                            section.config.description,
-                            vars,
-                          ),
-                        },
-                      }
-                    : section;
-                  return (
-                    <div
-                      className="relative"
-                      style={
-                        remoteEditor
+                        ),
+                      },
+                    }
+                  : panel;
+                const remoteEditor = remoteEditingPanels.get(panel.id);
+                return (
+                  <div
+                    key={panel.id}
+                    className="dashboard-grid-cell relative h-full"
+                    style={
+                      {
+                        ...(remoteEditor
                           ? {
                               outline: `2px solid ${remoteEditor.color}`,
                               outlineOffset: 2,
                               borderRadius: 8,
                             }
-                          : undefined
-                      }
-                    >
-                      {remoteEditor && (
-                        <span
-                          className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
-                          style={{
-                            backgroundColor: remoteEditor.color,
-                            color: "#fff",
-                          }}
-                        >
-                          {remoteEditor.name}
-                        </span>
-                      )}
-                      <SqlChartCard
-                        panel={resolved}
-                        resolvedSql=""
-                        onRemove={() => removePanel(section.id)}
-                        onEdit={() => openEditPanel(section)}
-                        editable={canEdit}
-                      />
-                    </div>
-                  );
-                };
-
-                return (
-                  <Fragment key={group.key}>
-                    {group.section && renderSection(group.section)}
-                    {group.panels.length > 0 && (
-                      <div
-                        className="dashboard-grid"
-                        style={
-                          {
-                            "--dash-cols": group.columns,
-                          } as React.CSSProperties
-                        }
+                          : null),
+                      } as React.CSSProperties
+                    }
+                  >
+                    {remoteEditor && (
+                      <span
+                        className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
+                        style={{
+                          backgroundColor: remoteEditor.color,
+                          color: "#fff",
+                        }}
                       >
-                        {group.panels.map(renderPanelCell)}
-                      </div>
+                        {remoteEditor.name}
+                      </span>
                     )}
-                  </Fragment>
+                    <SqlChartCard
+                      panel={resolved}
+                      resolvedSql={interpolate(
+                        serializePanelSql(panel.sql),
+                        vars,
+                      )}
+                      onRemove={() => removePanel(panel.id)}
+                      onEdit={() => openEditPanel(panel)}
+                      onSaveSql={(sql) => handleSavePanel({ ...panel, sql })}
+                      editable={canEdit}
+                    />
+                  </div>
                 );
-              })}
-            </div>
-          </SortableContext>
+              };
+
+              const renderSection = (section: SqlPanel) => {
+                const remoteEditor = remoteEditingPanels.get(section.id);
+                const resolved = section.config?.description
+                  ? {
+                      ...section,
+                      config: {
+                        ...section.config,
+                        description: interpolate(
+                          section.config.description,
+                          vars,
+                        ),
+                      },
+                    }
+                  : section;
+                return (
+                  <div
+                    className="relative"
+                    style={
+                      remoteEditor
+                        ? {
+                            outline: `2px solid ${remoteEditor.color}`,
+                            outlineOffset: 2,
+                            borderRadius: 8,
+                          }
+                        : undefined
+                    }
+                  >
+                    {remoteEditor && (
+                      <span
+                        className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
+                        style={{
+                          backgroundColor: remoteEditor.color,
+                          color: "#fff",
+                        }}
+                      >
+                        {remoteEditor.name}
+                      </span>
+                    )}
+                    <SqlChartCard
+                      panel={resolved}
+                      resolvedSql=""
+                      onRemove={() => removePanel(section.id)}
+                      onEdit={() => openEditPanel(section)}
+                      editable={canEdit}
+                    />
+                  </div>
+                );
+              };
+
+              const renderRowDropLine = (rowIndex: number) => (
+                <DashboardDropLine
+                  key={`row-slot-${group.key}-${rowIndex}`}
+                  slot={{ type: "row", groupKey: group.key, rowIndex }}
+                  activeSlot={activeDropSlot}
+                  disabled={!canEdit || !draggingPanelId}
+                />
+              );
+
+              return (
+                <Fragment key={group.key}>
+                  {group.section && renderSection(group.section)}
+                  {renderRowDropLine(0)}
+                  {group.rows.map((row, rowIndex) => {
+                    const rowContainsDragging =
+                      !!draggingPanelId &&
+                      row.panels.some((panel) => panel.id === draggingPanelId);
+                    const columnDropDisabled =
+                      !canEdit ||
+                      !draggingPanelId ||
+                      (row.panels.length >= group.columns &&
+                        !rowContainsDragging);
+
+                    return (
+                      <Fragment key={row.key}>
+                        <div
+                          className="dashboard-grid"
+                          style={
+                            {
+                              "--dash-cols": row.panels.length,
+                            } as React.CSSProperties
+                          }
+                        >
+                          <DashboardDropLine
+                            slot={{
+                              type: "column",
+                              groupKey: group.key,
+                              rowIndex,
+                              columnIndex: 0,
+                            }}
+                            activeSlot={activeDropSlot}
+                            disabled={columnDropDisabled}
+                          />
+                          {row.panels.map((panel, columnIndex) => (
+                            <Fragment key={panel.id}>
+                              {renderPanelCell(panel)}
+                              <DashboardDropLine
+                                slot={{
+                                  type: "column",
+                                  groupKey: group.key,
+                                  rowIndex,
+                                  columnIndex: columnIndex + 1,
+                                }}
+                                activeSlot={activeDropSlot}
+                                disabled={columnDropDisabled}
+                              />
+                            </Fragment>
+                          ))}
+                        </div>
+                        {renderRowDropLine(rowIndex + 1)}
+                      </Fragment>
+                    );
+                  })}
+                </Fragment>
+              );
+            })}
+          </div>
         </DndContext>
       )}
 

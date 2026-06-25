@@ -37,8 +37,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { useDraggable } from "@dnd-kit/core";
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 import type { SqlPanel } from "./types";
@@ -62,14 +61,8 @@ export function SqlChartCard({
   onSaveSql,
   editable = true,
 }: SqlChartCardProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: panel.id, disabled: !editable });
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } =
+    useDraggable({ id: panel.id, disabled: !editable });
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -125,10 +118,7 @@ export function SqlChartCard({
   }, [panel.id]);
 
   const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-    opacity: isDragging ? 0.7 : 1,
+    opacity: isDragging ? 0.45 : 1,
   };
 
   // Section panels render as a flush header row (no card chrome, full width)
@@ -181,6 +171,7 @@ export function SqlChartCard({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
+                    ref={setActivatorNodeRef}
                     className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
                     aria-label="Drag to reorder"
                     {...attributes}
@@ -314,6 +305,7 @@ export function SqlChartCard({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
+                    ref={setActivatorNodeRef}
                     className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
                     aria-label="Drag to reorder"
                     {...attributes}

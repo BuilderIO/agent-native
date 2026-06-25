@@ -12,8 +12,6 @@ import {
 import {
   IconChartBar,
   IconChevronDown,
-  IconSun,
-  IconMoon,
   IconTrash,
   IconDots,
   IconLoader2,
@@ -88,6 +86,7 @@ import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   DevDatabaseLink,
   FeedbackButton,
+  LanguagePicker,
   appApiPath,
   callAction,
   appPath,
@@ -1169,14 +1168,6 @@ function restoreQuerySnapshots<T>(
   }
 }
 
-function persistThemePreference(theme: "light" | "dark") {
-  fetch(appApiPath("/api/theme"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ theme }),
-  }).catch(() => {});
-}
-
 // --- Sidebar ---
 
 export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
@@ -1184,7 +1175,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const navigate = useNavigate();
   const t = useT();
   const queryClient = useQueryClient();
-  const { resolvedTheme, setTheme } = useTheme();
+  const { setTheme } = useTheme();
 
   const [dashOpen, setDashOpen] = useState(() =>
     getStoredBoolean(DASHBOARDS_OPEN_KEY, true),
@@ -1203,8 +1194,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [analysisSortMode, setAnalysisSortModeState] =
     useState<SidebarSortMode>(() => getStoredSortMode(ANALYSIS_SORT_MODE_KEY));
   const popularity = usePopularity();
-
-  const light = resolvedTheme === "light";
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.localStorage.getItem("theme")) {
@@ -2285,29 +2274,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       </p>
                     </TooltipContent>
                   </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => {
-                          const next = light ? "dark" : "light";
-                          setTheme(next);
-                          persistThemePreference(next);
-                        }}
-                        className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
-                      >
-                        {light ? (
-                          <IconMoon className="h-4 w-4" />
-                        ) : (
-                          <IconSun className="h-4 w-4" />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <p>
-                        {light ? t("sidebar.darkMode") : t("sidebar.lightMode")}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
+                  <LanguagePicker
+                    variant="icon"
+                    label={t("settings.languageLabel")}
+                    className="[&_[role=combobox]]:rounded-lg [&_[role=combobox]]:border-0 [&_[role=combobox]]:bg-transparent [&_[role=combobox]]:text-muted-foreground [&_[role=combobox]]:hover:bg-sidebar-accent/50 [&_[role=combobox]]:hover:text-primary"
+                  />
                 </div>
               </div>
             </TooltipProvider>
