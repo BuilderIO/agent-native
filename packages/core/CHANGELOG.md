@@ -1,5 +1,105 @@
 # @agent-native/core
 
+## 0.77.3
+
+### Patch Changes
+
+- 4c1e290: Add diagnostic-only pre-`startRun` setup-timing instrumentation to the agent-chat
+  handler. Captures wall-clock offsets from handler entry through the work done
+  before the agent loop starts — body parse, request prep, system-prompt build,
+  screen context, the parallel context-collection `Promise.all`, action/tool
+  conversion, and thread data — and emits them as a `setup_timings` run diagnostic
+  (readable via the run's `diag_stage`). No behavior change; best-effort and
+  fire-and-forget. It lets us localize which setup bucket dominates pre-run latency
+  on heavy apps — e.g. analytics, whose >25s setup currently exceeds the durable
+  claim grace — and runs on both the inline and background-worker paths, so the
+  breakdown can be measured with durable left OFF.
+
+## 0.77.2
+
+### Patch Changes
+
+- 6d04136: MCP Apps: render inline embeds in a nested child iframe instead of transplanting
+  the app document on hosts where transplant breaks. Transplant boots the app via
+  cross-origin dynamic `import()` inside the host's opaque-origin sandbox, which
+  strict hosts block (blank "Loading app").
+  - `ui/*` bridge hosts (Cursor, Codex) now render in a nested child iframe.
+  - ChatGPT now uses its controlled nested frame: `isChatGptSandboxHost` was
+    removed from `shouldTransplantAppDocument`, which had forced ChatGPT to
+    transplant and hang blank.
+
+  Claude keeps the transplant path; `embedMode: "transplant"` still forces it.
+
+## 0.77.1
+
+### Patch Changes
+
+- e3a084f: Durable background agent-chat: wait adaptively for a slow-but-alive worker to
+  claim a dispatched run, instead of abandoning it and recovering inline. The
+  foreground waits a base grace for the background worker to claim; heavy apps
+  (e.g. analytics) can take longer than that to build the system prompt and load
+  actions before claiming, so their worker lost the race every time and the
+  15-minute background budget went unused (observed in prod: the run stalls at
+  `auth_passed`, then recovers via `foreground_inline_recovery`).
+
+  The circuit-breaker now keeps polling past the base grace ONLY while the worker
+  is provably alive and still in setup — its `diag_stage` (parsed from the stored
+  JSON payload) is `auth_passed`/`worker_entered` but it has not claimed yet. A
+  dead handoff never records those stages, so it still recovers inline at the base
+  grace; a worker that recorded a pre-claim failure (`route_threw` / `worker_threw`
+  / `auth_failed`) recovers inline immediately. The extension is bounded by the
+  unclaimed-run reaper's own window, measured from the run's liveness
+  (`COALESCE(heartbeat_at, started_at)`), so the foreground always claims the run
+  inline just before `reapUnclaimedBackgroundRun` could fire — immune to dispatch
+  latency between insert and the start of polling. The claim itself still happens
+  right before the agent loop, so all existing fast-recovery and duplicate-delivery
+  guarantees are preserved.
+
+## 0.77.0
+
+### Minor Changes
+
+- dd40496: Add a `"none"` block `editSurface` so a registered block can render its `Read` view in edit mode with no data form and no corner edit (pencil) button — for blocks whose whole-block operations live in the editor chrome/menu rather than a generated or custom editor.
+- 2a03c35: Upgrade framework and template React Router support to v8 and require the v8 runtime baselines.
+
+### Patch Changes
+
+- 2a03c35: Animate the standard agent sidebar drawer when it opens and closes.
+- 2a03c35: Preserve signed Builder connect callback query parameters on mounted framework routes so docs and other app surfaces can complete Connect Builder flows reliably.
+- 2a03c35: Durable background diagnostics: preserve the background-function worker's last
+  `diag_stage` (`route_entered` / `auth_failed` / etc., or `none` if it never
+  reached the route) in the foreground circuit-breaker's
+  `foreground_inline_recovery` detail instead of overwriting it. This makes a
+  silent worker death diagnosable from `/runs/active` without reading the
+  unreadable Netlify background-function logs. `readBackgroundRunClaim` now also
+  returns `diagStage`.
+- 2a03c35: Durable background agent runs: add a foreground **circuit-breaker** so a dead
+  background worker can no longer break chat. A Netlify async background function
+  returns `202` the instant it enqueues the invocation, but the worker may never
+  execute — e.g. the generated function wrapper fails to import `./main.mjs` or
+  hand off to the Nitro `_process-run` route, so it never reaches
+  `claimBackgroundRun` and the run is reaped as "worker never claimed the run".
+  After a successful dispatch the foreground now polls briefly for the worker to
+  actually claim the run; if it doesn't within the grace window, the turn is
+  recovered **inline** (the same safe atomic-claim path used for a fast dispatch
+  failure), so a dead worker degrades to a working synchronous turn instead of a
+  reaped failure. Also harden the generated background-function wrapper to pass
+  Netlify's `context` through to the Nitro handler and wrap the handoff in
+  try/catch so a pre-route failure is logged loudly instead of silently swallowed
+  behind the async 202.
+- 2a03c35: Add a linkable API reference section for authenticated extension data routes to the Extensions docs.
+- 2a03c35: Keep note-only FileTree file rows inline without disclosure chevrons, truncating long notes and showing the hover tooltip only when the text is actually clipped.
+- 2a03c35: Link the first actions mention in Getting Started to the actions docs.
+- 2a03c35: Bundle an Arabic-capable OG image font so localized Arabic docs previews render real text instead of missing-glyph boxes.
+- 2a03c35: Show a New chat button on full-page Ask chat surfaces with visible conversation tabs after a conversation starts.
+- 2a03c35: Prevent default-closed agent sidebars from reopening because of stale global sidebar state.
+- 2a03c35: Add an `agentNative()` Vite plugin preset so app `vite.config.ts` files can use
+  Vite's native `defineConfig` while keeping Agent-Native framework defaults.
+- 2a03c35: Preserve first-touch referral attribution through email and Google OAuth signups, and make Postgres parameter conversion ignore question marks inside SQL literals.
+- 2a03c35: Stop showing previous scoped chats in the empty chat state.
+- 2a03c35: Let the agent composer model picker shrink to its content instead of forcing a tall popover.
+- 2a03c35: Make PR visual recap comments report screenshot failures explicitly and cache-bust embedded screenshot URLs per workflow run so GitHub does not reuse stale image proxy entries.
+
 ## 0.76.14
 
 ### Patch Changes

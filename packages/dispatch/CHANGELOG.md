@@ -1,5 +1,15 @@
 # @agent-native/dispatch
 
+## 0.13.0
+
+### Minor Changes
+
+- 2a03c35: Upgrade framework and template React Router support to v8 and require the v8 runtime baselines.
+
+### Patch Changes
+
+- 2a03c35: Align dispatch landing-page redirects with the current router loader URL context.
+
 ## 0.12.3
 
 ### Patch Changes
