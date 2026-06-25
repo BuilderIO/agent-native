@@ -2,6 +2,8 @@ import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 import type {
   AddContentDatabaseSourceFieldPropertyRequest,
   ContentDatabaseSourceFieldPropertyResponse,
@@ -14,12 +16,11 @@ import {
   serializePropertyValue,
   type DocumentPropertyType,
 } from "../shared/properties.js";
-import { getDb, schema } from "../server/db/index.js";
-import { nanoid } from "./_property-utils.js";
 import {
   resolveDatabaseForSourceMutation,
   serializeSourceField,
 } from "./_database-source-utils.js";
+import { nanoid } from "./_property-utils.js";
 
 function parseSourceValues(
   value: string | null | undefined,

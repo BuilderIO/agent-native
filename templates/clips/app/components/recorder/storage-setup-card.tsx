@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  agentNativePath,
+  appPath,
+  openBuilderConnectPopup,
+} from "@agent-native/core/client";
 import {
   IconCheck,
   IconCloud,
@@ -6,11 +10,7 @@ import {
   IconLoader2,
   IconServer,
 } from "@tabler/icons-react";
-import {
-  agentNativePath,
-  appPath,
-  openBuilderConnectPopup,
-} from "@agent-native/core/client";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 function BuilderBMark({ className }: { className?: string }) {
   return (

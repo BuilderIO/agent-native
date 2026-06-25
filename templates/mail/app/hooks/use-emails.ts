@@ -1,21 +1,22 @@
-import { useMemo, useRef } from "react";
-import {
-  useQuery,
-  useInfiniteQuery,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { callAction } from "@agent-native/core/client";
+import { appApiPath, callAction, useT } from "@agent-native/core/client";
+import { markdownPreviewSnippet } from "@shared/markdown";
 import type {
   ComposeAttachment,
   EmailMessage,
   Label,
   UserSettings,
 } from "@shared/types";
-import { markdownPreviewSnippet } from "@shared/markdown";
+import {
+  useQuery,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useMemo, useRef } from "react";
+import { toast } from "sonner";
+
+import { useAccountFilter } from "@/hooks/use-account-filter";
 import { TAB_ID } from "@/lib/tab-id";
-import { appApiPath } from "@agent-native/core/client";
-import { bodyToHtml } from "@/lib/utils";
 import {
   useThreadCache,
   ensureThread,
@@ -23,7 +24,7 @@ import {
   getCachedThread,
   setCachedThread,
 } from "@/lib/thread-cache";
-import { useAccountFilter } from "@/hooks/use-account-filter";
+import { bodyToHtml } from "@/lib/utils";
 
 const EMAIL_PAGE_SIZE = 25;
 
@@ -331,7 +332,7 @@ function isSuppressedInView(threadId: string, view: string): boolean {
   return true;
 }
 
-function filterSuppressed(
+export function filterSuppressedThreads(
   emails: EmailMessage[],
   view: string,
 ): EmailMessage[] {
@@ -487,7 +488,13 @@ export function useEmails(
 ) {
   const q = useInfiniteQuery({
     queryKey: ["emails", view, search, label],
-    queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
+    queryFn: ({
+      pageParam,
+      signal,
+    }: {
+      pageParam: string | undefined;
+      signal: AbortSignal;
+    }) => {
       const params = new URLSearchParams({ view });
       params.set("limit", String(EMAIL_PAGE_SIZE));
       if (search) params.set("q", search);
@@ -496,7 +503,7 @@ export function useEmails(
       if (externalRefreshAt && Date.now() - externalRefreshAt < 5000) {
         params.set("forceRefresh", String(externalRefreshAt));
       }
-      return apiFetch<EmailsPage>(`/api/emails?${params}`);
+      return apiFetch<EmailsPage>(`/api/emails?${params}`, { signal });
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: EmailsPage) => lastPage.nextPageToken,
@@ -530,9 +537,9 @@ export function useEmails(
   const data = useMemo(() => {
     if (!q.data) return undefined;
     const all = q.data.pages.flatMap((p: EmailsPage) => p.emails);
-    const visible = applyOverrides(search ? all : filterSuppressed(all, view));
+    const visible = applyOverrides(filterSuppressedThreads(all, view));
     return applyRecentSentEmails(visible, view, search, label);
-  }, [q.data, search, view, label]);
+  }, [q.data, view, search, label]);
 
   return {
     data,
@@ -757,6 +764,7 @@ export function useToggleStar() {
 
 export function useArchiveEmail() {
   const qc = useQueryClient();
+  const t = useT();
   return useMutation({
     mutationFn: ({
       id,
@@ -777,6 +785,7 @@ export function useArchiveEmail() {
       }).then(assertActionSuccess),
     onMutate: async ({
       id,
+      threadId: hintedThreadId,
     }: {
       id: string;
       accountEmail?: string;
@@ -790,7 +799,7 @@ export function useArchiveEmail() {
       const target = previous
         .flatMap(([, data]) => flattenInfiniteEmails(data))
         .find((e) => e.id === id);
-      const threadId = target?.threadId || id;
+      const threadId = hintedThreadId || target?.threadId || id;
       suppressThread(threadId, "archive");
       invalidateCachedThread(threadId);
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
@@ -803,6 +812,7 @@ export function useArchiveEmail() {
     onError: (_err, _vars, context) => {
       if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      toast.error(t("mail.toasts.archiveFailed"));
     },
     onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
   });

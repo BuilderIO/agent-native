@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { callAction, setClientAppState } from "@agent-native/core/client";
+import { CONTENT_SOURCE_ROOT } from "@shared/content-source";
 import {
   IconAlertCircle,
   IconCircleCheck,
@@ -13,7 +12,11 @@ import {
   IconTrash,
   IconUpload,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+
+import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -24,8 +27,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
-import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import {
   getDesktopContentFiles,
   type DesktopContentFilesFolder,
@@ -39,7 +40,7 @@ import {
   syncLocalControlResources,
   type LocalControlResourceFiles,
 } from "@/lib/local-control-resources";
-import { CONTENT_SOURCE_ROOT } from "@shared/content-source";
+import { cn } from "@/lib/utils";
 
 type PermissionState = "granted" | "denied" | "prompt";
 type LocalWritable = {

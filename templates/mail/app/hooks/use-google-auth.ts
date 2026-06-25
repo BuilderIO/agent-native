@@ -1,6 +1,6 @@
+import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
 
 interface GoogleAuthStatus {
   connected: boolean;

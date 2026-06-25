@@ -9,14 +9,15 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import { assertAccess } from "@agent-native/core/sharing";
+import { writeAppState } from "@agent-native/core/application-state";
 import { deleteAppSecret, readAppSecret } from "@agent-native/core/secrets";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 import { revokeToken } from "../server/lib/google-calendar-client.js";
-import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:

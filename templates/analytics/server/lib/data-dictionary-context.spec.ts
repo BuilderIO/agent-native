@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { renderDataDictionary } from "./data-dictionary-context";
 
 describe("renderDataDictionary", () => {

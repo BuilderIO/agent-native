@@ -1,10 +1,10 @@
+import { type PlanWireframeTone } from "@shared/plan-content";
 import {
   createContext,
   useContext,
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { type PlanWireframeTone } from "@shared/plan-content";
 
 /** Default sketch level (0–100) → rough.js roughness. Legible but hand-drawn. */
 export const DEFAULT_SKETCH = 40;

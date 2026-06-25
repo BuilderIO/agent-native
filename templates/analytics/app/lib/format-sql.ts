@@ -1,4 +1,5 @@
 import { format, type SqlLanguage } from "sql-formatter";
+
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
 // Match {{name}} interpolation, {{?name}} conditional opens, and {{/name}}

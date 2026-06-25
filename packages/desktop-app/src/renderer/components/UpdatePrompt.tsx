@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
 import { IconX, IconRefresh } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+
 import { useUpdateStatus } from "./UpdateIndicator.js";
 
 /**

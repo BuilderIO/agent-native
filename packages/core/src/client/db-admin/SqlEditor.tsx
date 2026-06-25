@@ -1,3 +1,23 @@
+import { sql, PostgreSQL } from "@codemirror/lang-sql";
+import { oneDark } from "@codemirror/theme-one-dark";
+import {
+  IconPlayerPlayFilled,
+  IconHistory,
+  IconBookmark,
+  IconBookmarkPlus,
+  IconDownload,
+  IconAlertTriangle,
+  IconLoader2,
+  IconTrash,
+  IconX,
+  IconChevronDown,
+} from "@tabler/icons-react";
+import CodeMirror, {
+  type ReactCodeMirrorRef,
+  EditorView,
+  keymap,
+  Prec,
+} from "@uiw/react-codemirror";
 /**
  * Production-grade SQL editor for the dev-mode database admin.
  *
@@ -18,42 +38,22 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import CodeMirror, {
-  type ReactCodeMirrorRef,
-  EditorView,
-  keymap,
-  Prec,
-} from "@uiw/react-codemirror";
-import { sql, PostgreSQL } from "@codemirror/lang-sql";
-import { oneDark } from "@codemirror/theme-one-dark";
-import {
-  IconPlayerPlayFilled,
-  IconHistory,
-  IconBookmark,
-  IconBookmarkPlus,
-  IconDownload,
-  IconAlertTriangle,
-  IconLoader2,
-  IconTrash,
-  IconX,
-  IconChevronDown,
-} from "@tabler/icons-react";
-import { cn } from "../utils.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
+
+import type { DbAdminDialect } from "../../db-admin/types.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu.js";
-import type { DbAdminDialect } from "../../db-admin/types.js";
-import { runQuery } from "./useDbAdmin.js";
-import { ResultsGrid } from "./ResultsGrid.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import { cn } from "../utils.js";
 import { toCSV, toJSON, downloadFile } from "./export-utils.js";
+import { ResultsGrid } from "./ResultsGrid.js";
 import {
   loadHistory,
   pushHistory,
@@ -63,6 +63,7 @@ import {
   deleteSnippet,
   type SqlSnippet,
 } from "./sql-storage.js";
+import { runQuery } from "./useDbAdmin.js";
 
 export interface SqlEditorProps {
   dialect: DbAdminDialect;

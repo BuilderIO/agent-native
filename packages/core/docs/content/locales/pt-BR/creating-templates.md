@@ -159,7 +159,7 @@ Use `http: { method: "GET" }` ou `readOnly: true` para actions somente leitura. 
 
 ## Construa o UI {#ui}
 
-As rotas residem em `app/routes/` e usam o roteamento de arquivos do React Router v7. Consulte dados por meio de manipuladores actions ou API e torne as mutações otimistas por padrão.
+As rotas residem em `app/routes/` e usam o roteamento de arquivos do React Router v8. Consulte dados por meio de manipuladores actions ou API e torne as mutações otimistas por padrão.
 
 ```tsx
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";

@@ -1,3 +1,13 @@
+import type { DailyCalories } from "@shared/types";
+import {
+  startOfWeek,
+  endOfWeek,
+  format,
+  parseISO,
+  isToday,
+  isBefore,
+  startOfDay,
+} from "date-fns";
 import {
   BarChart,
   Bar,
@@ -9,17 +19,8 @@ import {
   ReferenceLine,
   Cell,
 } from "recharts";
+
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  startOfWeek,
-  endOfWeek,
-  format,
-  parseISO,
-  isToday,
-  isBefore,
-  startOfDay,
-} from "date-fns";
-import type { DailyCalories } from "@shared/types";
 
 interface WeeklyData {
   weekLabel: string;

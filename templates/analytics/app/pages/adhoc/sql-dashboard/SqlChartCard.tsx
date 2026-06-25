@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useDraggable } from "@dnd-kit/core";
 import {
   IconGripVertical,
   IconDotsVertical,
@@ -10,6 +9,27 @@ import {
   IconCode,
   IconDownload,
 } from "@tabler/icons-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+
+import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,26 +42,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { useDraggable } from "@dnd-kit/core";
-import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
-import { ViewSqlPopover } from "./ViewSqlPopover";
+
 import type { SqlPanel } from "./types";
+import { ViewSqlPopover } from "./ViewSqlPopover";
 
 interface SqlChartCardProps {
   panel: SqlPanel;
@@ -62,6 +65,7 @@ export function SqlChartCard({
   onSaveSql,
   editable = true,
 }: SqlChartCardProps) {
+  const { t } = useTranslation();
   const canDrag = editable && panel.chartType !== "section";
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } =
     useDraggable({ id: panel.id, disabled: !canDrag });
@@ -324,7 +328,7 @@ export function SqlChartCard({
                   {editable && onEdit && (
                     <DropdownMenuItem onSelect={() => onEdit()}>
                       <IconPencil className="h-4 w-4 mr-2" />
-                      Panel settings
+                      {t("dashboard.panelSettings")}
                     </DropdownMenuItem>
                   )}
                   {editable ? (

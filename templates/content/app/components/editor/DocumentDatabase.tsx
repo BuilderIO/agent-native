@@ -1,22 +1,49 @@
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type DragEvent as ReactDragEvent,
-  type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-} from "react";
-import { useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import {
   agentNativePath,
   getBrowserTabId,
   useBuilderConnectFlow,
   useBuilderStatus,
   useCodeMode,
 } from "@agent-native/core/client";
+import {
+  BUILDER_CMS_SAFE_WRITE_MODEL,
+  type BuilderCmsModelSummary,
+  type ContentDatabaseItem,
+  type ContentDatabaseResponse,
+  type ContentDatabaseSource,
+  type ContentDatabaseSourceChangeSet,
+  type ContentDatabaseSourceJoinRequest,
+  type ContentDatabaseSourceReviewPayload,
+  type ContentDatabaseSummary,
+  type SourceJoinSuggestion,
+  type ContentDatabaseView,
+  type ContentDatabaseViewConfig,
+  type ContentDatabaseColumnCalculation,
+  type ContentDatabaseFilter,
+  type ContentDatabaseFilterMode,
+  type ContentDatabaseFilterOperator,
+  type ContentDatabaseOpenPagesIn,
+  type ContentDatabaseRowDensity,
+  type ContentDatabaseSort,
+  type ContentDatabaseSortDirection,
+  type ContentDatabaseViewType,
+  type Document,
+  type DocumentProperty,
+  type DocumentPropertyOption,
+  type DocumentPropertyType,
+  type DocumentPropertyValue,
+} from "@shared/api";
+import {
+  type DocumentPropertyOptionColor,
+  countWords,
+  documentPropertyDateKey,
+  documentPropertyDatePart,
+  evaluateNormalizationFormula,
+  formatWordCount,
+  formulaValueText,
+  isComputedPropertyType,
+  isEmptyPropertyValue,
+} from "@shared/properties";
 import {
   IconArrowDown,
   IconArrowLeft,
@@ -55,6 +82,20 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -117,7 +158,9 @@ import {
   useUpdateDocument,
 } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+
+import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
+import { DocumentBlockFields } from "./DocumentBlockFields";
 import {
   AddProperty,
   DocumentProperties,
@@ -137,53 +180,13 @@ import {
   updatePropertyOptionColor,
 } from "./DocumentProperties";
 import { EmojiPicker } from "./EmojiPicker";
-import { VisualEditor } from "./VisualEditor";
-import { DocumentBlockFields } from "./DocumentBlockFields";
 import { createPreviewDocumentSaveController } from "./previewDocumentSaveController";
 import {
   acquirePreviewDocumentSaveController,
   peekPreviewDocumentSaveController,
   releasePreviewDocumentSaveController,
 } from "./previewDocumentSaveRegistry";
-import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
-import {
-  BUILDER_CMS_SAFE_WRITE_MODEL,
-  type BuilderCmsModelSummary,
-  type ContentDatabaseItem,
-  type ContentDatabaseResponse,
-  type ContentDatabaseSource,
-  type ContentDatabaseSourceChangeSet,
-  type ContentDatabaseSourceJoinRequest,
-  type ContentDatabaseSourceReviewPayload,
-  type SourceJoinSuggestion,
-  type ContentDatabaseView,
-  type ContentDatabaseViewConfig,
-  type ContentDatabaseColumnCalculation,
-  type ContentDatabaseFilter,
-  type ContentDatabaseFilterMode,
-  type ContentDatabaseFilterOperator,
-  type ContentDatabaseOpenPagesIn,
-  type ContentDatabaseRowDensity,
-  type ContentDatabaseSort,
-  type ContentDatabaseSortDirection,
-  type ContentDatabaseViewType,
-  type Document,
-  type DocumentProperty,
-  type DocumentPropertyOption,
-  type DocumentPropertyType,
-  type DocumentPropertyValue,
-} from "@shared/api";
-import {
-  type DocumentPropertyOptionColor,
-  countWords,
-  documentPropertyDateKey,
-  documentPropertyDatePart,
-  evaluateNormalizationFormula,
-  formatWordCount,
-  formulaValueText,
-  isComputedPropertyType,
-  isEmptyPropertyValue,
-} from "@shared/properties";
+import { VisualEditor } from "./VisualEditor";
 
 interface DocumentDatabaseProps {
   document: Document;
@@ -414,13 +417,14 @@ function DatabaseTable({
   const setProperty = useSetDocumentProperty(document.id);
   const updateView = useUpdateContentDatabaseView(document.id);
   const data = database.data;
-  const properties = data?.properties ?? [];
-  const items = data?.items ?? [];
+  const properties: DocumentProperty[] = data?.properties ?? [];
+  const items: ContentDatabaseItem[] = data?.items ?? [];
   const totalItemCount = data?.pagination?.totalItems ?? items.length;
   const hasMoreItems = data?.pagination?.hasMore === true;
   const databaseId = data?.database.id ?? null;
   const source = data?.source ?? null;
-  const sources = data?.sources ?? (source ? [source] : []);
+  const sources: ContentDatabaseSource[] =
+    data?.sources ?? (source ? [source] : []);
   const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(
     null,
   );
@@ -4561,8 +4565,9 @@ function AddSourceView({
   // Exclude this database (no self-reference) and any table already federated
   // onto it — those live in the "Connected sources" group above.
   const excluded = new Set(excludeDatabaseIds);
-  const tables = (query.data?.databases ?? []).filter(
-    (table) => !excluded.has(table.databaseId),
+  const availableTables: ContentDatabaseSummary[] = query.data?.databases ?? [];
+  const tables = availableTables.filter(
+    (table: ContentDatabaseSummary) => !excluded.has(table.databaseId),
   );
   return (
     <div className="grid min-w-0 gap-4">
@@ -4690,7 +4695,7 @@ function BuilderSpaceModelsView({
   onOpenModel: (model: BuilderCmsModelSummary) => void;
 }) {
   const modelsQuery = useBuilderCmsModels(true);
-  const models = modelsQuery.data?.models ?? [];
+  const models: BuilderCmsModelSummary[] = modelsQuery.data?.models ?? [];
   const [query, setQuery] = useState("");
 
   if (modelsQuery.isLoading) {
@@ -4758,7 +4763,7 @@ function BuilderSpaceModelsView({
     !normalizedQuery ||
     model.displayName.toLowerCase().includes(normalizedQuery) ||
     model.name.toLowerCase().includes(normalizedQuery);
-  const filtered = models.filter(matchesQuery);
+  const filtered: BuilderCmsModelSummary[] = models.filter(matchesQuery);
   const attachedModels = filtered.filter(
     (model) => attachedModelName === model.name,
   );

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
+import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   IconAlertCircle,
   IconBrandGoogleDrive,
@@ -8,7 +8,7 @@ import {
   IconLoader2,
   IconPlugConnected,
 } from "@tabler/icons-react";
-import { extractGoogleDocUrls } from "@shared/google-docs";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 declare global {
   interface Window {

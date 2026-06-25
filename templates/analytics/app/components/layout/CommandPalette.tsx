@@ -1,34 +1,3 @@
-import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router";
-import { useQuery } from "@tanstack/react-query";
-import {
-  CommandDialog,
-  CommandInput,
-  CommandList,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-} from "@/components/ui/command";
-import {
-  IconFlask,
-  IconTool,
-  IconChartBar,
-  IconLayoutDashboard,
-  IconSun,
-  IconMoon,
-  IconHistory,
-  IconLanguage,
-} from "@tabler/icons-react";
-import { useTheme } from "next-themes";
-import { dashboards } from "@/pages/adhoc/registry";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import {
   agentNativePath,
   appApiPath,
@@ -39,6 +8,39 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { extensionPath } from "@agent-native/core/client/extensions";
+import {
+  IconFlask,
+  IconTool,
+  IconChartBar,
+  IconLayoutDashboard,
+  IconSun,
+  IconMoon,
+  IconHistory,
+  IconLanguage,
+} from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import { useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router";
+
+import {
+  CommandDialog,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+} from "@/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { dashboards } from "@/pages/adhoc/registry";
+
 import changelog from "../../../CHANGELOG.md?raw";
 import { commandPaletteKeywords } from "./command-palette-search";
 

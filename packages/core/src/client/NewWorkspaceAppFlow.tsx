@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState } from "react";
 import {
   IconArrowUpRight,
   IconBook,
@@ -7,12 +6,14 @@ import {
   IconFileText,
   IconKey,
 } from "@tabler/icons-react";
-import { agentNativePath, appBasePath } from "./api-path.js";
-import { sendToAgentChat } from "./agent-chat.js";
-import { isInBuilderFrame } from "./builder-frame.js";
-import { useDevMode } from "./use-dev-mode.js";
+import { useEffect, useMemo, useState } from "react";
+
 import { getWorkspaceAppIdValidationError } from "../shared/workspace-app-id.js";
+import { sendToAgentChat } from "./agent-chat.js";
+import { agentNativePath, appBasePath } from "./api-path.js";
+import { isInBuilderFrame } from "./builder-frame.js";
 import { PromptComposer } from "./composer/PromptComposer.js";
+import { useDevMode } from "./use-dev-mode.js";
 
 export interface VaultSecretOption {
   id: string;

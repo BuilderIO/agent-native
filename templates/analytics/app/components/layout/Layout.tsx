@@ -1,9 +1,3 @@
-import { useMemo } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { Sidebar } from "./Sidebar";
-import { MobileNav } from "./MobileNav";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import {
   AgentSidebar,
   GuidedQuestionFlow,
@@ -15,8 +9,16 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { useMemo } from "react";
+import { useLocation, useNavigate } from "react-router";
+
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
+
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { MobileNav } from "./MobileNav";
+import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
   children: React.ReactNode;

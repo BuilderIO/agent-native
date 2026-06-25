@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { DEFAULT_BRAIN_SETTINGS } from "../../shared/types.js";
 import {
   buildSanitizerSystemPrompt,

@@ -1,6 +1,3 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import { useSearchParams } from "react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   agentNativePath,
   useActionMutation,
@@ -12,7 +9,13 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { appApiPath } from "@agent-native/core/client";
-import changelog from "../../CHANGELOG.md?raw";
+import { TeamPage } from "@agent-native/core/client/org";
+import type {
+  Alias,
+  AutomationAction,
+  AutomationRule,
+  UserSettings,
+} from "@shared/types";
 import {
   IconUsers,
   IconPlus,
@@ -32,10 +35,12 @@ import {
   IconHistory,
   IconSettings,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import { GmailFiltersSection } from "@/components/settings/GmailFiltersSection";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,6 +51,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -53,15 +60,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   useAliases,
   useCreateAlias,
   useUpdateAlias,
   useDeleteAlias,
 } from "@/hooks/use-aliases";
-import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   useAutomations,
   useCreateAutomation,
@@ -69,20 +81,10 @@ import {
   useDeleteAutomation,
 } from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
-import type {
-  Alias,
-  AutomationAction,
-  AutomationRule,
-  UserSettings,
-} from "@shared/types";
-import { TeamPage } from "@agent-native/core/client/org";
-import { toast } from "sonner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { GmailFiltersSection } from "@/components/settings/GmailFiltersSection";
+import { useNavigationState } from "@/hooks/use-navigation-state";
+import { cn } from "@/lib/utils";
+
+import changelog from "../../CHANGELOG.md?raw";
 
 // ─── Alias Edit Row ───────────────────────────────────────────────────────────
 

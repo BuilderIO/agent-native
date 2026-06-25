@@ -1,6 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-import { toast } from "sonner";
 import {
   IconAlertCircle,
   IconBook,
@@ -16,11 +14,10 @@ import {
   IconUser,
   IconX,
 } from "@tabler/icons-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { toast } from "sonner";
+
 import { DispatchShell } from "@/components/dispatch-shell";
-import {
-  ImpactPreview,
-  workspaceResourceMutationMessage,
-} from "@/components/workspace-resource-impact-preview";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,9 +49,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  ImpactPreview,
+  workspaceResourceMutationMessage,
+} from "@/components/workspace-resource-impact-preview";
 
 export function meta() {
   return [{ title: "Workspace Resources — Dispatch" }];

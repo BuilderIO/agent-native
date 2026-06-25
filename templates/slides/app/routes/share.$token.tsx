@@ -1,7 +1,8 @@
-import SharedPresentation from "@/pages/SharedPresentation";
 import type { SharedDeckResponse } from "@shared/api";
 import type { LoaderFunctionArgs } from "react-router";
 import { useLoaderData } from "react-router";
+
+import SharedPresentation from "@/pages/SharedPresentation";
 
 type LoaderData =
   | { deck: SharedDeckResponse; error?: undefined }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { getActiveTocId } from "./TableOfContents";
 
 function headingAt(top: number): Pick<HTMLElement, "getBoundingClientRect"> {

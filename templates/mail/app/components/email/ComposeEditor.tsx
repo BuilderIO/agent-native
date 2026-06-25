@@ -1,11 +1,10 @@
+import { useT } from "@agent-native/core/client";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import Link from "@tiptap/extension-link";
-import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
-import { ComposeImageNode } from "./extensions/ComposeImageNode";
 import { common, createLowlight } from "lowlight";
-import { Markdown } from "tiptap-markdown";
 import {
   useEffect,
   useRef,
@@ -13,13 +12,9 @@ import {
   useImperativeHandle,
   forwardRef,
 } from "react";
-import { ComposeSlashMenu } from "./ComposeSlashMenu";
-import { ComposeBubbleToolbar } from "./ComposeBubbleToolbar";
-import { CodeBlockLangPicker } from "./CodeBlockLangPicker";
-import {
-  shouldApplyComposeContent,
-  COMPOSE_TYPING_GRACE_MS,
-} from "./compose-draft-context";
+import { Markdown } from "tiptap-markdown";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -28,9 +23,16 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useT } from "@agent-native/core/client";
+
+import { CodeBlockLangPicker } from "./CodeBlockLangPicker";
+import {
+  shouldApplyComposeContent,
+  COMPOSE_TYPING_GRACE_MS,
+} from "./compose-draft-context";
+import { ComposeBubbleToolbar } from "./ComposeBubbleToolbar";
+import { ComposeSlashMenu } from "./ComposeSlashMenu";
+import { ComposeImageNode } from "./extensions/ComposeImageNode";
 
 const lowlight = createLowlight(common);
 

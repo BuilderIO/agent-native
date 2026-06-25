@@ -7,6 +7,7 @@
  */
 
 import { it } from "vitest";
+
 import type { FormField } from "../../shared/types.js";
 import { applyFieldOps } from "./merge-fields.js";
 

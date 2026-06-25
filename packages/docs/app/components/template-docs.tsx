@@ -1,6 +1,7 @@
 import { trackEvent, useLocale, useT } from "@agent-native/core/client";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
+
 import { sitePathForLocale } from "./docs-locale";
 
 type TemplateLinkTarget = {

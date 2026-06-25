@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { TEMPLATES } from "../cli/templates-meta.js";
 import {
   BUILTIN_AGENTS_FOR_SEEDING,
   discoverAgents,
   getBuiltinAgents,
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
-import { TEMPLATES } from "../cli/templates-meta.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const resourceListMock = vi.hoisted(() => vi.fn());

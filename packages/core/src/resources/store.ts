@@ -1,3 +1,5 @@
+import crypto from "crypto";
+
 import {
   getDbExec,
   isPostgres,
@@ -6,12 +8,6 @@ import {
   type DbExec,
 } from "../db/client.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
-import { emitResourceChange, emitResourceDelete } from "./emitter.js";
-import type { StoreWriteOptions } from "../settings/store.js";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "../server/request-context.js";
 import {
   canUseLocalWorkspaceResourcePath,
   deleteLocalWorkspaceResource,
@@ -24,7 +20,12 @@ import {
   type LocalWorkspaceResourceFile,
   type LocalWorkspaceResourceMeta,
 } from "../local-artifacts/index.js";
-import crypto from "crypto";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
+import type { StoreWriteOptions } from "../settings/store.js";
+import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 
 export const SHARED_OWNER = "__shared__";
 export const WORKSPACE_OWNER = "__workspace__";
@@ -1503,9 +1504,9 @@ export async function resourceListAllOwners(
   });
   const localResources = (
     await Promise.all(
-      (await localWorkspaceResourceMetas(pathPrefix)).map((resource) =>
-        resourceGet(resource.id),
-      ),
+      (
+        await localWorkspaceResourceMetas(pathPrefix)
+      ).map((resource) => resourceGet(resource.id)),
     )
   ).filter((resource): resource is Resource => !!resource);
   const localPaths = new Set(localResources.map((resource) => resource.path));

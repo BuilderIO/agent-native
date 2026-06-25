@@ -1,3 +1,6 @@
+import { AgentSidebar, getBrowserTabId, useT } from "@agent-native/core/client";
+import { InvitationBanner } from "@agent-native/core/client/org";
+import { IconMenu2 } from "@tabler/icons-react";
 import {
   type CSSProperties,
   ReactNode,
@@ -7,13 +10,12 @@ import {
   useState,
 } from "react";
 import { useLocation } from "react-router";
+
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
-import { useCreatePage } from "@/hooks/use-create-page";
-import { AgentSidebar, getBrowserTabId, useT } from "@agent-native/core/client";
-import { InvitationBanner } from "@agent-native/core/client/org";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { IconMenu2 } from "@tabler/icons-react";
+import { useCreatePage } from "@/hooks/use-create-page";
+import { useIsMobile } from "@/hooks/use-mobile";
+
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 

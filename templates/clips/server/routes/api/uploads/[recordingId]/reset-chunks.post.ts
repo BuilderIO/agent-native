@@ -25,21 +25,22 @@
  */
 
 import {
+  writeAppState,
+  deleteAppStateByPrefix,
+} from "@agent-native/core/application-state";
+import { runWithRequestContext } from "@agent-native/core/server";
+import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
+import { and, eq } from "drizzle-orm";
+import {
   defineEventHandler,
   getRouterParam,
   readBody,
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { and, eq } from "drizzle-orm";
+
 import { getDb, schema } from "../../../../db/index.js";
 import { getEventOwnerContext } from "../../../../lib/recordings.js";
-import { runWithRequestContext } from "@agent-native/core/server";
-import {
-  writeAppState,
-  deleteAppStateByPrefix,
-} from "@agent-native/core/application-state";
-import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 
 interface CompressionMeta {
   originalBytes?: number;

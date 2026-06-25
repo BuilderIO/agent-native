@@ -1,8 +1,8 @@
-import { ServerRouter } from "react-router";
 import {
   createDocumentRequestHandler,
   streamTimeout,
 } from "@agent-native/core/server/entry-server";
+import { ServerRouter } from "react-router";
 
 const handleDocumentRequest = createDocumentRequestHandler(ServerRouter);
 

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+
 import {
   defineEventHandler,
   getMethod,
@@ -12,19 +13,20 @@ import {
   getHeader,
 } from "h3";
 import type { H3Event } from "h3";
-import type { H3AppShim } from "./framework-request-handler.js";
+
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
-import {
-  resolveEmbedSessionFromRequest,
-  requestHasEmbedAuthMarker,
-} from "./embed-session.js";
 import {
   EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import {
+  resolveEmbedSessionFromRequest,
+  requestHasEmbedAuthMarker,
+} from "./embed-session.js";
+import type { H3AppShim } from "./framework-request-handler.js";
 
 // In h3 v2, `event.req` IS the web Request — but in Nitro's dev server (srvx
 // runtime), event.url and event.req share the same underlying URL object.
@@ -71,25 +73,47 @@ import {
   describeDbError,
 } from "../db/client.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { readBody } from "../server/h3-helpers.js";
+import { putSetting } from "../settings/store.js";
+import { DEFAULT_SSR_CACHE_HEADERS } from "../shared/cache-control.js";
+import { extractOAuthStateAppId } from "../shared/oauth-state.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  withAgentNativeSocialImageCacheBuster,
+} from "../shared/social-meta.js";
+import {
+  normalizeWorkspaceAppAudience,
+  workspaceAppAudienceFromEnv,
+  workspaceAppRouteAccessFromEnv,
+  type WorkspaceAppAudience,
+} from "../shared/workspace-app-audience.js";
+import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
+import { signupAttributionFromCookieHeader } from "./attribution.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
-import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+import {
+  BUILDER_CONNECT_OWNER_COOKIE,
+  BUILDER_CONNECT_PARAM,
+  BUILDER_STATE_PARAM,
+  verifyBuilderCallbackStateAndGetOwner,
+  verifyBuilderConnectTokenAndGetOwner,
+} from "./builder-browser.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import {
-  getOnboardingHtml,
-  getResetPasswordHtml,
-  type OnboardingHtmlOptions,
-} from "./onboarding-html.js";
-import type { GoogleAuthMode } from "./google-auth-mode.js";
-import { readBody } from "../server/h3-helpers.js";
-import {
   readDesktopSso,
   writeDesktopSso,
   clearDesktopSso,
 } from "./desktop-sso.js";
+import type { GoogleAuthMode } from "./google-auth-mode.js";
+import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import {
   isElectron as isElectronRequest,
   getAppBasePath,
@@ -103,39 +127,17 @@ import {
   resolveOAuthRedirectUri,
   isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
-import { safeOAuthReturnUrl } from "./oauth-return-url.js";
-import { signupAttributionFromCookieHeader } from "./attribution.js";
-import { captureAuthError } from "./sentry.js";
-import { extractOAuthStateAppId } from "../shared/oauth-state.js";
-import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
-import {
-  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
-  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
-  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
-  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
-  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
-  withAgentNativeSocialImageCacheBuster,
-} from "../shared/social-meta.js";
-import { DEFAULT_SSR_CACHE_HEADERS } from "../shared/cache-control.js";
-import {
-  normalizeWorkspaceAppAudience,
-  workspaceAppAudienceFromEnv,
-  workspaceAppRouteAccessFromEnv,
-  type WorkspaceAppAudience,
-} from "../shared/workspace-app-audience.js";
-import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
-import {
-  BUILDER_CONNECT_OWNER_COOKIE,
-  BUILDER_CONNECT_PARAM,
-  BUILDER_STATE_PARAM,
-  verifyBuilderCallbackStateAndGetOwner,
-  verifyBuilderConnectTokenAndGetOwner,
-} from "./builder-browser.js";
-import { putSetting } from "../settings/store.js";
 // Pure env-read feature switch from a leaf module (no dependency back on
 // auth.ts), so the guard and the SSO route handler share one validator and
 // can never disagree about whether federated SSO is enabled.
 import { isIdentitySsoEnabled } from "./identity-sso-store.js";
+import { safeOAuthReturnUrl } from "./oauth-return-url.js";
+import {
+  getOnboardingHtml,
+  getResetPasswordHtml,
+  type OnboardingHtmlOptions,
+} from "./onboarding-html.js";
+import { captureAuthError } from "./sentry.js";
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
@@ -1813,7 +1815,7 @@ function createAuthGuardFn(): (
       return;
     }
 
-    // React Router 7's lazy route discovery fetches `/__manifest?p=...` to
+    // React Router's lazy route discovery fetches `/__manifest?p=...` to
     // resolve manifest patches for `<Link>`s the user might click. The
     // auth fallback returning loginHtml here makes RR fail to parse the
     // body as RSC, surfacing as a console error and (when the visitor

@@ -1,11 +1,12 @@
-import { agentNativePath } from "../api-path.js";
+import { IconPlus, IconPencil, IconTrash, IconX } from "@tabler/icons-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+
 import {
   getRemoteAgentIdFromPath,
   isRemoteAgentPath,
   remoteAgentResourcePath,
 } from "../../resources/metadata.js";
-import { useState, useEffect, useRef, useCallback } from "react";
-import { IconPlus, IconPencil, IconTrash, IconX } from "@tabler/icons-react";
+import { agentNativePath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,

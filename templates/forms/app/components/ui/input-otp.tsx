@@ -1,6 +1,6 @@
-import * as React from "react";
-import { OTPInput, OTPInputContext } from "input-otp";
 import { IconPoint } from "@tabler/icons-react";
+import { OTPInput, OTPInputContext } from "input-otp";
+import * as React from "react";
 
 import { cn } from "@/lib/utils";
 

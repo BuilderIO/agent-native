@@ -1,9 +1,10 @@
+import { readBody } from "@agent-native/core/server";
 import { defineEventHandler } from "h3";
+
 import {
   resolveCredential,
   withRequestContextFromEvent,
 } from "../../lib/credentials";
-import { readBody } from "@agent-native/core/server";
 import { resolveAnalyticsGongCredentials } from "../../lib/provider-credentials";
 
 export default defineEventHandler(async (event) => {

@@ -1,14 +1,16 @@
-import { useEffect } from "react";
-import SharedPresentation from "@/pages/SharedPresentation";
+import { getConfiguredAppBasePath } from "@agent-native/core/server";
 import {
   toSharedDeckSlide,
   type SharedDeckResponse,
   type SharedDeckSlide,
 } from "@shared/api";
 import { eq } from "drizzle-orm";
+import { useEffect } from "react";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { getConfiguredAppBasePath } from "@agent-native/core/server";
+
+import SharedPresentation from "@/pages/SharedPresentation";
+
 import { getDb, schema } from "../../server/db";
 
 type LoaderData =

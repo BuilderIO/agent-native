@@ -1,3 +1,17 @@
+import { IconPencil } from "@tabler/icons-react";
+import {
+  NodeSelection,
+  Plugin,
+  PluginKey,
+  type EditorState,
+} from "@tiptap/pm/state";
+import {
+  Node,
+  NodeViewWrapper,
+  ReactNodeViewRenderer,
+  mergeAttributes,
+  type NodeViewProps,
+} from "@tiptap/react";
 import {
   createContext,
   useEffect,
@@ -7,20 +21,7 @@ import {
   type ReactNode,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { IconPencil } from "@tabler/icons-react";
-import {
-  Node,
-  NodeViewWrapper,
-  ReactNodeViewRenderer,
-  mergeAttributes,
-  type NodeViewProps,
-} from "@tiptap/react";
-import {
-  NodeSelection,
-  Plugin,
-  PluginKey,
-  type EditorState,
-} from "@tiptap/pm/state";
+
 import {
   blockEditSurface,
   useOptionalBlockRegistry,

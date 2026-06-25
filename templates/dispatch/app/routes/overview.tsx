@@ -1,9 +1,9 @@
 export { default } from "@agent-native/dispatch/routes/pages/overview";
-import type { LoaderFunctionArgs } from "react-router";
 import {
   buildThreadLinkPreviewMeta,
   type ThreadLinkPreview,
 } from "@agent-native/dispatch/lib/thread-link-preview";
+import type { LoaderFunctionArgs } from "react-router";
 
 const SEO_TITLE =
   "Agent-Native Dispatch - Open Source workspace control plane for AI agents";

@@ -1,8 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
-import { addBytesProcessed } from "./cost-tracker";
-import { getIdToken } from "./auth";
-import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 import { appApiPath } from "@agent-native/core/client";
+import { useQuery } from "@tanstack/react-query";
+
+import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
+
+import { getIdToken } from "./auth";
+import { addBytesProcessed } from "./cost-tracker";
 
 export interface SqlQueryResult {
   rows: Record<string, unknown>[];

@@ -1,11 +1,12 @@
 import "../register-secrets.js";
+import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
-import { getOrgContext } from "@agent-native/core/org";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, like, or } from "drizzle-orm";
+
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { tryAnswerBrainA2AQuestion } from "../lib/a2a-fallback.js";
 

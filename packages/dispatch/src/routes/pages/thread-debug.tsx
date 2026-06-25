@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState } from "react";
 import { agentNativePath, useActionQuery } from "@agent-native/core/client";
 import {
   IconDatabase,
@@ -6,6 +5,8 @@ import {
   IconRefresh,
   IconSearch,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+
 import { DispatchShell } from "@/components/dispatch-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -436,7 +437,7 @@ export default function ThreadDebugRoute() {
     sources: ThreadDebugSource[];
   }>("list-agent-thread-sources", {});
 
-  const sources = sourcesData?.sources ?? [];
+  const sources: ThreadDebugSource[] = sourcesData?.sources ?? [];
   const searchParams = useMemo(
     () => ({
       sourceId: submittedSearch.sourceId,
@@ -457,6 +458,7 @@ export default function ThreadDebugRoute() {
     access: { scope: string; canInspectAll: boolean };
     source: { id: string; label: string };
   }>("search-agent-threads", searchParams);
+  const searchThreads: ThreadSearchResult[] = searchData?.threads ?? [];
 
   const detailParams = useMemo(
     () => ({
@@ -629,13 +631,13 @@ export default function ThreadDebugRoute() {
                   <Skeleton className="h-28 w-full rounded-lg" />
                 </>
               ) : null}
-              {!searchLoading && (searchData?.threads?.length ?? 0) === 0 ? (
+              {!searchLoading && searchThreads.length === 0 ? (
                 <div className="flex min-h-64 flex-col items-center justify-center rounded-lg border border-dashed px-4 text-center text-sm text-muted-foreground">
                   <IconDatabase className="mb-2 h-5 w-5" />
                   No threads found.
                 </div>
               ) : null}
-              {searchData?.threads?.map((result) => (
+              {searchThreads.map((result) => (
                 <ResultCard
                   key={result.id}
                   result={result}

@@ -1,10 +1,10 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   agentNativePath,
   isInBuilderFrame,
   oauthRedirectUri,
 } from "@agent-native/core/client";
 import type { GoogleAuthStatus } from "@shared/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export interface DesktopAuthIssue {

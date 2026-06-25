@@ -20,8 +20,9 @@ use crate::state::{
 };
 use crate::util::{
     build_overlay_url, configure_overlay_behavior, hide_voice_wake_popover, is_recording_active,
-    mark_popover_shown, set_capture_excluded, set_capture_excluded_always, set_capture_included,
-    set_dictation_active, tray_monitor_physical_rect,
+    mark_popover_shown, present_interactive_window, set_capture_excluded,
+    set_capture_excluded_always, set_capture_included, set_dictation_active,
+    tray_monitor_physical_rect,
 };
 
 /// Native overlay windows for the recording experience. These render the same
@@ -1615,21 +1616,7 @@ pub async fn reset_state(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(REGION_RECORD_BORDER_LABEL) {
         let _ = w.close();
     }
-    if let Some(window) = app.get_webview_window("popover") {
-        // Restore normal size in case the window was shrunk to a pinhole
-        // during recording — otherwise it would reappear as a 2×2 dot.
-        configure_overlay_behavior(&window);
-        let (w, h) = popover_window_size_logical(
-            POPOVER_DEFAULT_WIDTH_LOGICAL,
-            POPOVER_DEFAULT_HEIGHT_LOGICAL,
-        );
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)));
-        position_popover(&app, &window);
-        mark_popover_shown(&app);
-        let _ = window.show();
-        let _ = window.set_focus();
-        let _ = app.emit("clips:popover-visible", true);
-    }
+    force_show_popover(&app);
     Ok(())
 }
 
@@ -1745,7 +1732,9 @@ pub async fn bubble_drag_start(app: AppHandle) -> Result<(), String> {
     let (Ok(cursor), Ok(pos)) = (window.cursor_position(), window.outer_position()) else {
         return Ok(());
     };
-    *bubble_drag_anchor().lock().unwrap_or_else(|e| e.into_inner()) = Some(BubbleDragAnchor {
+    *bubble_drag_anchor()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(BubbleDragAnchor {
         cursor_x: cursor.x.round() as i32,
         cursor_y: cursor.y.round() as i32,
         win_x: pos.x,
@@ -1772,7 +1761,9 @@ pub async fn bubble_drag_move(app: AppHandle) -> Result<(), String> {
         return Ok(());
     };
     let target = {
-        let guard = bubble_drag_anchor().lock().unwrap_or_else(|e| e.into_inner());
+        let guard = bubble_drag_anchor()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let Some(anchor) = guard.as_ref() else {
             return Ok(());
         };
@@ -1794,7 +1785,9 @@ pub async fn bubble_drag_move(app: AppHandle) -> Result<(), String> {
 /// `onMoved` listener persists the final spot via `save_bubble_position`.
 #[tauri::command]
 pub async fn bubble_drag_end(app: AppHandle) -> Result<(), String> {
-    *bubble_drag_anchor().lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *bubble_drag_anchor()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
     BUBBLE_DRAGGING.store(false, Ordering::SeqCst);
     if let Some(window) = app.get_webview_window(BUBBLE_LABEL) {
         clamp_existing_bubble_window(&app, &window);
@@ -1805,26 +1798,7 @@ pub async fn bubble_drag_end(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn show_popover(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popover") {
-        set_capture_included(&window);
-        // Re-apply Space behavior — `orderOut:` resets it, so without this
-        // the popover sticks to whichever Space it was first shown on.
-        configure_overlay_behavior(&window);
-        // Restore the popover's normal size — it may have been shrunk to 2×2
-        // during recording by `park_popover_offscreen` (kept the JS alive
-        // while keeping the window out of the way). The content's
-        // ResizeObserver will call `resize_popover` on the next render to
-        // fine-tune the height, but we need a sensible starting size so
-        // `position_popover` can anchor correctly.
-        let (w, h) = popover_window_size_logical(
-            POPOVER_DEFAULT_WIDTH_LOGICAL,
-            POPOVER_DEFAULT_HEIGHT_LOGICAL,
-        );
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)));
-        position_popover(&app, &window);
-        mark_popover_shown(&app);
-        let _ = window.show();
-        let _ = window.set_focus();
-        let _ = app.emit("clips:popover-visible", true);
+        present_popover(&app, &window);
     }
     Ok(())
 }
@@ -1870,6 +1844,48 @@ pub async fn park_popover_offscreen(app: AppHandle) -> Result<(), String> {
 // Public helpers used by tray.rs and shortcuts.rs
 // ---------------------------------------------------------------------------
 
+fn clear_voice_wake_state(app: &AppHandle) {
+    if let Some(state) = app.try_state::<VoiceWakePopover>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = false;
+        }
+    }
+}
+
+fn is_pinhole_popover(window: &WebviewWindow) -> bool {
+    window
+        .outer_size()
+        .map(|size| size.width <= 4 || size.height <= 4)
+        .unwrap_or(false)
+}
+
+fn present_popover(app: &AppHandle, window: &WebviewWindow) {
+    clear_voice_wake_state(app);
+    set_capture_included(window);
+    // Re-apply Space behavior — `orderOut:` resets it, so without this the
+    // popover sticks to whichever Space it was first shown on.
+    configure_overlay_behavior(window);
+    // Restore the popover's normal size — it may have been shrunk to 2×2 during
+    // recording or voice wake. The content's ResizeObserver will fine-tune the
+    // height on the next render, but we need a sensible starting size so
+    // `position_popover` can anchor correctly.
+    let (w, h) = popover_window_size_logical(
+        POPOVER_DEFAULT_WIDTH_LOGICAL,
+        POPOVER_DEFAULT_HEIGHT_LOGICAL,
+    );
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)));
+    position_popover(app, window);
+    mark_popover_shown(app);
+    present_interactive_window(window);
+    let _ = app.emit("clips:popover-visible", true);
+}
+
+pub fn force_show_popover(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("popover") {
+        present_popover(app, &window);
+    }
+}
+
 pub fn toggle_popover(app: &AppHandle) {
     let Some(window) = app.get_webview_window("popover") else {
         return;
@@ -1886,39 +1902,14 @@ pub fn toggle_popover(app: &AppHandle) {
         .try_state::<VoiceWakePopover>()
         .and_then(|s| s.0.lock().ok().map(|g| *g))
         .unwrap_or(false);
-    let user_visible = window.is_visible().unwrap_or(false) && !voice_woken;
+    let user_visible =
+        window.is_visible().unwrap_or(false) && !voice_woken && !is_pinhole_popover(&window);
     if user_visible {
         let _ = window.hide();
         let _ = app.emit("clips:popover-visible", false);
         return;
     }
-    if voice_woken {
-        // Voice wake is over from the user's POV — clear the flag so the
-        // hide_flow_bar safety net doesn't double-hide the popover later.
-        if let Some(state) = app.try_state::<VoiceWakePopover>() {
-            if let Ok(mut g) = state.0.lock() {
-                *g = false;
-            }
-        }
-    }
-    // Restore normal size in case the window was shrunk to a pinhole
-    // during recording / voice-wake — otherwise it would reappear as a
-    // 2x2 dot.
-    set_capture_included(&window);
-    // Re-apply Space behavior — `orderOut:` resets it on every `hide()`,
-    // so without this the popover sticks to whichever Space it was first
-    // shown on.
-    configure_overlay_behavior(&window);
-    let (w, h) = popover_window_size_logical(
-        POPOVER_DEFAULT_WIDTH_LOGICAL,
-        POPOVER_DEFAULT_HEIGHT_LOGICAL,
-    );
-    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)));
-    position_popover(app, &window);
-    mark_popover_shown(app);
-    let _ = window.show();
-    let _ = window.set_focus();
-    let _ = app.emit("clips:popover-visible", true);
+    present_popover(app, &window);
 }
 
 pub fn position_popover(app: &AppHandle, window: &WebviewWindow) {

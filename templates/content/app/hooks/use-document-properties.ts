@@ -1,4 +1,3 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import type {
   ConfigureDocumentPropertyRequest,
@@ -8,6 +7,7 @@ import type {
   ReorderDocumentPropertyRequest,
   SetDocumentPropertyRequest,
 } from "@shared/api";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function useDocumentProperties(documentId: string | null) {
   return useActionQuery<DocumentPropertiesResponse>(

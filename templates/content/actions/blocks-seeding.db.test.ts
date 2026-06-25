@@ -3,12 +3,14 @@
 // in-memory, runs the actual versioned migrations, then drives the store-layer
 // functions directly — the seam where review findings 1, 4, 5, and 7 live.
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { rmSync } from "node:fs";
+
+import { runWithRequestContext } from "@agent-native/core/server";
+import { and, eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
 import {
   countWords,
   formatWordCount,

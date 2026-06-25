@@ -2,7 +2,8 @@
  * list-agent-engines — returns the registered engine registry and current selection.
  */
 
-import type { ActionTool } from "../../agent/types.js";
+import { getAgentAppModelDefaultForCurrentRequest } from "../../agent/app-model-defaults.js";
+import { DEFAULT_MODEL } from "../../agent/default-model.js";
 import {
   listAgentEngines,
   registerBuiltinEngines,
@@ -13,10 +14,9 @@ import {
   isStoredEngineUsableForRequest,
   normalizeModelForEngine,
 } from "../../agent/engine/index.js";
-import { DEFAULT_MODEL } from "../../agent/default-model.js";
-import { getAgentAppModelDefaultForCurrentRequest } from "../../agent/app-model-defaults.js";
-import { getSetting } from "../../settings/index.js";
+import type { ActionTool } from "../../agent/types.js";
 import { canUseDeployCredentialFallbackForRequest } from "../../server/credential-provider.js";
+import { getSetting } from "../../settings/index.js";
 
 export const tool: ActionTool = {
   description:

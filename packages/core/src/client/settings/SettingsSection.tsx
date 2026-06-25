@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
 import { IconChevronDown, IconCheck } from "@tabler/icons-react";
+import type { ReactNode } from "react";
 
 interface SettingsSectionProps {
   id?: string;

@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+
 import updateDocument from "./update-document.js";
 
 function escapeRegExp(value: string): string {

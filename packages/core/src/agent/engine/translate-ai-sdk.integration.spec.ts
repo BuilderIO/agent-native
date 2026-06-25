@@ -1,3 +1,5 @@
+import { streamText } from "ai";
+import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 /**
  * Integration test for the AI SDK translator.
  *
@@ -12,8 +14,7 @@
  * stale fixtures.
  */
 import { describe, it, expect } from "vitest";
-import { streamText } from "ai";
-import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
+
 import { aiSdkPartToEngineEvents } from "./translate-ai-sdk.js";
 import type { EngineEvent } from "./types.js";
 

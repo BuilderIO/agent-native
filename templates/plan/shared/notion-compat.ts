@@ -1,5 +1,5 @@
-import type { PlanBlock } from "./plan-content.js";
 import { planNotionCompatibleBlockTypes } from "./plan-block-registry.js";
+import type { PlanBlock } from "./plan-content.js";
 
 /**
  * Notion-sync compatibility. When a plan opts into "Sync to Notion", its blocks

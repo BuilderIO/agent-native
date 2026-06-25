@@ -1,9 +1,10 @@
-import components from "./local-components.generated";
 import type { ElementType } from "react";
+
 import {
   normalizeLocalContentComponentInputs,
   type LocalContentComponentInputs,
 } from "./local-component-config";
+import components from "./local-components.generated";
 import { localContentComponentInputs as generatedLocalContentComponentInputs } from "./local-components.generated";
 
 export const localContentComponents = components as Record<string, ElementType>;

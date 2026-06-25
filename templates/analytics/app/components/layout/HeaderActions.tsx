@@ -1,10 +1,11 @@
+import { useT } from "@agent-native/core/client";
 import {
   useEffect,
   useSyncExternalStore,
   type ReactNode,
   type FC,
 } from "react";
-import { useT } from "@agent-native/core/client";
+
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**

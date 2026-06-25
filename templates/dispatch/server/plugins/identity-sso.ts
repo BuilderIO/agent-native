@@ -66,15 +66,16 @@
  *   and a token is only minted for a real session.
  */
 
+import { signA2AToken } from "@agent-native/core/a2a";
+import { getOrgDomain } from "@agent-native/core/org";
 import {
   createAuthPlugin,
   getH3App,
   getSession,
 } from "@agent-native/core/server";
-import { signA2AToken } from "@agent-native/core/a2a";
-import { getOrgDomain } from "@agent-native/core/org";
 import { defineEventHandler, getMethod } from "h3";
 import type { H3Event } from "h3";
+
 import {
   IDENTITY_TOKEN_TTL,
   buildIdentityClaims,

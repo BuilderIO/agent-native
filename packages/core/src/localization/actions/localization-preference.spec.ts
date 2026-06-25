@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import getPreference from "./get-localization-preference.js";
 import setPreference from "./set-localization-preference.js";
 

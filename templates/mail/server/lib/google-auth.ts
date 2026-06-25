@@ -1,4 +1,15 @@
 import {
+  saveOAuthTokens,
+  deleteOAuthTokens,
+  listOAuthAccounts,
+  listOAuthAccountsByOwner,
+  setOAuthDisplayName,
+} from "@agent-native/core/oauth-tokens";
+import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { decodeCommonHtmlEntities } from "@shared/markdown.js";
+
+import {
   createOAuth2Client,
   gmailGetProfile,
   gmailGetMessage,
@@ -13,16 +24,6 @@ import {
   gmailStopWatch,
   peopleGetProfile,
 } from "./google-api.js";
-import {
-  saveOAuthTokens,
-  deleteOAuthTokens,
-  listOAuthAccounts,
-  listOAuthAccountsByOwner,
-  setOAuthDisplayName,
-} from "@agent-native/core/oauth-tokens";
-import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import { decodeCommonHtmlEntities } from "@shared/markdown.js";
 import { resolveGoogleSenderIdentity } from "./sender-identity.js";
 
 const SCOPES = [

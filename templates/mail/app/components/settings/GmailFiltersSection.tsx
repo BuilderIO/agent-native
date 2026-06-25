@@ -1,5 +1,4 @@
-import { useMemo, useState } from "react";
-import type { ComponentType } from "react";
+import type { ManagedGmailFilter } from "@shared/types";
 import {
   IconArchive,
   IconFilter,
@@ -11,18 +10,9 @@ import {
   IconTag,
   IconTrash,
 } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { useMemo, useState } from "react";
+import type { ComponentType } from "react";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +23,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -45,7 +47,6 @@ import {
   useReplaceGmailFilter,
   type ManageGmailFiltersInput,
 } from "@/hooks/use-gmail-filters";
-import type { ManagedGmailFilter } from "@shared/types";
 
 type FilterFormState = {
   account: string;

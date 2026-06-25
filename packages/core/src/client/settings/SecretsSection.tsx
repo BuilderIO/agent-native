@@ -5,8 +5,6 @@
  * buttons (api-key kind) or a Connect / Disconnect button (oauth kind).
  */
 
-import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { agentNativePath } from "../api-path.js";
 import {
   IconCheck,
   IconExternalLink,
@@ -16,6 +14,9 @@ import {
   IconTrash,
   IconRefresh,
 } from "@tabler/icons-react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+
+import { agentNativePath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,

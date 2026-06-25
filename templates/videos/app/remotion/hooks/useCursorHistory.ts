@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import { useCurrentFrame, useVideoConfig } from "remotion";
+
+import { DEFAULTS } from "@/config/constants";
 import { getPropValueKeyframed } from "@/remotion/trackAnimation";
 import type { AnimationTrack } from "@/types";
-import { DEFAULTS } from "@/config/constants";
 
 export interface CursorFrame {
   x: number;

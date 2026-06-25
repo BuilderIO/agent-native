@@ -1,9 +1,9 @@
 export { default } from "@agent-native/dispatch/routes/pages/chat";
-import type { LoaderFunctionArgs } from "react-router";
 import {
   buildThreadLinkPreviewMeta,
   type ThreadLinkPreview,
 } from "@agent-native/dispatch/lib/thread-link-preview";
+import type { LoaderFunctionArgs } from "react-router";
 
 export async function loader({ url }: LoaderFunctionArgs) {
   const threadId = url.searchParams.get("thread");

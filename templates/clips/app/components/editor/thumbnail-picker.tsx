@@ -1,10 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useActionMutation } from "@agent-native/core/client";
 import {
   IconPhoto,
   IconPhotoEdit,
   IconUpload,
   IconLoader2,
 } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -12,12 +16,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
-import { useActionMutation } from "@agent-native/core/client";
+import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { exportGif, blobToDataUrl } from "@/lib/ffmpeg-export";
 import { formatMs } from "@/lib/timestamp-mapping";
 

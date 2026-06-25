@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useRef, useState } from "react";
 import {
   IconChevronRight,
   IconFile,
@@ -7,22 +6,24 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
-import { cn } from "../../utils.js";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "../../components/ui/tooltip.js";
+import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
+import { DevInput, DevTextarea, DevSelect } from "./dev-doc-ui.js";
 import type {
   FileTreeChange,
   FileTreeData,
   FileTreeEntry,
 } from "./file-tree.config.js";
 import { FILE_TREE_CHANGES } from "./file-tree.config.js";
-import { DevInput, DevTextarea, DevSelect } from "./dev-doc-ui.js";
 
 /**
  * Read + Edit renderers for a `file-tree` block — a VS Code / GitHub-explorer
@@ -301,6 +302,7 @@ function flattenVisibleRows(
 
 const INDENT_STEP = 14; // px per nesting level — the explorer guide spacing.
 const DEFAULT_VISIBLE_TREE_ROWS = 10;
+const NOTE_TOOLTIP_DELAY_MS = 320;
 
 function OverflowNoteTooltip({
   className,
@@ -310,49 +312,69 @@ function OverflowNoteTooltip({
   note: string;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
+
+  const measureOverflow = useCallback(() => {
+    const element = ref.current;
+    if (!element) return false;
+
+    const width = element.getBoundingClientRect().width || element.clientWidth;
+    const nextIsOverflowing =
+      width > 0 && element.scrollWidth > Math.ceil(width) + 1;
+
+    setIsOverflowing(nextIsOverflowing);
+    if (!nextIsOverflowing) setOpen(false);
+
+    return nextIsOverflowing;
+  }, []);
 
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
 
-    const checkOverflow = () => {
-      setIsOverflowing(element.scrollWidth > element.clientWidth + 1);
-    };
-
-    checkOverflow();
-
+    measureOverflow();
+    const frame = window.requestAnimationFrame(measureOverflow);
     const resizeObserver =
       typeof ResizeObserver === "undefined"
         ? null
-        : new ResizeObserver(checkOverflow);
+        : new ResizeObserver(measureOverflow);
     resizeObserver?.observe(element);
-    window.addEventListener("resize", checkOverflow);
+    window.addEventListener("resize", measureOverflow);
 
     return () => {
+      window.cancelAnimationFrame(frame);
       resizeObserver?.disconnect();
-      window.removeEventListener("resize", checkOverflow);
+      window.removeEventListener("resize", measureOverflow);
     };
-  }, [note]);
+  }, [measureOverflow, note]);
 
-  const text = (
-    <span ref={ref} className={className}>
-      {note}
-    </span>
-  );
-
-  if (!isOverflowing) return text;
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen ? measureOverflow() : false);
+  };
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>{text}</TooltipTrigger>
-      <TooltipContent
-        align="start"
-        side="top"
-        className="max-w-[min(28rem,calc(100vw-2rem))] whitespace-normal break-words text-xs leading-5"
-      >
-        {note}
-      </TooltipContent>
+    <Tooltip open={open} onOpenChange={handleOpenChange}>
+      <TooltipTrigger asChild>
+        <span
+          ref={ref}
+          className={className}
+          data-file-note-overflowing={isOverflowing ? "" : undefined}
+          onFocus={measureOverflow}
+          onPointerEnter={measureOverflow}
+        >
+          {note}
+        </span>
+      </TooltipTrigger>
+      {isOverflowing && (
+        <TooltipContent
+          align="start"
+          side="top"
+          className="max-w-[min(28rem,calc(100vw-2rem))] whitespace-normal break-words text-xs leading-5"
+        >
+          {note}
+        </TooltipContent>
+      )}
     </Tooltip>
   );
 }
@@ -660,7 +682,7 @@ export function FileTreeRead({
         </div>
 
         {/* The tree itself. */}
-        <TooltipProvider delayDuration={180}>
+        <TooltipProvider delayDuration={NOTE_TOOLTIP_DELAY_MS}>
           <div className="py-1.5">
             {tree.length > 0 ? (
               <>

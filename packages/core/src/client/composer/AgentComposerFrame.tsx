@@ -1,5 +1,6 @@
 import { ComposerPrimitive } from "@assistant-ui/react";
 import type React from "react";
+
 import { cn } from "../utils.js";
 import type { AgentComposerLayoutVariant } from "./types.js";
 

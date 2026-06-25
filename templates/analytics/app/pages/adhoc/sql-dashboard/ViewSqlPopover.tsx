@@ -1,26 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
 import { useReconciledState } from "@agent-native/core/client";
-import { toast } from "sonner";
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { SqlEditor } from "@/components/SqlEditor";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   IconAlertTriangle,
   IconAlignLeft,
@@ -29,8 +7,32 @@ import {
   IconLoader2,
   IconRotate,
 } from "@tabler/icons-react";
-import { canFormatPanelSql, safeFormatPanelSql } from "@/lib/format-sql";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { toast } from "sonner";
+
+import { SqlEditor } from "@/components/SqlEditor";
 import { SqlHighlight } from "@/components/SqlHighlight";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { canFormatPanelSql, safeFormatPanelSql } from "@/lib/format-sql";
+
 import type { DataSourceType, SqlPanel } from "./types";
 
 const SOURCE_LABELS: Record<DataSourceType, string> = {

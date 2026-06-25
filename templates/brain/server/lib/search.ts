@@ -1,10 +1,11 @@
-import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import { accessFilter } from "@agent-native/core/sharing";
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
-import { discoverAgents } from "@agent-native/core/server/agent-discovery";
+import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+
+import type { BrainEvidence } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import { parseJson, safeCitationUrl } from "./brain.js";
-import type { BrainEvidence } from "../../shared/types.js";
 
 export type UniversalSearchType = "knowledge" | "capture" | "source";
 

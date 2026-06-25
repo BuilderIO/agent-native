@@ -1,5 +1,7 @@
-import { buildDeepLink } from "@agent-native/core/server";
+import { Buffer } from "node:buffer";
+
 import { emit } from "@agent-native/core/event-bus";
+import { buildDeepLink } from "@agent-native/core/server";
 import {
   assertAccess,
   ForbiddenError,
@@ -7,9 +9,15 @@ import {
   resolveAccess,
 } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
-import { Buffer } from "node:buffer";
 import { z } from "zod";
-import { getDb, schema } from "./db/index.js";
+
+import {
+  extractCommentMentions,
+  normalizeCommentMentions,
+  normalizePlanCommentResolutionTarget,
+  parsePlanCommentAnchor,
+  type PlanCommentMention,
+} from "../shared/comment-context.js";
 import {
   PLAN_AUTHORS,
   PLAN_COMMENT_KINDS,
@@ -27,19 +35,13 @@ import {
   type PlanSection,
   type PlanSummary,
 } from "../shared/types.js";
-import {
-  extractCommentMentions,
-  normalizeCommentMentions,
-  normalizePlanCommentResolutionTarget,
-  parsePlanCommentAnchor,
-  type PlanCommentMention,
-} from "../shared/comment-context.js";
+import { getDb, schema } from "./db/index.js";
+import { resolvePlanAccessContext } from "./lib/local-identity.js";
 import {
   buildPlanContentHtml,
   parsePlanContent,
   sanitizeStoredPlanHtml,
 } from "./plan-content.js";
-import { resolvePlanAccessContext } from "./lib/local-identity.js";
 
 type ImplementationFile = {
   id: string;

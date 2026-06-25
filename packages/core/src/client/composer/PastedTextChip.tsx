@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { IconClipboardText, IconX } from "@tabler/icons-react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
 import type { Attachment } from "@assistant-ui/react";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { IconClipboardText, IconX } from "@tabler/icons-react";
+import { useCallback, useEffect, useState } from "react";
+
 import { cn } from "../utils.js";
 import { countLines, unwrapAttachmentEnvelope } from "./pasted-text.js";
 

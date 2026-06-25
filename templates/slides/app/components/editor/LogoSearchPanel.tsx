@@ -1,7 +1,7 @@
+import { agentNativePath, useActionQuery } from "@agent-native/core/client";
+import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
-import { agentNativePath, useActionQuery } from "@agent-native/core/client";
 
 const LOGO_DEV_PK = "pk_VwOyCAOgT0aBNpecT2qO-A";
 

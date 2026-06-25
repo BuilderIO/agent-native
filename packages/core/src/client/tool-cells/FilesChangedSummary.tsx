@@ -4,10 +4,11 @@
  * to that file's diff.  Derived purely from ContentPart structuredMeta.
  */
 
-import { memo, useMemo, useState } from "react";
 import { IconFiles } from "@tabler/icons-react";
-import { cn } from "../utils.js";
+import { memo, useMemo, useState } from "react";
+
 import type { ContentPart } from "../sse-event-processor.js";
+import { cn } from "../utils.js";
 import { EditCell } from "./EditCell.js";
 import { WriteCell } from "./WriteCell.js";
 

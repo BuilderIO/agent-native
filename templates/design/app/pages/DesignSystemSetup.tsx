@@ -1,5 +1,10 @@
-import { useState, useCallback, useRef, useMemo, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import {
+  sendToAgentChat,
+  openAgentSidebar,
+  useActionQuery,
+  useActionMutation,
+  appApiPath,
+} from "@agent-native/core/client";
 import {
   IconArrowLeft,
   IconBrandGithub,
@@ -13,23 +18,19 @@ import {
   IconPalette,
   IconCheck,
 } from "@tabler/icons-react";
-import {
-  sendToAgentChat,
-  openAgentSidebar,
-  useActionQuery,
-  useActionMutation,
-  appApiPath,
-} from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
+
 import {
   useSetPageTitle,
   useSetHeaderActions,
 } from "@/components/layout/HeaderActions";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 
 interface GitHubLink {
   id: string;
@@ -43,6 +44,17 @@ interface UploadedFile {
   size: number;
   textContent?: string;
 }
+
+type ExistingDesignProject = {
+  id: string;
+  title: string;
+  designSystemId?: string;
+};
+
+type ExistingDesignSystem = {
+  id: string;
+  title: string;
+};
 
 interface FigImportResult {
   ok: boolean;
@@ -100,15 +112,16 @@ export default function DesignSystemSetup() {
   const appliedSourceIdRef = useRef<string | null>(null);
 
   const { data: designsData } = useActionQuery<{
-    designs: Array<{ id: string; title: string; designSystemId?: string }>;
+    designs: ExistingDesignProject[];
   }>("list-designs");
 
   const { data: designSystemsData } = useActionQuery<{
-    designSystems: Array<{ id: string; title: string }>;
+    designSystems: ExistingDesignSystem[];
   }>("list-design-systems");
 
-  const existingProjects = designsData?.designs ?? [];
-  const existingSystems = designSystemsData?.designSystems ?? [];
+  const existingProjects: ExistingDesignProject[] = designsData?.designs ?? [];
+  const existingSystems: ExistingDesignSystem[] =
+    designSystemsData?.designSystems ?? [];
 
   // --- Figma .fig import (deep brand extraction → design system) ----------
   const queryClient = useQueryClient();

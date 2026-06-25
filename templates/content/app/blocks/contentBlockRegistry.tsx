@@ -11,17 +11,19 @@ import {
 } from "@agent-native/core/blocks";
 import { sendToAgentChat } from "@agent-native/core/client";
 import { useEffect, useRef, useState } from "react";
+
+import { uploadImageFile } from "@/components/editor/image-upload";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+
 import {
   ContentBlockMarkdown,
   ContentBlockMarkdownEditor,
 } from "./ContentBlockMarkdown";
-import { uploadImageFile } from "@/components/editor/image-upload";
 
 /**
  * Content's BROWSER block registry. Registers the same structured-block library

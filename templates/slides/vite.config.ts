@@ -1,11 +1,16 @@
-import { reactRouter } from "@react-router/dev/vite";
 import { agentNative } from "@agent-native/core/vite";
+import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig } from "vite";
+
+const reactRouterPlugins = reactRouter as unknown as () => any[];
+const agentNativePlugins = agentNative as unknown as (
+  options?: Parameters<typeof agentNative>[0],
+) => any[];
 
 export default defineConfig({
   plugins: [
-    reactRouter(),
-    agentNative({
+    ...reactRouterPlugins(),
+    ...agentNativePlugins({
       // These libs only render in the browser (diagram/drawing canvases) and
       // blow past CF Pages' 25 MiB Functions limit if bundled into SSR.
       // MermaidRenderer and Excalidraw-based components mount client-side only

@@ -19,6 +19,11 @@ import path from "node:path";
 
 import { runMCPStdio } from "../mcp/stdio.js";
 import {
+  findWorkspaceRoot,
+  resolveLocalAppOrigin,
+  resolveWorkspace,
+} from "../mcp/workspace-resolve.js";
+import {
   CLIENTS,
   type ClientId,
   buildCodexHttpBlock,
@@ -33,11 +38,6 @@ import {
   writeFileAtomic,
   writeJsonMcpEntryForClient,
 } from "./mcp-config-writers.js";
-import {
-  findWorkspaceRoot,
-  resolveLocalAppOrigin,
-  resolveWorkspace,
-} from "../mcp/workspace-resolve.js";
 
 const SERVER_NAME_PREFIX = "agent-native";
 

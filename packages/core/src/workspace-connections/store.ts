@@ -1,4 +1,11 @@
 import { randomUUID } from "node:crypto";
+
+import {
+  listWorkspaceConnectionProviders,
+  type WorkspaceConnectionCapability,
+  type WorkspaceConnectionProvider,
+  type WorkspaceConnectionTemplateUse,
+} from "../connections/catalog.js";
 import {
   getDbExec,
   intType,
@@ -12,12 +19,6 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
-import {
-  listWorkspaceConnectionProviders,
-  type WorkspaceConnectionCapability,
-  type WorkspaceConnectionProvider,
-  type WorkspaceConnectionTemplateUse,
-} from "../connections/catalog.js";
 
 export type WorkspaceConnectionStatus =
   | "connected"

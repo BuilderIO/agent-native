@@ -1,7 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useNavigate } from "react-router";
-import { toast } from "sonner";
-import { Editor } from "@tiptap/react";
+import { useSendToAgentChat } from "@agent-native/core/client";
 import {
   IconTypography,
   IconH1,
@@ -24,8 +21,12 @@ import {
   IconDatabase,
   IconVideo,
 } from "@tabler/icons-react";
-import { useSendToAgentChat } from "@agent-native/core/client";
-import { cn } from "@/lib/utils";
+import { Editor } from "@tiptap/react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import {
   Popover,
   PopoverContent,
@@ -33,11 +34,12 @@ import {
 } from "@/components/ui/popover";
 import { useCreateContentDatabase } from "@/hooks/use-content-database";
 import { useCreatePage } from "@/hooks/use-create-page";
-import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
-import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
-import { buildRegistrySlashItems } from "./registrySlashItems";
+import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
+
+import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
+import { buildRegistrySlashItems } from "./registrySlashItems";
 
 interface SlashCommandMenuProps {
   editor: Editor;

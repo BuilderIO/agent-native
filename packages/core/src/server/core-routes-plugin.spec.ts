@@ -1,5 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { H3Event } from "h3";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import {
+  BUILDER_CONNECT_PARAM,
+  BUILDER_STATE_PARAM,
+  signBuilderCallbackState,
+  signBuilderConnectToken,
+} from "./builder-browser.js";
 import {
   resolveBuilderOwnerContextForRequest,
   resolveBuilderWaitlistFormTargetForRequest,
@@ -9,12 +16,6 @@ import {
   AVATAR_RASTER_MIME,
   getFrameworkRouteRequestUrl,
 } from "./core-routes-plugin.js";
-import {
-  BUILDER_CONNECT_PARAM,
-  BUILDER_STATE_PARAM,
-  signBuilderCallbackState,
-  signBuilderConnectToken,
-} from "./builder-browser.js";
 
 function createMockEvent(url: string): H3Event {
   const parsed = new URL(url);

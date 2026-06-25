@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
 import {
   upsertCustomProvider,
   deleteCustomProvider,
@@ -7,6 +6,7 @@ import {
   getCustomProvider,
 } from "@agent-native/core/provider-api";
 import { getCredentialContext } from "@agent-native/core/server";
+import { z } from "zod";
 
 const AuthSchema = z.discriminatedUnion("type", [
   z.object({

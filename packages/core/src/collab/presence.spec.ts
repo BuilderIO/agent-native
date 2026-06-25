@@ -1,10 +1,9 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { AGENT_CLIENT_ID } from "./agent-identity.js";
 
+import { AGENT_CLIENT_ID } from "./agent-identity.js";
 // ---------------------------------------------------------------------------
 // Pure logic tests — no React rendering needed
 // ---------------------------------------------------------------------------
-
 import { toNormalized, fromNormalized } from "./presence.js";
 
 describe("toNormalized", () => {

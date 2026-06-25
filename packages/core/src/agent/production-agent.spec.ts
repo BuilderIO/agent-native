@@ -1,8 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { attachToolSearch } from "./tool-search.js";
+
+import { describe, expect, it, vi } from "vitest";
+
+import { AgentActionStopError } from "../action.js";
+import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
+import {
+  getRequestRunContext,
+  runWithRequestContext,
+} from "../server/request-context.js";
+import type { AgentEngine, EngineEvent } from "./engine/types.js";
+import { EngineError } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   buildUserContentWithAttachments,
@@ -24,16 +34,8 @@ import {
   type AgentLoopFinalResponseGuardContext,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
+import { attachToolSearch } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
-import { AgentActionStopError } from "../action.js";
-import {
-  getRequestRunContext,
-  runWithRequestContext,
-} from "../server/request-context.js";
-import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
-import type { AgentEngine, EngineEvent } from "./engine/types.js";
-import { EngineError } from "./engine/types.js";
-import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 
 function actionEntry(opts: {
   description?: string;

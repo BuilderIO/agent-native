@@ -1,8 +1,9 @@
 import { useMemo } from "react";
+
+import { useMicMeter } from "../hooks/useMicMeter";
 import { CameraIcon, CheckIcon, ChevronDown, MicIcon } from "./Icons";
 import { Switch } from "./Switch";
 import { useRowMenu } from "./useRowMenu";
-import { useMicMeter } from "../hooks/useMicMeter";
 
 function Toggle({
   on,

@@ -1,8 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
-import { setDispatchMcpAppAccessSettings } from "../server/lib/mcp-access-store.js";
+import { z } from "zod";
+
 import { recordAudit } from "../server/lib/dispatch-store.js";
+import { setDispatchMcpAppAccessSettings } from "../server/lib/mcp-access-store.js";
 import listMcpAppAccess from "./list-mcp-app-access.js";
 
 const modeSchema = z.enum(["all-apps", "selected-apps"]);

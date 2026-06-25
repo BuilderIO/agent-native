@@ -1,7 +1,3 @@
-import { agentNativePath } from "../api-path.js";
-import { useState, useCallback, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useNavigate } from "react-router";
 import {
   IconChevronDown,
   IconPlus,
@@ -16,19 +12,13 @@ import {
   IconEye,
   IconEyeOff,
 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useCallback, useMemo } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+
+import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
 import { sendToAgentChat } from "../agent-chat.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "../components/ui/hover-card.js";
+import { agentNativePath } from "../api-path.js";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -41,25 +31,36 @@ import {
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu.js";
 import {
-  applyToolsOrder,
-  getToolsOrder,
-  setToolsOrder,
-} from "./extension-order.js";
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "../components/ui/hover-card.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import {
-  extensionPopularityOf,
-  useExtensionPopularity,
-} from "./extension-popularity.js";
+import { PromptComposer } from "../composer/PromptComposer.js";
+import { cn } from "../utils.js";
 import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
-import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
+import {
+  applyToolsOrder,
+  getToolsOrder,
+  setToolsOrder,
+} from "./extension-order.js";
+import {
+  extensionPopularityOf,
+  useExtensionPopularity,
+} from "./extension-popularity.js";
 
 interface Extension {
   id: string;

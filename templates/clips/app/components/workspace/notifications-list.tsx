@@ -1,4 +1,3 @@
-import { Link } from "react-router";
 import {
   IconMessage,
   IconMoodSmile,
@@ -6,6 +5,8 @@ import {
   IconAt,
   IconBell,
 } from "@tabler/icons-react";
+import { Link } from "react-router";
+
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 export type NotificationKind = "comment" | "reaction" | "mention" | "share";

@@ -4,11 +4,13 @@ import {
   openAgentSettings,
   useT,
 } from "@agent-native/core/client";
-import { useAuth } from "@/components/auth/AuthProvider";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Link } from "react-router";
+
+import { useAuth } from "@/components/auth/AuthProvider";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+
 import changelog from "../../CHANGELOG.md?raw";
 
 export default function Settings() {

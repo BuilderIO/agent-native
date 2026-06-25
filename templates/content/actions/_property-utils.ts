@@ -1,6 +1,18 @@
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, sql, type InferSelectModel } from "drizzle-orm";
+
 import { getDb, schema } from "../server/db/index.js";
+import type {
+  ContentDatabaseFilter,
+  ContentDatabaseFilterMode,
+  ContentDatabaseSort,
+  ContentDatabaseView,
+  ContentDatabaseViewConfig,
+  ContentDatabaseColumnCalculation,
+  ContentDatabaseRowDensity,
+  ContentDatabaseOpenPagesIn,
+  DocumentProperty,
+} from "../shared/api.js";
 import {
   DEFAULT_BLOCKS_FIELD_NAME,
   defaultPropertyOptions,
@@ -21,17 +33,6 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
-import type {
-  ContentDatabaseFilter,
-  ContentDatabaseFilterMode,
-  ContentDatabaseSort,
-  ContentDatabaseView,
-  ContentDatabaseViewConfig,
-  ContentDatabaseColumnCalculation,
-  ContentDatabaseRowDensity,
-  ContentDatabaseOpenPagesIn,
-  DocumentProperty,
-} from "../shared/api.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
 type ContentDatabaseRow = InferSelectModel<typeof schema.contentDatabases>;

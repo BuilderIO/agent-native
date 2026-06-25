@@ -6,11 +6,12 @@ import {
   getRequestURL,
   type H3Event,
 } from "h3";
+
+import { getAppName } from "./app-name.js";
 import {
   resolveBuiltInAuthMarketing,
   resolveBuiltInAuthMarketingByName,
 } from "./auth-marketing.js";
-import { getAppName } from "./app-name.js";
 import {
   OG_ARABIC_FONT_FAMILY,
   OG_FONT_FAMILY,

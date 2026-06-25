@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   MAX_EXTENSION_PROXY_RESPONSE_SIZE,
   collectSecretValues,

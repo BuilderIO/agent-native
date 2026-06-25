@@ -10,12 +10,13 @@
  * action lands its writes.
  */
 
-import { useEffect, useRef } from "react";
 import {
   agentNativePath,
   callAction,
   sendToAgentChat,
 } from "@agent-native/core/client";
+import { useEffect, useRef } from "react";
+
 import { useRecordings, type RecordingSummary } from "./use-library";
 
 const DEFAULT_TITLE = "Untitled recording";

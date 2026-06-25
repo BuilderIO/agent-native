@@ -1,3 +1,4 @@
+import { IconPlus, IconX } from "@tabler/icons-react";
 /**
  * DurationPicker — multi-select of booking durations rendered as pills.
  *
@@ -8,9 +9,10 @@
  * Shadcn primitives expected in the consumer: button, input, label.
  */
 import { useState } from "react";
-import { IconPlus, IconX } from "@tabler/icons-react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
 import { useSchedulingT } from "../../i18n.js";
 
 const DEFAULT_PRESETS = [15, 30, 45, 60];

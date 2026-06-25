@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  agentNativePath,
+  openBuilderConnectPopup,
+} from "@agent-native/core/client";
 import {
   IconSearch,
   IconCopy,
@@ -11,19 +14,18 @@ import {
   IconChevronDown,
   IconChevronUp,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { msToClock } from "./scrubber";
-import {
-  agentNativePath,
-  openBuilderConnectPopup,
-} from "@agent-native/core/client";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+import { msToClock } from "./scrubber";
 
 export interface TranscriptSegment {
   startMs: number;

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleSharedThreadRequest } from "./agent-chat-plugin.js";
+
 import type { AgentRunSummary } from "../agent/run-store.js";
 import type { ChatThread } from "../chat-threads/store.js";
+import { handleSharedThreadRequest } from "./agent-chat-plugin.js";
 
 function createSharedThreadEvent(
   path: string,

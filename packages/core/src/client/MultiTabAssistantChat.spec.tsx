@@ -3,14 +3,15 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  MultiTabAssistantChat,
-  type MultiTabAssistantChatHeaderProps,
-} from "./MultiTabAssistantChat.js";
+
 import {
   sendToAgentChat,
   _resetAgentChatSubmitBufferForTests,
 } from "./agent-chat.js";
+import {
+  MultiTabAssistantChat,
+  type MultiTabAssistantChatHeaderProps,
+} from "./MultiTabAssistantChat.js";
 
 const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),

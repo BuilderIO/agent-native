@@ -40,12 +40,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { readPlanPublishAuth } from "./plan-publish-store.js";
 import {
   DEFAULT_PLAN_APP_URL,
   fetchPlanBlockCatalog,
   planActionEndpoint,
 } from "./plan-blocks.js";
+import { readPlanPublishAuth } from "./plan-publish-store.js";
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 import { BUILT_IN_APP_SKILLS, VISUAL_RECAP_SKILL_MD } from "./skills.js";
 
@@ -2632,7 +2632,7 @@ const RECAP_SHOT_DEVICE_SCALE_FACTOR = 2;
  * `Function.prototype.toString` and runs it in the page, where `__name` does not
  * exist, throwing `ReferenceError: __name is not defined` and silently dropping
  * the recap's inline PR-comment screenshot. CI's trusted-workspace path runs this
- * CLI through `tsx` (esbuild), so it fires there even though the tsc-built
+ * CLI through `tsx` (esbuild), so it fires there even though the published
  * published package never emits `__name`. Defining `__name` as an identity
  * function (esbuild's helper returns the target unchanged) makes every main-world
  * payload safe regardless of how the CLI was transpiled. Kept as a raw string so

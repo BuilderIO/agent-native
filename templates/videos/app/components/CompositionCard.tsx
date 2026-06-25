@@ -1,8 +1,7 @@
-import { useState } from "react";
 import { Player } from "@remotion/player";
-import type { CompositionEntry } from "@/remotion/registry";
-import { cn } from "@/lib/utils";
 import { IconTrash } from "@tabler/icons-react";
+import { useState } from "react";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,6 +17,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import type { CompositionEntry } from "@/remotion/registry";
 
 type CompositionCardProps = {
   composition: CompositionEntry;

@@ -1,11 +1,34 @@
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-} from "react";
+  emailToName,
+  useActionMutation,
+  useSession,
+} from "@agent-native/core/client";
+import type {
+  AddContentDatabaseSourceFieldPropertyRequest,
+  ContentDatabaseResponse,
+  ContentDatabaseSourceFieldPropertyResponse,
+  ContentDatabaseSource,
+  DocumentProperty,
+} from "@shared/api";
+import {
+  CREATABLE_DOCUMENT_PROPERTY_TYPES,
+  DOCUMENT_PROPERTY_TYPE_LABELS,
+  DOCUMENT_PROPERTY_VISIBILITY_LABELS,
+  DOCUMENT_PROPERTY_VISIBILITIES,
+  defaultPropertyOptions,
+  documentPropertyDateIncludesTime,
+  documentPropertyDateKey,
+  documentPropertyDatePart,
+  isEmptyPropertyValue,
+  isComputedPropertyType,
+  isOnlyBlocksFieldDeletion,
+  normalizeDatePropertyValue,
+  type DocumentPropertyDateValue,
+  type DocumentPropertyOption,
+  type DocumentPropertyOptionColor,
+  type DocumentPropertyType,
+  type DocumentPropertyVisibility,
+} from "@shared/properties";
 import {
   IconAlignLeft,
   IconAt,
@@ -38,12 +61,17 @@ import {
   IconUserCircle,
   type Icon,
 } from "@tabler/icons-react";
-import {
-  emailToName,
-  useActionMutation,
-  useSession,
-} from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -73,8 +101,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { applySourceFieldPropertyToDatabaseResponse } from "@/hooks/use-content-database";
 import {
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
@@ -82,33 +109,8 @@ import {
   useDuplicateDocumentProperty,
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
-import { applySourceFieldPropertyToDatabaseResponse } from "@/hooks/use-content-database";
-import {
-  CREATABLE_DOCUMENT_PROPERTY_TYPES,
-  DOCUMENT_PROPERTY_TYPE_LABELS,
-  DOCUMENT_PROPERTY_VISIBILITY_LABELS,
-  DOCUMENT_PROPERTY_VISIBILITIES,
-  defaultPropertyOptions,
-  documentPropertyDateIncludesTime,
-  documentPropertyDateKey,
-  documentPropertyDatePart,
-  isEmptyPropertyValue,
-  isComputedPropertyType,
-  isOnlyBlocksFieldDeletion,
-  normalizeDatePropertyValue,
-  type DocumentPropertyDateValue,
-  type DocumentPropertyOption,
-  type DocumentPropertyOptionColor,
-  type DocumentPropertyType,
-  type DocumentPropertyVisibility,
-} from "@shared/properties";
-import type {
-  AddContentDatabaseSourceFieldPropertyRequest,
-  ContentDatabaseResponse,
-  ContentDatabaseSourceFieldPropertyResponse,
-  ContentDatabaseSource,
-  DocumentProperty,
-} from "@shared/api";
+import { cn } from "@/lib/utils";
+
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 
 interface DocumentPropertiesProps {
@@ -648,8 +650,9 @@ export function DocumentProperties({
   const { data, isLoading } = useDocumentProperties(documentId);
   // Blocks fields are rendered as body content (below the database/title), not
   // as scalar property rows in this panel — exclude them here.
-  const properties = (data?.properties ?? []).filter(
-    (property) => property.definition.type !== "blocks",
+  const allProperties: DocumentProperty[] = data?.properties ?? [];
+  const properties = allProperties.filter(
+    (property: DocumentProperty) => property.definition.type !== "blocks",
   );
   const databaseId = data?.databaseId ?? null;
   const visibleProperties = properties.filter(isPropertyVisible);
@@ -833,9 +836,11 @@ export function PropertyManagementPopover({
   const duplicate = useDuplicateDocumentProperty(documentId);
   const remove = useDeleteDocumentProperty(documentId);
   const { data: propertiesData } = useDocumentProperties(documentId);
+  const configuredProperties: DocumentProperty[] =
+    propertiesData?.properties ?? [];
   // Whether deleting THIS property removes the last Blocks field of the type —
   // i.e. the body. Drives the yellow warning in the delete dialog.
-  const blocksFieldCount = (propertiesData?.properties ?? []).filter(
+  const blocksFieldCount = configuredProperties.filter(
     (item) => item.definition.type === "blocks",
   ).length;
   const isOnlyBlocksField = isOnlyBlocksFieldDeletion({

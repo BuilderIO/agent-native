@@ -1,6 +1,6 @@
 import { Spinner } from "@/components/ui/spinner";
-import { PlanChatPage } from "@/pages/PlanChatPage";
 import { APP_TITLE } from "@/lib/app-config";
+import { PlanChatPage } from "@/pages/PlanChatPage";
 
 const SEO_TITLE = `${APP_TITLE} - Open Source visual planning and PR recaps for coding agents`;
 const SEO_DESCRIPTION =

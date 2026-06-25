@@ -50,8 +50,8 @@ vi.mock("./observational-memory/index.js", () => ({
 }));
 
 const { runAgentLoop } = await import("./production-agent.js");
-import type { ActionEntry } from "./production-agent.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
+import type { ActionEntry } from "./production-agent.js";
 
 // Helpers.
 

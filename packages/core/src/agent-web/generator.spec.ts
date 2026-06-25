@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+
+import { normalizeAgentWebConfig } from "./config.js";
 import {
   buildAgentWebStaticFiles,
   buildMarkdownResponseHeaders,
@@ -7,7 +9,6 @@ import {
   estimateMarkdownTokens,
   markdownFilePathForPage,
 } from "./generator.js";
-import { normalizeAgentWebConfig } from "./config.js";
 
 const config = normalizeAgentWebConfig(
   { discoverable: true, crawlerPolicy: "discoverable-no-training" },

@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it } from "vitest";
+import {
+  AgentNativeI18nProvider,
+  LOCALE_STORAGE_KEY,
+} from "@agent-native/core/client";
 import {
   cleanup,
   fireEvent,
@@ -9,12 +12,10 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
-import {
-  AgentNativeI18nProvider,
-  LOCALE_STORAGE_KEY,
-} from "@agent-native/core/client";
-import DocsLanguagePicker from "./DocsLanguagePicker";
+import { afterEach, describe, expect, it } from "vitest";
+
 import { docsI18nCatalog } from "../i18n";
+import DocsLanguagePicker from "./DocsLanguagePicker";
 
 afterEach(() => {
   cleanup();

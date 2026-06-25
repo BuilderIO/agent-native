@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { SIDEBAR_OPEN_KEY } from "./agent-sidebar-state.js";
 import { consumeAgentChatHomeHandoff } from "./chat-view-transition.js";
 import { useAgentChatHomeHandoffLinks } from "./use-agent-chat-home-handoff.js";

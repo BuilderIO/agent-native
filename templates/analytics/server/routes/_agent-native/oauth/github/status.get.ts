@@ -1,4 +1,5 @@
 import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
+
 import { getCredentialContextFromEvent } from "../../../../lib/credentials.js";
 import {
   getGitHubOAuthStatus,

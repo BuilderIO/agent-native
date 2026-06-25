@@ -1,3 +1,5 @@
+import { getUserSetting } from "@agent-native/core/settings";
+import { eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getMethod,
@@ -7,20 +9,20 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { eq } from "drizzle-orm";
-import { getUserSetting } from "@agent-native/core/settings";
+
 import { assets as serverAssets } from "#nitro/virtual/server-assets";
+
+import type { Settings } from "../../../../../../shared/api.js";
 import { getDb, schema } from "../../../../../db/index.js";
 import { getBookingUsername } from "../../../../../handlers/booking-usernames.js";
 import { loadBundledOgFontFiles } from "../../../../../lib/booking-og-fonts.js";
-import { getPrimaryAccountPhotoUrl } from "../../../../../lib/google-calendar.js";
-import { bookingOgImageResponseHeaders } from "../../../../../lib/booking-og-response.js";
 import {
   renderBookingOgImagePng,
   renderBookingOgImageSvg,
   type BookingOgImageInput,
 } from "../../../../../lib/booking-og-image.js";
-import type { Settings } from "../../../../../../shared/api.js";
+import { bookingOgImageResponseHeaders } from "../../../../../lib/booking-og-response.js";
+import { getPrimaryAccountPhotoUrl } from "../../../../../lib/google-calendar.js";
 
 function pngBody(bytes: Uint8Array): ArrayBuffer {
   const body = new ArrayBuffer(bytes.byteLength);

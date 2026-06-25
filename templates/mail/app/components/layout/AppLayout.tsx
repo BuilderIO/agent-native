@@ -1,15 +1,51 @@
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  DevDatabaseLink,
+  FeedbackButton,
+  NotificationsBell,
+  agentNativePath,
+  useT,
+} from "@agent-native/core/client";
+import { appApiPath } from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
+import { normalizeMailLabel } from "@shared/gmail-labels";
+import type { Label } from "@shared/types";
+import {
+  IconMenu2,
+  IconSettings,
+  IconSearch,
+  IconCheck,
+  IconPlus,
+  IconRefresh,
+  IconPin,
+  IconPinnedFilled,
+} from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import { cn } from "@/lib/utils";
-import { CommandPalette } from "./CommandPalette";
+import { toast } from "sonner";
+
 import { ComposeModal } from "@/components/email/ComposeModal";
-import { useComposeState } from "@/hooks/use-compose-state";
+import { SnoozeModal } from "@/components/email/SnoozeModal";
+import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { Button } from "@/components/ui/button";
 import {
-  useKeyboardShortcuts,
-  useSequenceShortcuts,
-} from "@/hooks/use-keyboard-shortcuts";
-import { runUndo } from "@/hooks/use-undo";
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { AccountFilterContext } from "@/hooks/use-account-filter";
+import { useComposeState } from "@/hooks/use-compose-state";
+import { useQueuedDraftCount } from "@/hooks/use-draft-queue";
 import {
   useLabels,
   useSettings,
@@ -25,58 +61,23 @@ import {
   useGoogleAuthUrl,
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
-import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
-import { SnoozeModal } from "@/components/email/SnoozeModal";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { SearchBar } from "./SearchBar";
 import {
-  IconMenu2,
-  IconSettings,
-  IconSearch,
-  IconCheck,
-  IconPlus,
-  IconRefresh,
-  IconPin,
-  IconPinnedFilled,
-} from "@tabler/icons-react";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  AgentSidebar,
-  AgentToggleButton,
-  DevDatabaseLink,
-  FeedbackButton,
-  NotificationsBell,
-  agentNativePath,
-  useT,
-} from "@agent-native/core/client";
-import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import type { Label } from "@shared/types";
-import { toast } from "sonner";
-
-import { AccountFilterContext } from "@/hooks/use-account-filter";
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import { useQueuedDraftCount } from "@/hooks/use-draft-queue";
-import { appApiPath } from "@agent-native/core/client";
-import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+  useKeyboardShortcuts,
+  useSequenceShortcuts,
+} from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { normalizeMailLabel } from "@shared/gmail-labels";
+import { runUndo } from "@/hooks/use-undo";
 import {
   qualifiesForInboxTab,
   pinnedTriageLabels,
   augmentSelfSentLabels,
 } from "@/lib/inbox-tabs";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { cn } from "@/lib/utils";
+
+import { CommandPalette } from "./CommandPalette";
+import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
+import { SearchBar } from "./SearchBar";
 
 const BARE_ROUTES = new Set(["/email"]);
 

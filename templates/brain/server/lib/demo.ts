@@ -1,5 +1,7 @@
-import { and, desc, eq } from "drizzle-orm";
 import { accessFilter } from "@agent-native/core/sharing";
+import { and, desc, eq } from "drizzle-orm";
+
+import type { BrainEvidence, BrainSourceProvider } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import {
   createCapture,
@@ -19,7 +21,6 @@ import {
   redactSensitiveValue,
   searchEverythingRows,
 } from "./search.js";
-import type { BrainEvidence, BrainSourceProvider } from "../../shared/types.js";
 
 const DEMO_SEED_ID = "brain-product-decisions-demo-v1";
 const RETRIEVAL_EVAL_SEED_ID = "brain-real-channel-retrieval-eval-v1";

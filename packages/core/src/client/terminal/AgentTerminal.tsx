@@ -10,9 +10,10 @@
  */
 
 import { useRef, useEffect, useState, type CSSProperties } from "react";
+
+import { parseSubmitChatMessage } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
 import { getFrameOrigin, isTrustedFrameMessage } from "../frame.js";
-import { parseSubmitChatMessage } from "../agent-chat.js";
 
 export interface AgentTerminalProps {
   /** CLI command to run. Default: 'builder' */

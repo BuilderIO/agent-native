@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import {
   IconConfetti,
   IconPlayerPause,
@@ -6,13 +5,16 @@ import {
   IconPlayerStop,
   IconX,
 } from "@tabler/icons-react";
-import { clampRectToViewport, type BubblePosition } from "./camera-positioner";
+import { useEffect, useRef, useState } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { isMacPlatform } from "@/lib/utils";
+
+import { clampRectToViewport, type BubblePosition } from "./camera-positioner";
 
 export interface RecordingToolbarProps {
   elapsedMs: number;

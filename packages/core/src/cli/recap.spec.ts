@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 import {
   RECAP_DIFF_BYTE_CAP,
   appendGateSkipLine,
@@ -49,7 +50,6 @@ import {
   writePrVisualRecapWorkflow,
 } from "./recap.js";
 import type { RecapGateInput } from "./recap.js";
-import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../../../..");

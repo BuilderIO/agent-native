@@ -1,13 +1,14 @@
-import { and, desc, eq, sql } from "drizzle-orm";
-import type { H3Event } from "h3";
-import { getDb, schema } from "../db/index.js";
-import { getSession } from "@agent-native/core/server";
+import { readAppState } from "@agent-native/core/application-state";
 import { orgMembers } from "@agent-native/core/org";
+import { getSession } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { readAppState } from "@agent-native/core/application-state";
+import { and, desc, eq, sql } from "drizzle-orm";
+import type { H3Event } from "h3";
+
+import { getDb, schema } from "../db/index.js";
 
 export function getCurrentOwnerEmail(): string {
   const email = getRequestUserEmail();

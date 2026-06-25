@@ -1,5 +1,6 @@
-import { redirect, type LoaderFunctionArgs } from "react-router";
 import { appPath } from "@agent-native/core/client";
+import { redirect, type LoaderFunctionArgs } from "react-router";
+
 import { Spinner } from "@/components/ui/spinner";
 
 const SEO_TITLE =

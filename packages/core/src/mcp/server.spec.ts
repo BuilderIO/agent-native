@@ -1,3 +1,4 @@
+import * as jose from "jose";
 /**
  * Regression coverage for the production blocker: `/_agent-native/mcp` must
  * work on the web-standard Nitro runtime (Netlify web runtime, Cloudflare,
@@ -13,7 +14,7 @@
  * Node fast-path is still taken (and unchanged) when `event.node` is present.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as jose from "jose";
+
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 
 // Heavy/irrelevant deps mocked so importing build-server.ts is cheap. The

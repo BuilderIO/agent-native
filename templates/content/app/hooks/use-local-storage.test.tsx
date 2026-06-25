@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { useLocalStorage } from "./use-local-storage";
 
 function createTestStorage(): Storage {

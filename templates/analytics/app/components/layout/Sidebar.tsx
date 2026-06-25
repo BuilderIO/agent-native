@@ -1,14 +1,3 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
-import { useTheme } from "next-themes";
-import { cn, shortcutModifierLabel } from "@/lib/utils";
-import { toast } from "sonner";
-import {
-  useQuery,
-  useQueryClient,
-  type QueryClient,
-  type QueryKey,
-} from "@tanstack/react-query";
 import {
   IconChartBar,
   IconChevronDown,
@@ -34,7 +23,19 @@ import {
   IconEye,
   IconEyeOff,
 } from "@tabler/icons-react";
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type QueryKey,
+} from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
+
 import { getIdToken } from "@/lib/auth";
+import { cn, shortcutModifierLabel } from "@/lib/utils";
 import {
   dashboards,
   hideDashboard,
@@ -52,38 +53,6 @@ type SidebarDashboard = {
   visibility?: Visibility;
 };
 import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-  TooltipProvider,
-} from "@/components/ui/tooltip";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Switch } from "@/components/ui/switch";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Skeleton } from "@/components/ui/skeleton";
-import { OrgSwitcher } from "@agent-native/core/client/org";
-import {
   DevDatabaseLink,
   FeedbackButton,
   LanguagePicker,
@@ -96,14 +65,45 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { NewDashboardDialog } from "./NewDashboardDialog";
-import { NewAnalysisDialog } from "./NewAnalysisDialog";
-import { useUserPref } from "@/hooks/use-user-pref";
+import { OrgSwitcher } from "@agent-native/core/client/org";
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
 import {
   useDashboardViews,
   useDeleteDashboardView,
   type DashboardView,
 } from "@/hooks/use-dashboard-views";
+import { useUserPref } from "@/hooks/use-user-pref";
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
 import {
   analysisDetailPrefetchKey,
@@ -111,6 +111,9 @@ import {
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
 import type { ResourceAccess } from "@/lib/resource-access";
+
+import { NewAnalysisDialog } from "./NewAnalysisDialog";
+import { NewDashboardDialog } from "./NewDashboardDialog";
 
 type AnalysisHiddenFilter = "visible" | "hidden";
 

@@ -7,7 +7,6 @@
  *            capped at MAX_VISIBLE_LINES by default (expandable)
  */
 
-import { useEffect, useRef, useState } from "react";
 import {
   IconChevronDown,
   IconCircleCheck,
@@ -16,6 +15,8 @@ import {
   IconLoader2,
   IconTerminal2,
 } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
+
 import { cn } from "../utils.js";
 
 export interface BashCellMeta {

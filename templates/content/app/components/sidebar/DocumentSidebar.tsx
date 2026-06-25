@@ -1,6 +1,15 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import {
+  DevDatabaseLink,
+  FeedbackButton,
+  appPath,
+  useCodeMode,
+  useT,
+} from "@agent-native/core/client";
+import {
+  ExtensionSlot,
+  ExtensionsSidebarSection,
+} from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   closestCenter,
   DndContext,
@@ -27,23 +36,18 @@ import {
   IconFolderOpen,
   IconChevronRight,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-  useCodeMode,
-  useT,
-} from "@agent-native/core/client";
-import {
-  ExtensionSlot,
-  ExtensionsSidebarSection,
-} from "@agent-native/core/client/extensions";
-import { NotionButton } from "./NotionButton";
-import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   useDocuments,
   useCreateDocument,
@@ -54,11 +58,9 @@ import {
   filterDocumentTreeDocuments,
 } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+
+import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
+import { NotionButton } from "./NotionButton";
 
 function nanoid(size = 12): string {
   const chars =
@@ -146,7 +148,9 @@ export function DocumentSidebar({
   const location = useLocation();
   const queryClient = useQueryClient();
   const t = useT();
-  const { data: documents = [], isLoading } = useDocuments();
+  const documentsQuery = useDocuments();
+  const documents: Document[] = documentsQuery.data ?? [];
+  const isLoading = documentsQuery.isLoading;
   const createDocument = useCreateDocument();
   const deleteDocument = useDeleteDocument();
   const moveDocument = useMoveDocument();

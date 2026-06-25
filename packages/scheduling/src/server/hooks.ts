@@ -9,9 +9,10 @@
  */
 import { eq, and, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
+
+import { addMinutes } from "../core/time.js";
 import type { Booking, Workflow, WorkflowStep } from "../shared/index.js";
 import { getSchedulingContext } from "./context.js";
-import { addMinutes } from "../core/time.js";
 
 export async function onBookingCreated(booking: Booking): Promise<void> {
   await materializeReminders(booking, "new-booking");

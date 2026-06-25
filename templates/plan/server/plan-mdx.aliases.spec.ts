@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { parsePlanMdxFolder } from "./plan-mdx.js";
 
 const frontmatter = `---

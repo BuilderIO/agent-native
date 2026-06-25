@@ -8,6 +8,7 @@ import {
 import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import { nanoid, seedDefaultBlocksField } from "./_property-utils.js";

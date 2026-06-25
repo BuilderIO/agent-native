@@ -1,6 +1,6 @@
+import { trackEvent, useT } from "@agent-native/core/client";
 import { useEffect, useState, useRef } from "react";
 import { codeToHtml } from "shiki";
-import { trackEvent, useT } from "@agent-native/core/client";
 
 interface CodeBlockProps {
   code: string;

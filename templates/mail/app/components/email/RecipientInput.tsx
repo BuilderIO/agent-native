@@ -1,3 +1,12 @@
+import { useT } from "@agent-native/core/client";
+import type { Alias } from "@shared/types";
+import {
+  IconX,
+  IconUsersGroup,
+  IconPencil,
+  IconArrowsDiagonal,
+  IconPlus,
+} from "@tabler/icons-react";
 import {
   useState,
   useRef,
@@ -7,21 +16,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
-import {
-  IconX,
-  IconUsersGroup,
-  IconPencil,
-  IconArrowsDiagonal,
-  IconPlus,
-} from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useContacts, type Contact } from "@/hooks/use-emails";
-import { useAliases, useCreateAlias } from "@/hooks/use-aliases";
-import {
-  isAliasToken,
-  aliasIdFromToken,
-  ALIAS_PREFIX,
-} from "@/lib/alias-utils";
+
 import {
   Dialog,
   DialogContent,
@@ -31,13 +26,19 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import type { Alias } from "@shared/types";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
+import { useAliases, useCreateAlias } from "@/hooks/use-aliases";
+import { useContacts, type Contact } from "@/hooks/use-emails";
+import {
+  isAliasToken,
+  aliasIdFromToken,
+  ALIAS_PREFIX,
+} from "@/lib/alias-utils";
+import { cn } from "@/lib/utils";
 
 /** Which header field a RecipientInput represents — used for cross-field drag. */
 export type RecipientField = "to" | "cc" | "bcc";

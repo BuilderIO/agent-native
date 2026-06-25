@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+
 import type { Experiment, ExperimentVariant } from "./types.js";
 
 // experiments.ts holds the deterministic A/B bucketing logic and the

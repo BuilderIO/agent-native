@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   SLIDES_REFERENCE_FILE_ACCEPT,
   isSlidesReferenceFileExtension,

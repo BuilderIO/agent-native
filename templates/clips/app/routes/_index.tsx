@@ -1,5 +1,5 @@
-import { redirect, type LoaderFunctionArgs } from "react-router";
 import { DefaultSpinner } from "@agent-native/core/client";
+import { redirect, type LoaderFunctionArgs } from "react-router";
 
 const SEO_TITLE =
   "Agent-Native Clips - Open Source, agent-friendly Loom alternative";

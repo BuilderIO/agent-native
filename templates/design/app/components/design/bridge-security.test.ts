@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
 
 describe("isTrustedCanvasBridgeMessage", () => {

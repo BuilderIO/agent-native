@@ -33,7 +33,10 @@ use state::{
     DictationActive, DictationEnabled, LastTranscript, MeetingActive, PopoverShownAt,
     RecordingActive, TrayAnchor, TrayMeetings, VoiceTargetBundle, VoiceWakePopover,
 };
-use util::{configure_overlay_behavior, is_recording_active, set_capture_included};
+use util::{
+    configure_overlay_behavior, is_recording_active, present_interactive_window,
+    set_capture_included,
+};
 
 // Embedded fallback icon — a tiny 16x16 solid purple PNG so the binary always
 // has *something* to display even if `icons/tray.png` is missing on disk. The
@@ -52,8 +55,7 @@ pub fn run() {
                 set_capture_included(&window);
                 configure_overlay_behavior(&window);
                 position_popover(app, &window);
-                let _ = window.show();
-                let _ = window.set_focus();
+                present_interactive_window(&window);
             }
         }))
         .invoke_handler(tauri::generate_handler![

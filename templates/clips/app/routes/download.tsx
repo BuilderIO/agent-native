@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { appBasePath, appPath } from "@agent-native/core/client";
 import {
   IconBrandChrome,
   IconBrandApple,
@@ -6,7 +6,8 @@ import {
   IconExternalLink,
   IconPlayerRecord,
 } from "@tabler/icons-react";
-import { appBasePath, appPath } from "@agent-native/core/client";
+import { useEffect, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {

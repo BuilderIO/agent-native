@@ -1,7 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, useNavigate, NavLink, useSearchParams } from "react-router";
-import { useQuery } from "@tanstack/react-query";
-import { toast } from "sonner";
+import {
+  useActionMutation,
+  useActionQuery,
+  useSession,
+  AgentPanel,
+  agentNativePath,
+  getBrowserTabId,
+  readClientAppState,
+  useChangeVersions,
+} from "@agent-native/core/client";
+import {
+  isLoomEmbedBackedRecording,
+  isLoomRecordingSource,
+} from "@shared/loom";
 import {
   IconShare3,
   IconArrowLeft,
@@ -14,22 +24,27 @@ import {
   IconFileText,
   IconSparkles,
 } from "@tabler/icons-react";
-import {
-  useActionMutation,
-  useActionQuery,
-  useSession,
-  AgentPanel,
-  agentNativePath,
-  getBrowserTabId,
-  readClientAppState,
-  useChangeVersions,
-} from "@agent-native/core/client";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { isDefaultTitle, useAutoTitleBridge } from "@/hooks/use-auto-title";
+import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams, useNavigate, NavLink, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
+import { EditorLayout } from "@/components/editor/editor-layout";
+import { CommentsPanel } from "@/components/player/comments-panel";
+import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
+import { InsightsPanel } from "@/components/player/insights-panel";
+import { ReactionsTray } from "@/components/player/reactions-tray";
+import { SettingsPanel } from "@/components/player/settings-panel";
+import { ShareRecordingPopover } from "@/components/player/share-dialog";
+import { TranscriptPanel } from "@/components/player/transcript-panel";
+import {
+  VideoPlayer,
+  type VideoPlayerHandle,
+} from "@/components/player/video-player";
+import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,33 +53,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-import {
-  VideoPlayer,
-  type VideoPlayerHandle,
-} from "@/components/player/video-player";
-import { EditorLayout } from "@/components/editor/editor-layout";
-import { TranscriptPanel } from "@/components/player/transcript-panel";
-import { CommentsPanel } from "@/components/player/comments-panel";
-import { ReactionsTray } from "@/components/player/reactions-tray";
-import { SettingsPanel } from "@/components/player/settings-panel";
-import { InsightsPanel } from "@/components/player/insights-panel";
-import { ShareRecordingPopover } from "@/components/player/share-dialog";
-import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
-import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { isDefaultTitle, useAutoTitleBridge } from "@/hooks/use-auto-title";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
-import {
-  isLoomEmbedBackedRecording,
-  isLoomRecordingSource,
-} from "@shared/loom";
+import { cn } from "@/lib/utils";
 
 export function meta() {
   return [{ title: "Clip recording · Clips" }];

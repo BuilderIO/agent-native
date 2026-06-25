@@ -1,11 +1,12 @@
-import { and, desc, eq } from "drizzle-orm";
 import { getCredentialContext } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { and, desc, eq } from "drizzle-orm";
+
+import type {
+  BrainCaptureKind,
+  BrainSourceProvider,
+} from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
-import {
-  inspectSourceCredentialAvailability,
-  resolveSourceCredential,
-} from "./source-credentials.js";
 import {
   createCapture,
   nanoid,
@@ -14,10 +15,10 @@ import {
   serializeCapture,
   stableJson,
 } from "./brain.js";
-import type {
-  BrainCaptureKind,
-  BrainSourceProvider,
-} from "../../shared/types.js";
+import {
+  inspectSourceCredentialAvailability,
+  resolveSourceCredential,
+} from "./source-credentials.js";
 
 export interface ConnectorSyncResult {
   runId: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeNormalizedKey, federateSources } from "./_federation-join";
+
 import type {
   ContentDatabaseItem,
   ContentDatabaseSource,
@@ -7,6 +7,7 @@ import type {
   ContentDatabaseSourceRole,
   ContentDatabaseSourceRow,
 } from "../shared/api";
+import { computeNormalizedKey, federateSources } from "./_federation-join";
 
 function item(documentId: string): ContentDatabaseItem {
   return {

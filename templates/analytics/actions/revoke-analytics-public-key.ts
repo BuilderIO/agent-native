@@ -4,6 +4,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { z } from "zod";
+
 import { revokeAnalyticsPublicKey } from "../server/lib/first-party-analytics.js";
 
 function resolveScope() {

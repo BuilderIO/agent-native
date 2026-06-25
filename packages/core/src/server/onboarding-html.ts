@@ -7,18 +7,14 @@
  * After first account exists, this page acts as a normal login page.
  */
 
-import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
+import { getLocaleInitScript } from "../localization/server.js";
 import {
-  resolveGoogleAuthMode,
-  type GoogleAuthMode,
-} from "./google-auth-mode.js";
-import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
-import { identitySsoLoginButtonHtml } from "./identity-sso-store.js";
-import {
-  BUILT_IN_AUTH_MARKETING,
-  resolveBuiltInAuthMarketing,
-  type AuthMarketingContent,
-} from "./auth-marketing.js";
+  DEFAULT_LOCALE,
+  LOCALE_METADATA,
+  LOCALE_STORAGE_KEY,
+  SUPPORTED_LOCALES,
+  type LocaleCode,
+} from "../localization/shared.js";
 import { AUTH_REDIRECT_QUERY_PARAM } from "../shared/auth-redirect-url.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -29,15 +25,19 @@ import {
   withAgentNativeSocialImageCacheBuster,
 } from "../shared/social-meta.js";
 import { normalizeAppBasePath } from "./app-base-path.js";
-import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import {
-  DEFAULT_LOCALE,
-  LOCALE_METADATA,
-  LOCALE_STORAGE_KEY,
-  SUPPORTED_LOCALES,
-  type LocaleCode,
-} from "../localization/shared.js";
-import { getLocaleInitScript } from "../localization/server.js";
+  BUILT_IN_AUTH_MARKETING,
+  resolveBuiltInAuthMarketing,
+  type AuthMarketingContent,
+} from "./auth-marketing.js";
+import {
+  resolveGoogleAuthMode,
+  type GoogleAuthMode,
+} from "./google-auth-mode.js";
+import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
+import { identitySsoLoginButtonHtml } from "./identity-sso-store.js";
+import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
+import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 
 function hasGoogleOAuth(): boolean {
   return hasGoogleSignInCredentials();
@@ -46,6 +46,7 @@ function hasGoogleOAuth(): boolean {
 function getConnectionLabel(): string {
   const url = process.env.DATABASE_URL || "";
   if (!url) return "SQLite (local file)";
+  if (url.startsWith("pglite:")) return "PGlite (local Postgres)";
   if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
     if (url.includes("neon.tech")) return "Neon Postgres";
     if (url.includes("supabase")) return "Supabase Postgres";
@@ -841,8 +842,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     checkEmailTitle: "अपना ईमेल देखें",
     resetPasswordTitle: "पासवर्ड रीसेट करें",
     createAccountSubtitle: "शुरू करने के लिए खाता बनाएं",
-    googleOnlySubtitle:
-      "जारी रखने के लिए अपना workspace Google खाता उपयोग करें",
+    googleOnlySubtitle: "जारी रखने के लिए अपना workspace Google खाता उपयोग करें",
     signInSubtitle: "अपने खाते में साइन इन करें",
     finishAccountSubtitle: "अपना खाता बनाना पूरा करें",
     resetPasswordSubtitle: "अपना पासवर्ड रीसेट करें",
@@ -892,8 +892,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     invalidEmail: "एक मान्य ईमेल पता दर्ज करें, जैसे you@example.com.",
     signInToContinue: "जारी रखने के लिए साइन इन करें।",
     finishSignInFailed: "साइन इन अपने आप पूरा नहीं हो सका।",
-    enterPasswordAfterVerification:
-      "ईमेल सत्यापित करने के बाद अपना पासवर्ड दर्ज करें।",
+    enterPasswordAfterVerification: "ईमेल सत्यापित करने के बाद अपना पासवर्ड दर्ज करें।",
     finishSignInManually:
       "साइन इन अपने आप पूरा नहीं हो सका। जारी रखने के लिए साइन इन करें।",
     stillWaitingVerification:
@@ -919,8 +918,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     invalidLogin: "ईमेल या पासवर्ड अमान्य है",
     googleNotConfigured: "Google OAuth configured नहीं है।",
     failedToConnect: "कनेक्ट नहीं हो सका। कृपया फिर कोशिश करें।",
-    migrateLocalFallback:
-      "स्थानीय डेटा माइग्रेट करने के लिए साइन इन जारी रखें।",
+    migrateLocalFallback: "स्थानीय डेटा माइग्रेट करने के लिए साइन इन जारी रखें।",
     googlePopupHelp: "इस साइट के लिए pop-ups allow करें और फिर कोशिश करें",
     googleNeverFinished:
       "Google साइन इन पूरा नहीं हुआ। Google OAuth redirect URI और [agent-native][google-oauth] के server logs देखें।",
@@ -1116,8 +1114,7 @@ const AUTH_MARKETING_LOCALE_COPY: Partial<
   },
   "ar-SA": {
     forms: {
-      tagline:
-        "يساعدك وكيل الذكاء الاصطناعي على إنشاء النماذج ونشرها وتحليلها.",
+      tagline: "يساعدك وكيل الذكاء الاصطناعي على إنشاء النماذج ونشرها وتحليلها.",
       features: [
         "أنشئ نماذج كاملة من جملة واحدة",
         "نشر فوري مع روابط قابلة للمشاركة وcaptcha",

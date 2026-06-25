@@ -1,4 +1,3 @@
-import { ReactNode, useState } from "react";
 import {
   IconAlertTriangle,
   IconBuilding,
@@ -6,13 +5,15 @@ import {
   IconUserPlus,
   IconAt,
 } from "@tabler/icons-react";
+import { ReactNode, useState } from "react";
+
+import { useT } from "../i18n.js";
 import {
   useAcceptInvitation,
   useCreateOrg,
   useJoinByDomain,
   useOrg,
 } from "./hooks.js";
-import { useT } from "../i18n.js";
 
 export interface RequireActiveOrgProps {
   children: ReactNode;

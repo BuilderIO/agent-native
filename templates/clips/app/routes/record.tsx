@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
-import { Link, useLocation, useNavigate } from "react-router";
+import {
+  agentNativePath,
+  appBasePath,
+  callAction,
+  captureClientException,
+} from "@agent-native/core/client";
+import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
+import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -13,13 +18,11 @@ import {
   IconVideo,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  agentNativePath,
-  appBasePath,
-  callAction,
-  captureClientException,
-} from "@agent-native/core/client";
-import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { Link, useLocation, useNavigate } from "react-router";
+
+import { Skeleton } from "@/components/ui/skeleton";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import {
   fetchVideoStorageStatus,
@@ -27,25 +30,10 @@ import {
   VIDEO_STORAGE_STATUS_KEY,
   type VideoStorageStatus,
 } from "@/hooks/use-video-storage-status";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  captureVideoThumbnailBlob,
-  uploadRecordingThumbnail,
-} from "@/lib/thumbnail-capture";
 import {
   createBrowserDiagnosticsCapture,
   type BrowserDiagnosticsCapture,
 } from "@/lib/browser-diagnostics-capture";
-import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
-import {
-  buildCaptureTitle,
-  defaultRecordingTitle,
-  inferWindowTitleFromDisplayStream,
-} from "@/lib/recording-title";
-import {
-  createCountdownAudioCue,
-  type CountdownAudioCue,
-} from "@/lib/countdown-audio-cue";
 import {
   COMPRESS_THRESHOLD_BYTES,
   COMPRESSION_ENABLED,
@@ -54,9 +42,22 @@ import {
   formatMb,
 } from "@/lib/compress";
 import {
+  createCountdownAudioCue,
+  type CountdownAudioCue,
+} from "@/lib/countdown-audio-cue";
+import {
   loadRecorderPreferences,
   saveRecorderPreferences,
 } from "@/lib/recorder-preferences";
+import {
+  buildCaptureTitle,
+  defaultRecordingTitle,
+  inferWindowTitleFromDisplayStream,
+} from "@/lib/recording-title";
+import {
+  captureVideoThumbnailBlob,
+  uploadRecordingThumbnail,
+} from "@/lib/thumbnail-capture";
 import { cn } from "@/lib/utils";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
@@ -73,20 +74,17 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
     },
   );
 }
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import { CaptureInstallButton } from "@/components/capture-install-options";
 import { toast } from "sonner";
 
-import { PreRecordPanel } from "@/components/recorder/pre-record-panel";
-import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
-import { CountdownOverlay } from "@/components/recorder/countdown-overlay";
+import { CaptureInstallButton } from "@/components/capture-install-options";
 import { CameraBubble } from "@/components/recorder/camera-bubble";
-import { RecordingToolbar } from "@/components/recorder/recording-toolbar";
+import type { CameraBubbleSize } from "@/components/recorder/camera-bubble";
 import {
   ConfettiCanvas,
   type ConfettiHandle,
 } from "@/components/recorder/confetti-canvas";
+import { CountdownOverlay } from "@/components/recorder/countdown-overlay";
+import { PreRecordPanel } from "@/components/recorder/pre-record-panel";
 import {
   RecorderEngine,
   NO_MIC_DEVICE_ID,
@@ -94,7 +92,10 @@ import {
   type RecorderFinalizeResult,
   type RecordingMode,
 } from "@/components/recorder/recorder-engine";
-import type { CameraBubbleSize } from "@/components/recorder/camera-bubble";
+import { RecordingToolbar } from "@/components/recorder/recording-toolbar";
+import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [{ title: "New recording — Clips" }];

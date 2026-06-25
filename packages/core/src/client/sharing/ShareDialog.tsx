@@ -1,5 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import * as Select from "@radix-ui/react-select";
 import {
   IconX,
   IconTrash,
@@ -13,12 +12,14 @@ import {
   IconCode,
   IconChevronDown,
 } from "@tabler/icons-react";
-import * as Select from "@radix-ui/react-select";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+
+import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
+import { useT } from "../i18n.js";
 import { useActionQuery, useActionMutation } from "../use-action.js";
 import { cn } from "../utils.js";
-import { agentNativePath } from "../api-path.js";
-import { useT } from "../i18n.js";
 
 export interface ShareDialogProps {
   open: boolean;

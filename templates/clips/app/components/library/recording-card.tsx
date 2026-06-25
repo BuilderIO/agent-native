@@ -1,5 +1,3 @@
-import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
 import {
   IconDots,
   IconLock,
@@ -14,7 +12,11 @@ import {
   IconCheck,
   IconAlertTriangle,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useCallback, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+
+import { EditableRecordingTitle } from "@/components/editable-recording-title";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -23,11 +25,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import type { RecordingSummary } from "@/hooks/use-library";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
-import { EditableRecordingTitle } from "@/components/editable-recording-title";
+import type { RecordingSummary } from "@/hooks/use-library";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
+import { cn } from "@/lib/utils";
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));

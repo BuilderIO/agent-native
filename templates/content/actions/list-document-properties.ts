@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+
 import {
   listPropertiesForDocument,
   resolvePropertyDatabaseForDocument,

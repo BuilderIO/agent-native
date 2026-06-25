@@ -1,4 +1,17 @@
 import {
+  escapeHtml,
+  indentMarkdown,
+  serializeTagAttributes,
+} from "@shared/notion-markdown";
+import {
+  IconChevronRight,
+  IconChevronDown,
+  IconDatabase,
+  IconExternalLink,
+  IconFileText,
+} from "@tabler/icons-react";
+import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
+import {
   Mark,
   Node,
   NodeViewContent,
@@ -7,19 +20,6 @@ import {
   mergeAttributes,
   type NodeViewProps,
 } from "@tiptap/react";
-import {
-  IconChevronRight,
-  IconChevronDown,
-  IconDatabase,
-  IconExternalLink,
-  IconFileText,
-} from "@tabler/icons-react";
-import {
-  escapeHtml,
-  indentMarkdown,
-  serializeTagAttributes,
-} from "@shared/notion-markdown";
-import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
 
 const BLOCK_ATOM_TAGS = [
   "page",

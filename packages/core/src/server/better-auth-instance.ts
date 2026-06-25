@@ -9,33 +9,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+
 import { betterAuth, type BetterAuthOptions } from "better-auth";
-import { jwt } from "better-auth/plugins/jwt";
 import { bearer } from "better-auth/plugins/bearer";
-import { sendEmail, isEmailConfigured } from "./email.js";
-import {
-  renderResetPasswordEmail,
-  renderVerifySignupEmail,
-} from "./email-templates.js";
-import { getAppProductionUrl } from "./app-url.js";
-import { getDbExec, isPostgres } from "../db/client.js";
-import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
-import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
-import { saveOAuthTokens } from "../oauth-tokens/store.js";
-import { flushTracking, identify, track } from "../tracking/index.js";
-import { signupAttributionFromCookieHeader } from "./attribution.js";
-import { TEMPLATES } from "../cli/templates-meta.js";
-import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
-import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
-import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
-import {
-  getDialect,
-  getDatabaseUrl,
-  getDatabaseAuthToken,
-  pgPoolOptions,
-  neonPoolMax,
-  attachNeonPoolErrorLogger,
-} from "../db/client.js";
+import { jwt } from "better-auth/plugins/jwt";
 import {
   pgTable,
   text as pgText,
@@ -47,6 +24,35 @@ import {
   text as sqliteText,
   integer as sqliteInteger,
 } from "drizzle-orm/sqlite-core";
+
+import { TEMPLATES } from "../cli/templates-meta.js";
+import { getDbExec, isPostgres } from "../db/client.js";
+import {
+  getDialect,
+  getDatabaseUrl,
+  getDatabaseAuthToken,
+  closePgliteClients,
+  getPgliteClient,
+  isPgliteUrl,
+  loadPgliteDrizzle,
+  pgPoolOptions,
+  neonPoolMax,
+  attachNeonPoolErrorLogger,
+} from "../db/client.js";
+import { saveOAuthTokens } from "../oauth-tokens/store.js";
+import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
+import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import { flushTracking, identify, track } from "../tracking/index.js";
+import { getAppProductionUrl } from "./app-url.js";
+import { signupAttributionFromCookieHeader } from "./attribution.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import {
+  renderResetPasswordEmail,
+  renderVerifySignupEmail,
+} from "./email-templates.js";
+import { sendEmail, isEmailConfigured } from "./email.js";
+import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 
 async function flushSignupTracking(): Promise<void> {
   try {
@@ -805,6 +811,7 @@ export async function resetBetterAuth(): Promise<void> {
     }
     _neonAuthPool = undefined;
   }
+  await closePgliteClients();
 }
 
 // ---------------------------------------------------------------------------
@@ -1108,6 +1115,17 @@ async function buildDatabaseConfig(
   if (dialect === "postgres") {
     const url = getDatabaseUrl();
     const { isNeonUrl } = await import("../db/create-get-db.js");
+
+    if (isPgliteUrl(url)) {
+      const { drizzle } = await loadPgliteDrizzle();
+      const client = await getPgliteClient(url);
+      const db = drizzle({ client, schema: pgAuthSchema });
+      const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
+      return drizzleAdapter(db, {
+        provider: "pg",
+        schema: pgAuthSchema,
+      });
+    }
 
     // Neon via @neondatabase/serverless (WebSockets over HTTPS). postgres-js
     // opens a raw TCP connection on port 5432 which frequently times out on

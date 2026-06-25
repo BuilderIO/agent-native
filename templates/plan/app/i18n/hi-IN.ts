@@ -22,8 +22,7 @@ const messages = {
     title: "सेटिंग्स",
     description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
     languageTitle: "भाषा",
-    languageDescription:
-      "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
+    languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
     languageLabel: "इंटरफ़ेस भाषा",
     workspaceTitle: "कार्यस्थान",
     workspaceDescription:
@@ -79,8 +78,7 @@ const messages = {
     suggestionAuth: "auth API कब बदला?",
     suggestionApi: "billing API का आकार कैसा है?",
     emptyState: "Plan से पूछें",
-    placeholder:
-      "पूछें कि क्या शिप हुआ, क्या बदला, या मौजूदा code क्या दिखाता है...",
+    placeholder: "पूछें कि क्या शिप हुआ, क्या बदला, या मौजूदा code क्या दिखाता है...",
     heading: "Plan से पूछें",
     description:
       "merged PR recaps खोजें, visual blocks देखें, और code answers को diagrams, wireframes, API specs और data models के रूप में प्रकाशित करें।",

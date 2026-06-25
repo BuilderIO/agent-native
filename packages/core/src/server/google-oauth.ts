@@ -8,6 +8,7 @@
  */
 
 import crypto from "node:crypto";
+
 import {
   getHeader,
   getQuery,
@@ -15,6 +16,10 @@ import {
   setResponseHeader,
   type H3Event,
 } from "h3";
+
+import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getAppName } from "./app-name.js";
+import { signupAttributionFromCookieHeader } from "./attribution.js";
 import {
   addSession,
   getSession,
@@ -22,16 +27,13 @@ import {
   hasLegacySessionForEmail,
   setFrameworkSessionCookie,
 } from "./auth.js";
-import { getAppName } from "./app-name.js";
 import {
   hasBetterAuthUserEmail,
   trackSignupEvent,
 } from "./better-auth-instance.js";
-import { signupAttributionFromCookieHeader } from "./attribution.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
 

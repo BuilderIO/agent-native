@@ -12,10 +12,11 @@
  * accidentally turned off on stage.
  */
 
-import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { agentNativePath } from "../api-path.js";
 import { IconEyeOff } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+
+import { agentNativePath } from "../api-path.js";
 
 interface DemoStatus {
   enabled?: boolean;

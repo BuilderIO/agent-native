@@ -1,4 +1,5 @@
 import { Outlet, redirect, type LoaderFunctionArgs } from "react-router";
+
 import {
   DEFAULT_DOCS_LOCALE,
   isDocsLocale,

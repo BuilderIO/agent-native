@@ -1,11 +1,11 @@
-import { useMemo, useState, type RefObject } from "react";
 import {
   IconArrowLeft,
   IconHistory,
   IconLoader2,
   IconRestore,
 } from "@tabler/icons-react";
-import type { Slide } from "@/context/DeckContext";
+import { useMemo, useState, type RefObject } from "react";
+
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -18,14 +18,27 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { toast } from "@/hooks/use-toast";
+import type { Slide, SlideLayout } from "@/context/DeckContext";
 import {
   useDeckVersion,
   useDeckVersions,
   useRestoreDeckVersion,
 } from "@/hooks/use-deck-versions";
+import { toast } from "@/hooks/use-toast";
 import type { AspectRatio } from "@/lib/aspect-ratios";
-import type { DeckVersionSummary } from "../../../shared/api";
+
+import type { DeckVersion, DeckVersionSummary } from "../../../shared/api";
+
+const SLIDE_LAYOUTS = new Set<SlideLayout>([
+  "title",
+  "section",
+  "content",
+  "two-column",
+  "image",
+  "statement",
+  "full-image",
+  "blank",
+]);
 
 interface HistoryPanelProps {
   deckId: string;
@@ -61,6 +74,12 @@ function normalizeSlides(slides: DeckVersionSummary["slidePreviews"]): string {
     .join(" / ");
 }
 
+function normalizeSlideLayout(layout: string | undefined): SlideLayout {
+  return layout && SLIDE_LAYOUTS.has(layout as SlideLayout)
+    ? (layout as SlideLayout)
+    : "blank";
+}
+
 export default function HistoryPanel({
   deckId,
   open,
@@ -74,16 +93,18 @@ export default function HistoryPanel({
   const versionQuery = useDeckVersion(open ? deckId : null, selectedVersionId);
   const restoreVersion = useRestoreDeckVersion();
 
-  const versions = versionsQuery.data?.versions ?? [];
+  const versions: DeckVersionSummary[] = versionsQuery.data?.versions ?? [];
   const selectedVersion = versionQuery.data;
-  const selectedSlides = useMemo(
+  const selectedVersionSlides: DeckVersion["slides"] =
+    selectedVersion?.slides ?? [];
+  const selectedSlides = useMemo<Slide[]>(
     () =>
-      (selectedVersion?.slides ?? []).map((slide) => ({
-        notes: "",
-        layout: "blank",
+      selectedVersionSlides.map((slide) => ({
         ...slide,
-      })) as Slide[],
-    [selectedVersion?.slides],
+        notes: slide.notes ?? "",
+        layout: normalizeSlideLayout(slide.layout),
+      })),
+    [selectedVersionSlides],
   );
 
   const handleClose = (nextOpen: boolean) => {

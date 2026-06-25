@@ -4,11 +4,7 @@ import {
   useInRouterContext,
   useRouteError,
 } from "react-router";
-import { appPath } from "./api-path.js";
-import {
-  isDynamicImportFailureMessage,
-  recoverFromStaleChunkError,
-} from "./route-chunk-recovery.js";
+
 import {
   DEFAULT_LOCALE,
   LOCALE_HYDRATION_GLOBAL,
@@ -16,6 +12,11 @@ import {
   normalizeLocaleCode,
   type LocaleCode,
 } from "../localization/shared.js";
+import { appPath } from "./api-path.js";
+import {
+  isDynamicImportFailureMessage,
+  recoverFromStaleChunkError,
+} from "./route-chunk-recovery.js";
 
 const homeLinkClassName =
   "mt-6 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer";

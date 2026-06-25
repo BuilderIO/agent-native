@@ -28,12 +28,13 @@
  */
 
 import type { ReactElement } from "react";
-import type { EntryContext, RouterContextProvider } from "react-router";
 import ReactDOMServer from "react-dom/server.browser";
+import type { EntryContext, RouterContextProvider } from "react-router";
 
 const { renderToReadableStream } = ReactDOMServer;
 
 import { isbot } from "isbot";
+
 import { wrapWithAnalytics } from "./analytics.js";
 
 export const streamTimeout = 5_000;

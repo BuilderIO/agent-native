@@ -1,5 +1,3 @@
-import { useEffect, useCallback, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   IconPackageExport,
   IconCode,
@@ -7,8 +5,11 @@ import {
   IconX,
   IconLoader2,
 } from "@tabler/icons-react";
-import { agentNativePath } from "../api-path.js";
+import { useEffect, useCallback, useState } from "react";
+import { createPortal } from "react-dom";
+
 import { trackEvent } from "../analytics.js";
+import { agentNativePath } from "../api-path.js";
 import { useT } from "../i18n.js";
 import { withBuilderConnectTrackingParams } from "../settings/useBuilderStatus.js";
 

@@ -1,4 +1,15 @@
 import {
+  IconArrowsSort,
+  IconSortAscending,
+  IconSortDescending,
+  IconChevronLeft,
+  IconChevronRight,
+  IconAlertTriangle,
+  IconInfoCircle,
+  IconTrendingUp,
+  IconTrendingDown,
+} from "@tabler/icons-react";
+import {
   createContext,
   useCallback,
   useContext,
@@ -28,20 +39,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+
 import { Button } from "@/components/ui/button";
-import {
-  IconArrowsSort,
-  IconSortAscending,
-  IconSortDescending,
-  IconChevronLeft,
-  IconChevronRight,
-  IconAlertTriangle,
-  IconInfoCircle,
-  IconTrendingUp,
-  IconTrendingDown,
-} from "@tabler/icons-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -49,17 +49,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { useSqlQuery } from "@/lib/sql-query";
+import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
+import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
 import type {
   SqlPanel,
   ChartType,
   TableColumnConfig,
   ColumnFormat,
 } from "@/pages/adhoc/sql-dashboard/types";
-import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
-import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
 
 const DEFAULT_COLORS = [
   "var(--brand-blue)",

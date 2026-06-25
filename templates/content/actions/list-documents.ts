@@ -1,28 +1,29 @@
 import { defineAction } from "@agent-native/core";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import {
+  accessFilter,
+  ROLE_RANK,
+  type ShareRole,
+} from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   documentDiscoveryFilter,
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import { parseDatabaseViewConfig } from "./_property-utils.js";
-import {
-  accessFilter,
-  ROLE_RANK,
-  type ShareRole,
-} from "@agent-native/core/sharing";
 import { serializeDatabaseMembership } from "./_database-utils.js";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
-import { z } from "zod";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   isContentLocalFileMode,
   listLocalFileDocuments,
 } from "./_local-file-documents.js";
+import { parseDatabaseViewConfig } from "./_property-utils.js";
 
 function contentPreview(content: string, maxLength = 180) {
   const compact = content.replace(/\s+/g, " ").trim();

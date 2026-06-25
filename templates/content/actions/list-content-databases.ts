@@ -2,8 +2,9 @@ import { defineAction } from "@agent-native/core";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, asc, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { documentDiscoveryFilter } from "../server/lib/documents.js";
+
 import { getDb, schema } from "../server/db/index.js";
+import { documentDiscoveryFilter } from "../server/lib/documents.js";
 import type { ListContentDatabasesResponse } from "../shared/api.js";
 
 export default defineAction({

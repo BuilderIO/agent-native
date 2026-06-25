@@ -1,10 +1,11 @@
-import { type ReactNode } from "react";
-import rough from "roughjs";
-import { cn } from "@/lib/utils";
 import type {
   PlanLegacyWireframeBlock,
   PlanWireframeRegion,
 } from "@shared/plan-content";
+import { type ReactNode } from "react";
+import rough from "roughjs";
+
+import { cn } from "@/lib/utils";
 
 /**
  * LEGACY region-based wireframe renderer — FALLBACK ONLY.

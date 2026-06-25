@@ -1,9 +1,3 @@
-/**
- * Left sidebar for the database admin: a mode toggle (Table Editor / SQL
- * Editor), a debounced search box, and a scrollable list of tables and views
- * with row counts.
- */
-import { useEffect, useMemo, useRef, useState } from "react";
 import {
   IconTable,
   IconEye,
@@ -11,8 +5,15 @@ import {
   IconDatabaseOff,
   IconX,
 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
+/**
+ * Left sidebar for the database admin: a mode toggle (Table Editor / SQL
+ * Editor), a debounced search box, and a scrollable list of tables and views
+ * with row counts.
+ */
+import { useEffect, useMemo, useRef, useState } from "react";
+
 import type { DbAdminTableSummary } from "../../db-admin/types.js";
+import { cn } from "../utils.js";
 
 export interface TableBrowserProps {
   tables: DbAdminTableSummary[];

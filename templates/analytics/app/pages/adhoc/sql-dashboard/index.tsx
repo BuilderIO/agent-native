@@ -1,57 +1,4 @@
 import {
-  Fragment,
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  useRef,
-} from "react";
-import { useSearchParams, useParams, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-  IconArchive,
-  IconClock,
-  IconDots,
-  IconEye,
-  IconEyeOff,
-  IconInfoCircle,
-  IconPencil,
-  IconPlus,
-  IconTrash,
-  IconUser,
-  IconX,
-} from "@tabler/icons-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   ShareButton,
   PresenceBar,
   useCollaborativeDoc,
@@ -65,41 +12,6 @@ import {
   useActionMutation,
   type CollabUser,
 } from "@agent-native/core/client";
-import { SqlChartCard } from "./SqlChartCard";
-import {
-  DashboardFilterBar,
-  FILTER_PARAM_PREFIX,
-  resolveFilterVars,
-} from "./DashboardFilterBar";
-import { interpolate } from "./interpolate";
-import { serializePanelSql } from "./panel-sql";
-import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
-import { ViewsMenu } from "./ViewsMenu";
-import BlankDashboard from "../BlankDashboard";
-import {
-  clampDashboardColumns,
-  DEFAULT_DASHBOARD_COLUMNS,
-  type SqlDashboardConfig,
-  type SqlPanel,
-} from "./types";
-import { useUserPref } from "@/hooks/use-user-pref";
-import { useDashboardViews } from "@/hooks/use-dashboard-views";
-import { incrementItemView } from "@/lib/item-popularity";
-import {
-  sqlDashboardPrefetchKey,
-  type PrefetchSnapshot,
-} from "@/lib/prefetch-keys";
-import { DashboardSkeleton } from "../DashboardSkeleton";
-import {
-  resourceCanEdit,
-  resourceCanManage,
-  type ResourceAccess,
-} from "@/lib/resource-access";
-import {
-  DashboardTitleSkeleton,
-  useSetPageTitle,
-  useSetHeaderActions,
-} from "@/components/layout/HeaderActions";
 import {
   useDroppable,
   DndContext,
@@ -112,6 +24,80 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
+  IconArchive,
+  IconClock,
+  IconDots,
+  IconEye,
+  IconEyeOff,
+  IconInfoCircle,
+  IconPencil,
+  IconPlus,
+  IconTrash,
+  IconUser,
+  IconX,
+} from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Fragment,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
+import { useSearchParams, useParams, useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import {
+  DashboardTitleSkeleton,
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useDashboardViews } from "@/hooks/use-dashboard-views";
+import { useUserPref } from "@/hooks/use-user-pref";
+import { incrementItemView } from "@/lib/item-popularity";
+import {
+  sqlDashboardPrefetchKey,
+  type PrefetchSnapshot,
+} from "@/lib/prefetch-keys";
+import {
+  resourceCanEdit,
+  resourceCanManage,
+  type ResourceAccess,
+} from "@/lib/resource-access";
+
+import BlankDashboard from "../BlankDashboard";
+import { DashboardSkeleton } from "../DashboardSkeleton";
+import {
   buildDashboardPanelGroups,
   dropSlotId,
   movePanelToDropSlot,
@@ -120,6 +106,22 @@ import {
   sameDropSlot,
   type DashboardDropSlot,
 } from "./dashboard-layout";
+import {
+  DashboardFilterBar,
+  FILTER_PARAM_PREFIX,
+  resolveFilterVars,
+} from "./DashboardFilterBar";
+import { interpolate } from "./interpolate";
+import { serializePanelSql } from "./panel-sql";
+import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
+import { SqlChartCard } from "./SqlChartCard";
+import {
+  clampDashboardColumns,
+  DEFAULT_DASHBOARD_COLUMNS,
+  type SqlDashboardConfig,
+  type SqlPanel,
+} from "./types";
+import { ViewsMenu } from "./ViewsMenu";
 
 const TAB_ID = generateTabId();
 

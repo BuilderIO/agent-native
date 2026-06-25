@@ -1,4 +1,5 @@
-import type { EngineMessage } from "../engine/types.js";
+import { appStatePut } from "../../application-state/store.js";
+import { buildDeepLink } from "../../server/deep-link.js";
 import {
   CONTEXT_XRAY_MANIFEST_KEY,
   type ContextDirective,
@@ -8,8 +9,7 @@ import {
   type ContextSegmentStatus,
   type ContextTokenCountMethod,
 } from "../../shared/context-xray.js";
-import { appStatePut } from "../../application-state/store.js";
-import { buildDeepLink } from "../../server/deep-link.js";
+import type { EngineMessage } from "../engine/types.js";
 import { computeSegments } from "./segments.js";
 import {
   countMessageTokens,

@@ -1,15 +1,16 @@
-import { Link } from "react-router";
-import { useEffect, useRef, useState } from "react";
 import { useLocale, useT } from "@agent-native/core/client";
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
+
 import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
 import CodeBlock from "../components/CodeBlock";
+import { sitePathForLocale } from "../components/docs-locale";
 import Seascape from "../components/Seascape";
 import {
   featuredTemplates,
   TemplateCard,
   trackEvent,
 } from "../components/TemplateCard";
-import { sitePathForLocale } from "../components/docs-locale";
 
 function TerminalCommand({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);

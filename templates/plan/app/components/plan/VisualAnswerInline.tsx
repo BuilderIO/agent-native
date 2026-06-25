@@ -1,8 +1,10 @@
-import { IconArrowUpRight, IconLayoutDashboard } from "@tabler/icons-react";
-import type { ToolRendererProps } from "@agent-native/core/client";
 import { BlockRegistryProvider } from "@agent-native/core/blocks";
+import type { ToolRendererProps } from "@agent-native/core/client";
 import type { PlanBlock, PlanContent } from "@shared/plan-content";
+import { IconArrowUpRight, IconLayoutDashboard } from "@tabler/icons-react";
+
 import { cn } from "@/lib/utils";
+
 import { PlanBlockView } from "./DocumentArea";
 import { createPlanBlockRenderContext, planBlockRegistry } from "./planBlocks";
 

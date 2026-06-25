@@ -1,15 +1,4 @@
 import {
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-  useNavigate,
-} from "react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigationState } from "@/hooks/use-navigation-state";
-import { Toaster } from "sonner";
-import {
   AppProviders,
   CommandMenu,
   configureTracking,
@@ -21,15 +10,29 @@ import {
   appPath,
   useT,
 } from "@agent-native/core/client";
-import { useQueryClient } from "@tanstack/react-query";
-import { IconSun, IconMoon } from "@tabler/icons-react";
-import { useTheme } from "next-themes";
 import { Layout as AppLayout } from "@agent-native/dispatch/components";
+import { IconSun, IconMoon } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useNavigate,
+} from "react-router";
 import type { LinksFunction } from "react-router";
-import { dispatchExtensions } from "./dispatch-extensions";
+import { Toaster } from "sonner";
+
+import { useNavigationState } from "@/hooks/use-navigation-state";
+
 import changelog from "../CHANGELOG.md?raw";
-import stylesheet from "./global.css?url";
+import { dispatchExtensions } from "./dispatch-extensions";
 import { i18nCatalog } from "./i18n";
+
+import stylesheet from "./global.css?url";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({

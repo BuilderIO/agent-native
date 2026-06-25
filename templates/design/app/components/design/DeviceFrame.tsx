@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+
 import type { DeviceFrameType } from "./types";
 
 interface DeviceFrameProps {

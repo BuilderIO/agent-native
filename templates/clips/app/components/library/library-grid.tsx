@@ -1,5 +1,23 @@
+import {
+  getBrowserTabId,
+  sendToAgentChat,
+  setClientAppState,
+  useSession,
+} from "@agent-native/core/client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+
+import { ShareRecordingDialog } from "@/components/player/share-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { isDefaultTitle } from "@/hooks/use-auto-title";
 import {
   useFolders,
   useRecordings,
@@ -11,29 +29,13 @@ import {
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
-import {
-  getBrowserTabId,
-  sendToAgentChat,
-  setClientAppState,
-  useSession,
-} from "@agent-native/core/client";
-import { RecordingCard } from "./recording-card";
-import { EmptyState } from "./empty-state";
-import { SortMenu, type SortKey } from "./sort-menu";
-import { FilterChips, type FilterChip } from "./filter-chips";
+
 import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
+import { EmptyState } from "./empty-state";
+import { FilterChips, type FilterChip } from "./filter-chips";
 import { PageHeader } from "./page-header";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { ShareRecordingDialog } from "@/components/player/share-dialog";
+import { RecordingCard } from "./recording-card";
+import { SortMenu, type SortKey } from "./sort-menu";
 
 interface LibraryGridProps {
   view: "library" | "space" | "archive" | "trash" | "all";

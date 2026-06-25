@@ -1,17 +1,18 @@
-// @vitest-environment happy-dom
-import { Editor } from "@tiptap/core";
-import StarterKit from "@tiptap/starter-kit";
-import { Markdown } from "tiptap-markdown";
-import { describe, expect, it } from "vitest";
 import {
   parseNfmForEditor,
   serializeEditorToNfm,
   normalizeNfmForStorage,
   normalizeNfmForNotion,
 } from "@shared/notion-markdown";
-import { EmptyLineParagraph } from "./VisualEditor";
+// @vitest-environment happy-dom
+import { Editor } from "@tiptap/core";
+import StarterKit from "@tiptap/starter-kit";
+import { Markdown } from "tiptap-markdown";
+import { describe, expect, it } from "vitest";
+
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { NotionToggle } from "./extensions/NotionExtensions";
+import { EmptyLineParagraph } from "./VisualEditor";
 
 // Mirror the markdown editor used in existing tests + the real serialize path.
 function createMarkdownEditor(content: string) {

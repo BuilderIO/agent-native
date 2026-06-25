@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import type { CalendarEvent } from "../../shared/api";
 import { eventBlocksAvailability } from "./calendar-availability";
 

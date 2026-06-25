@@ -1,27 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import type { ClipboardEvent } from "react";
-import { useNavigate } from "react-router";
-import { IconArrowLeft, IconDatabase } from "@tabler/icons-react";
-import { VisualEditor } from "./VisualEditor";
-import { DocumentToolbar } from "./DocumentToolbar";
-import { DocumentDatabase } from "./DocumentDatabase";
-import { DocumentProperties } from "./DocumentProperties";
-import { DocumentBlockFields } from "./DocumentBlockFields";
-import { NotionConflictBanner } from "./NotionConflictBanner";
-import { EmojiPicker } from "./EmojiPicker";
-import {
-  useDocument,
-  useDocuments,
-  useUpdateDocument,
-} from "@/hooks/use-documents";
-import { useDocumentSyncStatus } from "@/hooks/use-notion";
+import { BlockRegistryProvider } from "@agent-native/core/blocks";
 import {
   useCollaborativeDoc,
   generateTabId,
@@ -32,34 +9,59 @@ import {
   agentNativePath,
   type CollabUser,
 } from "@agent-native/core/client";
-import { CommentsSidebar } from "./CommentsSidebar";
-import { useComments } from "@/hooks/use-comments";
-import type { CommentTextAnchor } from "./comment-anchors";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useLocalStorage } from "@/hooks/use-local-storage";
-import { useQueryClient } from "@tanstack/react-query";
+import type { Document, DocumentSyncStatus } from "@shared/api";
+import { IconArrowLeft, IconDatabase } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
-import { BlockRegistryProvider } from "@agent-native/core/blocks";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { ClipboardEvent } from "react";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
+
 import {
   contentBlockRegistry,
   createContentBlockRenderContext,
 } from "@/blocks/contentBlockRegistry";
-import type { Document, DocumentSyncStatus } from "@shared/api";
-import type { NotionPageLink } from "./VisualEditor";
-import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useComments } from "@/hooks/use-comments";
 import {
-  normalizeTitleText,
-  stripMarkdownHeadingPrefixFromTitlePaste,
-} from "./title-text";
-import { cn } from "@/lib/utils";
+  useDocument,
+  useDocuments,
+  useUpdateDocument,
+} from "@/hooks/use-documents";
+import { useLocalStorage } from "@/hooks/use-local-storage";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useDocumentSyncStatus } from "@/hooks/use-notion";
 import {
   canWriteLinkedLocalSource,
   readDocumentFromLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
+import { cn } from "@/lib/utils";
+
+import type { CommentTextAnchor } from "./comment-anchors";
+import { CommentsSidebar } from "./CommentsSidebar";
+import { DocumentBlockFields } from "./DocumentBlockFields";
+import { DocumentDatabase } from "./DocumentDatabase";
+import { DocumentProperties } from "./DocumentProperties";
+import { DocumentToolbar } from "./DocumentToolbar";
+import { EmojiPicker } from "./EmojiPicker";
+import { NotionConflictBanner } from "./NotionConflictBanner";
+import {
+  normalizeTitleText,
+  stripMarkdownHeadingPrefixFromTitlePaste,
+} from "./title-text";
+import { VisualEditor } from "./VisualEditor";
+import type { NotionPageLink } from "./VisualEditor";
 
 const TAB_ID = generateTabId();
 
@@ -220,7 +222,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     [documentId],
   );
   const navigate = useNavigate();
-  const { data: documents = [] } = useDocuments();
+  const documentsQuery = useDocuments();
+  const documents: Document[] = documentsQuery.data ?? [];
   // Shared with DocumentToolbar via the same localStorage key — both read it.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const canEdit = document.canEdit ?? true;

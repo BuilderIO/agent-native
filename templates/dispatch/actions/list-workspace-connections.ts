@@ -1,13 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import {
-  isProviderApiId,
-  listProviderApiCatalog,
-} from "@agent-native/core/provider-api";
-import {
   listWorkspaceConnectionProviders,
   type WorkspaceConnectionCapability,
   type WorkspaceConnectionTemplateUse,
 } from "@agent-native/core/connections";
+import {
+  isProviderApiId,
+  listProviderApiCatalog,
+} from "@agent-native/core/provider-api";
 import {
   getWorkspaceConnectionAppAccess,
   listWorkspaceConnectionGrants,

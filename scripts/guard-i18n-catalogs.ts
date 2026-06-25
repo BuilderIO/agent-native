@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
 import {
   DEFAULT_LOCALE,
   SUPPORTED_LOCALES,

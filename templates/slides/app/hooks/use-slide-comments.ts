@@ -1,10 +1,10 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   appBasePath,
   emailToColor,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 export interface SlideComment {
   id: string;
@@ -60,7 +60,7 @@ export function useSlideComments(
   deckId: string | null,
   slideId: string | null,
 ) {
-  return useActionQuery(
+  return useActionQuery<CommentThread[]>(
     "list-slide-comments",
     deckId && slideId ? { deckId, slideId } : undefined,
     {

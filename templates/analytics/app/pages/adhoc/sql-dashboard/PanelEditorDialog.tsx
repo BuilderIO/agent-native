@@ -1,17 +1,22 @@
-import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { useSendToAgentChat } from "@agent-native/core/client";
+import {
+  IconAlertTriangle,
+  IconAlignLeft,
+  IconLoader2,
+} from "@tabler/icons-react";
+import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+
 import { SqlEditor } from "@/components/SqlEditor";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
@@ -24,14 +29,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  IconAlertTriangle,
-  IconAlignLeft,
-  IconLoader2,
-} from "@tabler/icons-react";
+import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { canFormatPanelSql, safeFormatPanelSql } from "@/lib/format-sql";
+
 import {
   clampDashboardColumns,
   clampPanelWidth,

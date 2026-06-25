@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { hashEmail } from "./remote-store.js";
 import {
   buildMergedConfig,

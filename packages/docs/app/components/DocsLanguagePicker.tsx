@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { IconCheck, IconLanguage } from "@tabler/icons-react";
 import {
   LOCALE_STORAGE_KEY,
   normalizeLocalizationPreference,
   useLocale,
   useT,
 } from "@agent-native/core/client";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { IconCheck, IconLanguage } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
+
 import {
   DOCS_LOCALE_METADATA,
   DOCS_LOCALES,

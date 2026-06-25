@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
 import { createClient, type Client } from "@libsql/client";
 import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import {
@@ -21,6 +22,7 @@ import {
   it,
   vi,
 } from "vitest";
+
 import * as planSchema from "../db/schema.js";
 
 // ---------------------------------------------------------------------------

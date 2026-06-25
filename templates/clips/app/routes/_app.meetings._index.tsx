@@ -1,7 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { NavLink, useSearchParams } from "react-router";
-import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
+import { agentNativePath, useActionQuery } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
   IconAppWindow,
@@ -16,8 +13,15 @@ import {
   IconSettings,
   IconX,
 } from "@tabler/icons-react";
-import { agentNativePath, useActionQuery } from "@agent-native/core/client";
-import { useDesktopPromo } from "@/hooks/use-desktop-promo";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { NavLink, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import { CaptureInstallButton } from "@/components/capture-install-options";
+import { PageHeader } from "@/components/library/page-header";
+import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
+import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
 import {
   UpcomingMeetingCard,
   MeetingCardSkeleton,
@@ -42,10 +46,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
-import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
-import { PageHeader } from "@/components/library/page-header";
-import { CaptureInstallButton } from "@/components/capture-install-options";
+import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 
 export function meta() {
   return [{ title: "Meetings · Clips" }];

@@ -9,6 +9,7 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";
+
 import { SLACK_UNFURL_SCOPES } from "../server/lib/slack-oauth.js";
 
 export default defineAction({

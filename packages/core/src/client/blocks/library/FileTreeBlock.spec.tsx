@@ -3,15 +3,16 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FileTreeRead } from "./FileTreeBlock.js";
+
 import type { FileTreeEntry } from "./file-tree.config.js";
+import { FileTreeRead } from "./FileTreeBlock.js";
 
 describe("FileTreeBlock", () => {
   let container: HTMLDivElement;
   let root: Root;
 
   const restoreElementSizeDescriptor = (
-    property: "scrollWidth" | "clientWidth",
+    property: "scrollWidth" | "clientWidth" | "getBoundingClientRect",
     descriptor: PropertyDescriptor | undefined,
   ) => {
     if (descriptor) {
@@ -19,6 +20,57 @@ describe("FileTreeBlock", () => {
     } else {
       Reflect.deleteProperty(HTMLElement.prototype, property);
     }
+  };
+
+  const mockElementMeasurements = ({
+    clientWidth,
+    scrollWidth,
+  }: {
+    clientWidth: number;
+    scrollWidth: number;
+  }) => {
+    const scrollWidthDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollWidth",
+    );
+    const clientWidthDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientWidth",
+    );
+    const rectDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "getBoundingClientRect",
+    );
+
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+      configurable: true,
+      get: () => scrollWidth,
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get: () => clientWidth,
+    });
+    Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value: () =>
+        ({
+          bottom: 16,
+          height: 16,
+          left: 0,
+          right: clientWidth,
+          top: 0,
+          width: clientWidth,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    });
+
+    return () => {
+      restoreElementSizeDescriptor("scrollWidth", scrollWidthDescriptor);
+      restoreElementSizeDescriptor("clientWidth", clientWidthDescriptor);
+      restoreElementSizeDescriptor("getBoundingClientRect", rectDescriptor);
+    };
   };
 
   beforeEach(() => {
@@ -127,26 +179,13 @@ describe("FileTreeBlock", () => {
     );
     expect(note?.className).toContain("truncate");
     expect(note?.getAttribute("title")).toBeNull();
-    expect(note?.getAttribute("data-state")).toBeNull();
+    expect(note?.getAttribute("data-file-note-overflowing")).toBeNull();
   });
 
-  it("only wires the note tooltip when text is truncated", async () => {
-    const scrollWidth = Object.getOwnPropertyDescriptor(
-      HTMLElement.prototype,
-      "scrollWidth",
-    );
-    const clientWidth = Object.getOwnPropertyDescriptor(
-      HTMLElement.prototype,
-      "clientWidth",
-    );
-
-    Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
-      configurable: true,
-      get: () => 240,
-    });
-    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
-      configurable: true,
-      get: () => 80,
+  it("does not treat a zero-width note as truncated", async () => {
+    const restoreMeasurements = mockElementMeasurements({
+      clientWidth: 0,
+      scrollWidth: 240,
     });
 
     try {
@@ -163,10 +202,35 @@ describe("FileTreeBlock", () => {
 
       expect(note?.className).toContain("truncate");
       expect(note?.getAttribute("title")).toBeNull();
-      expect(note?.getAttribute("data-state")).toBe("closed");
+      expect(note?.getAttribute("data-file-note-overflowing")).toBeNull();
     } finally {
-      restoreElementSizeDescriptor("scrollWidth", scrollWidth);
-      restoreElementSizeDescriptor("clientWidth", clientWidth);
+      restoreMeasurements();
+    }
+  });
+
+  it("marks the note tooltip as available when text is visibly truncated", async () => {
+    const restoreMeasurements = mockElementMeasurements({
+      clientWidth: 80,
+      scrollWidth: 240,
+    });
+
+    try {
+      renderFileTree([
+        { path: "AGENTS.md", note: "Always-on agent instructions." },
+      ]);
+
+      await act(async () => {});
+
+      const fileRow = container.querySelector('[data-file-path="AGENTS.md"]');
+      const note = Array.from(fileRow?.querySelectorAll("span") ?? []).find(
+        (span) => span.textContent === "Always-on agent instructions.",
+      );
+
+      expect(note?.className).toContain("truncate");
+      expect(note?.getAttribute("title")).toBeNull();
+      expect(note?.getAttribute("data-file-note-overflowing")).toBe("");
+    } finally {
+      restoreMeasurements();
     }
   });
 

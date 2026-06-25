@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, it } from "vitest";
-import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
+import * as Y from "yjs";
+
 import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
 
 /**

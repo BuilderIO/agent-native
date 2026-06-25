@@ -120,7 +120,7 @@ instructions, and application state.
 ## Frontend And UX
 
 - TypeScript everywhere. Do not add `.js` or `.mjs` source files.
-- Run Prettier on modified source files.
+- Run oxfmt on modified source files.
 - Use shadcn/ui primitives for standard controls and dialogs. Do not build custom
   dropdowns/popovers/modals with absolute positioning.
 - Use Tabler Icons for UI icons. Do not use emojis as first-party icons.

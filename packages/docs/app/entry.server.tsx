@@ -1,6 +1,6 @@
+import ReactDOMServer from "react-dom/server.browser";
 import type { EntryContext, RouterContextProvider } from "react-router";
 import { ServerRouter } from "react-router";
-import ReactDOMServer from "react-dom/server.browser";
 const { renderToReadableStream } = ReactDOMServer;
 import { isbot } from "isbot";
 

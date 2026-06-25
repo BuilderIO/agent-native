@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getOnboardingHtml } from "./onboarding-html.js";
-import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
+
+import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
-import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
+import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
+import { getOnboardingHtml } from "./onboarding-html.js";
 
 describe("getOnboardingHtml", () => {
   afterEach(() => {
