@@ -2237,6 +2237,13 @@ export interface AgentChatSurfaceProps extends AgentPanelProps {
   chatViewTransition?: boolean;
 }
 
+export function shouldDefaultAgentChatSurfacePageNewChatButton(
+  mode: AgentChatSurfaceMode | undefined,
+  showTabBar: boolean | undefined,
+): boolean {
+  return mode === "page" && showTabBar !== false;
+}
+
 /**
  * Reusable chat surface backed by AgentPanel internals.
  *
@@ -2255,13 +2262,17 @@ export function AgentChatSurface({
   ...props
 }: AgentChatSurfaceProps) {
   const pageMode = mode === "page";
+  const defaultShowPageNewChatButton =
+    shouldDefaultAgentChatSurfacePageNewChatButton(mode, props.showTabBar);
 
   return (
     <AgentPanel
       {...props}
       defaultMode={defaultMode}
       isFullscreen={isFullscreen ?? pageMode}
-      showPageNewChatButton={showPageNewChatButton ?? pageMode}
+      showPageNewChatButton={
+        showPageNewChatButton ?? defaultShowPageNewChatButton
+      }
       className={cn(
         pageMode && "h-full min-h-0 w-full overflow-hidden bg-background",
         chatViewTransition && AGENT_CHAT_VIEW_TRANSITION_CLASS,

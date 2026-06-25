@@ -268,6 +268,25 @@ export function splitCurrentDayTimeSeriesRows(
   return { rows: splitRows, series };
 }
 
+export function shouldSplitCurrentDayTimeSeries(
+  panel: Pick<SqlPanel, "source">,
+  xKey: string,
+): boolean {
+  if (panel.source === "prometheus") return false;
+
+  const normalizedKey = xKey.trim().toLowerCase();
+  if (normalizedKey === "timestamp" || normalizedKey.endsWith("_timestamp")) {
+    return false;
+  }
+
+  return (
+    normalizedKey === "date" ||
+    normalizedKey === "day" ||
+    normalizedKey.endsWith("_date") ||
+    normalizedKey.endsWith("_day")
+  );
+}
+
 function formatSeriesLabel(value: string): string {
   const { metric, labels } = parsePrometheusSeriesLabel(value);
   const target =
@@ -1504,9 +1523,20 @@ function TimeSeriesRenderer({
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
   const { hiddenKeys, visibleKeys, toggleSeries } = useSeriesVisibility(yKeys);
+  const splitPartialDay = shouldSplitCurrentDayTimeSeries(panel, xKey);
   const { rows: chartRows, series } = useMemo(
-    () => splitCurrentDayTimeSeriesRows(rows, xKey, yKeys),
-    [rows, xKey, yKeys],
+    () =>
+      splitPartialDay
+        ? splitCurrentDayTimeSeriesRows(rows, xKey, yKeys)
+        : {
+            rows,
+            series: yKeys.map((key) => ({
+              key,
+              solidKey: key,
+              partialKey: null,
+            })),
+          },
+    [rows, xKey, yKeys, splitPartialDay],
   );
 
   if (chartType === "line") {

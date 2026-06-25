@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   formatMetricValue,
   safeDashboardLinkHref,
+  shouldSplitCurrentDayTimeSeries,
   sortTooltipPayloadItems,
   splitCurrentDayTimeSeriesRows,
   sqlChartLocalDateKey,
@@ -106,6 +107,18 @@ describe("safeDashboardLinkHref", () => {
 });
 
 describe("partial-day time-series helpers", () => {
+  it("only enables the partial-day overlay for daily chart keys", () => {
+    expect(
+      shouldSplitCurrentDayTimeSeries({ source: "first-party" }, "date"),
+    ).toBe(true);
+    expect(
+      shouldSplitCurrentDayTimeSeries({ source: "prometheus" }, "timestamp"),
+    ).toBe(false);
+    expect(
+      shouldSplitCurrentDayTimeSeries({ source: "demo" }, "timestamp"),
+    ).toBe(false);
+  });
+
   it("formats a date key in the dashboard reporting timezone", () => {
     expect(
       sqlChartLocalDateKey(

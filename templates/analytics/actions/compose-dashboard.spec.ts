@@ -176,7 +176,7 @@ describe("compose-dashboard", () => {
     expect(referred.sql).toContain("interval '30 days'");
   });
 
-  it("uses local dashboard days instead of UTC substrings for daily first-party panels", () => {
+  it("uses portable date expressions for daily first-party panels", () => {
     for (const metric of [
       "signups-over-time",
       "pageviews-over-time",
@@ -185,10 +185,10 @@ describe("compose-dashboard", () => {
       "one-day-retention-by-template",
     ]) {
       const panel = buildPanel(metric)!;
-      expect(panel.sql).toContain("AT TIME ZONE 'America/Los_Angeles'");
-      expect(panel.sql).toContain("now() AT TIME ZONE 'America/Los_Angeles'");
-      expect(panel.sql).not.toContain("substr(timestamp, 1, 10)");
-      expect(panel.sql).not.toContain("CURRENT_DATE");
+      expect(panel.sql).toContain("substr(timestamp, 1, 10)");
+      expect(panel.sql).toContain("CURRENT_DATE");
+      expect(panel.sql).not.toContain("AT TIME ZONE");
+      expect(panel.sql).not.toContain("now() AT TIME ZONE");
     }
   });
 

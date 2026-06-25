@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getAgentPanelChatTabGroups,
+  shouldDefaultAgentChatSurfacePageNewChatButton,
   shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
   shouldShowAgentPanelCliTabBar,
@@ -68,5 +69,20 @@ describe("AgentPanel header tab visibility", () => {
         0,
       ),
     ).toBe(true);
+  });
+
+  it("defaults the page new-chat button off when chat tabs are hidden", () => {
+    expect(
+      shouldDefaultAgentChatSurfacePageNewChatButton("page", undefined),
+    ).toBe(true);
+    expect(shouldDefaultAgentChatSurfacePageNewChatButton("page", true)).toBe(
+      true,
+    );
+    expect(shouldDefaultAgentChatSurfacePageNewChatButton("page", false)).toBe(
+      false,
+    );
+    expect(shouldDefaultAgentChatSurfacePageNewChatButton("panel", true)).toBe(
+      false,
+    );
   });
 });
