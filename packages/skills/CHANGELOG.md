@@ -1,5 +1,12 @@
 # @agent-native/skills
 
+## 0.2.98
+
+### Patch Changes
+
+- Updated dependencies [1fab043]
+  - @agent-native/core@0.77.6
+
 ## 0.2.97
 
 ### Patch Changes
