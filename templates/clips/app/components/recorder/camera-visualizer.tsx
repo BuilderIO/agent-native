@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   createBackgroundBlurStream,
+  DEFAULT_BLUR_PX,
   type CameraBlurHandle,
 } from "@/lib/camera-blur";
 import type { CameraBubbleSize } from "./camera-bubble";
@@ -128,7 +129,7 @@ export function CameraVisualizer({
   disabled,
   className,
   blur = false,
-  blurRadius = 12,
+  blurRadius = DEFAULT_BLUR_PX,
   size = "md",
   onSizeChange,
   onStatusChange,

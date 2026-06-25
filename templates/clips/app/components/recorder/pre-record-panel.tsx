@@ -50,6 +50,7 @@ import {
   type RecordingMode,
 } from "./recorder-engine";
 import type { CameraBubbleSize } from "./camera-bubble";
+import { DEFAULT_BLUR_PX, MAX_BLUR_PX, MIN_BLUR_PX } from "@/lib/camera-blur";
 import {
   loadRecorderPreferences,
   saveRecorderPreferences,
@@ -60,10 +61,6 @@ import {
   friendlyMicError,
   type MicrophoneTestStatus,
 } from "./microphone-visualizer";
-
-const DEFAULT_CAMERA_BLUR_RADIUS = 12;
-const MIN_CAMERA_BLUR_RADIUS = 2;
-const MAX_CAMERA_BLUR_RADIUS = 30;
 
 export interface PreRecordPanelProps {
   onStart: (opts: {
@@ -222,7 +219,7 @@ export function PreRecordPanel({
     () => savedPrefs.cameraBlur ?? false,
   );
   const [cameraBlurRadius, setCameraBlurRadius] = useState(
-    () => savedPrefs.cameraBlurRadius ?? DEFAULT_CAMERA_BLUR_RADIUS,
+    () => savedPrefs.cameraBlurRadius ?? DEFAULT_BLUR_PX,
   );
   const [enumError, setEnumError] = useState<string | null>(null);
   const [micAccessStatus, setMicAccessStatus] =
@@ -880,27 +877,21 @@ export function PreRecordPanel({
                       </span>
                       <Slider
                         value={[cameraBlurRadius]}
-                        min={MIN_CAMERA_BLUR_RADIUS}
-                        max={MAX_CAMERA_BLUR_RADIUS}
+                        min={MIN_BLUR_PX}
+                        max={MAX_BLUR_PX}
                         step={1}
                         disabled={busy}
                         onValueChange={(value) =>
-                          setCameraBlurRadius(
-                            value[0] ?? DEFAULT_CAMERA_BLUR_RADIUS,
-                          )
+                          setCameraBlurRadius(value[0] ?? DEFAULT_BLUR_PX)
                         }
                         onValueCommit={(value) =>
                           saveRecorderPreferences({
-                            cameraBlurRadius:
-                              value[0] ?? DEFAULT_CAMERA_BLUR_RADIUS,
+                            cameraBlurRadius: value[0] ?? DEFAULT_BLUR_PX,
                           })
                         }
                         aria-label="Background blur intensity"
                         className="flex-1"
                       />
-                      <span className="w-8 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
-                        {cameraBlurRadius}
-                      </span>
                     </div>
                   ) : null}
                 </div>

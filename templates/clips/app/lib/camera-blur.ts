@@ -31,7 +31,9 @@ export interface CameraBlurOptions {
   segmentationFps?: number;
 }
 
-const DEFAULT_BLUR_PX = 12;
+export const DEFAULT_BLUR_PX = 12;
+export const MIN_BLUR_PX = 2;
+export const MAX_BLUR_PX = 30;
 const DEFAULT_SEGMENTATION_FPS = 20;
 const CAPTURE_FPS = 30;
 /**

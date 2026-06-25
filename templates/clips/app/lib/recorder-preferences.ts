@@ -3,6 +3,7 @@ import type {
   DisplaySurface,
   RecordingMode,
 } from "@/components/recorder/recorder-engine";
+import { MAX_BLUR_PX, MIN_BLUR_PX } from "@/lib/camera-blur";
 
 /**
  * Last-used recorder selections, remembered across `/record` visits via
@@ -56,7 +57,10 @@ export function loadRecorderPreferences(): Partial<RecorderPreferences> {
       typeof parsed.cameraBlurRadius === "number" &&
       Number.isFinite(parsed.cameraBlurRadius)
     ) {
-      prefs.cameraBlurRadius = parsed.cameraBlurRadius;
+      prefs.cameraBlurRadius = Math.min(
+        MAX_BLUR_PX,
+        Math.max(MIN_BLUR_PX, parsed.cameraBlurRadius),
+      );
     }
     return prefs;
   } catch {
