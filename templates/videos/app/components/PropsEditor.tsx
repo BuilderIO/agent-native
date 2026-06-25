@@ -1,5 +1,6 @@
-import type { CompositionEntry } from "@/remotion/registry";
 import { useT } from "@agent-native/core/client";
+
+import type { CompositionEntry } from "@/remotion/registry";
 
 type PropsEditorProps = {
   composition: CompositionEntry;

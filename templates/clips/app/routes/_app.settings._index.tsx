@@ -1,17 +1,3 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  IconBrain,
-  IconBrandSlack,
-  IconCheck,
-  IconChevronDown,
-  IconCloud,
-  IconExternalLink,
-  IconKey,
-  IconLoader2,
-  IconServer,
-  IconTrash,
-  IconUser,
-} from "@tabler/icons-react";
 import {
   useSession,
   agentNativePath,
@@ -25,9 +11,33 @@ import {
   openAgentSettings,
   useT,
 } from "@agent-native/core/client";
-import changelog from "../../CHANGELOG.md?raw";
+import {
+  IconBrain,
+  IconBrandSlack,
+  IconCheck,
+  IconChevronDown,
+  IconCloud,
+  IconExternalLink,
+  IconKey,
+  IconLoader2,
+  IconServer,
+  IconTrash,
+  IconUser,
+} from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+
+import { PageHeader } from "@/components/library/page-header";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,17 +54,6 @@ import {
 } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PageHeader } from "@/components/library/page-header";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -65,6 +64,9 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import enMessages from "@/i18n/en-US";
+import { cn } from "@/lib/utils";
+
+import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
   return [{ title: enMessages.settings.pageTitle }];

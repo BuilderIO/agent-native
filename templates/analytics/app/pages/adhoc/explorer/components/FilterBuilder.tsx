@@ -1,6 +1,7 @@
-import { useState } from "react";
 import { useT } from "@agent-native/core/client";
 import { IconPlus, IconX } from "@tabler/icons-react";
+import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -9,9 +10,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+import type { ExplorerFilter } from "../types";
 import { PropertyCombobox } from "./PropertyCombobox";
 import { PropertyValueCombobox } from "./PropertyValueCombobox";
-import type { ExplorerFilter } from "../types";
 
 const OPERATORS: { value: ExplorerFilter["operator"]; label: string }[] = [
   { value: "=", label: "=" },

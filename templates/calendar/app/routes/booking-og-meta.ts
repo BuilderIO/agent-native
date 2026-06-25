@@ -3,6 +3,7 @@ import type {
   MetaArgs,
   MetaDescriptor,
 } from "react-router";
+
 import { messagesByLocale } from "@/i18n-data";
 
 export interface BookingOgLoaderData {

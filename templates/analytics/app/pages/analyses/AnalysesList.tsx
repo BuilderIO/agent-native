@@ -1,6 +1,15 @@
-import { useState } from "react";
+import {
+  callAction,
+  useSendToAgentChat,
+  useChangeVersions,
+  useT,
+} from "@agent-native/core/client";
+import { IconFlask, IconClock, IconSearch } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link } from "react-router";
+
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -8,15 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconFlask, IconClock, IconSearch } from "@tabler/icons-react";
-import {
-  callAction,
-  useSendToAgentChat,
-  useChangeVersions,
-  useT,
-} from "@agent-native/core/client";
 
 interface AnalysisSummary {
   id: string;

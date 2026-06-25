@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useT } from "@agent-native/core/client";
+import type { CalendarEvent } from "@shared/api";
+import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import {
   eachHourOfInterval,
   format,
@@ -12,17 +14,17 @@ import {
   addDays,
   min,
 } from "date-fns";
-import { cn } from "@/lib/utils";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+
+import { useCalendarContext } from "@/components/layout/AppLayout";
+import { useEventDrag } from "@/hooks/use-event-drag";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
 import { EventStatusIcon } from "@/lib/rsvp-status";
-import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
-import { IconAlertTriangleFilled } from "@tabler/icons-react";
+import { cn } from "@/lib/utils";
+
 import { EventDetailPopover } from "./EventDetailPopover";
-import type { CalendarEvent } from "@shared/api";
-import { useEventDrag } from "@/hooks/use-event-drag";
-import { useCalendarContext } from "@/components/layout/AppLayout";
-import { useViewPreferences } from "@/hooks/use-view-preferences";
-import { useT } from "@agent-native/core/client";
 
 interface DayViewProps {
   events: CalendarEvent[];

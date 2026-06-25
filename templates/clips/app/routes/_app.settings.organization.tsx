@@ -1,8 +1,11 @@
-import { useMemo } from "react";
-import { IconMailFast, IconUsers } from "@tabler/icons-react";
 import { useActionQuery, useSession, useT } from "@agent-native/core/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { IconMailFast, IconUsers } from "@tabler/icons-react";
+import { useMemo } from "react";
+
+import { PageHeader } from "@/components/library/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -11,14 +14,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
 import { BrandingEditor } from "@/components/workspace/branding-editor";
+import { InviteDialog } from "@/components/workspace/invite-dialog";
 import {
   MembersList,
   type MemberRole,
 } from "@/components/workspace/members-list";
-import { InviteDialog } from "@/components/workspace/invite-dialog";
-import { PageHeader } from "@/components/library/page-header";
 import enMessages from "@/i18n/en-US";
 
 export function meta() {

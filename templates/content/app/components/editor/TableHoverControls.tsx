@@ -1,12 +1,4 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
-import { Editor } from "@tiptap/react";
-import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { findTable } from "@tiptap/pm/tables";
+import { useT } from "@agent-native/core/client";
 import {
   IconArrowDown,
   IconArrowLeft,
@@ -18,7 +10,16 @@ import {
   IconTableRow,
   IconTrash,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { findTable } from "@tiptap/pm/tables";
+import { Editor } from "@tiptap/react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,7 +33,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
+import { cn } from "@/lib/utils";
 
 interface TableHoverControlsProps {
   editor: Editor;

@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from "react";
-import { IconMessage, IconSend, IconX } from "@tabler/icons-react";
 import { sendToAgentChat, useT } from "@agent-native/core/client";
+import { IconMessage, IconSend, IconX } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 export interface CanvasPin {
   id: string;

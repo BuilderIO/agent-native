@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useT } from "@agent-native/core/client";
 import {
   IconClock,
   IconPlus,
@@ -10,10 +10,14 @@ import {
   IconBraces,
   IconBolt,
 } from "@tabler/icons-react";
-import type { AnimationTrack, AnimatedProp, EasingKey } from "@/types";
-import { COMMON_PROP_TEMPLATES } from "@/types";
-import { cn } from "@/lib/utils";
-import { EASING_OPTIONS as EASING_OPTIONS_LIB } from "@/remotion/easingFunctions";
+import { useState } from "react";
+
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -22,17 +26,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
+import { cn } from "@/lib/utils";
+import { EASING_OPTIONS as EASING_OPTIONS_LIB } from "@/remotion/easingFunctions";
+import type { AnimationTrack, AnimatedProp, EasingKey } from "@/types";
+import { COMMON_PROP_TEMPLATES } from "@/types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

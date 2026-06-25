@@ -1,16 +1,4 @@
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type DragEvent as ReactDragEvent,
-  type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-} from "react";
-import { useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import {
   agentNativePath,
   getBrowserTabId,
   useBuilderConnectFlow,
@@ -18,6 +6,44 @@ import {
   useCodeMode,
   useT,
 } from "@agent-native/core/client";
+import {
+  BUILDER_CMS_SAFE_WRITE_MODEL,
+  type BuilderCmsModelSummary,
+  type ContentDatabaseItem,
+  type ContentDatabaseResponse,
+  type ContentDatabaseSource,
+  type ContentDatabaseSourceChangeSet,
+  type ContentDatabaseSourceJoinRequest,
+  type ContentDatabaseSourceReviewPayload,
+  type SourceJoinSuggestion,
+  type ContentDatabaseView,
+  type ContentDatabaseViewConfig,
+  type ContentDatabaseColumnCalculation,
+  type ContentDatabaseFilter,
+  type ContentDatabaseFilterMode,
+  type ContentDatabaseFilterOperator,
+  type ContentDatabaseOpenPagesIn,
+  type ContentDatabaseRowDensity,
+  type ContentDatabaseSort,
+  type ContentDatabaseSortDirection,
+  type ContentDatabaseViewType,
+  type Document,
+  type DocumentProperty,
+  type DocumentPropertyOption,
+  type DocumentPropertyType,
+  type DocumentPropertyValue,
+} from "@shared/api";
+import {
+  type DocumentPropertyOptionColor,
+  countWords,
+  documentPropertyDateKey,
+  documentPropertyDatePart,
+  evaluateNormalizationFormula,
+  formatWordCount,
+  formulaValueText,
+  isComputedPropertyType,
+  isEmptyPropertyValue,
+} from "@shared/properties";
 import {
   IconArrowDown,
   IconArrowLeft,
@@ -56,6 +82,20 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -118,7 +158,9 @@ import {
   useUpdateDocument,
 } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+
+import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
+import { DocumentBlockFields } from "./DocumentBlockFields";
 import {
   AddProperty,
   DocumentProperties,
@@ -138,53 +180,13 @@ import {
   updatePropertyOptionColor,
 } from "./DocumentProperties";
 import { EmojiPicker } from "./EmojiPicker";
-import { VisualEditor } from "./VisualEditor";
-import { DocumentBlockFields } from "./DocumentBlockFields";
 import { createPreviewDocumentSaveController } from "./previewDocumentSaveController";
 import {
   acquirePreviewDocumentSaveController,
   peekPreviewDocumentSaveController,
   releasePreviewDocumentSaveController,
 } from "./previewDocumentSaveRegistry";
-import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
-import {
-  BUILDER_CMS_SAFE_WRITE_MODEL,
-  type BuilderCmsModelSummary,
-  type ContentDatabaseItem,
-  type ContentDatabaseResponse,
-  type ContentDatabaseSource,
-  type ContentDatabaseSourceChangeSet,
-  type ContentDatabaseSourceJoinRequest,
-  type ContentDatabaseSourceReviewPayload,
-  type SourceJoinSuggestion,
-  type ContentDatabaseView,
-  type ContentDatabaseViewConfig,
-  type ContentDatabaseColumnCalculation,
-  type ContentDatabaseFilter,
-  type ContentDatabaseFilterMode,
-  type ContentDatabaseFilterOperator,
-  type ContentDatabaseOpenPagesIn,
-  type ContentDatabaseRowDensity,
-  type ContentDatabaseSort,
-  type ContentDatabaseSortDirection,
-  type ContentDatabaseViewType,
-  type Document,
-  type DocumentProperty,
-  type DocumentPropertyOption,
-  type DocumentPropertyType,
-  type DocumentPropertyValue,
-} from "@shared/api";
-import {
-  type DocumentPropertyOptionColor,
-  countWords,
-  documentPropertyDateKey,
-  documentPropertyDatePart,
-  evaluateNormalizationFormula,
-  formatWordCount,
-  formulaValueText,
-  isComputedPropertyType,
-  isEmptyPropertyValue,
-} from "@shared/properties";
+import { VisualEditor } from "./VisualEditor";
 
 interface DocumentDatabaseProps {
   document: Document;
@@ -1517,8 +1519,9 @@ function DatabaseTable({
                 setBuilderReviewResult(null);
                 setBuilderReviewCheckedAt(null);
                 toast.success(db("sourceDisconnected"), {
-                  description:
-                    db("databaseRowsAndLocalPropertiesWereKeptIntact"),
+                  description: db(
+                    "databaseRowsAndLocalPropertiesWereKeptIntact",
+                  ),
                 });
               },
               onError: (error) => {
@@ -2033,8 +2036,12 @@ function DatabaseItemPreviewSheet({
           />
         ) : (
           <SheetHeader className="sr-only">
-            <SheetTitle><DatabaseText k="databasePagePreview" /></SheetTitle>
-            <SheetDescription><DatabaseText k="noDatabasePageSelected" /></SheetDescription>
+            <SheetTitle>
+              <DatabaseText k="databasePagePreview" />
+            </SheetTitle>
+            <SheetDescription>
+              <DatabaseText k="noDatabasePageSelected" />
+            </SheetDescription>
           </SheetHeader>
         )}
       </SheetContent>
@@ -2551,14 +2558,18 @@ function DatabaseItemPreview({
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle><DatabaseText k="deleteRow2" /></AlertDialogTitle>
+            <AlertDialogTitle>
+              <DatabaseText k="deleteRow2" />
+            </AlertDialogTitle>
             <AlertDialogDescription>
               &ldquo;{previewTitle}&rdquo; and any sub-pages will be permanently
               deleted. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel><DatabaseText k="cancel" /></AlertDialogCancel>
+            <AlertDialogCancel>
+              <DatabaseText k="cancel" />
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deleteDocument.isPending}
@@ -3268,14 +3279,18 @@ function DatabaseTableView({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle><DatabaseText k="deleteSelectedRows" /></AlertDialogTitle>
+            <AlertDialogTitle>
+              <DatabaseText k="deleteSelectedRows" />
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {selectedCount} selected row{selectedCount === 1 ? "" : "s"} and
               any sub-pages will be permanently deleted. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel><DatabaseText k="cancel" /></AlertDialogCancel>
+            <AlertDialogCancel>
+              <DatabaseText k="cancel" />
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deleteDocument.isPending}
@@ -4288,11 +4303,13 @@ function DatabaseSettingsSourcePanel({
           </>
         ) : null}
 
-      <div className="rounded-lg border border-border bg-background p-3">
-        <div className="text-xs font-medium"><DatabaseText k="disconnectSource" /></div>
-        <div className="mt-0.5 break-words text-xs text-muted-foreground">
-          <DatabaseText k="keepTheDatabaseRowsAndLocalPropertiesButRemoveSource" />
-        </div>
+        <div className="rounded-lg border border-border bg-background p-3">
+          <div className="text-xs font-medium">
+            <DatabaseText k="disconnectSource" />
+          </div>
+          <div className="mt-0.5 break-words text-xs text-muted-foreground">
+            <DatabaseText k="keepTheDatabaseRowsAndLocalPropertiesButRemoveSource" />
+          </div>
           <Button
             type="button"
             size="sm"
@@ -4554,7 +4571,9 @@ function CanonicalKeyConfirmView({
 
       <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-muted/30 p-3">
         <div className="flex items-center justify-between text-xs">
-          <span className="font-medium"><DatabaseText k="sampleMatches" /></span>
+          <span className="font-medium">
+            <DatabaseText k="sampleMatches" />
+          </span>
           <span className="text-muted-foreground">
             {matchedCount} of {previewRows.length} match
           </span>
@@ -4725,14 +4744,18 @@ function SecondarySourceLeaf({
       </div>
       {federation ? (
         <div className="grid min-w-0 gap-1 rounded-lg border border-border bg-background p-3 text-xs">
-          <div className="font-medium"><DatabaseText k="matchFormula" /></div>
+          <div className="font-medium">
+            <DatabaseText k="matchFormula" />
+          </div>
           <code className="block min-w-0 break-words rounded bg-muted px-1.5 py-1 font-mono text-[11px]">
             {federation.normalizationFormula}
           </code>
         </div>
       ) : null}
       <div className="rounded-lg border border-border bg-background p-3">
-        <div className="text-xs font-medium"><DatabaseText k="removeThisSource" /></div>
+        <div className="text-xs font-medium">
+          <DatabaseText k="removeThisSource" />
+        </div>
         <div className="mt-0.5 break-words text-xs text-muted-foreground">
           Removes the federated columns&rsquo; link to this source. Your local
           rows and columns stay.
@@ -4984,7 +5007,9 @@ function SourceChangeSetReviewCard({
         {changeSet.bodyChange ? (
           <div className="rounded border border-border/60 bg-muted/20 p-1.5 text-xs">
             <div className="font-medium">{changeSet.bodyChange.summary}</div>
-            <div className="mt-1 text-muted-foreground"><DatabaseText k="bodyDiff" /></div>
+            <div className="mt-1 text-muted-foreground">
+              <DatabaseText k="bodyDiff" />
+            </div>
           </div>
         ) : null}
       </div>
@@ -5010,7 +5035,9 @@ function SourceChangeSetReviewCard({
       {latestExecution ? (
         <div className="mt-2 rounded border border-border/60 bg-muted/20 p-1.5 text-xs">
           <div className="flex min-w-0 items-center justify-between gap-2">
-            <span className="font-medium"><DatabaseText k="executionGate" /></span>
+            <span className="font-medium">
+              <DatabaseText k="executionGate" />
+            </span>
             <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
               {latestExecution.state.replace(/_/g, " ")}
             </span>
@@ -5369,7 +5396,9 @@ function DatabaseOpenPagesInSetting({
           type="button"
           className="flex h-9 w-full items-center justify-between rounded-md px-2 text-left text-sm text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="truncate"><DatabaseText k="openPagesIn" /></span>
+          <span className="truncate">
+            <DatabaseText k="openPagesIn" />
+          </span>
           <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             <span className="max-w-28 truncate">
               {databaseOpenPagesInLabel(value)}
@@ -5586,7 +5615,9 @@ function DatabaseSettingsGroupPanel({
           onClick={() => onGroupByChange(null)}
         >
           <IconX className="size-4 text-muted-foreground" />
-          <span className="flex-1"><DatabaseText k="none" /></span>
+          <span className="flex-1">
+            <DatabaseText k="none" />
+          </span>
           {!groupProperty ? (
             <IconCheck className="size-4 text-muted-foreground" />
           ) : null}
@@ -5828,7 +5859,9 @@ function DatabaseGroupMenu({
             onGroupByChange(null);
           }}
         >
-          <span className="flex-1"><DatabaseText k="none" /></span>
+          <span className="flex-1">
+            <DatabaseText k="none" />
+          </span>
           {!groupProperty ? (
             <IconCheck className="size-4 text-muted-foreground" />
           ) : null}
@@ -5863,7 +5896,9 @@ function DatabaseGroupMenu({
               }}
             >
               <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
-              <span className="flex-1"><DatabaseText k="hideEmptyGroups" /></span>
+              <span className="flex-1">
+                <DatabaseText k="hideEmptyGroups" />
+              </span>
               {hideEmptyGroups ? (
                 <IconCheck className="size-4 text-muted-foreground" />
               ) : null}
@@ -6013,7 +6048,9 @@ function DatabaseTableFooter({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-44">
-                  <DropdownMenuLabel><DatabaseText k="calculate" /></DropdownMenuLabel>
+                  <DropdownMenuLabel>
+                    <DatabaseText k="calculate" />
+                  </DropdownMenuLabel>
                   {options.map((option) => (
                     <DropdownMenuItem
                       key={option.value}
@@ -6400,7 +6437,9 @@ function DatabaseListView({
     <div className="border-b border-border">
       <div className="flex min-h-9 items-center gap-2 border-t border-border px-1 text-xs text-muted-foreground">
         <IconList className="size-4 shrink-0" />
-        <span><DatabaseText k="list" /></span>
+        <span>
+          <DatabaseText k="list" />
+        </span>
       </div>
       {isLoading ? (
         <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
@@ -6771,7 +6810,9 @@ function DatabaseGalleryView({
     <div className="border-b border-border">
       <div className="flex min-h-9 items-center gap-2 border-t border-border px-1 text-xs text-muted-foreground">
         <IconLayoutGrid className="size-4 shrink-0" />
-        <span><DatabaseText k="gallery" /></span>
+        <span>
+          <DatabaseText k="gallery" />
+        </span>
       </div>
       {isLoading ? (
         <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
@@ -7229,7 +7270,9 @@ function DatabaseCalendarView({
         </div>
       ) : dateProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
-          <span><DatabaseText k="addADatePropertyToUseCalendarView" /></span>
+          <span>
+            <DatabaseText k="addADatePropertyToUseCalendarView" />
+          </span>
           {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
         </div>
       ) : databaseViewHasNoMatchingPages(
@@ -7358,7 +7401,9 @@ function DatabaseDateViewNoDateSection({
       <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span className="flex min-w-0 items-center gap-1.5 font-medium">
           <IconCalendarOff className="size-3.5 shrink-0" />
-          <span className="truncate"><DatabaseText k="noDate" /></span>
+          <span className="truncate">
+            <DatabaseText k="noDate" />
+          </span>
         </span>
         <span className="rounded bg-background px-1.5 py-0.5 text-[11px]">
           {items.length}
@@ -7663,7 +7708,9 @@ function DatabaseTimelineView({
                     onEndDatePropertyChange(null);
                   }}
                 >
-                  <span className="min-w-0 flex-1 truncate"><DatabaseText k="noEndDate" /></span>
+                  <span className="min-w-0 flex-1 truncate">
+                    <DatabaseText k="noEndDate" />
+                  </span>
                   {!endDateProperty ? (
                     <IconCheck className="size-4 text-muted-foreground" />
                   ) : null}
@@ -7737,7 +7784,9 @@ function DatabaseTimelineView({
         </div>
       ) : dateProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
-          <span><DatabaseText k="addADatePropertyToUseTimelineView" /></span>
+          <span>
+            <DatabaseText k="addADatePropertyToUseTimelineView" />
+          </span>
           {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
         </div>
       ) : (
@@ -8258,7 +8307,9 @@ function DatabaseBoardView({
                     }}
                   >
                     <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
-                    <span className="flex-1"><DatabaseText k="hideEmptyGroups" /></span>
+                    <span className="flex-1">
+                      <DatabaseText k="hideEmptyGroups" />
+                    </span>
                     {hideEmptyGroups ? (
                       <IconCheck className="size-4 text-muted-foreground" />
                     ) : null}
@@ -8685,7 +8736,11 @@ function DatabaseBoardCard({
               })}
             </span>
           ) : null}
-          {!canEdit ? null : <span className="sr-only"><DatabaseText k="openPage" /></span>}
+          {!canEdit ? null : (
+            <span className="sr-only">
+              <DatabaseText k="openPage" />
+            </span>
+          )}
         </button>
         {canEdit ? (
           <RowActionsCell
@@ -8881,7 +8936,9 @@ function NewDatabaseRow({
         ) : (
           <IconPlus className="size-4 shrink-0" />
         )}
-        <span className="h-7 min-w-0 flex-1 truncate leading-7"><DatabaseText k="newPage" /></span>
+        <span className="h-7 min-w-0 flex-1 truncate leading-7">
+          <DatabaseText k="newPage" />
+        </span>
       </span>
       {properties.map((property) => (
         <span
@@ -10033,8 +10090,11 @@ export function databaseBoardGroups(
   items: ContentDatabaseItem[],
   properties: DocumentProperty[],
   groupByPropertyId?: string | null,
-  labels: { noGrouping: string; checked: string; unchecked: string } =
-    DEFAULT_DATABASE_GROUP_LABELS,
+  labels: {
+    noGrouping: string;
+    checked: string;
+    unchecked: string;
+  } = DEFAULT_DATABASE_GROUP_LABELS,
 ): DatabaseBoardGroup[] {
   const groupProperty =
     databaseBoardGroupingProperty(
@@ -10651,7 +10711,9 @@ function DatabaseNameHeader({
             <span className="shrink-0 text-[13px] leading-none text-muted-foreground">
               Aa
             </span>
-            <span className="truncate"><DatabaseText k="name" /></span>
+            <span className="truncate">
+              <DatabaseText k="name" />
+            </span>
             <DatabaseColumnStateIndicators state={columnState} />
             <IconChevronDown className="ml-auto size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-70 data-[state=open]:opacity-100" />
           </button>
@@ -10667,7 +10729,10 @@ function DatabaseNameHeader({
           sourceField={sourceFieldMappingForColumn(source, "name")}
         />
       </DropdownMenu>
-      <ColumnResizeHandle label={db("resizeNameColumn")} onPointerDown={onResize} />
+      <ColumnResizeHandle
+        label={db("resizeNameColumn")}
+        onPointerDown={onResize}
+      />
     </div>
   );
 }
@@ -11471,7 +11536,9 @@ function ColumnHeaderMenuContent({
         }}
       >
         <IconArrowUp className="mr-2 size-4 text-muted-foreground" />
-        <span className="min-w-0 flex-1"><DatabaseText k="sortAscending" /></span>
+        <span className="min-w-0 flex-1">
+          <DatabaseText k="sortAscending" />
+        </span>
         {columnSort?.direction === "asc" ? (
           <IconCheck className="size-4 text-muted-foreground" />
         ) : null}
@@ -11483,7 +11550,9 @@ function ColumnHeaderMenuContent({
         }}
       >
         <IconArrowDown className="mr-2 size-4 text-muted-foreground" />
-        <span className="min-w-0 flex-1"><DatabaseText k="sortDescending" /></span>
+        <span className="min-w-0 flex-1">
+          <DatabaseText k="sortDescending" />
+        </span>
         {columnSort?.direction === "desc" ? (
           <IconCheck className="size-4 text-muted-foreground" />
         ) : null}
@@ -11549,7 +11618,9 @@ function ColumnHeaderMenuContent({
         <>
           <DropdownMenuSeparator />
           <div className="grid gap-1 px-2 py-1.5 text-xs">
-            <div className="font-medium text-foreground"><DatabaseText k="source" /></div>
+            <div className="font-medium text-foreground">
+              <DatabaseText k="source" />
+            </div>
             {sourceField ? (
               <>
                 <div className="min-w-0 break-words text-muted-foreground">
@@ -11867,7 +11938,9 @@ export function databaseQuickFilterOptionsForColumn(
   propertyType?: DocumentPropertyType,
 ): Array<{ operator: DatabaseQuickFilterOperator; label: string }> {
   const db =
-    typeof dbOrPropertyType === "function" ? dbOrPropertyType : defaultDatabaseT;
+    typeof dbOrPropertyType === "function"
+      ? dbOrPropertyType
+      : defaultDatabaseT;
   const type =
     typeof dbOrPropertyType === "function" ? propertyType : dbOrPropertyType;
   if (type === "checkbox") {
@@ -13414,14 +13487,18 @@ function RowActionsCell({
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle><DatabaseText k="deleteRow2" /></AlertDialogTitle>
+            <AlertDialogTitle>
+              <DatabaseText k="deleteRow2" />
+            </AlertDialogTitle>
             <AlertDialogDescription>
               &ldquo;{title}&rdquo; and any sub-pages will be permanently
               deleted. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel><DatabaseText k="cancel" /></AlertDialogCancel>
+            <AlertDialogCancel>
+              <DatabaseText k="cancel" />
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deleteDocument.isPending}

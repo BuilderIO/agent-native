@@ -1233,7 +1233,7 @@ const messages = {
     recordingMenu: "Recording menu",
     moveToFolder: "Move to folder",
     unarchive: "Unarchive",
-    shareNamedMeeting: "Share \"{{title}}\"",
+    shareNamedMeeting: 'Share "{{title}}"',
     shareMeeting: "Share meeting",
     shareLink: "Share link",
     alreadyHaveIt: "I already have it",
@@ -1241,7 +1241,8 @@ const messages = {
     invite: "Invite",
     inviteFailed: "Couldn't invite person",
     removePersonFailed: "Couldn't remove person",
-    passwordProtectedDescription: "This video is protected. Enter the password to watch.",
+    passwordProtectedDescription:
+      "This video is protected. Enter the password to watch.",
     password: "Password",
     unlock: "Unlock",
     noEngagementData: "No engagement data yet.",

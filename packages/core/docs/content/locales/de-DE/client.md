@@ -98,7 +98,7 @@ muss den Follow-up-Status korrelieren oder später einen Deep-Link zum Lauf erst
 | Option                | Typ         | Beschreibung                                                                                       |
 | --------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
 | `message`             | `string`    | Die sichtbare Eingabeaufforderung, die an den Chat gesendet wurde                                  |
-| `context`             | `string?`   | Versteckter Kontext angehängt (nicht im Chat-Oberfläche angezeigt)                                         |
+| `context`             | `string?`   | Versteckter Kontext angehängt (nicht im Chat-Oberfläche angezeigt)                                 |
 | `submit`              | `boolean?`  | true = automatische Übermittlung, false = nur Vorabausfüllung                                      |
 | `newTab`              | `boolean?`  | Erstellen Sie einen separaten Chat-Thread für diese Eingabeaufforderung                            |
 | `background`          | `boolean?`  | Mit `newTab` ausführen, ohne die Registerkarte zu fokussieren, und den Lauf in `RunsTray` anzeigen |
@@ -184,7 +184,7 @@ aktuelle bereitgestellte Elemente einmal. `clearAgentChatContext()` ist absichtl
 | Option        | Typ        | Beschreibung                                                                                  |
 | ------------- | ---------- | --------------------------------------------------------------------------------------------- |
 | `key`         | `string`   | Stabile Kennung, die zum Ersetzen eines vorhandenen Nuggets verwendet wird                    |
-| `title`       | `string`   | Kurzbezeichnung wird im Verfassenr-Chip angezeigt                                               |
+| `title`       | `string`   | Kurzbezeichnung wird im Verfassenr-Chip angezeigt                                             |
 | `context`     | `string`   | Versteckter Kontext in der nächsten übermittelten Eingabeaufforderung enthalten               |
 | `openSidebar` | `boolean?` | Standardmäßig ist true; Übergeben Sie „false“, um den Kontext stillschweigend bereitzustellen |
 
@@ -332,7 +332,7 @@ function App() {
 | ------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `queryClient`      | `QueryClient?`     | React-Abfrage-Client für Cache-Ungültigmachung                                                                                       |
 | `queryKeys`        | `string[]?`        | Veraltet und ignoriert; für alte Anrufseiten beibehalten                                                                             |
-| `pollUrl`          | `string?`          | Polling-Endpunkt URL. Standard: `"/_agent-native/poll"`                                                                                 |
+| `pollUrl`          | `string?`          | Polling-Endpunkt URL. Standard: `"/_agent-native/poll"`                                                                              |
 | `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only                                               |
 | `interval`         | `number?`          | Abfrageintervall in ms. Standard: `2000`                                                                                             |
 | `fallbackInterval` | `number?`          | Fallback-Abfrageintervall, wenn SSE nicht verfügbar ist. Standard: `15000`                                                           |

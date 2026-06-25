@@ -1,15 +1,16 @@
-import { useState, useRef, useCallback } from "react";
+import { useT } from "@agent-native/core/client";
 import { IconX, IconGripHorizontal } from "@tabler/icons-react";
+import { useState, useRef, useCallback } from "react";
+
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
-import type { TweakDefinition } from "@/lib/design-systems";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
+import type { TweakDefinition } from "@/lib/design-systems";
+import { cn } from "@/lib/utils";
 
 // ── Default tweaks for video compositions ─────────────────────────────────────
 

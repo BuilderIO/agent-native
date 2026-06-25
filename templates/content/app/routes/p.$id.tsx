@@ -1,17 +1,19 @@
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../../server/db";
-import { useEffect, useState } from "react";
-import { IconLock, IconMessageCircle } from "@tabler/icons-react";
 import { agentNativePath, useT } from "@agent-native/core/client";
 import {
   getConfiguredAppBasePath,
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { VisualEditor } from "@/components/editor/VisualEditor";
 import { buildPublicDocumentDescription } from "@shared/og-description";
+import { IconLock, IconMessageCircle } from "@tabler/icons-react";
+import { eq } from "drizzle-orm";
+import { useEffect, useState } from "react";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { redirect, useLoaderData } from "react-router";
+
+import { VisualEditor } from "@/components/editor/VisualEditor";
+
+import { getDb, schema } from "../../server/db";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const id = params.id;

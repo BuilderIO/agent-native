@@ -1,10 +1,3 @@
-import {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  type MouseEvent as ReactMouseEvent,
-} from "react";
 import { agentChat } from "@agent-native/core";
 import {
   AgentPresenceChip,
@@ -15,48 +8,57 @@ import {
   useAvatarUrl,
   type CollabUser,
 } from "@agent-native/core/client";
-import { createPortal } from "react-dom";
-import { enterSelectionMode } from "@/root";
-import type { Slide } from "@/context/DeckContext";
-import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
-import SlideRenderer from "@/components/deck/SlideRenderer";
-import CodeEditor from "./CodeEditor";
-import ImageOverlay from "./ImageOverlay";
-import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
-import { BlockBubbleMenu } from "./BlockBubbleMenu";
-import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
-import {
-  DrawOverlay,
-  CanvasCommentPins,
-  MultiSelectChip,
-} from "@/components/visual-editor";
-import type { DesignSystemData } from "../../../shared/api";
-import type * as Y from "yjs";
-import type { Awareness } from "y-protocols/awareness";
-import { TAB_ID } from "@/lib/tab-id";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
-import {
-  createPlaceholderImageTarget,
-  imageFileLooksSupported,
-} from "@/lib/slide-image-replacement";
 import {
   IconAlertTriangle,
   IconMaximize,
   IconZoomIn,
   IconZoomOut,
 } from "@tabler/icons-react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
+import { createPortal } from "react-dom";
+import type { Awareness } from "y-protocols/awareness";
+import type * as Y from "yjs";
+
+import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
+import SlideRenderer from "@/components/deck/SlideRenderer";
+import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
+import {
+  DrawOverlay,
+  CanvasCommentPins,
+  MultiSelectChip,
+} from "@/components/visual-editor";
+import type { Slide } from "@/context/DeckContext";
+import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import {
   computeCanvasFitZoom,
   MAX_CANVAS_ZOOM,
   MIN_CANVAS_ZOOM,
 } from "@/lib/canvas-zoom";
+import {
+  createPlaceholderImageTarget,
+  imageFileLooksSupported,
+} from "@/lib/slide-image-replacement";
+import { TAB_ID } from "@/lib/tab-id";
+import { enterSelectionMode } from "@/root";
+
+import type { DesignSystemData } from "../../../shared/api";
+import { BlockBubbleMenu } from "./BlockBubbleMenu";
+import CodeEditor from "./CodeEditor";
+import ImageOverlay from "./ImageOverlay";
+import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
 
 let builderIdCounter = 0;
 const CANVAS_ZOOM_PRESETS = [10, 25, 50, 75, 100, 125, 150, 200] as const;

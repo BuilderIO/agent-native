@@ -1,5 +1,5 @@
-import { IconBox, IconStack2 } from "@tabler/icons-react";
 import { useT } from "@agent-native/core/client";
+import { IconBox, IconStack2 } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
 import { libraryComponents } from "@/remotion/componentRegistry";

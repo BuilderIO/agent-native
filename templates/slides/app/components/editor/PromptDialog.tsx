@@ -1,8 +1,10 @@
+import { appBasePath, PromptComposer, useT } from "@agent-native/core/client";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { appBasePath, PromptComposer, useT } from "@agent-native/core/client";
-import { GoogleDocImportHint } from "./GoogleDocImportHint";
+
 import { toast } from "@/hooks/use-toast";
+
+import { GoogleDocImportHint } from "./GoogleDocImportHint";
 
 export interface UploadedFile {
   path: string;

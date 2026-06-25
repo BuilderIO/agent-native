@@ -1,4 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  agentNativePath,
+  oauthRedirectUri,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconExternalLink,
   IconCheck,
@@ -6,14 +10,11 @@ import {
   IconLoader2,
   IconUpload,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  agentNativePath,
-  oauthRedirectUri,
-  useT,
-} from "@agent-native/core/client";
 
 interface EnvKeyStatus {
   key: string;

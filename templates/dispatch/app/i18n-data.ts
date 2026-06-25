@@ -1742,8 +1742,7 @@ export const messagesByLocale = {
     },
     integrations: {
       title: "इंटीग्रेशन",
-      description:
-        "प्रदाता खातों को एक बार कनेक्ट करें, फिर उन्हें कार्यस्थान ऐप्स को दें।",
+      description: "प्रदाता खातों को एक बार कनेक्ट करें, फिर उन्हें कार्यस्थान ऐप्स को दें।",
       status: {
         connected: "कनेक्टेड",
         checking: "जांच हो रही है",
@@ -1852,8 +1851,7 @@ export const messagesByLocale = {
       grantPreviewEmpty:
         "चुनें कि कौन से ऐप्स {{provider}} का उपयोग कर सकते हैं, या सभी ऐप्स पर स्विच करें।",
       deleteConnection: "कनेक्शन हटाएं",
-      deleteConnectionDescription:
-        "यह {{connection}} और उसके ऐप अनुदान हटाता है।",
+      deleteConnectionDescription: "यह {{connection}} और उसके ऐप अनुदान हटाता है।",
       deleteSharedConnectionDescription:
         "यह साझा कनेक्शन और उसके ऐप अनुदान हटाता है।",
       checkingAffectedApps: "प्रभावित ऐप्स जांचे जा रहे हैं...",
@@ -1905,8 +1903,7 @@ export const messagesByLocale = {
       onboardingGrantDetail:
         "Brain, Analytics, Mail या Dispatch को खाता फिर से उपयोग करने दें।",
       onboardingLocalTitle: "ऐप सेटअप स्थानीय रखें",
-      onboardingLocalDetail:
-        "चैनल, repos, कर्सर और सिंक नियम हर ऐप में रहते हैं।",
+      onboardingLocalDetail: "चैनल, repos, कर्सर और सिंक नियम हर ऐप में रहते हैं।",
       onboardingTitle: "एक बार कनेक्ट करें, ऐप्स को दें",
       onboardingDescription:
         "Dispatch साझा प्रदाता खातों का स्वामी है। हर ऐप खाते का उपयोग कैसे करता है, यह वही संभालता है।",

@@ -1248,7 +1248,8 @@ const messages = {
     savedLocally: "ローカルに保存済み",
     uploadFailed: "アップロードに失敗しました",
     connectStorageToFinish: "開いてストレージを接続し、保存を完了します。",
-    retryFromClipsMenu: "Clips メニューから再試行できます。録画し直す必要はありません。",
+    retryFromClipsMenu:
+      "Clips メニューから再試行できます。録画し直す必要はありません。",
     removeFailedClip: "失敗したクリップを削除します。",
     remove: "削除",
     viewsCount: "{{count}} 回表示",
@@ -1263,7 +1264,8 @@ const messages = {
     invite: "招待",
     inviteFailed: "招待できませんでした",
     removePersonFailed: "削除できませんでした",
-    passwordProtectedDescription: "この動画は保護されています。視聴するにはパスワードを入力してください。",
+    passwordProtectedDescription:
+      "この動画は保護されています。視聴するにはパスワードを入力してください。",
     password: "パスワード",
     unlock: "ロック解除",
     noEngagementData: "エンゲージメントデータはまだありません。",

@@ -1,11 +1,4 @@
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { appBasePath, useT } from "@agent-native/core/client";
 import {
   IconDownload,
   IconFileTypePdf,
@@ -14,8 +7,16 @@ import {
   IconShare2,
   IconBrandGoogle,
 } from "@tabler/icons-react";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "@/hooks/use-toast";
-import { appBasePath, useT } from "@agent-native/core/client";
 
 interface ExportMenuProps {
   deckId: string;
@@ -72,7 +73,9 @@ export function ExportMenu({
       body: JSON.stringify({ deckId }),
     });
     if (!res.ok) {
-      throw new Error(await readErrorMessage(res, t("editorExport.pptxFailed")));
+      throw new Error(
+        await readErrorMessage(res, t("editorExport.pptxFailed")),
+      );
     }
     return {
       blob: await res.blob(),

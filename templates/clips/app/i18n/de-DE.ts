@@ -1262,8 +1262,10 @@ const messages = {
     waitingForStorage: "Warten auf Speicher",
     savedLocally: "Lokal gespeichert",
     uploadFailed: "Upload fehlgeschlagen",
-    connectStorageToFinish: "Öffnen, um Speicher zu verbinden und das Speichern abzuschließen.",
-    retryFromClipsMenu: "Über das Clips-Menü erneut versuchen; keine neue Aufnahme nötig.",
+    connectStorageToFinish:
+      "Öffnen, um Speicher zu verbinden und das Speichern abzuschließen.",
+    retryFromClipsMenu:
+      "Über das Clips-Menü erneut versuchen; keine neue Aufnahme nötig.",
     removeFailedClip: "Diesen fehlgeschlagenen Clip entfernen.",
     remove: "Entfernen",
     viewsCount: "{{count}} Aufrufe",
@@ -1278,7 +1280,8 @@ const messages = {
     invite: "Einladen",
     inviteFailed: "Person konnte nicht eingeladen werden",
     removePersonFailed: "Person konnte nicht entfernt werden",
-    passwordProtectedDescription: "Dieses Video ist geschützt. Passwort eingeben, um es anzusehen.",
+    passwordProtectedDescription:
+      "Dieses Video ist geschützt. Passwort eingeben, um es anzusehen.",
     password: "Passwort",
     unlock: "Entsperren",
     noEngagementData: "Noch keine Interaktionsdaten.",

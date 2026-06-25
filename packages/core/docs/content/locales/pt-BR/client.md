@@ -332,7 +332,7 @@ function App() {
 | ------------------ | ------------------ | -------------------------------------------------------------------------------------------------------------- |
 | `queryClient`      | `QueryClient?`     | Cliente de consulta React para invalidação de cache                                                            |
 | `queryKeys`        | `string[]?`        | Obsoleto e ignorado; mantido para sites de chamada antigos                                                     |
-| `pollUrl`          | `string?`          | Polling endpoint URL. Padrão: `"/_agent-native/poll"`                                                             |
+| `pollUrl`          | `string?`          | Polling endpoint URL. Padrão: `"/_agent-native/poll"`                                                          |
 | `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only                         |
 | `interval`         | `number?`          | Intervalo de pesquisa em ms. Padrão: `2000`                                                                    |
 | `fallbackInterval` | `number?`          | Intervalo de pesquisa de fallback quando SSE não está disponível. Padrão: `15000`                              |

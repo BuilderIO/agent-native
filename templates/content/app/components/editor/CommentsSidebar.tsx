@@ -1,3 +1,11 @@
+import { sendToAgentChat, emailToName, useT } from "@agent-native/core/client";
+import {
+  IconCheck,
+  IconMessageCircle,
+  IconArrowUp,
+  IconArrowBackUp,
+  IconChevronDown,
+} from "@tabler/icons-react";
 import {
   useState,
   useRef,
@@ -6,6 +14,12 @@ import {
   useCallback,
   type RefObject,
 } from "react";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   useComments,
   useCreateComment,
@@ -17,21 +31,9 @@ import {
   useMentionMembers,
   type MentionMember,
 } from "@/hooks/use-mention-members";
-import { sendToAgentChat, emailToName, useT } from "@agent-native/core/client";
-import {
-  IconCheck,
-  IconMessageCircle,
-  IconArrowUp,
-  IconArrowBackUp,
-  IconChevronDown,
-} from "@tabler/icons-react";
+
 import type { CommentTextAnchor } from "./comment-anchors";
 import { CommentComposer, type MentionEntry } from "./CommentComposer";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 /**
  * Render a comment body, styling any `@mention` tokens that match the comment's

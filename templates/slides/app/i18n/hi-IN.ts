@@ -217,8 +217,7 @@ const messages = {
     editorLinkDescription:
       "डेक को एडिटर में खोलता है। जिनके पास एक्सेस है वे इस लिंक का उपयोग कर सकते हैं।",
     presentationLink: "प्रेज़ेंटेशन लिंक",
-    presentationLinkDescription:
-      "सीधे फुलस्क्रीन प्रेज़ेंटेशन मोड में खोलता है।",
+    presentationLinkDescription: "सीधे फुलस्क्रीन प्रेज़ेंटेशन मोड में खोलता है।",
     present: "प्रस्तुत करें",
     more: "और",
     importing: "आयात हो रहा है...",
@@ -342,13 +341,11 @@ const messages = {
     clearAll: "सब साफ़ करें",
     elements: "तत्व",
     autoFill: "ऑटो-फ़िल",
-    noAnimatableElements:
-      "इस स्लाइड पर कोई एनिमेट किए जा सकने वाले तत्व नहीं मिले।",
+    noAnimatableElements: "इस स्लाइड पर कोई एनिमेट किए जा सकने वाले तत्व नहीं मिले।",
   },
   generateSlides: {
     title: "AI से स्लाइड जनरेट करें",
-    description:
-      "अपनी प्रस्तुति का विषय बताएं और AI आपके लिए स्लाइड जनरेट करेगा।",
+    description: "अपनी प्रस्तुति का विषय बताएं और AI आपके लिए स्लाइड जनरेट करेगा।",
     topic: "विषय",
     topicPlaceholder:
       "जैसे React Hooks का परिचय, Q4 Sales Report, Product Roadmap 2025...",
@@ -380,8 +377,7 @@ const messages = {
     restoreFailedDescription: "इस डेक संस्करण को बहाल नहीं किया जा सका।",
     backToSavedVersions: "सहेजे गए संस्करणों पर वापस जाएं",
     savedVersions: "सहेजे गए संस्करण",
-    description:
-      "सहेजे गए डेक संस्करण ब्राउज़ करें और पिछला स्नैपशॉट बहाल करें।",
+    description: "सहेजे गए डेक संस्करण ब्राउज़ करें और पिछला स्नैपशॉट बहाल करें।",
     untitled: "बिना शीर्षक",
     snapshotUnavailable: "स्नैपशॉट उपलब्ध नहीं",
     slideNumber: "स्लाइड {{number}}",
@@ -420,8 +416,7 @@ const messages = {
     teamAccessCheckFailed: "टीम एक्सेस जांच नहीं हो सकी",
     joinTeamToOpen: "यह डेक खोलने के लिए अपनी टीम से जुड़ें",
     deckUnavailable: "डेक उपलब्ध नहीं",
-    checkingSharedAccess:
-      "जांच रहे हैं कि यह प्रस्तुति आपके खाते से साझा है या नहीं।",
+    checkingSharedAccess: "जांच रहे हैं कि यह प्रस्तुति आपके खाते से साझा है या नहीं।",
     verifySharedAccessFailed:
       "हम सत्यापित नहीं कर सके कि यह प्रस्तुति आपके खाते से साझा है या नहीं। टीम एक्सेस और डेक फिर से लोड करने के लिए पुनः प्रयास करें।",
     joinTeamDescription:
@@ -442,8 +437,7 @@ const messages = {
   },
   designSystemSetup: {
     importedBrand: "आयात किया गया ब्रांड",
-    figFileRequired:
-      "कृपया .fig फ़ाइल चुनें (Figma में: File > Save local copy)।",
+    figFileRequired: "कृपया .fig फ़ाइल चुनें (Figma में: File > Save local copy)।",
     figFileTooLarge: "फ़ाइल बहुत बड़ी है (अधिकतम {{maxSize}})।",
     figParseFailed: "उस Figma फ़ाइल को पार्स नहीं किया जा सका।",
     figmaCreated: "Figma से डिज़ाइन सिस्टम बनाया गया",
@@ -470,11 +464,9 @@ const messages = {
     add: "जोड़ें",
     githubRepository: "GitHub रिपॉज़िटरी",
     codeFiles: "कोड फ़ाइलें",
-    codeFilesDrop:
-      "CSS, Tailwind कॉन्फ़िग, थीम फ़ाइलें — ड्रॉप करें या क्लिक करें",
+    codeFilesDrop: "CSS, Tailwind कॉन्फ़िग, थीम फ़ाइलें — ड्रॉप करें या क्लिक करें",
     documents: "दस्तावेज़ और प्रेज़ेंटेशन",
-    documentsDrop:
-      "PPTX, DOCX, PDF, Markdown, TXT — ब्रांड गाइड, डिज़ाइन डॉक्स",
+    documentsDrop: "PPTX, DOCX, PDF, Markdown, TXT — ब्रांड गाइड, डिज़ाइन डॉक्स",
     visualReferences: "स्क्रीनशॉट और विज़ुअल रेफ़रेंस",
     visualReferencesDrop: "प्रोडक्ट स्क्रीनशॉट, मूड बोर्ड, लोगो",
     forkExisting: "मौजूदा डिज़ाइन सिस्टम फोर्क करें",

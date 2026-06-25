@@ -378,9 +378,7 @@ export function ComposeModal({
   const handleGenerate = async () => {
     if (!generatePrompt.trim() || !activeId || !activeDraft) return;
     if (!(await canUseAgentGenerate())) {
-      toast.error(
-        t("mail.toasts.aiEngineRequired"),
-      );
+      toast.error(t("mail.toasts.aiEngineRequired"));
       window.dispatchEvent(new CustomEvent("agent-panel:open"));
       return;
     }

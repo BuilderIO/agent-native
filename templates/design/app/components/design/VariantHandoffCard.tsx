@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { IconCheck, IconCopy } from "@tabler/icons-react";
-import { toast } from "sonner";
 import { useT } from "@agent-native/core/client";
+import { IconCheck, IconCopy } from "@tabler/icons-react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { StandalonePick } from "@/hooks/use-variant-flow";

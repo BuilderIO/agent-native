@@ -1,20 +1,21 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useT } from "@agent-native/core/client";
 import { Player, type PlayerRef } from "@remotion/player";
-import type { LibraryComponentEntry } from "@/remotion/componentRegistry";
 import {
   IconDeviceFloppy,
   IconPlayerPlay,
   IconPlayerPause,
   IconPlayerSkipBack,
 } from "@tabler/icons-react";
-import type { Zone } from "@/remotion/hooks/useEditableZones";
+import { useRef, useState, useCallback, useEffect } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/use-toast";
-import { useT } from "@agent-native/core/client";
+import type { LibraryComponentEntry } from "@/remotion/componentRegistry";
+import type { Zone } from "@/remotion/hooks/useEditableZones";
 
 type ComponentLibraryViewProps = {
   component: LibraryComponentEntry;

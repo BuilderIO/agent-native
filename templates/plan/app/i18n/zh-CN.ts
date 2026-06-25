@@ -156,7 +156,8 @@ const messages = {
       imageReplaced: "图片已替换。",
       htmlFragment: "HTML 片段",
       optionalCss: "可选 CSS",
-      invalidBlockDescription: "此生成块不符合 Plan 架构，因此已跳过，其余回顾内容仍保持可见。",
+      invalidBlockDescription:
+        "此生成块不符合 Plan 架构，因此已跳过，其余回顾内容仍保持可见。",
       validationDetails: "验证详情",
     },
     localCodebase: {

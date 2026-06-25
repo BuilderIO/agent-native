@@ -1,4 +1,5 @@
 import { ObservabilityDashboard } from "@agent-native/core/client";
+
 import { messagesByLocale } from "@/i18n-data";
 
 export function meta() {

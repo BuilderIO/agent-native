@@ -114,8 +114,7 @@ const messages = {
       "सार्वजनिक फॉर्म लिंक कॉपी करने से पहले प्रकाशित करें",
     publicLinkCopied: "सार्वजनिक लिंक कॉपी हो गया",
     copyPublishedPublicLink: "प्रकाशित सार्वजनिक लिंक कॉपी करें",
-    publishBeforeCopyPublicLink:
-      "सार्वजनिक लिंक कॉपी करने से पहले प्रकाशित करें",
+    publishBeforeCopyPublicLink: "सार्वजनिक लिंक कॉपी करने से पहले प्रकाशित करें",
     publicResponseLink: "सार्वजनिक प्रतिक्रिया लिंक",
     publicResponseLinkDescription:
       "उत्तरदाता इस लिंक से प्रकाशित फॉर्म सबमिट करते हैं।",
@@ -123,8 +122,7 @@ const messages = {
       "सार्वजनिक प्रतिक्रिया लिंक पाने के लिए इस फॉर्म को प्रकाशित करें।",
     peopleAccessLabel: "संपादन पहुंच वाले लोग",
     generalAccessLabel: "सामान्य संपादन पहुंच",
-    privateAccessDescription:
-      "केवल आमंत्रित लोग इस फॉर्म को बिल्डर में खोल सकते हैं",
+    privateAccessDescription: "केवल आमंत्रित लोग इस फॉर्म को बिल्डर में खोल सकते हैं",
     orgAccessDescription:
       "आपके संगठन का कोई भी व्यक्ति इस फॉर्म को बिल्डर में खोल सकता है",
     publicBuilderAccess: "सार्वजनिक बिल्डर पहुंच",
@@ -200,8 +198,7 @@ const messages = {
         "प्रतिक्रिया डेटा के साथ JSON POST भेजता है। Zapier, Make, n8n आदि के साथ काम करता है।",
       googleSheetsBlurb:
         "हर प्रतिक्रिया को ऐसी spreadsheet में मिरर करें जिसे आपकी टीम साझा कर सके।",
-      googleSheetsHelp:
-        "POST डेटा प्राप्त करने वाला Apps Script web app deploy करें",
+      googleSheetsHelp: "POST डेटा प्राप्त करने वाला Apps Script web app deploy करें",
       slackLabel: "Slack",
       discordLabel: "Discord",
       webhookLabel: "Webhook",
@@ -224,8 +221,7 @@ const messages = {
       addAnotherIntegration: "एक और इंटीग्रेशन जोड़ें",
       addIntegration: "इंटीग्रेशन जोड़ें",
       added: "जोड़ा गया",
-      readyHint:
-        "यहां सब कुछ नई फॉर्म प्रतिक्रियाएं प्राप्त करने के लिए तैयार है।",
+      readyHint: "यहां सब कुछ नई फॉर्म प्रतिक्रियाएं प्राप्त करने के लिए तैयार है।",
       partialSetupHint:
         "आप अभी आंशिक setup सहेज सकते हैं और बाकी URLs बाद में पूरी कर सकते हैं।",
     },
@@ -233,8 +229,7 @@ const messages = {
   home: {
     openDashboard: "डैशबोर्ड खोलें",
     dashboard: "डैशबोर्ड",
-    emptyState:
-      "फ़ॉर्म से पूछें कि क्या बनाना है, प्रकाशित करना है या विश्लेषण करना है।",
+    emptyState: "फ़ॉर्म से पूछें कि क्या बनाना है, प्रकाशित करना है या विश्लेषण करना है।",
     composerPlaceholder:
       "@forms, प्रतिक्रियाओं, विश्लेषण, या कॉन्फ़िगरेशन के बारे में पूछें...",
     heading: "आप क्या करना चाहते हैं?",
@@ -330,8 +325,7 @@ const messages = {
     missingFormId: "फॉर्म ID गुम है",
     addIdToUrl: "URL में {{idParam}} जोड़ें।",
     formNotFound: "फॉर्म नहीं मिला",
-    missingAccess:
-      "ID {{id}} वाला फॉर्म मौजूद नहीं है या आपके पास पहुंच नहीं है।",
+    missingAccess: "ID {{id}} वाला फॉर्म मौजूद नहीं है या आपके पास पहुंच नहीं है।",
     openInApp: "ऐप में खोलें",
     noFields: "इस फॉर्म में अभी कोई फ़ील्ड नहीं है।",
   },
@@ -340,16 +334,14 @@ const messages = {
     extensionsForms: "एक्सटेंशन — Forms",
     editFormForms: "फॉर्म संपादित करें — Forms",
     responsesForms: "जवाब — Forms",
-    formsIndex:
-      "Agent-Native Forms - ओपन सोर्स AI फॉर्म बिल्डर और जवाब विश्लेषण",
+    formsIndex: "Agent-Native Forms - ओपन सोर्स AI फॉर्म बिल्डर और जवाब विश्लेषण",
     responseInsightsForms: "जवाब इनसाइट - Forms",
     settingsForms: "सेटिंग्स - Forms",
   },
   routeDescriptions: {
     formsIndex:
       "चैट-प्रथम वर्कस्पेस से फॉर्म और जवाब बनाने, प्रकाशित करने, संपादित करने और विश्लेषण करने के लिए ओपन सोर्स AI फॉर्म बिल्डर।",
-    responseInsights:
-      "मूल तालिकाओं और चार्ट के साथ फॉर्म सबमिशन का विश्लेषण करें।",
+    responseInsights: "मूल तालिकाओं और चार्ट के साथ फॉर्म सबमिशन का विश्लेषण करें।",
   },
   responses: {
     failedLoad: "प्रतिक्रियाएँ लोड करने में विफल",
@@ -360,8 +352,7 @@ const messages = {
     exportCsv: "CSV निर्यात करें",
     export: "Export",
     emptyTitle: "अभी तक कोई प्रतिक्रिया नहीं",
-    emptyDescription:
-      "प्रतिक्रियाएँ एकत्र करना शुरू करने के लिए अपना फ़ॉर्म साझा करें",
+    emptyDescription: "प्रतिक्रियाएँ एकत्र करना शुरू करने के लिए अपना फ़ॉर्म साझा करें",
     noMatchesTitle: "कोई परिणाम नहीं",
     noMatchesDescription: 'No responses contain "{{search}}"',
     submitted: "Submitted",

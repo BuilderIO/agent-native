@@ -1,8 +1,9 @@
+import { useT } from "@agent-native/core/client";
 import { useMemo } from "react";
-import Team from "@/pages/Team";
+
 import { useAppHeaderControls } from "@/components/layout/AppLayout";
 import { messagesByLocale } from "@/i18n-data";
-import { useT } from "@agent-native/core/client";
+import Team from "@/pages/Team";
 
 export function meta() {
   return [{ title: messagesByLocale["en-US"].routeTitles.team }];

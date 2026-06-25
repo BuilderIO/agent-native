@@ -1,16 +1,19 @@
+import { useT } from "@agent-native/core/client";
+import {
+  IconChevronDown,
+  IconDeviceFloppy,
+  IconFilterOff,
+} from "@tabler/icons-react";
 import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { useT } from "@agent-native/core/client";
+
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { DatePicker } from "@/components/ui/date-picker";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -18,18 +21,17 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
-  IconChevronDown,
-  IconDeviceFloppy,
-  IconFilterOff,
-} from "@tabler/icons-react";
-import type { DashboardFilter, FilterType } from "./types";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+
+import type { DashboardFilter, FilterType } from "./types";
 
 export const FILTER_PARAM_PREFIX = "f_";
 

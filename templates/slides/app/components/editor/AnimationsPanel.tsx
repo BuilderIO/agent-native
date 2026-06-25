@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   DndContext,
   closestCenter,
@@ -41,7 +42,6 @@ import {
   parseSlideAnimationElements,
   type ParsedAnimationElement,
 } from "@/lib/slide-animation-elements";
-import { useT } from "@agent-native/core/client";
 
 // ─── Animation type options ───────────────────────────────────────────────────
 

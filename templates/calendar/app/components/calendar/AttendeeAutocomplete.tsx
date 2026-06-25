@@ -1,3 +1,11 @@
+import { useT } from "@agent-native/core/client";
+import {
+  IconAddressBook,
+  IconBuilding,
+  IconLoader2,
+  IconUserCircle,
+  IconX,
+} from "@tabler/icons-react";
 import {
   forwardRef,
   useCallback,
@@ -8,27 +16,20 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import {
-  IconAddressBook,
-  IconBuilding,
-  IconLoader2,
-  IconUserCircle,
-  IconX,
-} from "@tabler/icons-react";
+
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverAnchor,
   PopoverContent,
 } from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import {
   filterPeopleResults,
   usePeopleContacts,
   type PeopleSearchResult,
 } from "@/hooks/use-people";
-import { useT } from "@agent-native/core/client";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { cn } from "@/lib/utils";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

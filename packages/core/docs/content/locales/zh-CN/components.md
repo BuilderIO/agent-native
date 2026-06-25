@@ -108,8 +108,8 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 | API                               | 何时使用                                                                                                       |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `<PromptComposer>`                | 您需要一个随时可以提交的聊天字段，其中包含附件、斜线命令、参考、粘贴文本处理、草稿持久性、语音输入和提交语义。 |
-| `<AgentComposerFrame>`            | 您需要自定义 撰写r 主体周围的标准视觉外壳。                                                                 |
-| `<TiptapComposer>`                | 您需要最低级别的丰富聊天字段。它必须在 Assistant-ui `ThreadPrimitive.Root` / 撰写r 运行时内呈现。           |
+| `<AgentComposerFrame>`            | 您需要自定义 撰写r 主体周围的标准视觉外壳。                                                                    |
+| `<TiptapComposer>`                | 您需要最低级别的丰富聊天字段。它必须在 Assistant-ui `ThreadPrimitive.Root` / 撰写r 运行时内呈现。              |
 | `buildPromptComposerSubmission()` | 在调用您自己的提交处理程序之前，您需要相同的附件和粘贴文本规范化。                                             |
 | `formatPromptWithAttachments()`   | 您需要将隐藏的附件元数据呈现到提示字符串中。                                                                   |
 

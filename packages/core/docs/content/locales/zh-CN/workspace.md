@@ -221,7 +221,7 @@ Skills 是 `skills/` 路径（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 {
   "filename": "agents/design.md",
   "language": "markdown",
-  "code": "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# 角色\n\n您是一名专注的设计代理。\n\n##职责\n\n-审查布局和交互流程\n-提出更强的视觉方向\n-简洁且有主见”，
+  "code": "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# 角色\n\n您是一名专注的设计代理。\n\n##职责\n\n-审查布局和交互流程\n-提出更强的视觉方向\n-简洁且有主见",
   "annotations": [
     { "lines": "2", "label": "@mention handle", "note": "`name` 是 `@` 下拉列表中显示的内容，也是主代理委托的内容。" },
     { "lines": "3-4", "label": "何时委托", "note": "`description` 是协调器读取的内容，以确定此配置文件适合任务。" },

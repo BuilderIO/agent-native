@@ -1,5 +1,5 @@
-import { useEffect, useCallback, useRef } from "react";
 import { useT } from "@agent-native/core/client";
+import { useEffect, useCallback, useRef } from "react";
 
 interface PresentModeProps {
   content: string;

@@ -1,5 +1,3 @@
-import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
 import {
   useActionMutation,
   useActionQuery,
@@ -13,16 +11,19 @@ import {
   IconTable,
   IconX,
 } from "@tabler/icons-react";
-import {
-  type KnowledgeResponse,
-  type KnowledgeRow,
-  formatPercent,
-  statusLabel,
-} from "@/lib/brain";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
+
 import {
   type CanonicalPreviewData,
   CanonicalPreviewSheet,
 } from "@/components/brain/CanonicalPreviewSheet";
+import {
+  EmptyActionState,
+  LoadingRows,
+  PageHeader,
+  StatusBadge,
+} from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -43,11 +44,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  EmptyActionState,
-  LoadingRows,
-  PageHeader,
-  StatusBadge,
-} from "@/components/brain/Surface";
+  type KnowledgeResponse,
+  type KnowledgeRow,
+  formatPercent,
+  statusLabel,
+} from "@/lib/brain";
 
 const statusOptions = [
   "all",

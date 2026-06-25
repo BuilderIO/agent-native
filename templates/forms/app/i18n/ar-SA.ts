@@ -330,8 +330,7 @@ const messages = {
     missingFormId: "معرّف النموذج مفقود",
     addIdToUrl: "أضف {{idParam}} إلى عنوان URL.",
     formNotFound: "النموذج غير موجود",
-    missingAccess:
-      "النموذج بالمعرّف {{id}} غير موجود أو لا تملك حق الوصول إليه.",
+    missingAccess: "النموذج بالمعرّف {{id}} غير موجود أو لا تملك حق الوصول إليه.",
     openInApp: "فتح في التطبيق",
     noFields: "لا يحتوي هذا النموذج على حقول بعد.",
   },

@@ -1,5 +1,3 @@
-import { useMemo, useState, type KeyboardEvent } from "react";
-import { useSearchParams } from "react-router";
 import {
   useActionMutation,
   useActionQuery,
@@ -20,14 +18,29 @@ import {
   IconShieldCheck,
   IconX,
 } from "@tabler/icons-react";
-import { type ReviewItem, type ReviewQueueResponse } from "@/lib/brain";
+import { useMemo, useState, type KeyboardEvent } from "react";
+import { useSearchParams } from "react-router";
+
 import {
   type CanonicalPreviewData,
   CanonicalPreviewSheet,
 } from "@/components/brain/CanonicalPreviewSheet";
+import {
+  EmptyActionState,
+  LoadingRows,
+  PageHeader,
+  StatusBadge,
+} from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -47,19 +60,7 @@ import {
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  EmptyActionState,
-  LoadingRows,
-  PageHeader,
-  StatusBadge,
-} from "@/components/brain/Surface";
+import { type ReviewItem, type ReviewQueueResponse } from "@/lib/brain";
 import { cn } from "@/lib/utils";
 
 type BrainT = ReturnType<typeof useT>;

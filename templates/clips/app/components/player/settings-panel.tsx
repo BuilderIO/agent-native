@@ -1,4 +1,8 @@
-import { useRef, useState } from "react";
+import {
+  useT,
+  useActionMutation,
+  useReconciledState,
+} from "@agent-native/core/client";
 import {
   IconLock,
   IconClock,
@@ -8,11 +12,11 @@ import {
   IconX,
   IconMoodSmile,
 } from "@tabler/icons-react";
+import { useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -20,11 +24,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  useT,
-  useActionMutation,
-  useReconciledState,
-} from "@agent-native/core/client";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+
 import { SPEED_OPTIONS } from "./player-controls";
 
 export interface SettingsPanelProps {

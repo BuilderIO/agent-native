@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
+
 import { messagesByLocale } from "@/i18n-data";
 
 export function meta() {

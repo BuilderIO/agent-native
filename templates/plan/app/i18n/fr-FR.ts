@@ -161,7 +161,8 @@ const messages = {
       imageReplaced: "Image remplacee.",
       htmlFragment: "Fragment HTML",
       optionalCss: "CSS facultatif",
-      invalidBlockDescription: "Ce bloc genere ne correspondait pas au schema Plan, il a donc ete ignore pendant que le reste du recap restait visible.",
+      invalidBlockDescription:
+        "Ce bloc genere ne correspondait pas au schema Plan, il a donc ete ignore pendant que le reste du recap restait visible.",
       validationDetails: "Details de validation",
     },
     localCodebase: {
@@ -172,7 +173,8 @@ const messages = {
       codebaseSyncFailed: "Echec de synchronisation du codebase",
       chooseFolderFailed: "Impossible de choisir le dossier",
       syncLocalFailed: "Impossible de synchroniser le codebase local.",
-      folderUnavailable: "L acces aux dossiers n est pas disponible dans ce navigateur.",
+      folderUnavailable:
+        "L acces aux dossiers n est pas disponible dans ce navigateur.",
       filesSynced: "{{count}} fichiers synchronises",
       lastSynced: "Derniere synchronisation {{date}}",
       codebaseUnlinked: "Codebase dissocie",

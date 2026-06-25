@@ -22,8 +22,7 @@ const messages = {
       "मॉडल, API कुंजियां, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए एजेंट साइडबार सेटिंग्स खोलें।",
     openAgentSettings: "एजेंट सेटिंग्स खोलें",
     workspaceTitle: "कार्यस्थान",
-    workspaceDescription:
-      "टीम पहुंच और साझा कार्यक्षेत्र संसाधनों को प्रबंधित करें।",
+    workspaceDescription: "टीम पहुंच और साझा कार्यक्षेत्र संसाधनों को प्रबंधित करें।",
     openTeamSettings: "टीम सेटिंग्स खोलें",
     openResourceSettings: "संसाधन सेटिंग्स खोलें",
     backHome: "होम पर वापस जाएं",
@@ -69,8 +68,7 @@ const messages = {
       suggestionGrantKey: "इस ऐप को मेरी OpenAI कुंजी प्रदान करें",
     },
     pages: {
-      appsDescription:
-        "वर्कस्पेस ऐप्स खोलें और Dispatch से नए ऐप निर्माण शुरू करें।",
+      appsDescription: "वर्कस्पेस ऐप्स खोलें और Dispatch से नए ऐप निर्माण शुरू करें।",
       appsDescriptionWithWorkspace:
         'Apps in the "{{workspace}}" workspace. Each app gets its own route under this workspace and shares its database, auth, and agent chat.',
       appsInWorkspace: "Apps in {{workspace}}",
@@ -86,11 +84,9 @@ const messages = {
       hiddenApps: "छुपे हुए ऐप्स",
       hiddenAppCount: "{{count}} hidden apps",
       workspaceAppFallback: "कार्यक्षेत्र ऐप",
-      workspaceAppDescription:
-        "एक तैनात ऐप खोलें या बनाए जा रहे ऐप की स्थिति जांचें।",
+      workspaceAppDescription: "एक तैनात ऐप खोलें या बनाए जा रहे ऐप की स्थिति जांचें।",
       pageNotFound: "पेज नहीं मिला",
-      pageNotFoundDescription:
-        "यह मार्ग अभी तक कार्यस्थान ऐप सूची में नहीं है.",
+      pageNotFoundDescription: "यह मार्ग अभी तक कार्यस्थान ऐप सूची में नहीं है.",
       browseApps: "ऐप्स ब्राउज़ करें",
       newApp: "नया ऐप",
       newAppDescription:

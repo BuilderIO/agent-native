@@ -1,16 +1,17 @@
-import { useState, useRef, useCallback } from "react";
-import { IconX, IconGripHorizontal, IconPlus } from "@tabler/icons-react";
 import { useT } from "@agent-native/core/client";
+import type { TweakDefinition } from "@shared/api";
+import { IconX, IconGripHorizontal, IconPlus } from "@tabler/icons-react";
+import { useState, useRef, useCallback } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
-import type { TweakDefinition } from "@shared/api";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 interface TweaksPanelProps {
   tweaks: TweakDefinition[];

@@ -1,5 +1,7 @@
 import { useActionQuery, useT } from "@agent-native/core/client";
+import { IconCalendar } from "@tabler/icons-react";
 import { subDays } from "date-fns";
+import { useState } from "react";
 import {
   LineChart,
   Line,
@@ -10,9 +12,9 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
+
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -20,12 +22,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatLocalDate } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WeeklyCaloriesChart } from "@/components/WeeklyCaloriesChart";
-import { IconCalendar } from "@tabler/icons-react";
-import { useState } from "react";
-import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import messages from "@/i18n/en-US";
+import { formatLocalDate } from "@/lib/utils";
 
 const GOAL_CALORIES = 2000;
 

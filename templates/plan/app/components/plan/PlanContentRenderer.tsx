@@ -1,4 +1,17 @@
 import {
+  BlockRegistryProvider,
+  type BlockRenderContext,
+} from "@agent-native/core/blocks";
+import { useT, type RichMarkdownCollabUser } from "@agent-native/core/client";
+import type { PlanFileTreeBlock } from "@shared/plan-content";
+import type {
+  PlanAnnotation,
+  PlanBlock,
+  PlanContent,
+  PlanContentPatch,
+} from "@shared/plan-content";
+import { IconBrandGithub } from "@tabler/icons-react";
+import {
   useEffect,
   lazy,
   useMemo,
@@ -11,21 +24,10 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
-import { IconBrandGithub } from "@tabler/icons-react";
-import type { PlanFileTreeBlock } from "@shared/plan-content";
-import { useT, type RichMarkdownCollabUser } from "@agent-native/core/client";
-import {
-  BlockRegistryProvider,
-  type BlockRenderContext,
-} from "@agent-native/core/blocks";
-import { cn } from "@/lib/utils";
+
 import { Button } from "@/components/ui/button";
-import type {
-  PlanAnnotation,
-  PlanBlock,
-  PlanContent,
-  PlanContentPatch,
-} from "@shared/plan-content";
+import { cn } from "@/lib/utils";
+
 import {
   type CanvasMarkupCreateContext,
   type CanvasMarkupMode,
@@ -33,15 +35,15 @@ import {
   type DesignElementSelection,
 } from "./CanvasArea";
 import { PlanBlockView } from "./DocumentArea";
+import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
+import { PlanTableOfContents } from "./PlanTableOfContents";
+import { collectPlanTocItems } from "./PlanTableOfContents.utils";
+import { getPlanContentDirection } from "./planTextDirection";
 import {
   PlanVisualSurface,
   type PlanVisualSurfaceMode,
 } from "./PlanVisualSurface";
-import { PlanTableOfContents } from "./PlanTableOfContents";
-import { collectPlanTocItems } from "./PlanTableOfContents.utils";
 import { usePlanHashScroll } from "./usePlanHashScroll";
-import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
-import { getPlanContentDirection } from "./planTextDirection";
 
 type PlanDocumentLayout = "wide" | "narrow";
 

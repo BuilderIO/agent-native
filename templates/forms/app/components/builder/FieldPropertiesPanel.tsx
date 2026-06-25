@@ -1,9 +1,11 @@
+import { useT } from "@agent-native/core/client";
+import type { FormField, FormFieldType } from "@shared/types";
+import { IconPlus, IconX } from "@tabler/icons-react";
 import { useState } from "react";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -12,9 +14,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { useT } from "@agent-native/core/client";
-import { IconPlus, IconX } from "@tabler/icons-react";
-import type { FormField, FormFieldType } from "@shared/types";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 
 interface FieldPropertiesPanelProps {
   field: FormField;

@@ -24,7 +24,7 @@ Alles, worüber sich jede App in Ihrer Organisation einigen sollte, kann in `pac
 | Agent-Chat-Überschreibung           | `agentChatPlugin` aus `src/server/index.ts` exportieren                                                             |
 | Anweisungen für Enterprise-Agenten  | `AGENTS.md`                                                                                                         |
 | Agent skills                        | `.agents/skills/<skill-name>/SKILL.md`                                                                              |
-| Gemeinsamer Agentenaktionen           | `actions/*.ts`                                                                                                      |
+| Gemeinsamer Agentenaktionen         | `actions/*.ts`                                                                                                      |
 | Gemeinsame React-Komponenten        | Export aus `src/client/index.ts`                                                                                    |
 | Design-Tokens/Marke                 | Fügen Sie eine freigegebene CSS-Datei hinzu und importieren Sie sie aus jeder App                                   |
 | Gemeinsame API-Anmeldeinformationen | Framework-bezogene Anmeldeinformationen bevorzugen; Fügen Sie Helfer nur hinzu, wenn Sie einen Namensraum benötigen |

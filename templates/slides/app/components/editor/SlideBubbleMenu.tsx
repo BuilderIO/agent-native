@@ -1,5 +1,4 @@
-import { BubbleMenu } from "@tiptap/react/menus";
-import type { Editor } from "@tiptap/react";
+import { useT } from "@agent-native/core/client";
 import {
   IconBold,
   IconItalic,
@@ -18,20 +17,23 @@ import {
   IconCheck,
   IconPencil,
 } from "@tabler/icons-react";
+import type { Editor } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
 import { useState } from "react";
-import { cn, shortcutLabel } from "@/lib/utils";
-import { useT } from "@agent-native/core/client";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { getBrandPalette, setBrandPalette } from "./style-clipboard";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn, shortcutLabel } from "@/lib/utils";
+
+import { getBrandPalette, setBrandPalette } from "./style-clipboard";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyIcon = React.ComponentType<any>;

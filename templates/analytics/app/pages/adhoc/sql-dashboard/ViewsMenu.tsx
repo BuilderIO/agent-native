@@ -1,23 +1,13 @@
+import { useT } from "@agent-native/core/client";
+import {
+  IconChevronDown,
+  IconDeviceFloppy,
+  IconTrash,
+  IconLayoutGrid,
+} from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { useT } from "@agent-native/core/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,22 +18,34 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import {
-  IconChevronDown,
-  IconDeviceFloppy,
-  IconTrash,
-  IconLayoutGrid,
-} from "@tabler/icons-react";
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
-  useDashboardViews,
-  type DashboardView,
-} from "@/hooks/use-dashboard-views";
-import { FILTER_PARAM_PREFIX } from "./DashboardFilterBar";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  useDashboardViews,
+  type DashboardView,
+} from "@/hooks/use-dashboard-views";
+
+import { FILTER_PARAM_PREFIX } from "./DashboardFilterBar";
 
 interface ViewsMenuProps {
   dashboardId: string;

@@ -1,3 +1,13 @@
+import { useT } from "@agent-native/core/client";
+import type { DocumentProperty } from "@shared/api";
+import {
+  blocksRenderMode,
+  blocksStorageTarget,
+  isBlocksPropertyType,
+  isPrimaryBlocksField,
+  type BlocksStorageTarget,
+} from "@shared/properties";
+import { IconChevronRight, IconGripVertical } from "@tabler/icons-react";
 import {
   useEffect,
   useMemo,
@@ -6,20 +16,12 @@ import {
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { IconChevronRight, IconGripVertical } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+
 import { useDocumentProperties } from "@/hooks/use-document-properties";
 import { useReorderDocumentProperty } from "@/hooks/use-document-properties";
 import { useSetDocumentProperty } from "@/hooks/use-document-properties";
-import {
-  blocksRenderMode,
-  blocksStorageTarget,
-  isBlocksPropertyType,
-  isPrimaryBlocksField,
-  type BlocksStorageTarget,
-} from "@shared/properties";
-import type { DocumentProperty } from "@shared/api";
-import { VisualEditor } from "./VisualEditor";
+import { cn } from "@/lib/utils";
+
 import {
   createBlockFieldSaveController,
   type BlockFieldSaveController,
@@ -30,7 +32,7 @@ import {
   peekBlockFieldSaveController,
   releaseBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
-import { useT } from "@agent-native/core/client";
+import { VisualEditor } from "./VisualEditor";
 
 const BLOCK_FIELD_DRAG_THRESHOLD = 6;
 

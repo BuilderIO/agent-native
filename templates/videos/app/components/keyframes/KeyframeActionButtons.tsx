@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconCopy, IconRotate, IconTrash } from "@tabler/icons-react";
 
 import {
@@ -5,7 +6,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
 
 import { Button } from "../ui/button";
 

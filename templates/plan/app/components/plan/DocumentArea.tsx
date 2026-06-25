@@ -1,12 +1,15 @@
 import {
-  Component,
-  lazy,
-  Suspense,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+  BlockView,
+  SchemaBlockEditor,
+  blockEditSurface,
+  useOptionalBlockRegistry,
+} from "@agent-native/core/blocks";
+import {
+  uploadEditorImage,
+  useT,
+  type RichMarkdownCollabUser,
+} from "@agent-native/core/client";
+import { imageDataSchema, type PlanBlock } from "@shared/plan-content";
 import {
   IconAlertTriangle,
   IconCheck,
@@ -15,25 +18,24 @@ import {
   IconPhoto,
   IconX,
 } from "@tabler/icons-react";
+import {
+  Component,
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  uploadEditorImage,
-  useT,
-  type RichMarkdownCollabUser,
-} from "@agent-native/core/client";
-import {
-  BlockView,
-  SchemaBlockEditor,
-  blockEditSurface,
-  useOptionalBlockRegistry,
-} from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
-import { imageDataSchema, type PlanBlock } from "@shared/plan-content";
-import { Wireframe } from "./wireframe/Wireframe";
-import { PlanMarkdownReader } from "./PlanMarkdownReader";
+
 import { PlanImageViewer } from "./PlanImageViewer";
+import { PlanMarkdownReader } from "./PlanMarkdownReader";
+import { Wireframe } from "./wireframe/Wireframe";
 
 const LazyPlanMarkdownEditor = lazy(() =>
   import("./PlanMarkdownEditor").then((mod) => ({

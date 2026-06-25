@@ -1,12 +1,13 @@
+import { useT } from "@agent-native/core/client";
 import { useRef, useState, useCallback } from "react";
-import type { AnimationTrack } from "@/types";
-import { getPropValueKeyframed } from "@/remotion/trackAnimation";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
+import { getPropValueKeyframed } from "@/remotion/trackAnimation";
+import type { AnimationTrack } from "@/types";
 
 interface CursorPositioningOverlayProps {
   compositionWidth: number;

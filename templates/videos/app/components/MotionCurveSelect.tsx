@@ -1,5 +1,13 @@
-import type { EasingKey } from "@/types";
+import { useT } from "@agent-native/core/client";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { EASING_OPTIONS } from "@/remotion/easingFunctions";
+import type { EasingKey } from "@/types";
+
 import { Label } from "./ui/label";
 import {
   Select,
@@ -8,12 +16,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
 
 interface MotionCurveSelectProps {
   value: EasingKey;

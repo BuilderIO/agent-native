@@ -1,12 +1,13 @@
+import { useT } from "@agent-native/core/client";
+import type { Meal } from "@shared/types";
 import {
   IconTrash,
   IconPencil,
   IconToolsKitchen2,
   IconLoader2,
 } from "@tabler/icons-react";
+
 import { Button } from "@/components/ui/button";
-import { useT } from "@agent-native/core/client";
-import type { Meal } from "@shared/types";
 
 interface MealCardProps {
   meal: Meal;

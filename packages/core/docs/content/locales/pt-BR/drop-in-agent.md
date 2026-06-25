@@ -23,7 +23,7 @@ Você não precisa criar um agente nativo do zero. O bate-papo do agente, a guia
 | `<AgentChatSurface>`  | Uma superfície de chat de painel/página pré-instalada                                                      | Você quer conversar sem o wrapper da barra lateral                                    |
 | `<AssistantChat>`     | Renderizador de bate-papo de nível inferior com ganchos de compositor/histórico                            | Você precisa de um cromo personalizado em torno da conversa padrão UI                 |
 | `sendToAgentChat()`   | Enviar programaticamente uma mensagem para o chat                                                          | Um botão que entrega o trabalho ao agente em vez de executar inline                   |
-| `useActionMutation()` | Invólucro de front-end Typesafe em torno de uma ação                                                         | O UI precisa executar a mesma operação que uma ferramenta de agente executaria        |
+| `useActionMutation()` | Invólucro de front-end Typesafe em torno de uma ação                                                       | O UI precisa executar a mesma operação que uma ferramenta de agente executaria        |
 
 Todos eles são exportados de `@agent-native/core/client`.
 

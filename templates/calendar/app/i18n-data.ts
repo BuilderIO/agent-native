@@ -3050,8 +3050,7 @@ const calendarSurfaceTranslations = {
       bookingLinkUpdated: "बुकिंग लिंक अपडेट किया गया",
       bookingLinkUpdateFailed: "बुकिंग लिंक अपडेट करने में विफल",
       bookingRules: "बुकिंग नियम",
-      bookingRulesDescription:
-        "बफ़र समय, नोटिस अवधि और स्लॉट सेटिंग्स कॉन्फ़िगर करें।",
+      bookingRulesDescription: "बफ़र समय, नोटिस अवधि और स्लॉट सेटिंग्स कॉन्फ़िगर करें।",
       bookingUsername: "बुकिंग उपयोगकर्ता नाम",
       bookingUsernameHelp: "URLs की बुकिंग के लिए आपका अनोखा हैंडल, उदा.",
       bookingUsernameUpdateFailed: "बुकिंग उपयोगकर्ता नाम अपडेट करने में विफल",
@@ -3100,8 +3099,7 @@ const calendarSurfaceTranslations = {
       linkDisabled: "{{title}} अक्षम",
       linkEnabled: "{{title}} सक्षम",
       linkVisibility: "लिंक दृश्यता",
-      linkVisibilityDescription:
-        "सार्वजनिक पृष्ठ को अक्षम करने के लिए इसे बंद करें।",
+      linkVisibilityDescription: "सार्वजनिक पृष्ठ को अक्षम करने के लिए इसे बंद करें।",
       loadingMeetingTypes: "मीटिंग प्रकार लोड हो रहे हैं",
       maxAdvanceBooking: "अधिकतम अग्रिम बुकिंग (दिन)",
       meetingName: "मीटिंग का नाम",
@@ -3121,8 +3119,7 @@ const calendarSurfaceTranslations = {
       noBookingLinksDescription:
         "लोगों को आपके साथ मीटिंग शेड्यूल करने देने के लिए एक बुकिंग लिंक बनाएं।",
       noConferencing: "कोई कॉन्फ्रेंसिंग नहीं",
-      noConferencingDescription:
-        "व्यक्तिगत रूप से, फ़ोन करें, या बाद में विवरण जोड़ें",
+      noConferencingDescription: "व्यक्तिगत रूप से, फ़ोन करें, या बाद में विवरण जोड़ें",
       notesOptional: "नोट्स (वैकल्पिक)",
       notesPlaceholder: "कुछ भी जो आप साझा करना चाहेंगे",
       oneOnOne: "एक पर एक",
@@ -3218,8 +3215,7 @@ const calendarSurfaceTranslations = {
       busy: "व्यस्त",
       cancel: "रद्द करें",
       color: "रंग",
-      conferencingLinkOnSave:
-        "जब आप ईवेंट सहेजते हैं तो कॉन्फ़्रेंसिंग लिंक जोड़ा जाता है।",
+      conferencingLinkOnSave: "जब आप ईवेंट सहेजते हैं तो कॉन्फ़्रेंसिंग लिंक जोड़ा जाता है।",
       connectZoomBeforeCreate: "इस ईवेंट को बनाने से पहले Zoom को कनेक्ट करें।",
       create: "बनाएँ",
       createAndSend: "बनाएं और भेजें",
@@ -3257,8 +3253,7 @@ const calendarSurfaceTranslations = {
       googleMeetAddFailed: "Google Meet जोड़ने में विफल",
       home: "घर",
       invite: "आमंत्रित करें",
-      invitedNotice:
-        "{{count}} आमंत्रित - जब आप बनाएंगे तो Google उन्हें ईमेल करेगा",
+      invitedNotice: "{{count}} आमंत्रित - जब आप बनाएंगे तो Google उन्हें ईमेल करेगा",
       joinMeet: "मीट में शामिल हों",
       joinMeeting: "मीटिंग में शामिल हों",
       joinTeams: "टीमों में शामिल हों",
@@ -3435,8 +3430,7 @@ const calendarSurfaceTranslations = {
       preview: "معاينة",
       previewConfirmed: "تم تأكيد المعاينة",
       previewGuest: "معاينة الضيف",
-      privateAccessDescription:
-        "يمكن للأشخاص المدعوين فقط إدارة رابط الحجز هذا",
+      privateAccessDescription: "يمكن للأشخاص المدعوين فقط إدارة رابط الحجز هذا",
       publicAccessDescription:
         "يمكن لأي شخص لديه رابط التطبيق عرض إعداد رابط الحجز هذا",
       publicBookingLink: "رابط الحجز العام",
@@ -3457,8 +3451,7 @@ const calendarSurfaceTranslations = {
         "يستخدم القائمون بالحجز URL لاختيار الوقت. مشاركة عناصر التحكم في من يمكنه إدارة رابط الحجز هذا.",
       shownOnBookingPage: "يظهر في صفحة الحجز",
       slotDuration: "مدة الفتحة (بالدقائق)",
-      stillCreating:
-        "لا يزال الإنشاء مستمرًا - يرجى المحاولة مرة أخرى بعد قليل",
+      stillCreating: "لا يزال الإنشاء مستمرًا - يرجى المحاولة مرة أخرى بعد قليل",
       time: "الوقت",
       timezoneHelp:
         "يتم تفسير الساعات الأسبوعية مثل الساعة 9 صباحًا حتى 5 مساءً في هذه المنطقة الزمنية قبل أن يراها الزائرون في المنطقة الزمنية للمتصفح الخاص بهم.",
@@ -4615,11 +4608,9 @@ const translatedCalendarExtras = {
       agentDescription:
         "मॉडल, API कुंजियां, ऑटोमेशन, आवाज़ और दूसरे एजेंट नियंत्रणों के लिए एजेंट साइडबार सेटिंग्स खोलें।",
       openAgentSettings: "एजेंट सेटिंग्स खोलें",
-      zoomDescription:
-        "कैलेंडर इवेंट और बुकिंग के लिए मीटिंग लिंक बनाने हेतु Zoom कनेक्ट करें।",
+      zoomDescription: "कैलेंडर इवेंट और बुकिंग के लिए मीटिंग लिंक बनाने हेतु Zoom कनेक्ट करें।",
       zoomNotConfigured: "कॉन्फ़िगर नहीं है",
-      zoomCredentialsPrompt:
-        "कनेक्शन सक्षम करने के लिए Zoom OAuth क्रेडेंशियल जोड़ें।",
+      zoomCredentialsPrompt: "कनेक्शन सक्षम करने के लिए Zoom OAuth क्रेडेंशियल जोड़ें।",
       bookingTitleLabel: "फ़ॉलबैक बुकिंग पेज शीर्षक",
       bookingTitlePlaceholder: "मीटिंग बुक करें",
       bookingTitleHelp:
@@ -5758,8 +5749,7 @@ const translatedCalendarDebtTranslations = {
       closeDialog: "संवाद बंद करें / रद्द करें",
       openCommandPalette: "कमांड पैलेट खोलें",
       showKeyboardShortcuts: "कुंजीपटल शॉर्टकट दिखाएँ",
-      disabledWhileTyping:
-        "टेक्स्ट फ़ील्ड में टाइप करते समय शॉर्टकट अक्षम हो जाते हैं।",
+      disabledWhileTyping: "टेक्स्ट फ़ील्ड में टाइप करते समय शॉर्टकट अक्षम हो जाते हैं।",
     },
     manageBooking: {
       title: "बुकिंग प्रबंधित करें",
@@ -5821,10 +5811,8 @@ const translatedCalendarDebtTranslations = {
       connectGoogleCalendar: "Google Calendar कनेक्ट करें",
       connectGoogle: "Google कनेक्ट करें",
       signInWithGoogle: "Google के साथ साइन इन करें",
-      syncEventsDescription:
-        "अपने ईवेंट सिंक करें और अपना शेड्यूल प्रबंधित करें।",
-      readyToConnect:
-        "कनेक्ट करने के लिए तैयार - अपने Google खाते से साइन इन करें",
+      syncEventsDescription: "अपने ईवेंट सिंक करें और अपना शेड्यूल प्रबंधित करें।",
+      readyToConnect: "कनेक्ट करने के लिए तैयार - अपने Google खाते से साइन इन करें",
       connectToSync: "अपने कैलेंडर को सिंक करने के लिए Google कनेक्ट करें",
       hideSetup: "सेटअप छिपाएँ",
       followSteps:
@@ -5849,8 +5837,7 @@ const translatedCalendarDebtTranslations = {
       uploadJson: "JSON अपलोड करें",
       credentialsConfiguredSignIn:
         'क्रेडेंशियल कॉन्फ़िगर किया गया. साइन इन करने के लिए ऊपर "कनेक्ट Google Calendar" पर क्लिक करें।',
-      missingClientCredentials:
-        "JSON में client_id और client_secret नहीं मिल सका",
+      missingClientCredentials: "JSON में client_id और client_secret नहीं मिल सका",
       failedSaveCredentials: "क्रेडेंशियल सहेजने में विफल",
       failedParseJson: "JSON को पार्स करने में विफल",
       steps: {
@@ -5940,8 +5927,7 @@ const translatedCalendarDebtTranslations = {
       attachmentTitle: "عنوان المرفق",
       uploadAttachment: "تحميل المرفق",
       attachmentUploaded: "تم تحميل المرفق",
-      attachmentUploadLimit:
-        "يمكن أن يصل حجم تحميلات المرفقات إلى 25 ميغابايت.",
+      attachmentUploadLimit: "يمكن أن يصل حجم تحميلات المرفقات إلى 25 ميغابايت.",
       uploadFailed: "تعذر تحميل المرفق.",
       uploadMissingUrl: "لم يُرجع التحميل المرفق URL.",
       attachmentFallbackTitle: "مرفق",
@@ -7375,8 +7361,7 @@ const translatedCalendarExactCleanup = {
             step2:
               '"New Project" पर क्लिक करें → नाम और क्षेत्र चुनें → Create पर क्लिक करें',
             step3: "प्रोजेक्ट डैशबोर्ड पर Connection Details पैनल खोजें",
-            step4:
-              '"Connection string" टैब चुनें → postgres://... URL कॉपी करें',
+            step4: '"Connection string" टैब चुनें → postgres://... URL कॉपी करें',
             step5: "पूरा कनेक्शन स्ट्रिंग (पासवर्ड सहित) नीचे पेस्ट करें",
           },
         },
@@ -7386,8 +7371,7 @@ const translatedCalendarExactCleanup = {
             step1: "supabase.com/dashboard पर जाएं और साइन अप या लॉग इन करें",
             step2:
               '"New Project" पर क्लिक करें → नाम और डेटाबेस पासवर्ड सेट करें → Create पर क्लिक करें',
-            step3:
-              "प्रोजेक्ट प्रोविजनिंग पूरी होने तक प्रतीक्षा करें (लगभग 30 सेकंड)",
+            step3: "प्रोजेक्ट प्रोविजनिंग पूरी होने तक प्रतीक्षा करें (लगभग 30 सेकंड)",
             step4: "Project Settings → Database → Connection string पर जाएं",
             step5:
               '"URI" टैब चुनें → postgres://... स्ट्रिंग कॉपी करें ([YOUR-PASSWORD] को डेटाबेस पासवर्ड से बदलें)',
@@ -7398,15 +7382,13 @@ const translatedCalendarExactCleanup = {
           steps: {
             step1:
               "dash.cloudflare.com → Workers & Pages → D1 SQL Database पर जाएं",
-            step2:
-              '"Create" पर क्लिक करें → डेटाबेस का नाम दें → Create पर क्लिक करें',
+            step2: '"Create" पर क्लिक करें → डेटाबेस का नाम दें → Create पर क्लिक करें',
             step3: "डेटाबेस अवलोकन पेज से Database ID कॉपी करें",
             step4:
               "प्रमाणीकरण टोकन के लिए: My Profile → API Tokens → Create Token पर जाएं",
             step5:
               '"Edit Cloudflare Workers" टेम्पलेट चुनें → Create Token → इसे कॉपी करें',
-            step6:
-              "d1://<database-id> का उपयोग करें और नीचे API token पेस्ट करें",
+            step6: "d1://<database-id> का उपयोग करें और नीचे API token पेस्ट करें",
           },
         },
       },
@@ -7430,8 +7412,7 @@ const translatedCalendarExactCleanup = {
     attendees: {
       addAnotherGuest: "एक और अतिथि जोड़ें",
       contacts: "संपर्क",
-      contactsReconnect:
-        "संपर्क या डायरेक्टरी एक्सेस को फिर से कनेक्ट करना होगा।",
+      contactsReconnect: "संपर्क या डायरेक्टरी एक्सेस को फिर से कनेक्ट करना होगा।",
       directory: "डायरेक्टरी",
       inviteEmail: "{{email}} को आमंत्रित करें",
       otherContacts: "अन्य संपर्क",
@@ -7451,15 +7432,12 @@ const translatedCalendarExactCleanup = {
       syncGoogle: "Google सिंक करें",
       syncedCount_one: "{{count}} इवेंट सिंक हुआ",
       syncedCount_other: "{{count}} इवेंट सिंक हुए",
-      syncedFromGoogleCalendar_one:
-        "Google Calendar से {{count}} इवेंट सिंक हुआ",
-      syncedFromGoogleCalendar_other:
-        "Google Calendar से {{count}} इवेंट सिंक हुए",
+      syncedFromGoogleCalendar_one: "Google Calendar से {{count}} इवेंट सिंक हुआ",
+      syncedFromGoogleCalendar_other: "Google Calendar से {{count}} इवेंट सिंक हुए",
     },
     sidebar: {
       addGoogleAccount: "Google खाता जोड़ें",
-      colorByMeetingType:
-        "मीटिंग प्रकार से रंग दें (बाहरी, आंतरिक, 1:1, समूह आदि)",
+      colorByMeetingType: "मीटिंग प्रकार से रंग दें (बाहरी, आंतरिक, 1:1, समूह आदि)",
       googleCalendarSettings: "Google Calendar सेटिंग",
       hideCalendar: "कैलेंडर छिपाएं",
       myCalendars: "मेरे कैलेंडर",
@@ -9012,8 +8990,7 @@ const translatedCalendarRawBurnDown = {
       applyChangesTo: "बदलाव लागू करें",
       awaiting: "प्रतीक्षा में",
       cancelEvent: "इवेंट रद्द करें",
-      cancelRecurringDescription:
-        "चुनें कि सीरीज़ का कितना हिस्सा रद्द करना है।",
+      cancelRecurringDescription: "चुनें कि सीरीज़ का कितना हिस्सा रद्द करना है।",
       cancelRecurringEventQuestion: "दोहराया जाने वाला इवेंट रद्द करें?",
       cancelRecurringNotifyDescription:
         "चुनें कि सीरीज़ का कितना हिस्सा रद्द करना है और मेहमानों को सूचित करना है या नहीं।",
@@ -9038,14 +9015,12 @@ const translatedCalendarRawBurnDown = {
       saveResponse: "प्रतिक्रिया सहेजें",
       saveResponseStatus: "प्रतिक्रिया स्थिति सहेजें",
       seeAllParticipants: "सभी {{count}} प्रतिभागी देखें",
-      sendCancellationDescription:
-        "वैकल्पिक नोट के साथ मेहमानों को रद्दीकरण भेजें।",
+      sendCancellationDescription: "वैकल्पिक नोट के साथ मेहमानों को रद्दीकरण भेजें।",
       sendUpdate: "अपडेट भेजें",
       sendUpdateDescription: "वैकल्पिक नोट के साथ मेहमानों को अपडेट भेजें।",
       updateEvent: "इवेंट अपडेट करें",
       updateNotePlaceholder: "क्या बदला या मेहमानों को क्या जानना चाहिए...",
-      updateRecurringDescription:
-        "चुनें कि सीरीज़ का कितना हिस्सा अपडेट करना है।",
+      updateRecurringDescription: "चुनें कि सीरीज़ का कितना हिस्सा अपडेट करना है।",
       updateRecurringEventQuestion: "दोहराया जाने वाला इवेंट अपडेट करें?",
       updateRecurringNotifyDescription:
         "चुनें कि सीरीज़ का कितना हिस्सा अपडेट करना है और मेहमानों को सूचित करना है या नहीं।",
@@ -9094,8 +9069,7 @@ const translatedCalendarRawBurnDown = {
       failedToCancelBooking: "فشل إلغاء الحجز",
       failedToCreateBooking: "فشل إنشاء الحجز",
       goToStep: "الانتقال إلى {{step}}",
-      meetingTypeUnavailable:
-        "ربما تمت إزالة نوع الاجتماع هذا أو لم يعد نشطًا.",
+      meetingTypeUnavailable: "ربما تمت إزالة نوع الاجتماع هذا أو لم يعد نشطًا.",
       noBookingsFound: "لم يتم العثور على حجوزات.",
       notes: "ملاحظات",
       selectTime: "اختر وقتًا",

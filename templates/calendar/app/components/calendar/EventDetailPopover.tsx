@@ -1,6 +1,9 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { markPopoverInteractOutside } from "@/lib/popover-click-guard";
-import { format, parseISO, differenceInMinutes } from "date-fns";
+import { sendToAgentChat, useT } from "@agent-native/core/client";
+import type {
+  CalendarEvent,
+  FindTimeSlot,
+  UpdateEventScope,
+} from "@shared/api";
 import {
   IconX,
   IconClock,
@@ -22,8 +25,30 @@ import {
   IconPaperclip,
   IconCalendarTime,
 } from "@tabler/icons-react";
+import { format, parseISO, differenceInMinutes } from "date-fns";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { toast } from "sonner";
+
+import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
+import {
+  AttendeeAutocomplete,
+  type AttendeeRecipient,
+} from "@/components/calendar/AttendeeAutocomplete";
+import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
+import {
+  RenderedDescription,
+  AutoGrowTextarea,
+} from "@/components/calendar/EventDescription";
+import {
+  AttachmentControls,
+  EventColorSwatches,
+  ReminderControls,
+} from "@/components/calendar/EventOptionControls";
+import { FindTimeTakeover } from "@/components/calendar/FindTimePanel";
+import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
+import { useCalendarContext } from "@/components/layout/AppLayout";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Popover,
   PopoverTrigger,
@@ -36,40 +61,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip";
-import type {
-  CalendarEvent,
-  FindTimeSlot,
-  UpdateEventScope,
-} from "@shared/api";
-import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
-import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
-import {
-  AttendeeAutocomplete,
-  type AttendeeRecipient,
-} from "@/components/calendar/AttendeeAutocomplete";
-import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useEvent, useUpdateEvent } from "@/hooks/use-events";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
-import { sendToAgentChat, useT } from "@agent-native/core/client";
-import { toast } from "sonner";
-import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
-import {
-  RenderedDescription,
-  AutoGrowTextarea,
-} from "@/components/calendar/EventDescription";
-import { TimezoneCombobox } from "@/components/TimezoneCombobox";
-import {
-  AttachmentControls,
-  EventColorSwatches,
-  ReminderControls,
-} from "@/components/calendar/EventOptionControls";
-import { FindTimeTakeover } from "@/components/calendar/FindTimePanel";
+import { getGoogleEventColorHex } from "@/lib/event-colors";
 import {
   attachmentsToDrafts,
   buildRecurrenceRules,
@@ -88,9 +90,8 @@ import {
   type ReminderMode,
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
-import { getGoogleEventColorHex } from "@/lib/event-colors";
+import { markPopoverInteractOutside } from "@/lib/popover-click-guard";
 import { shortcutModifierLabel } from "@/lib/utils";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 function formatDuration(start: string, end: string): string {
   const totalMinutes = differenceInMinutes(parseISO(end), parseISO(start));

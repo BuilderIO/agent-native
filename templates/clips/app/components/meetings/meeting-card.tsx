@@ -1,10 +1,3 @@
-/**
- * <MeetingCard /> — Granola-style meeting tile.
- *
- * Renders title, time, attendee stack, status pills (Live / Transcript ready
- * / Notes ready), and a 1-2 line summary preview. Hover lifts the card.
- */
-import { NavLink } from "react-router";
 import { useT } from "@agent-native/core/client";
 import {
   IconCheck,
@@ -13,10 +6,19 @@ import {
   IconNotes,
   IconVideo,
 } from "@tabler/icons-react";
+/**
+ * <MeetingCard /> — Granola-style meeting tile.
+ *
+ * Renders title, time, attendee stack, status pills (Live / Transcript ready
+ * / Notes ready), and a 1-2 line summary preview. Hover lifts the card.
+ */
+import { NavLink } from "react-router";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+
 import { AttendeeStack, type AttendeeStackParticipant } from "./attendee-stack";
 
 export interface MeetingCardData {

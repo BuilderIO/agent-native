@@ -29,7 +29,7 @@ Dies sind die skills, die mit der **Standardvorlage** gebündelt sind. Der genau
 | `storing-data`         | Datenmodelle hinzufügen, Konfiguration oder Status lesen/schreiben          |
 | `real-time-sync`       | Verdrahtungsabfragesynchronisierung, Debugging UI wird nicht aktualisiert   |
 | `delegate-to-agent`    | KI-Arbeit von UI oder actions an den Agenten delegieren                     |
-| `actions`              | Agentenaktionen wird erstellt oder ausgeführt                                 |
+| `actions`              | Agentenaktionen wird erstellt oder ausgeführt                               |
 | `self-modifying-code`  | App-Quelle, Komponenten oder Stile bearbeiten                               |
 | `create-skill`         | Neues skills für den Agenten hinzufügen                                     |
 | `capture-learnings`    | Korrekturen und Muster aufzeichnen                                          |

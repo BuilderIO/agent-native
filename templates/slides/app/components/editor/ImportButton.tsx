@@ -1,6 +1,7 @@
-import { useRef } from "react";
-import { IconUpload } from "@tabler/icons-react";
 import { agentNativePath, appBasePath, useT } from "@agent-native/core/client";
+import { IconUpload } from "@tabler/icons-react";
+import { useRef } from "react";
+
 import {
   Tooltip,
   TooltipContent,

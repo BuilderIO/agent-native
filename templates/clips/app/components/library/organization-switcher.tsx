@@ -1,18 +1,18 @@
-import { useState } from "react";
+import { useT } from "@agent-native/core/client";
+import {
+  useOrg,
+  useSwitchOrg,
+  useCreateOrg,
+} from "@agent-native/core/client/org";
 import {
   IconChevronDown,
   IconCheck,
   IconPlus,
   IconBuilding,
 } from "@tabler/icons-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  DropdownMenuLabel,
-} from "@/components/ui/dropdown-menu";
+import { useState } from "react";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,14 +22,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 import {
-  useOrg,
-  useSwitchOrg,
-  useCreateOrg,
-} from "@agent-native/core/client/org";
-import { useT } from "@agent-native/core/client";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 interface OrganizationSwitcherProps {
   className?: string;

@@ -1,6 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
-import type { AnimationTrack, EasingKey } from "@/types";
-import { getPropValueKeyframed } from "@/remotion/trackAnimation";
+import { useT } from "@agent-native/core/client";
 import {
   IconArrowLeftRight,
   IconArrowsUpDown,
@@ -8,11 +6,10 @@ import {
   IconZoomIn,
   IconEye,
 } from "@tabler/icons-react";
-import { useT } from "@agent-native/core/client";
-import { Label } from "./ui/label";
-import { MotionCurveSelect } from "./MotionCurveSelect";
-import { KeyframeNavigation } from "./keyframes/KeyframeNavigation";
-import { KeyframeActionButtons } from "./keyframes/KeyframeActionButtons";
+import { useEffect, useState, useCallback } from "react";
+
+import { getPropValueKeyframed } from "@/remotion/trackAnimation";
+import type { AnimationTrack, EasingKey } from "@/types";
 import {
   getAllKeyframeFrames,
   isFrameOnKeyframe,
@@ -23,6 +20,11 @@ import {
   updateCameraKeyframe,
   resetToDefaults,
 } from "@/utils/keyframeUtils";
+
+import { KeyframeActionButtons } from "./keyframes/KeyframeActionButtons";
+import { KeyframeNavigation } from "./keyframes/KeyframeNavigation";
+import { MotionCurveSelect } from "./MotionCurveSelect";
+import { Label } from "./ui/label";
 
 interface CameraControlsProps {
   currentFrame: number;

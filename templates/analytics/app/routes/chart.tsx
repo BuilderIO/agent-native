@@ -1,9 +1,9 @@
+import { useT } from "@agent-native/core/client";
 import { useMemo } from "react";
 import { useSearchParams } from "react-router";
 
 import { SqlChart } from "@/components/dashboard/SqlChart";
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
-import { useT } from "@agent-native/core/client";
 
 export function meta() {
   return [{ title: "Chart" }];

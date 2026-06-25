@@ -279,9 +279,7 @@ export const InlineReplyComposer = forwardRef<
   const handleGenerate = async () => {
     if (!generatePrompt.trim()) return;
     if (!(await canUseAgentGenerate())) {
-      toast.error(
-        t("mail.toasts.aiEngineRequired"),
-      );
+      toast.error(t("mail.toasts.aiEngineRequired"));
       window.dispatchEvent(new CustomEvent("agent-panel:open"));
       return;
     }

@@ -199,8 +199,7 @@ const messages = {
   },
   team: {
     title: "الفريق",
-    createOrgDescription:
-      "أعد فريقاً لمشاركة سجلات التغذية والتحليلات مع زملائك.",
+    createOrgDescription: "أعد فريقاً لمشاركة سجلات التغذية والتحليلات مع زملائك.",
   },
   analytics: {
     selectRange: "تحديد النطاق",

@@ -1,4 +1,3 @@
-import { useState, useEffect, useRef, useCallback } from "react";
 import { callAction, useT } from "@agent-native/core/client";
 import {
   IconSearch,
@@ -8,27 +7,29 @@ import {
   IconLink,
   IconCalendarPlus,
 } from "@tabler/icons-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  useOverlayPeople,
-  useAddOverlayPerson,
-  useRemoveOverlayPerson,
-} from "@/hooks/use-overlay-people";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   useExternalCalendars,
   useAddExternalCalendar,
   useRemoveExternalCalendar,
 } from "@/hooks/use-external-calendars";
-import { toast } from "sonner";
+import {
+  useOverlayPeople,
+  useAddOverlayPerson,
+  useRemoveOverlayPerson,
+} from "@/hooks/use-overlay-people";
 
 interface SearchResult {
   name: string;

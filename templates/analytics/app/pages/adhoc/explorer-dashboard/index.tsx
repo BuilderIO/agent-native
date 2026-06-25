@@ -340,7 +340,9 @@ export default function ExplorerDashboardPage() {
       navigate("/dashboards/explorer");
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : t("explorerDashboard.archiveFailed"),
+        err instanceof Error
+          ? err.message
+          : t("explorerDashboard.archiveFailed"),
       );
     }
   }, [
@@ -374,7 +376,9 @@ export default function ExplorerDashboardPage() {
       );
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : t("explorerDashboard.unhideFailed"),
+        err instanceof Error
+          ? err.message
+          : t("explorerDashboard.unhideFailed"),
       );
     }
   }, [dashboardId, dashboard?.name, hideDashboardAction, queryClient]);
@@ -383,9 +387,7 @@ export default function ExplorerDashboardPage() {
     (updated: ExplorerDashboardData) => {
       if (!dashboardId) return;
       if (!canEdit) {
-        toast.error(
-          t("explorerDashboard.viewOnly"),
-        );
+        toast.error(t("explorerDashboard.viewOnly"));
         return;
       }
       setDashboard(updated);

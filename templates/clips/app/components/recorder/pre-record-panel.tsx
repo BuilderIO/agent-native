@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-} from "react";
+import { agentNativePath, useT } from "@agent-native/core/client";
 import {
   IconBrowser,
   IconCamera,
@@ -18,20 +11,28 @@ import {
   IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
-import { agentNativePath, useT } from "@agent-native/core/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { CaptureInstallInlineLink } from "@/components/capture-install-options";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
+
+import { CaptureInstallInlineLink } from "@/components/capture-install-options";
+import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -40,24 +41,25 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
-import {
-  NO_CAMERA_DEVICE_ID,
-  NO_MIC_DEVICE_ID,
-  type DisplaySurface,
-  type RecordingMode,
-} from "./recorder-engine";
-import type { CameraBubbleSize } from "./camera-bubble";
 import {
   loadRecorderPreferences,
   saveRecorderPreferences,
 } from "@/lib/recorder-preferences";
+import { cn } from "@/lib/utils";
+
+import type { CameraBubbleSize } from "./camera-bubble";
 import { CameraVisualizer, type CameraTestStatus } from "./camera-visualizer";
 import {
   MicrophoneVisualizer,
   friendlyMicError,
   type MicrophoneTestStatus,
 } from "./microphone-visualizer";
+import {
+  NO_CAMERA_DEVICE_ID,
+  NO_MIC_DEVICE_ID,
+  type DisplaySurface,
+  type RecordingMode,
+} from "./recorder-engine";
 
 export interface PreRecordPanelProps {
   onStart: (opts: {

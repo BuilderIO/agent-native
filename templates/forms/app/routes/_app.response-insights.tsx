@@ -1,5 +1,5 @@
-import { ResponseInsightsPage } from "@/pages/ResponseInsightsPage";
 import messages from "@/i18n/en-US";
+import { ResponseInsightsPage } from "@/pages/ResponseInsightsPage";
 
 export function meta() {
   return [

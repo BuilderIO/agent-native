@@ -1,6 +1,9 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import { useNavigate, Link } from "react-router";
-import { nanoid } from "nanoid";
+import {
+  useActionQuery,
+  useActionMutation,
+  useT,
+} from "@agent-native/core/client";
+import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
 import {
   IconChecks,
   IconPlus,
@@ -13,22 +16,17 @@ import {
   IconX,
   IconPencil,
 } from "@tabler/icons-react";
-import {
-  useActionQuery,
-  useActionMutation,
-  useT,
-} from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { nanoid } from "nanoid";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useNavigate, Link } from "react-router";
+
+import PromptPopover from "@/components/editor/PromptDialog";
+import type { UploadedFile } from "@/components/editor/PromptDialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,19 +37,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import PromptPopover from "@/components/editor/PromptDialog";
-import type { UploadedFile } from "@/components/editor/PromptDialog";
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
-import { useDesignSystems } from "@/hooks/use-design-systems";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useDesignSystems } from "@/hooks/use-design-systems";
 import {
   clearPendingGeneration,
   writePendingGeneration,

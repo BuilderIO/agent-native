@@ -1,7 +1,7 @@
+import { useT } from "@agent-native/core/client";
 import { IconFlask } from "@tabler/icons-react";
 
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
-import { useT } from "@agent-native/core/client";
 
 export default function BlankDashboard() {
   const t = useT();

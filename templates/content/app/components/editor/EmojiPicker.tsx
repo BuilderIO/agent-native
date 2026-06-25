@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconMoodSmile } from "@tabler/icons-react";
 import { useState, useMemo, useRef, useEffect, type ReactNode } from "react";
 
@@ -11,7 +12,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
 
 type EmojiCategory = { name: string; emojis: string[] };
 

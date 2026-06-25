@@ -1,6 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
-import type { AnimationTrack, EasingKey } from "@/types";
-import { getPropValueKeyframed } from "@/remotion/trackAnimation";
+import { useT } from "@agent-native/core/client";
 import {
   IconMouse,
   IconPlus,
@@ -9,18 +7,21 @@ import {
   IconClick,
   IconAlertCircle,
 } from "@tabler/icons-react";
-import { Button } from "./ui/button";
-import { Label } from "./ui/label";
-import { Input } from "./ui/input";
+import { useEffect, useState, useMemo } from "react";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useCurrentElement } from "@/contexts/CurrentElementContext";
+import { getPropValueKeyframed } from "@/remotion/trackAnimation";
 import {
   DefaultCursor,
   PointerCursor,
   TextCursor,
 } from "@/remotion/ui-components/Cursor";
-import { MotionCurveSelect } from "./MotionCurveSelect";
-import { KeyframeNavigation } from "./keyframes/KeyframeNavigation";
-import { KeyframeActionButtons } from "./keyframes/KeyframeActionButtons";
-import { useCurrentElement } from "@/contexts/CurrentElementContext";
+import type { AnimationTrack, EasingKey } from "@/types";
 import {
   getAllKeyframeFrames,
   isFrameOnKeyframe,
@@ -30,12 +31,13 @@ import {
   getCurrentKeyframeEasing as getCurrentKeyframeEasingUtil,
   setOrUpdateKeyframe as setOrUpdateKeyframeUtil,
 } from "@/utils/keyframeUtils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
+
+import { KeyframeActionButtons } from "./keyframes/KeyframeActionButtons";
+import { KeyframeNavigation } from "./keyframes/KeyframeNavigation";
+import { MotionCurveSelect } from "./MotionCurveSelect";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 
 interface CursorControlsProps {
   currentFrame: number;

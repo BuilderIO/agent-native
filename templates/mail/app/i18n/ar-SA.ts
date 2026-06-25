@@ -517,8 +517,7 @@ const messages = {
     slackPostEndpoint: "نقطة نهاية Slack POST",
     slackPostEndpointHelp:
       "استخدمها في Slack Event Subscriptions. قد يعرض GET من المتصفح Not Found.",
-    teamDescription:
-      "قم بإعداد فريق لمشاركة أتمتات البريد والإعدادات مع زملائك.",
+    teamDescription: "قم بإعداد فريق لمشاركة أتمتات البريد والإعدادات مع زملائك.",
     title: "الإعدادات",
     general: "عام",
     generalDescription: "اللغة وتفضيلات مستوى الحساب في Mail.",

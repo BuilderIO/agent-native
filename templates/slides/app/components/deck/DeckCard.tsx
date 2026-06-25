@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { VisibilityBadge, useT } from "@agent-native/core/client";
 import {
   IconDots,
   IconTrash,
@@ -7,9 +7,8 @@ import {
   IconPalette,
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
-import type { Deck } from "@/context/DeckContext";
-import SlideRenderer from "./SlideRenderer";
-import { VisibilityBadge, useT } from "@agent-native/core/client";
+import { Link } from "react-router";
+
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -17,6 +16,9 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import type { Deck } from "@/context/DeckContext";
+
+import SlideRenderer from "./SlideRenderer";
 
 interface DeckCardProps {
   deck: Deck;

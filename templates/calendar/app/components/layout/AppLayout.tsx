@@ -1,15 +1,4 @@
 import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  type ReactNode,
-} from "react";
-import { useLocation } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import { IconMenu } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import {
   AgentSidebar,
   AgentToggleButton,
   NotificationsBell,
@@ -17,16 +6,29 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
-import { Sidebar } from "./Sidebar";
+import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
+import { IconMenu } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  type ReactNode,
+} from "react";
+import { useLocation } from "react-router";
+
 import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
+import { Button } from "@/components/ui/button";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import { useNavigationState } from "@/hooks/use-navigation-state";
 import { useHiddenCalendars } from "@/hooks/use-hidden-calendars";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import { prefetchPeopleContacts } from "@/hooks/use-people";
-import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
+
+import { Sidebar } from "./Sidebar";
 
 const EVENT_DETAIL_MODE_KEY = "calendar-event-detail-mode";
 

@@ -1,16 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
 import { useT } from "@agent-native/core/client";
+import type { PlanBlock, PlanContent } from "@shared/plan-content";
+import type { PlanAnnotation } from "@shared/plan-content";
 import {
   IconClick,
   IconLayoutBoard,
   IconPalette,
   IconX,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { PlanBlock, PlanContent } from "@shared/plan-content";
+
 import {
   CanvasArea,
   type CanvasMarkupMode,
@@ -19,7 +22,6 @@ import {
   type DesignElementSelection,
 } from "./CanvasArea";
 import { PrototypeViewer } from "./PrototypeViewer";
-import type { PlanAnnotation } from "@shared/plan-content";
 
 type CanvasMarkupAnnotationInput = Omit<PlanAnnotation, "id">;
 export type PlanVisualSurfaceMode = "prototype" | "wireframes" | "none";

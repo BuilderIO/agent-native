@@ -1,8 +1,9 @@
+import { useT } from "@agent-native/core/client";
 import { useMemo } from "react";
-import Settings from "@/pages/Settings";
+
 import { useAppHeaderControls } from "@/components/layout/AppLayout";
 import { messagesByLocale } from "@/i18n-data";
-import { useT } from "@agent-native/core/client";
+import Settings from "@/pages/Settings";
 
 export function meta() {
   return [{ title: messagesByLocale["en-US"].routeTitles.settings }];

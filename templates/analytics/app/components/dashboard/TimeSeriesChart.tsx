@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   Area,
   AreaChart,
@@ -10,7 +11,6 @@ import {
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useT } from "@agent-native/core/client";
 
 interface TimeSeriesChartProps {
   title: string;

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconAlertTriangle, IconBook, IconFileText } from "@tabler/icons-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +12,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
-import { useT } from "@agent-native/core/client";
 
 export interface CanonicalPreviewData {
   source: "knowledge" | "proposal";

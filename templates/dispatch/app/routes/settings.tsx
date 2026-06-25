@@ -5,7 +5,6 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { Button } from "@agent-native/dispatch/components/ui/button";
-import { messagesByLocale } from "@/i18n-data";
 import {
   Card,
   CardContent,
@@ -15,6 +14,8 @@ import {
 } from "@agent-native/dispatch/components/ui/card";
 import { Label } from "@agent-native/dispatch/components/ui/label";
 import { Link } from "react-router";
+
+import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";
 

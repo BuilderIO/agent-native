@@ -1,4 +1,15 @@
 import {
+  appBasePath,
+  captureClientException,
+  useT,
+} from "@agent-native/core/client";
+import {
+  isLoomEmbedUrl,
+  LOOM_START_MS_QUERY_PARAM,
+  loomEmbedUrlWithTimestamp,
+} from "@shared/loom";
+import { IconBolt, IconPlayerPlay } from "@tabler/icons-react";
+import {
   forwardRef,
   useCallback,
   useEffect,
@@ -7,14 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  appBasePath,
-  captureClientException,
-  useT,
-} from "@agent-native/core/client";
-import { IconBolt, IconPlayerPlay } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { Spinner } from "@/components/ui/spinner";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,29 +27,27 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { PlayerControls, SPEED_OPTIONS } from "./player-controls";
-import { CaptionsOverlay } from "./captions-overlay";
-import { CtaButton } from "./cta-button";
-import {
-  getExcludedRanges,
-  parseEdits,
-  type TrimRange,
-} from "@/lib/timestamp-mapping";
-import {
-  captureVideoThumbnailBlob,
-  thumbnailUrlHasVisibleContent,
-  uploadRecordingThumbnail,
-} from "@/lib/thumbnail-capture";
+import { Spinner } from "@/components/ui/spinner";
 import {
   parsePlaybackSpeed,
   readPlaybackSpeedPreference,
   savePlaybackSpeedPreference,
 } from "@/lib/playback-speed";
 import {
-  isLoomEmbedUrl,
-  LOOM_START_MS_QUERY_PARAM,
-  loomEmbedUrlWithTimestamp,
-} from "@shared/loom";
+  captureVideoThumbnailBlob,
+  thumbnailUrlHasVisibleContent,
+  uploadRecordingThumbnail,
+} from "@/lib/thumbnail-capture";
+import {
+  getExcludedRanges,
+  parseEdits,
+  type TrimRange,
+} from "@/lib/timestamp-mapping";
+import { cn } from "@/lib/utils";
+
+import { CaptionsOverlay } from "./captions-overlay";
+import { CtaButton } from "./cta-button";
+import { PlayerControls, SPEED_OPTIONS } from "./player-controls";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;

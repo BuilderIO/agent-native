@@ -1,4 +1,3 @@
-import { useState, useEffect, useRef, useCallback } from "react";
 import { callAction, useT } from "@agent-native/core/client";
 import {
   IconSearch,
@@ -6,6 +5,8 @@ import {
   IconUserPlus,
   IconLoader2,
 } from "@tabler/icons-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+
 import {
   Dialog,
   DialogContent,
@@ -154,7 +155,9 @@ export function PeopleSearchDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[440px] gap-0 p-0">
         <DialogHeader className="px-4 pt-4 pb-0">
-          <DialogTitle className="text-base">{t("eventForm.people")}</DialogTitle>
+          <DialogTitle className="text-base">
+            {t("eventForm.people")}
+          </DialogTitle>
         </DialogHeader>
 
         {/* Search input */}

@@ -281,8 +281,7 @@ const messages = {
       noSourceFiles: "कोई Plan स्रोत फ़ाइलें नहीं मिलीं।",
       importedLocalSource: "आयातित स्थानीय स्रोत फ़ाइलें",
       enableLocalSyncFailed: "स्थानीय फ़ाइल समन्वयन सक्षम नहीं किया जा सका.",
-      syncLocalFailed:
-        "योजना को स्थानीय फ़ाइलों के साथ समन्वयित नहीं किया जा सका.",
+      syncLocalFailed: "योजना को स्थानीय फ़ाइलों के साथ समन्वयित नहीं किया जा सका.",
       planHtmlCopied: "Plan HTML कॉपी किया गया",
       planMarkdownCopied: "Plan Markdown कॉपी किया गया",
       planSourceDownloaded: "Plan स्रोत डाउनलोड किया गया",
@@ -294,10 +293,8 @@ const messages = {
       planRestored: "Plan बहाल।",
       recapPermanentlyDeleted: "पुनर्कथन स्थायी रूप से हटा दिया गया.",
       planPermanentlyDeleted: "Plan स्थायी रूप से हटा दिया गया।",
-      saveAnswersFailed:
-        "उत्तर सहेजे नहीं जा सके - वे केवल एजेंट चैट पर भेजे गए थे।",
-      sentCommentsWithScreenshots:
-        "एजेंट को टिप्पणियाँ और केंद्रित स्क्रीनशॉट भेजे",
+      saveAnswersFailed: "उत्तर सहेजे नहीं जा सके - वे केवल एजेंट चैट पर भेजे गए थे।",
+      sentCommentsWithScreenshots: "एजेंट को टिप्पणियाँ और केंद्रित स्क्रीनशॉट भेजे",
       sentComments: "एजेंट को टिप्पणियाँ भेजीं",
       feedbackCopied: "फ़ीडबैक निर्देश कॉपी किए गए",
       backToPlans: "योजनाओं पर वापस जाएँ",
@@ -307,11 +304,9 @@ const messages = {
       sendToAgent: "एजेंट को भेजें",
       sendFeedback: "प्रतिक्रिया भेजें",
       copyForAgent: "अपने एजेंट के लिए कॉपी करें",
-      copyForAgentDescription:
-        "उस प्रॉम्प्ट को कॉपी करें जिसे आप चैट में पेस्ट कर सकते हैं।",
+      copyForAgentDescription: "उस प्रॉम्प्ट को कॉपी करें जिसे आप चैट में पेस्ट कर सकते हैं।",
       sendToInlineAgent: "इनलाइन एजेंट को भेजें",
-      sendToInlineAgentDescription:
-        "ऐप साइड एजेंट में खुली टिप्पणियाँ पोस्ट करता है।",
+      sendToInlineAgentDescription: "ऐप साइड एजेंट में खुली टिप्पणियाँ पोस्ट करता है।",
       localFiles: "स्थानीय फ़ाइलें",
       localFilesNoHosted: "कोई होस्ट किया गया डेटाबेस लिखता या साझा नहीं करता।",
       copyLocalPath: "स्थानीय पथ कॉपी करें",
@@ -347,8 +342,7 @@ const messages = {
       replaceExistingFolder: "मौजूदा फ़ोल्डर बदलें",
       toggleAgentSidebar: "एजेंट साइडबार टॉगल करें",
       toggleSideChat: "साइड चैट टॉगल करें",
-      clickToComment:
-        "टिप्पणी करने के लिए {{noun}} पर क्लिक करें या टेक्स्ट चुनें",
+      clickToComment: "टिप्पणी करने के लिए {{noun}} पर क्लिक करें या टेक्स्ट चुनें",
       clickCanvasNote: "नोट रखने के लिए कैनवास पर क्लिक करें",
       dragCanvasCallout: "कॉलआउट बनाने के लिए कैनवास पर खींचें",
       reviewMarkupTools: "मार्कअप टूल की समीक्षा करें",
@@ -400,8 +394,7 @@ const messages = {
         },
         org: {
           label: "संगठन",
-          description:
-            "आपके संगठन का कोई भी व्यक्ति जिसके पास लिंक है, देख सकता है",
+          description: "आपके संगठन का कोई भी व्यक्ति जिसके पास लिंक है, देख सकता है",
         },
         public: {
           label: "सार्वजनिक",
@@ -477,8 +470,7 @@ const messages = {
       description:
         "कार्यान्वयन शुरू करने से पहले संपादन योग्य दस्तावेज़ ब्लॉक, आरेख, वायरफ़्रेम और टिप्पणियों के साथ एक बेहतर योजना बनाएं।",
       newPlan: "नई योजना",
-      installPrefix:
-        "या कौशल स्थापित करें और इसे अपने कोडिंग एजेंट में उपयोग करें",
+      installPrefix: "या कौशल स्थापित करें और इसे अपने कोडिंग एजेंट में उपयोग करें",
       installSuffix: "：",
     },
     loggedOut: {
@@ -495,8 +487,7 @@ const messages = {
     skillDemos: {
       "visual-plan": {
         label: "दृश्य योजना",
-        description:
-          "कोड परिवर्तन लागू करने से पहले कार्यान्वयन प्रपत्र की समीक्षा करें।",
+        description: "कोड परिवर्तन लागू करने से पहले कार्यान्वयन प्रपत्र की समीक्षा करें।",
         videoAriaLabel: "दृश्य योजना कौशल प्रदर्शन वीडियो",
       },
       "visual-recap": {
@@ -520,8 +511,7 @@ const messages = {
       restoreFailed: "पुनर्प्राप्ति योजना संस्करण विफल रहा.",
       back: "इतिहास को लौटें",
       title: "कार्यक्रम का इतिहास",
-      description:
-        "सहेजे गए योजना संस्करण ब्राउज़ करें और पिछले स्नैपशॉट पुनर्स्थापित करें।",
+      description: "सहेजे गए योजना संस्करण ब्राउज़ करें और पिछले स्नैपशॉट पुनर्स्थापित करें।",
       untitled: "अनाम योजना",
       snapshotUnavailable: "स्नैपशॉट उपलब्ध नहीं है",
       previewTitle: "योजना संस्करण पूर्वावलोकन",
@@ -558,8 +548,7 @@ const messages = {
         },
         questions: {
           label: "विज़ुअलाइज़ेशन समस्या",
-          description:
-            "समस्या की कल्पना करें - आवश्यकताओं को स्पष्ट रूप से एकत्रित करें",
+          description: "समस्या की कल्पना करें - आवश्यकताओं को स्पष्ट रूप से एकत्रित करें",
         },
         visual: {
           label: "सामान्य दृश्य",
@@ -592,8 +581,7 @@ const messages = {
       title: "एजेंट को योजना बनाने दें",
       description:
         "अपनी इच्छित योजना का वर्णन करें, या मौजूदा Codex/Claude योजना चिपकाएँ। Plan एजेंट वायरफ्रेम और समीक्षा संरचनाएं तैयार करता है।",
-      placeholder:
-        "कृपया UI प्रक्रिया, कार्यान्वयन आरेख, समीक्षा नोट्स बनाएं...",
+      placeholder: "कृपया UI प्रक्रिया, कार्यान्वयन आरेख, समीक्षा नोट्स बनाएं...",
       advanced: "विकसित",
       source: "स्रोत",
       sourceHelp:
@@ -619,8 +607,7 @@ const messages = {
       didNotLoadTitle: "योजना लोड नहीं हुई",
       notFoundBody:
         "यह प्रोग्राम मौजूद नहीं है, या यह किसी अन्य संगठन का है और आपको पहुंच की आवश्यकता है।",
-      noAccessBody:
-        "यह योजना मौजूद है, लेकिन इस खाते के पास इसे देखने की अनुमति नहीं है।",
+      noAccessBody: "यह योजना मौजूद है, लेकिन इस खाते के पास इसे देखने की अनुमति नहीं है।",
       maybeOtherOrgBody:
         "यह प्रोग्राम किसी अन्य संगठन का हो सकता है, या इस खाते तक पहुंच नहीं हो सकती है.",
       privateBody:
@@ -650,8 +637,7 @@ const messages = {
         "आपके पास {{orgName}} की ओर से निमंत्रण है। इस कार्यक्रम को खोलने का निमंत्रण स्वीकार करें.",
       domainMessage:
         "आपका @{{domain}} ईमेल पता {{orgName}} में जोड़ा जा सकता है। एक बार शामिल होने के बाद, आप प्रोग्राम खोल सकते हैं।",
-      joinMessage:
-        "इस प्रोग्राम को खोलने के लिए आप {{orgName}} से जुड़ सकते हैं।",
+      joinMessage: "इस प्रोग्राम को खोलने के लिए आप {{orgName}} से जुड़ सकते हैं।",
     },
     comments: {
       expectedResolver: "इच्छित प्रोसेसर",
@@ -663,8 +649,7 @@ const messages = {
       saving: "सहेजा जा रहा है",
       saveFailed: "सहेजने में असमर्थ. कृपया पुन: प्रयास करें।",
       signInTitle: "टिप्पणी करने के लिए साइन इन करें",
-      signInDescription:
-        "इस कार्यक्रम पर समीक्षा छोड़ने के लिए एक निःशुल्क खाता बनाएँ।",
+      signInDescription: "इस कार्यक्रम पर समीक्षा छोड़ने के लिए एक निःशुल्क खाता बनाएँ।",
       replyPlaceholder: "जवाब",
       sendReply: "उत्तर भेजें",
       sendFailed: "भेजने में असमर्थ. कृपया पुन: प्रयास करें।",

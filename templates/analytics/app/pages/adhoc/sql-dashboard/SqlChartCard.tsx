@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "@agent-native/core/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   IconGripVertical,
   IconDotsVertical,
@@ -10,6 +10,26 @@ import {
   IconCode,
   IconDownload,
 } from "@tabler/icons-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,27 +42,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
-import { ViewSqlPopover } from "./ViewSqlPopover";
+
 import type { SqlPanel } from "./types";
+import { ViewSqlPopover } from "./ViewSqlPopover";
 
 interface SqlChartCardProps {
   panel: SqlPanel;
@@ -265,7 +267,9 @@ export function SqlChartCard({
                       </button>
                     </DropdownMenuTrigger>
                   </TooltipTrigger>
-                  <TooltipContent>{t("sqlDashboard.panelOptions")}</TooltipContent>
+                  <TooltipContent>
+                    {t("sqlDashboard.panelOptions")}
+                  </TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-44">
                   <DropdownMenuItem onSelect={() => setExpanded(true)}>

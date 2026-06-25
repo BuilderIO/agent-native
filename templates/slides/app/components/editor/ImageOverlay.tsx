@@ -1,5 +1,3 @@
-import { useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
 import { useT } from "@agent-native/core/client";
 import {
   IconPhoto,
@@ -10,6 +8,8 @@ import {
   IconMinimize,
   IconGlobe,
 } from "@tabler/icons-react";
+import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 
 interface ImageOverlayProps {
   anchorRect: DOMRect;

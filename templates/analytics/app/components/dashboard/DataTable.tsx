@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconArrowsUpDown,
   IconChevronLeft,
@@ -24,7 +25,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { useT } from "@agent-native/core/client";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 

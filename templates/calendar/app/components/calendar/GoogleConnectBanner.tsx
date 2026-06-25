@@ -1,4 +1,9 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import {
+  agentNativePath,
+  isInBuilderFrame,
+  oauthRedirectUri,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconCalendarCheck,
   IconX,
@@ -12,18 +17,14 @@ import {
   IconLogout,
   IconInfoCircle,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  agentNativePath,
-  isInBuilderFrame,
-  oauthRedirectUri,
-  useT,
-} from "@agent-native/core/client";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,

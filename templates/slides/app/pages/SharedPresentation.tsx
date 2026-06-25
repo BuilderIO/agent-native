@@ -1,10 +1,11 @@
+import { appBasePath, useT } from "@agent-native/core/client";
+import type { SharedDeckResponse } from "@shared/api";
+import { IconAlertCircle } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useParams } from "react-router";
-import { IconAlertCircle } from "@tabler/icons-react";
-import type { SharedDeckResponse } from "@shared/api";
-import type { Slide } from "@/context/DeckContext";
+
 import PresentationView from "@/components/presentation/PresentationView";
-import { appBasePath, useT } from "@agent-native/core/client";
+import type { Slide } from "@/context/DeckContext";
 
 interface SharedPresentationProps {
   initialDeck?: SharedDeckResponse | null;

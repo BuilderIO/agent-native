@@ -95,8 +95,7 @@ const messages = {
       zoomHint: "ज़ूम करने के लिए ऊपर/नीचे खींचें",
       tilt: "टिल्ट",
       tiltHint: "3D घुमाने के लिए खींचें",
-      resetToDefaultView:
-        "इस कीफ्रेम के लिए कैमरा को डिफ़ॉल्ट दृश्य पर रीसेट करें",
+      resetToDefaultView: "इस कीफ्रेम के लिए कैमरा को डिफ़ॉल्ट दृश्य पर रीसेट करें",
     },
     cloud: {
       authToken: "प्रमाणीकरण टोकन",
@@ -148,8 +147,7 @@ const messages = {
       dropToRemove: "फोल्डर से हटाने के लिए यहां छोड़ें",
     },
     motion: {
-      controlsKeyframe:
-        "यह नियंत्रित करता है कि एनिमेशन इस कीफ्रेम तक कैसे पहुंचे",
+      controlsKeyframe: "यह नियंत्रित करता है कि एनिमेशन इस कीफ्रेम तक कैसे पहुंचे",
     },
     props: {
       emptyTitle: "कॉन्फ़िगर करने के लिए कोई प्रॉपर्टी नहीं",
@@ -286,8 +284,7 @@ const messages = {
       interactiveTextInputHelp:
         'नीचे "बिल्डर से पूछें" टेक्स्ट क्षेत्र टाइप करें। टेक्स्ट दर्ज करने पर सेंड बटन नीला हो जाएगा।',
       fullyInteractive: "यह घटक अब पूरी तरह से इंटरैक्टिव है:",
-      typeToSeeSendButton:
-        "नीला भेजें बटन देखने के लिए टेक्स्ट क्षेत्र टाइप करें",
+      typeToSeeSendButton: "नीला भेजें बटन देखने के लिए टेक्स्ट क्षेत्र टाइप करें",
       clickSendToClear: "टेक्स्ट साफ़ करने के लिए भेजें बटन पर क्लिक करें",
       hoverToSeeEffect: "वृद्धि/चमक प्रभाव देखने के लिए बटन पर होवर करें",
       previewOnly: "परिवर्तन केवल पूर्वावलोकन के लिए हैं और सहेजे नहीं जाएंगे",
@@ -329,8 +326,7 @@ const messages = {
       arrowDefault: "तीर (डिफ़ॉल्ट)",
       pointerHand: "सूचक (हाथ)",
       textIBeam: "पाठ (आई-बीम)",
-      customCursorType:
-        "कस्टम कर्सर प्रकार (रीसेट करने के लिए ट्रैश पर क्लिक करें)",
+      customCursorType: "कस्टम कर्सर प्रकार (रीसेट करने के लिए ट्रैश पर क्लिक करें)",
       usingInferredCursorType: "अनुमानित कर्सर प्रकार का उपयोग करना",
       addHover: "होवर जोड़ें",
       addClickState: "क्लिक स्थिति जोड़ें",
@@ -393,14 +389,11 @@ const messages = {
       noZonesFoundDescription:
         "डिबग मोड सक्षम करने और पहले ज़ोन समायोजित करने के लिए D दबाएँ।",
       invalidSavedZones: "सहेजे गए क्षेत्र अमान्य हैं",
-      invalidSavedZonesDescription:
-        "ज़ोन को फिर से समायोजित करें, फिर उन्हें सहेजें।",
+      invalidSavedZonesDescription: "ज़ोन को फिर से समायोजित करें, फिर उन्हें सहेजें।",
       zoneCoordinatesCopied: "ज़ोन निर्देशांक कॉपी किए गए",
       zoneCoordinatesReady: "ज़ोन निर्देशांक तैयार",
-      zoneCoordinatesCopiedDescription:
-        "उन्हें रचना क्षेत्र मानचित्र में चिपकाएँ।",
-      clipboardUnavailable:
-        "इस ब्राउज़र संदर्भ में क्लिपबोर्ड पहुंच अनुपलब्ध है।",
+      zoneCoordinatesCopiedDescription: "उन्हें रचना क्षेत्र मानचित्र में चिपकाएँ।",
+      clipboardUnavailable: "इस ब्राउज़र संदर्भ में क्लिपबोर्ड पहुंच अनुपलब्ध है।",
       debugMode: "डिबग मोड - टॉगल करने के लिए 'डी' दबाएँ",
       saveZones: "जोन सहेजें",
       remotionError: "हटाने में त्रुटि:",
@@ -426,8 +419,7 @@ const messages = {
       save: "सहेजें",
       saveRequiresLocalDev:
         "रजिस्ट्री में सहेजने के लिए स्थानीय विकास मोड की आवश्यकता होती है",
-      saveCurrentAsDefault:
-        "इस रचना के लिए वर्तमान सेटिंग्स को डिफ़ॉल्ट के रूप में सहेजें",
+      saveCurrentAsDefault: "इस रचना के लिए वर्तमान सेटिंग्स को डिफ़ॉल्ट के रूप में सहेजें",
       allChangesSavedDatabase: "सभी परिवर्तन डेटाबेस में सहेजे गए",
       allChangesSavedRegistry: "सभी परिवर्तन रजिस्ट्री में सहेजे गए",
       deleteComposition: "रचना हटाएँ",

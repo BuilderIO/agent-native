@@ -321,8 +321,8 @@ const state = encodeOAuthState({
 | `AGENT_NATIVE_WORKSPACE`                | `1` 在工作区模式下运行 - 跨工作区应用的一个共享会话领域                                                      |
 | `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | 使用 `COOKIE_DOMAIN` 设置以跨第一方子域共享一个身份验证数据库                                                |
 | `OAUTH_STATE_SECRET`                    | 用于 OAuth 状态包络的专用 HMAC 密钥（请参阅 [Security — OAuth State Signing](/docs/security#oauth-state)）   |
-| `GOOGLE_SIGN_IN_CLIENT_ID`              | 用于应用登录的首选低范围 谷歌OAuth 客户端 ID                                                              |
-| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | 用于应用登录的首选低范围 谷歌OAuth 密钥                                                                   |
+| `GOOGLE_SIGN_IN_CLIENT_ID`              | 用于应用登录的首选低范围 谷歌OAuth 客户端 ID                                                                 |
+| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | 用于应用登录的首选低范围 谷歌OAuth 密钥                                                                      |
 | `GOOGLE_CLIENT_ID`                      | 旧版 Google 登录回退以及用于 Google API 集成的提供商 OAuth 客户端 ID                                         |
 | `GOOGLE_CLIENT_SECRET`                  | 旧版 Google 登录回退以及 Google API 集成的提供商 OAuth 密钥                                                  |
 | `GITHUB_CLIENT_ID`                      | 启用GitHub OAuth                                                                                             |

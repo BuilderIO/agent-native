@@ -1,9 +1,16 @@
+import { useT } from "@agent-native/core/client";
+import {
+  IconPlus,
+  IconTrash,
+  IconPointer,
+  IconClick,
+  IconChevronRight,
+} from "@tabler/icons-react";
 import React, { useState } from "react";
-import { useCurrentElement } from "@/contexts/CurrentElementContext";
-import { usePlayback } from "@/contexts/PlaybackContext";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
+
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -12,29 +19,24 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  IconPlus,
-  IconTrash,
-  IconPointer,
-  IconClick,
-  IconChevronRight,
-} from "@tabler/icons-react";
-import { MotionCurveSelect } from "./MotionCurveSelect";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useCurrentElement } from "@/contexts/CurrentElementContext";
+import { usePlayback } from "@/contexts/PlaybackContext";
 import {
   DefaultCursor,
   PointerCursor,
   TextCursor,
 } from "@/remotion/ui-components/Cursor";
+import type { EasingKey } from "@/types";
 import type {
   ElementAnimation,
   AnimatedPropertyConfig,
 } from "@/types/elementAnimations";
-import type { EasingKey } from "@/types";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
+
+import { MotionCurveSelect } from "./MotionCurveSelect";
 
 /**
  * ANIMATION PROPERTY DEFAULTS

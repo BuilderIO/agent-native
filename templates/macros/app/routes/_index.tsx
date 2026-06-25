@@ -1,35 +1,36 @@
-import { useState, useEffect } from "react";
 import {
   useActionQuery,
   useActionMutation,
   useT,
 } from "@agent-native/core/client";
-import { format, addDays, subDays, isSameDay } from "date-fns";
+import type { Meal, Exercise } from "@shared/types";
 import {
   IconChevronLeft,
   IconChevronRight,
   IconToolsKitchen2,
   IconBarbell,
 } from "@tabler/icons-react";
-import { apiFetch } from "@/lib/api";
-import { formatLocalDate } from "@/lib/utils";
-import { DailyProgress } from "@/components/DailyProgress";
-import { MealCard } from "@/components/MealCard";
-import { ExerciseCard } from "@/components/ExerciseCard";
-import { AddMealDialog } from "@/components/AddMealDialog";
+import { format, addDays, subDays, isSameDay } from "date-fns";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
+
 import { AddExerciseDialog } from "@/components/AddExerciseDialog";
-import { WeightTracker } from "@/components/WeightTracker";
-import { VoiceDictation } from "@/components/VoiceDictation";
+import { AddMealDialog } from "@/components/AddMealDialog";
+import { DailyProgress } from "@/components/DailyProgress";
+import { ExerciseCard } from "@/components/ExerciseCard";
+import { MealCard } from "@/components/MealCard";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { VoiceDictation } from "@/components/VoiceDictation";
+import { WeightTracker } from "@/components/WeightTracker";
 import {
   getLogRowKey,
   isOptimisticLogRow,
   useOptimisticLogRows,
 } from "@/hooks/use-optimistic-log-rows";
-import { toast } from "sonner";
-import type { Meal, Exercise } from "@shared/types";
 import messages from "@/i18n/en-US";
+import { apiFetch } from "@/lib/api";
+import { formatLocalDate } from "@/lib/utils";
 
 const SEO_TITLE = messages.seo.homeTitle;
 const SEO_DESCRIPTION = messages.seo.homeDescription;

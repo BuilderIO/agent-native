@@ -1256,8 +1256,10 @@ const messages = {
     waitingForStorage: "En attente du stockage",
     savedLocally: "Enregistré localement",
     uploadFailed: "Échec de l’envoi",
-    connectStorageToFinish: "Ouvrez pour connecter le stockage et terminer l’enregistrement.",
-    retryFromClipsMenu: "Réessayez depuis le menu Clips ; inutile de réenregistrer.",
+    connectStorageToFinish:
+      "Ouvrez pour connecter le stockage et terminer l’enregistrement.",
+    retryFromClipsMenu:
+      "Réessayez depuis le menu Clips ; inutile de réenregistrer.",
     removeFailedClip: "Supprimer ce clip en échec.",
     remove: "Supprimer",
     viewsCount: "{{count}} vues",
@@ -1272,7 +1274,8 @@ const messages = {
     invite: "Inviter",
     inviteFailed: "Impossible d’inviter la personne",
     removePersonFailed: "Impossible de supprimer la personne",
-    passwordProtectedDescription: "Cette vidéo est protégée. Saisissez le mot de passe pour la regarder.",
+    passwordProtectedDescription:
+      "Cette vidéo est protégée. Saisissez le mot de passe pour la regarder.",
     password: "Mot de passe",
     unlock: "Déverrouiller",
     noEngagementData: "Aucune donnée d’engagement pour le moment.",

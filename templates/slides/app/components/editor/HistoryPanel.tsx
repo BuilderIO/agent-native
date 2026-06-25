@@ -1,11 +1,12 @@
-import { useMemo, useState, type RefObject } from "react";
+import { useT } from "@agent-native/core/client";
 import {
   IconArrowLeft,
   IconHistory,
   IconLoader2,
   IconRestore,
 } from "@tabler/icons-react";
-import type { Slide } from "@/context/DeckContext";
+import { useMemo, useState, type RefObject } from "react";
+
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -18,14 +19,15 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { toast } from "@/hooks/use-toast";
+import type { Slide } from "@/context/DeckContext";
 import {
   useDeckVersion,
   useDeckVersions,
   useRestoreDeckVersion,
 } from "@/hooks/use-deck-versions";
-import { useT } from "@agent-native/core/client";
+import { toast } from "@/hooks/use-toast";
 import type { AspectRatio } from "@/lib/aspect-ratios";
+
 import type { DeckVersionSummary } from "../../../shared/api";
 
 interface HistoryPanelProps {

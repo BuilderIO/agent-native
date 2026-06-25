@@ -16,9 +16,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import enUS from "@/i18n/en-US";
 
 import changelog from "../../CHANGELOG.md?raw";
-import enUS from "@/i18n/en-US";
 
 export function meta() {
   return [{ title: enUS.raw.routes.settings }];

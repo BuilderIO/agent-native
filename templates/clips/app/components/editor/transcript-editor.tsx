@@ -1,14 +1,15 @@
-import { useMemo, useRef, useState } from "react";
 import { useT } from "@agent-native/core/client";
 import { IconScissors } from "@tabler/icons-react";
+import { useMemo, useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { formatMs, isExcluded, type EditsJson } from "@/lib/timestamp-mapping";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { formatMs, isExcluded, type EditsJson } from "@/lib/timestamp-mapping";
+import { cn } from "@/lib/utils";
 
 export interface TranscriptSegment {
   startMs: number;

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   CartesianGrid,
   Line,
@@ -7,7 +8,6 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { useT } from "@agent-native/core/client";
 
 export interface TrendPoint {
   date: string;

@@ -6,8 +6,7 @@ import {
   openAgentSettings,
   useT,
 } from "@agent-native/core/client";
-import { messagesByLocale } from "@/i18n-data";
-import changelog from "../../CHANGELOG.md?raw";
+
 import {
   Card,
   CardContent,
@@ -16,6 +15,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { messagesByLocale } from "@/i18n-data";
+
+import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
   return [{ title: messagesByLocale["en-US"].routeTitles.settingsDesign }];

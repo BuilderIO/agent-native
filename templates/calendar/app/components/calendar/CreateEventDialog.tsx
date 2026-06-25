@@ -1,43 +1,9 @@
-import { useState, useEffect, useRef } from "react";
-import { differenceInMinutes, format } from "date-fns";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
-import { useSettings } from "@/hooks/use-settings";
-import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
-import { setUndoAction } from "@/hooks/use-undo";
 import {
   agentNativePath,
   sendToAgentChat,
   useT,
 } from "@agent-native/core/client";
-import { toast } from "sonner";
 import type { CalendarEventDraft } from "@shared/api";
-import {
-  AttendeeAutocomplete,
-  type AttendeeAutocompleteHandle,
-  type AttendeeRecipient,
-} from "@/components/calendar/AttendeeAutocomplete";
 import {
   IconCalendarTime,
   IconBrandZoom,
@@ -48,18 +14,54 @@ import {
   IconVideo,
   IconUsers,
 } from "@tabler/icons-react";
+import { differenceInMinutes, format } from "date-fns";
+import { useState, useEffect, useRef } from "react";
+import { toast } from "sonner";
+
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+  AttendeeAutocomplete,
+  type AttendeeAutocompleteHandle,
+  type AttendeeRecipient,
+} from "@/components/calendar/AttendeeAutocomplete";
 import {
   AttachmentControls,
   EventColorSwatches,
   ReminderControls,
 } from "@/components/calendar/EventOptionControls";
 import { FindTimeTakeover } from "@/components/calendar/FindTimePanel";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
+import { useSettings } from "@/hooks/use-settings";
+import { setUndoAction } from "@/hooks/use-undo";
+import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
+import { getGoogleEventColorHex } from "@/lib/event-colors";
 import {
   attachmentsToDrafts,
   buildReminderPayload,
@@ -74,7 +76,6 @@ import {
   type ReminderMode,
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
-import { getGoogleEventColorHex } from "@/lib/event-colors";
 
 type VideoProvider = "none" | "google_meet" | "zoom";
 type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";

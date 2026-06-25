@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconCode } from "@tabler/icons-react";
 import { useMemo } from "react";
 import {
@@ -23,7 +24,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
 
 import { formatDate } from "./format";
 

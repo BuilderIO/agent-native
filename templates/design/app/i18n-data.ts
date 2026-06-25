@@ -3228,8 +3228,7 @@ const designLocaleOverrides = {
     designEditor: {
       generationMayHaveStopped:
         "फ़ाइलें बनाने से पहले जनरेशन बंद हो गया होगा. एजेंट संदेश की जाँच करें या पुनः प्रयास करें।",
-      generationMayHaveStoppedToast:
-        "फ़ाइलें बनाने से पहले जनरेशन बंद हो गया होगा.",
+      generationMayHaveStoppedToast: "फ़ाइलें बनाने से पहले जनरेशन बंद हो गया होगा.",
       generationStoppedRetry:
         "फ़ाइलें बनाने से पहले जनरेशन बंद हो गया. उसी संकेत से जारी रखने के लिए पुनः प्रयास करें।",
       generationStoppedCheckAgent:
@@ -3273,8 +3272,7 @@ const designLocaleOverrides = {
       variations: "{{count}} विविधताएँ",
       close: "बंद करना",
       generating: "डिज़ाइन तैयार किया जा रहा है...",
-      noFiles:
-        "अभी तक कोई फ़ाइल नहीं. एजेंट से डिज़ाइन तैयार करने के लिए कहें।",
+      noFiles: "अभी तक कोई फ़ाइल नहीं. एजेंट से डिज़ाइन तैयार करने के लिए कहें।",
       tryAgain: "पुनः प्रयास करें",
       newPrompt: "नया संकेत",
       generateDesign: "डिज़ाइन तैयार करें",
@@ -3328,8 +3326,7 @@ const designLocaleOverrides = {
       dropCodeFiles:
         "CSS, Tailwind कॉन्फिगरेशन, थीम फ़ाइलें यहां छोड़ें, या ब्राउज़ करने के लिए क्लिक करें",
       documents: "दस्तावेज़ एवं प्रस्तुतियाँ",
-      documentsHelp:
-        "PPTX, DOCX, PDF, XLSX - ब्रांड गाइड, पिच डेक, स्टाइल डॉक्स",
+      documentsHelp: "PPTX, DOCX, PDF, XLSX - ब्रांड गाइड, पिच डेक, स्टाइल डॉक्स",
       visualReferences: "स्क्रीनशॉट और दृश्य संदर्भ",
       visualReferencesHelp: "उत्पाद स्क्रीनशॉट, मूड बोर्ड, प्रेरणा चित्र",
       assets: "लोगो, फ़ॉन्ट और अन्य संपत्तियाँ",
@@ -3367,8 +3364,7 @@ const designLocaleOverrides = {
         enterGithub: "इसे जोड़ने से पहले एक GitHub रिपॉजिटरी URL दर्ज करें।",
         githubUrl:
           "https://github.com/org/repo जैसे पूर्ण GitHub रिपॉजिटरी URL का उपयोग करें।",
-        noSources:
-          "डिज़ाइन सिस्टम तैयार करने से पहले कम से कम एक स्रोत जोड़ें।",
+        noSources: "डिज़ाइन सिस्टम तैयार करने से पहले कम से कम एक स्रोत जोड़ें।",
       },
       sections: {
         figma: {
@@ -3676,8 +3672,7 @@ const designLocaleOverrides = {
       description:
         "توفير أي مجموعة من المصادر. كلما زاد السياق الذي تقدمه، أصبح نظام التصميم المستخرج أكثر دقة.",
       figmaParsingTitle: "جارٍ تحليل ملف Figma...",
-      figmaParsingDescription:
-        "فك تشفير الوثيقة واستخراج رموز العلامة التجارية",
+      figmaParsingDescription: "فك تشفير الوثيقة واستخراج رموز العلامة التجارية",
       uploadFig: "تحميل ملف.fig",
       figmaSaveLocalCopy: "في Figma: ملف -> حفظ النسخة المحلية",
       websiteUrl: "موقع URL",
@@ -4850,8 +4845,7 @@ const designRawLiteralOverrides = {
       designPreview: "Design पूर्वावलोकन",
       presentMode: "वर्तमान मोड",
       useThisDirection: "इस दिशा का प्रयोग करें",
-      variantHandoffHelp:
-        "जारी रखने के लिए इस सारांश को अपने कोडिंग एजेंट में चिपकाएँ।",
+      variantHandoffHelp: "जारी रखने के लिए इस सारांश को अपने कोडिंग एजेंट में चिपकाएँ।",
       summaryCopied: "सारांश कॉपी किया गया",
       selectSummaryToCopy: "कॉपी करने के लिए सारांश चुनें",
       dismiss: "खारिज करें",
@@ -4929,8 +4923,7 @@ const designRawLiteralOverrides = {
         "यह इन {{count}} डिज़ाइनों और उनकी सभी फ़ाइलों को स्थायी रूप से हटा देगा। इस एक्शन को वापस नहीं किया जा सकता।",
       untitledDesign: "शीर्षक रहित Design",
       createFirstDesign: "अपना पहला डिज़ाइन बनाएं",
-      pickStartingPoint:
-        "एक प्रारंभिक बिंदु चुनें या अपना स्वयं का संकेत लिखें।",
+      pickStartingPoint: "एक प्रारंभिक बिंदु चुनें या अपना स्वयं का संकेत लिखें।",
       starterSaas: "सास लैंडिंग पृष्ठ",
       starterDashboard: "डैशबोर्ड",
       starterPricing: "मूल्य निर्धारण पृष्ठ",
@@ -5650,8 +5643,7 @@ const designExactEnglishOverrides = {
       generating: "डिज़ाइन जनरेट हो रहा है...",
       generationMayHaveStopped:
         "फ़ाइलें बनाने से पहले जनरेशन रुक गया हो सकता है। एजेंट संदेश देखें या फिर कोशिश करें।",
-      generationMayHaveStoppedToast:
-        "फ़ाइलें बनाने से पहले जनरेशन रुक गया हो सकता है।",
+      generationMayHaveStoppedToast: "फ़ाइलें बनाने से पहले जनरेशन रुक गया हो सकता है।",
       generationStoppedCheckAgent:
         "फ़ाइलें बनाने से पहले जनरेशन रुक गया। एजेंट संदेश देखें या फिर कोशिश करें।",
       generationStoppedRetry:

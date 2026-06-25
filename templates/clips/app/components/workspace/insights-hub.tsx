@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
-import { IconChartLine, IconDownload, IconUsers } from "@tabler/icons-react";
 import { appBasePath, useActionQuery, useT } from "@agent-native/core/client";
+import { IconChartLine, IconDownload, IconUsers } from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+
+import { PageHeader } from "@/components/library/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -12,10 +13,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 import { EngagementChart } from "./engagement-chart";
-import { TopVideosTable } from "./top-videos-table";
 import { TopCreatorsTable } from "./top-creators-table";
-import { PageHeader } from "@/components/library/page-header";
+import { TopVideosTable } from "./top-videos-table";
 
 interface InsightsResponse {
   organizationId: string | null;

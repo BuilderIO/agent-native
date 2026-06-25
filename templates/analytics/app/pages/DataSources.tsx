@@ -1,25 +1,13 @@
-import { useEffect, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Skeleton } from "@/components/ui/skeleton";
+  appApiPath,
+  agentNativePath,
+  oauthRedirectUri,
+  useActionMutation,
+  useActionQuery,
+  useSendToAgentChat,
+  PromptComposer,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconCheck,
   IconChevronDown,
@@ -38,14 +26,42 @@ import {
   IconDotsVertical,
   IconBrandGithub,
 } from "@tabler/icons-react";
-import { getIdToken } from "@/lib/auth";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+
 import {
-  dataSources,
-  categoryLabels,
-  categoryOrder,
-  type DataSource,
-  type WalkthroughStep,
-} from "@/lib/data-sources";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { getIdToken } from "@/lib/auth";
 import {
   getOptionalCredentialKeys,
   getSharedConnectionStatus,
@@ -57,27 +73,12 @@ import {
   type SharedConnectionStatus,
 } from "@/lib/data-source-status";
 import {
-  appApiPath,
-  agentNativePath,
-  oauthRedirectUri,
-  useActionMutation,
-  useActionQuery,
-  useSendToAgentChat,
-  PromptComposer,
-  useT,
-} from "@agent-native/core/client";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  dataSources,
+  categoryLabels,
+  categoryOrder,
+  type DataSource,
+  type WalkthroughStep,
+} from "@/lib/data-sources";
 
 interface AnalyticsPublicKeyRow {
   id: string;

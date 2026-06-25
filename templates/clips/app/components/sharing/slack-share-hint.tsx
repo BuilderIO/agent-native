@@ -1,5 +1,5 @@
-import { IconBrandSlack } from "@tabler/icons-react";
 import { appPath, useActionQuery, useT } from "@agent-native/core/client";
+import { IconBrandSlack } from "@tabler/icons-react";
 
 interface SlackInstallation {
   status: string;

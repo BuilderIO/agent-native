@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -5,8 +7,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
-import { useT } from "@agent-native/core/client";
+
 import {
   isHtml,
   linkifyText,
@@ -72,8 +73,7 @@ export function RenderedDescription({
             </>
           ) : (
             <>
-              {t("eventForm.showMore")}{" "}
-              <IconChevronDown className="h-3 w-3" />
+              {t("eventForm.showMore")} <IconChevronDown className="h-3 w-3" />
             </>
           )}
         </button>

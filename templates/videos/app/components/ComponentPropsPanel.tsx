@@ -1,18 +1,19 @@
-import { useState } from "react";
-import type { LibraryComponentEntry } from "@/remotion/componentRegistry";
+import { useT } from "@agent-native/core/client";
 import {
   IconX,
   IconChevronRight,
   IconAdjustmentsHorizontal,
   IconFileText,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useState } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
+import { cn } from "@/lib/utils";
+import type { LibraryComponentEntry } from "@/remotion/componentRegistry";
 
 type ComponentPropsPanelProps = {
   component: LibraryComponentEntry;

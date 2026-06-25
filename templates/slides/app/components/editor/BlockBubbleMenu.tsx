@@ -1,5 +1,4 @@
-import { useEffect, useState, useRef } from "react";
-import { createPortal } from "react-dom";
+import { useT } from "@agent-native/core/client";
 import {
   IconBold,
   IconItalic,
@@ -10,7 +9,9 @@ import {
   IconCheck,
   IconX,
 } from "@tabler/icons-react";
-import { useT } from "@agent-native/core/client";
+import { useEffect, useState, useRef } from "react";
+import { createPortal } from "react-dom";
+
 import {
   Tooltip,
   TooltipContent,

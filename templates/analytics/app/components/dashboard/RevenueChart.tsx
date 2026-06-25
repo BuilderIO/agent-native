@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   Area,
   AreaChart,
@@ -9,7 +10,6 @@ import {
 } from "recharts";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useT } from "@agent-native/core/client";
 
 const data = [
   { name: "Jan", total: 1200 },

@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { IconChevronRight } from "@tabler/icons-react";
 import { useT } from "@agent-native/core/client";
-import { cn } from "@/lib/utils";
 import type { PlanContent } from "@shared/plan-content";
+import { IconChevronRight } from "@tabler/icons-react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+
+import { cn } from "@/lib/utils";
+
 import {
   collectPlanTocItems,
   getActivePlanTocId,

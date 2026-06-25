@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+import { IconPencil } from "@tabler/icons-react";
 import {
   Node as TiptapNode,
   NodeViewWrapper,
@@ -5,18 +7,8 @@ import {
   mergeAttributes,
   type NodeViewProps,
 } from "@tiptap/react";
-import { IconPencil } from "@tabler/icons-react";
 import { createElement } from "react";
-import {
-  localContentComponentInputs,
-  localContentComponents,
-} from "@/local-components";
-import {
-  coerceLocalContentComponentProps,
-  serializeLocalMdxComponentSource,
-  type LocalContentComponentInputConfig,
-  type LocalContentComponentInputs,
-} from "@/local-component-config";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,7 +17,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useT } from "@agent-native/core/client";
+import {
+  coerceLocalContentComponentProps,
+  serializeLocalMdxComponentSource,
+  type LocalContentComponentInputConfig,
+  type LocalContentComponentInputs,
+} from "@/local-component-config";
+import {
+  localContentComponentInputs,
+  localContentComponents,
+} from "@/local-components";
 
 export const LOCAL_FILE_USER_EDIT_META = "localFileUserEdit";
 

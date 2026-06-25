@@ -1,7 +1,16 @@
-import { useMemo, useState } from "react";
+import { callAction, useT } from "@agent-native/core/client";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  IconGripVertical,
+  IconTrash,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
+  IconExternalLink,
+} from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useMemo, useState } from "react";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,26 +21,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  IconGripVertical,
-  IconTrash,
-  IconArrowsMaximize,
-  IconArrowsMinimize,
-  IconExternalLink,
-} from "@tabler/icons-react";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { useMetricsQuery } from "@/lib/query-metrics";
-import { ExplorerChart } from "../explorer/components/ExplorerChart";
-import { buildSql } from "../explorer/sql-builder";
-import type { ExplorerConfig } from "../explorer/types";
-import type { DashboardChart } from "./index";
-import { callAction, useT } from "@agent-native/core/client";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useMetricsQuery } from "@/lib/query-metrics";
+
+import { ExplorerChart } from "../explorer/components/ExplorerChart";
+import { buildSql } from "../explorer/sql-builder";
+import type { ExplorerConfig } from "../explorer/types";
+import type { DashboardChart } from "./index";
 
 interface ChartCardProps {
   chart: DashboardChart;

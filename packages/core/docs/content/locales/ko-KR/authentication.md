@@ -321,8 +321,8 @@ const state = encodeOAuthState({
 | `AGENT_NATIVE_WORKSPACE`                | `1`는 작업 공간 모드에서 실행됩니다. 작업 공간 앱 전반에 걸쳐 하나의 공유 세션 영역입니다.                                                                                       |
 | `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | 자사 하위 도메인 전체에서 하나의 인증 데이터베이스를 공유하도록 `COOKIE_DOMAIN`로 설정                                                                                           |
 | `OAUTH_STATE_SECRET`                    | OAuth 상태 봉투용 전용 HMAC 키([Security — OAuth State Signing](/docs/security#oauth-state) 참조)                                                                                |
-| `GOOGLE_SIGN_IN_CLIENT_ID`              | 앱 로그인을 위해 선호되는 낮은 범위의 구글 OAuth 클라이언트 ID                                                                                                                 |
-| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | 앱 로그인을 위해 선호되는 낮은 범위의 구글 OAuth 비밀번호                                                                                                                      |
+| `GOOGLE_SIGN_IN_CLIENT_ID`              | 앱 로그인을 위해 선호되는 낮은 범위의 구글 OAuth 클라이언트 ID                                                                                                                   |
+| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | 앱 로그인을 위해 선호되는 낮은 범위의 구글 OAuth 비밀번호                                                                                                                        |
 | `GOOGLE_CLIENT_ID`                      | 기존 Google 로그인 대체 및 Google API 통합을 위한 공급자 OAuth 클라이언트 ID                                                                                                     |
 | `GOOGLE_CLIENT_SECRET`                  | 기존 Google 로그인 대체 및 Google API 통합을 위한 공급자 OAuth 비밀번호                                                                                                          |
 | `GITHUB_CLIENT_ID`                      | GitHub OAuth 활성화                                                                                                                                                              |

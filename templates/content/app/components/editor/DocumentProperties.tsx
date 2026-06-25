@@ -1,11 +1,35 @@
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-} from "react";
+  emailToName,
+  useActionMutation,
+  useSession,
+  useT,
+} from "@agent-native/core/client";
+import type {
+  AddContentDatabaseSourceFieldPropertyRequest,
+  ContentDatabaseResponse,
+  ContentDatabaseSourceFieldPropertyResponse,
+  ContentDatabaseSource,
+  DocumentProperty,
+} from "@shared/api";
+import {
+  CREATABLE_DOCUMENT_PROPERTY_TYPES,
+  DOCUMENT_PROPERTY_TYPE_LABELS,
+  DOCUMENT_PROPERTY_VISIBILITY_LABELS,
+  DOCUMENT_PROPERTY_VISIBILITIES,
+  defaultPropertyOptions,
+  documentPropertyDateIncludesTime,
+  documentPropertyDateKey,
+  documentPropertyDatePart,
+  isEmptyPropertyValue,
+  isComputedPropertyType,
+  isOnlyBlocksFieldDeletion,
+  normalizeDatePropertyValue,
+  type DocumentPropertyDateValue,
+  type DocumentPropertyOption,
+  type DocumentPropertyOptionColor,
+  type DocumentPropertyType,
+  type DocumentPropertyVisibility,
+} from "@shared/properties";
 import {
   IconAlignLeft,
   IconAt,
@@ -38,13 +62,17 @@ import {
   IconUserCircle,
   type Icon,
 } from "@tabler/icons-react";
-import {
-  emailToName,
-  useActionMutation,
-  useSession,
-  useT,
-} from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -74,8 +102,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { applySourceFieldPropertyToDatabaseResponse } from "@/hooks/use-content-database";
 import {
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
@@ -83,33 +110,8 @@ import {
   useDuplicateDocumentProperty,
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
-import { applySourceFieldPropertyToDatabaseResponse } from "@/hooks/use-content-database";
-import {
-  CREATABLE_DOCUMENT_PROPERTY_TYPES,
-  DOCUMENT_PROPERTY_TYPE_LABELS,
-  DOCUMENT_PROPERTY_VISIBILITY_LABELS,
-  DOCUMENT_PROPERTY_VISIBILITIES,
-  defaultPropertyOptions,
-  documentPropertyDateIncludesTime,
-  documentPropertyDateKey,
-  documentPropertyDatePart,
-  isEmptyPropertyValue,
-  isComputedPropertyType,
-  isOnlyBlocksFieldDeletion,
-  normalizeDatePropertyValue,
-  type DocumentPropertyDateValue,
-  type DocumentPropertyOption,
-  type DocumentPropertyOptionColor,
-  type DocumentPropertyType,
-  type DocumentPropertyVisibility,
-} from "@shared/properties";
-import type {
-  AddContentDatabaseSourceFieldPropertyRequest,
-  ContentDatabaseResponse,
-  ContentDatabaseSourceFieldPropertyResponse,
-  ContentDatabaseSource,
-  DocumentProperty,
-} from "@shared/api";
+import { cn } from "@/lib/utils";
+
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 
 type TFunction = ReturnType<typeof useT>;

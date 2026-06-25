@@ -145,10 +145,8 @@ const messages = {
       "30 सेकंड के बाद प्रसंस्करण पूरा नहीं हुआ है (स्थिति={{status}})। हो सकता है कि क्लिप की अपलोडिंग पूरी न हुई हो - संदेशों को खंडित/अंतिम रूप देने के लिए सर्वर लॉग की जाँच करें।",
     uploadingAssembling:
       "अपना वीडियो अपलोड करना और असेंबल करना - इसमें आमतौर पर बस कुछ सेकंड लगते हैं।",
-    connectStorageImportLoom:
-      "इस Loom को आयात करने के लिए स्टोरेज कनेक्ट करें।",
-    connectStorageFinishClip:
-      "इस क्लिप को सहेजना समाप्त करने के लिए स्टोरेज कनेक्ट करें।",
+    connectStorageImportLoom: "इस Loom को आयात करने के लिए स्टोरेज कनेक्ट करें।",
+    connectStorageFinishClip: "इस क्लिप को सहेजना समाप्त करने के लिए स्टोरेज कनेक्ट करें।",
     uploadPausedSaved: "अपलोड रोका गया; क्लिप स्थानीय रूप से सहेजी गई.",
     savingWentWrong: "इस क्लिप को सहेजते समय कुछ गलत हो गया.",
     finishingClip: "आपकी क्लिप समाप्त हो रही है...",
@@ -159,20 +157,16 @@ const messages = {
     details: "विवरण",
     importingLoom: "Loom आयात किया जा रहा है...",
     uploadingSavedClip: "सहेजी गई क्लिप अपलोड हो रही है...",
-    storageConnectedSavingLoom:
-      "भंडारण जुड़ा हुआ है. Clips अब अपनी प्रति सहेज रहा है।",
-    storageConnectedFinishing:
-      "भंडारण जुड़ा हुआ है. Clips अब अपलोड पूरा कर रहा है।",
+    storageConnectedSavingLoom: "भंडारण जुड़ा हुआ है. Clips अब अपनी प्रति सहेज रहा है।",
+    storageConnectedFinishing: "भंडारण जुड़ा हुआ है. Clips अब अपलोड पूरा कर रहा है।",
     connectStorageImportLoomTitle: "Loom आयात करने के लिए स्टोरेज कनेक्ट करें",
     connectStorageFinishSaving: "बचत समाप्त करने के लिए स्टोरेज कनेक्ट करें",
     chooseStorageRetryLoom:
       "चुनें कि Clips को वीडियो कहाँ संग्रहीत करना चाहिए। कनेक्ट होने के बाद, Clips इस Loom आयात का पुनः प्रयास करेगा।",
     chooseStorageUpload:
       "चुनें कि Clips को वीडियो कहाँ संग्रहीत करना चाहिए। कनेक्ट होने के बाद यह सेव की गई क्लिप अपने आप अपलोड हो जाएगी।",
-    storageConnectedImporting:
-      "भंडारण जुड़ा हुआ है. Loom आयात किया जा रहा है...",
-    storageConnectedUploading:
-      "भंडारण जुड़ा हुआ है. यह क्लिप अपलोड कर रहा हूँ...",
+    storageConnectedImporting: "भंडारण जुड़ा हुआ है. Loom आयात किया जा रहा है...",
+    storageConnectedUploading: "भंडारण जुड़ा हुआ है. यह क्लिप अपलोड कर रहा हूँ...",
     retryImport: "आयात का पुनः प्रयास करें",
     retryUpload: "पुनः अपलोड करने का प्रयास करें",
     checkAgain: "फिर जाँचें",
@@ -222,8 +216,7 @@ const messages = {
     incorrectPassword: "गलत पासवर्ड",
     passwordProtected: "यह क्लिप पासवर्ड से सुरक्षित है",
     linkExpired: "लिंक की अवधि समाप्त हो",
-    linkExpiredMessage:
-      "निर्माता ने इस शेयर लिंक पर एक समाप्ति तिथि निर्धारित की है।",
+    linkExpiredMessage: "निर्माता ने इस शेयर लिंक पर एक समाप्ति तिथि निर्धारित की है।",
     clipUnavailable: "क्लिप अनुपलब्ध",
     clipUnavailableMessage:
       "यह रिकॉर्डिंग सार्वजनिक नहीं है, या लिंक अमान्य है. यदि यह आपकी क्लिप है, तो पहुंच जांचने के लिए साइन इन करें।",
@@ -253,8 +246,7 @@ const messages = {
     connectStorageFinishSaving: "बचत समाप्त करने के लिए स्टोरेज कनेक्ट करें",
     chooseStorageCheck:
       "चुनें कि Clips को वीडियो कहाँ संग्रहीत करना चाहिए। कनेक्ट होने के बाद यह पेज दोबारा जांचेगा.",
-    storageConnectedChecking:
-      "भंडारण जुड़ा हुआ है. इस क्लिप की जाँच कर रहा हूँ...",
+    storageConnectedChecking: "भंडारण जुड़ा हुआ है. इस क्लिप की जाँच कर रहा हूँ...",
     signInToFinish: "समाप्त करने के लिए साइन इन करें",
     signInIfYours: "यदि यह आपका है तो साइन इन करें",
     openDashboard: "डैशबोर्ड खोलें",
@@ -288,8 +280,7 @@ const messages = {
     unassigned: "सौंपे नहीं गए",
     them: "उन्हें",
     me: "मुझे",
-    regeneratingNotes:
-      "नोट्स को पुनर्जीवित करना - आपके स्वयं के नोट्स रखे जाते हैं",
+    regeneratingNotes: "नोट्स को पुनर्जीवित करना - आपके स्वयं के नोट्स रखे जाते हैं",
     meetingRemoved: "मीटिंग हटा दी गई",
     couldNotRemoveMeeting: "मीटिंग को हटाया नहीं जा सका",
     couldNotLoadMeeting: "इस मीटिंग को लोड नहीं किया जा सका.",
@@ -457,14 +448,12 @@ const messages = {
     whatDidIMiss: "मैंने क्या मिस किया?",
     whatDidIMissPrompt: "मैंने क्या मिस किया?",
     summarizeLastFive: "पिछले 5 मिनट का सारांश दें",
-    summarizeLastFivePrompt:
-      "इस मीटिंग के पिछले 5 मिनट को 3-5 बिंदुओं में संक्षेपित करें।",
+    summarizeLastFivePrompt: "इस मीटिंग के पिछले 5 मिनट को 3-5 बिंदुओं में संक्षेपित करें।",
     actionItemsForMe: "मेरे लिए कार्य आइटम",
     actionItemsForMePrompt:
       "इस मीटिंग से मुझे सौंपे गए कार्य आइटम सूचीबद्ध करें। चेकबॉक्स बुलेट का उपयोग करें।",
     history: "इतिहास",
-    emptyDescription:
-      "कुछ भी पूछें। एजेंट के पास पूरी ट्रांसक्रिप्ट और मीटिंग संदर्भ है।",
+    emptyDescription: "कुछ भी पूछें। एजेंट के पास पूरी ट्रांसक्रिप्ट और मीटिंग संदर्भ है।",
     placeholder: "कुछ भी पूछें…",
     send: "भेजें",
     sentToChat: "चैट में भेजा गया — उत्तर के लिए एजेंट साइडबार देखें।",
@@ -687,8 +676,7 @@ const messages = {
     pageTitle: "संगठन सेटिंग्स · Clips",
     title: "संगठन · सेटिंग्स",
     namedTitle: "{{name}} · सेटिंग्स",
-    noOrganization:
-      "अभी कोई संगठन नहीं है। शुरू करने के लिए संगठन स्विचर से एक बनाएं।",
+    noOrganization: "अभी कोई संगठन नहीं है। शुरू करने के लिए संगठन स्विचर से एक बनाएं।",
     description: "संगठन व्यवस्थापन: ब्रांडिंग, सदस्य, आमंत्रण।",
     adminsOnlyBranding: "केवल व्यवस्थापक ब्रांडिंग संपादित कर सकते हैं।",
     members: "सदस्य",
@@ -752,16 +740,13 @@ const messages = {
     defaultTitle: "सिली हुई रिकॉर्डिंग",
     title: "रिकॉर्डिंग जोड़ें",
     pickAtLeastTwo: "जोड़ने के लिए कम से कम 2 रिकॉर्डिंग चुनें",
-    videoUrlMissing:
-      "एक या अधिक रिकॉर्डिंग के पास अभी तैयार वीडियो URL नहीं है",
-    connectStorage:
-      "रिकॉर्डिंग जोड़ने से पहले Builder.io या S3-संगत स्टोरेज कनेक्ट करें।",
+    videoUrlMissing: "एक या अधिक रिकॉर्डिंग के पास अभी तैयार वीडियो URL नहीं है",
+    connectStorage: "रिकॉर्डिंग जोड़ने से पहले Builder.io या S3-संगत स्टोरेज कनेक्ट करें।",
     created: "सिली हुई रिकॉर्डिंग बनाई गई",
     failed: "रिकॉर्डिंग जोड़ने में विफल",
     noOtherRecordings: "कोई अन्य रिकॉर्डिंग उपलब्ध नहीं।",
     combineOrder: "जोड़ने का क्रम",
-    emptyQueue:
-      "बाईं ओर रिकॉर्डिंग पर क्लिक करके उन्हें यहां जोड़ें। क्रम बदलने के लिए खींचें।",
+    emptyQueue: "बाईं ओर रिकॉर्डिंग पर क्लिक करके उन्हें यहां जोड़ें। क्रम बदलने के लिए खींचें।",
     titleLabel: "शीर्षक",
     combining:
       "ffmpeg.wasm के साथ जोड़ रहा है — {{progress}}%। बड़े जोड़ में एक मिनट लग सकता है।",
@@ -805,8 +790,7 @@ const messages = {
     connectedDescription:
       "इसे इनलाइन चलाने के लिए यह लिंक किसी भी जुड़े हुए वर्कस्पेस में पेस्ट करें।",
     makeInline: "इसे Slack में इनलाइन चलाएं",
-    connectDescription:
-      "एक वर्कस्पेस कनेक्ट करें ताकि यह लिंक वीडियो के रूप में खुले।",
+    connectDescription: "एक वर्कस्पेस कनेक्ट करें ताकि यह लिंक वीडियो के रूप में खुले।",
     connect: "कनेक्ट करें",
   },
   commentsPanel: {
@@ -902,8 +886,7 @@ const messages = {
     dismiss: "हटाएं",
   },
   meetingCanvas: {
-    noAiNotes:
-      "अभी तक कोई AI नोट्स नहीं हैं। पूरी हो चुकी ट्रांसक्रिप्ट से नोट्स बनाएं।",
+    noAiNotes: "अभी तक कोई AI नोट्स नहीं हैं। पूरी हो चुकी ट्रांसक्रिप्ट से नोट्स बनाएं।",
     noNotes: "कोई नोट्स नहीं।",
     yourNotes: "आपके नोट्स…",
     clickToEdit: "संपादित करने के लिए क्लिक करें",
@@ -925,8 +908,7 @@ const messages = {
   transcriptBubbles: {
     listening: "सुन रहा है…",
     noTranscript: "अभी कोई ट्रांसक्रिप्ट नहीं।",
-    liveTranscriptDescription:
-      "नोट्स शुरू होने पर लाइव ट्रांसक्रिप्ट यहां दिखाई देगी।",
+    liveTranscriptDescription: "नोट्स शुरू होने पर लाइव ट्रांसक्रिप्ट यहां दिखाई देगी।",
     me: "मैं",
     them: "वे",
   },
@@ -1244,14 +1226,15 @@ const messages = {
     savedLocally: "स्थानीय रूप से सहेजा गया",
     uploadFailed: "अपलोड विफल",
     connectStorageToFinish: "स्टोरेज कनेक्ट करके सेव पूरा करने के लिए खोलें।",
-    retryFromClipsMenu: "Clips मेनू से फिर कोशिश करें; दोबारा रिकॉर्ड करने की जरूरत नहीं।",
+    retryFromClipsMenu:
+      "Clips मेनू से फिर कोशिश करें; दोबारा रिकॉर्ड करने की जरूरत नहीं।",
     removeFailedClip: "यह विफल क्लिप हटाएं।",
     remove: "हटाएं",
     viewsCount: "{{count}} बार देखा गया",
     recordingMenu: "रिकॉर्डिंग मेनू",
     moveToFolder: "फ़ोल्डर में ले जाएं",
     unarchive: "आर्काइव से हटाएं",
-    shareNamedMeeting: "\"{{title}}\" साझा करें",
+    shareNamedMeeting: '"{{title}}" साझा करें',
     shareMeeting: "मीटिंग साझा करें",
     shareLink: "साझा लिंक",
     alreadyHaveIt: "मेरे पास पहले से है",
@@ -1259,7 +1242,8 @@ const messages = {
     invite: "आमंत्रित करें",
     inviteFailed: "व्यक्ति को आमंत्रित नहीं कर सके",
     removePersonFailed: "व्यक्ति को हटा नहीं सके",
-    passwordProtectedDescription: "यह वीडियो सुरक्षित है। देखने के लिए पासवर्ड दर्ज करें।",
+    passwordProtectedDescription:
+      "यह वीडियो सुरक्षित है। देखने के लिए पासवर्ड दर्ज करें।",
     password: "पासवर्ड",
     unlock: "अनलॉक करें",
     noEngagementData: "अभी कोई एंगेजमेंट डेटा नहीं है।",

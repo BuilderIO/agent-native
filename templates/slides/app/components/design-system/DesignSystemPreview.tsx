@@ -1,6 +1,8 @@
-import type { DesignSystemData } from "../../../shared/api";
 import { useT } from "@agent-native/core/client";
+
 import { cn } from "@/lib/utils";
+
+import type { DesignSystemData } from "../../../shared/api";
 
 interface DesignSystemPreviewProps {
   data: DesignSystemData;

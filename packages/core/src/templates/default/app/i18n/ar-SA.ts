@@ -137,8 +137,7 @@ const messages = {
       agentsDescription:
         "يمكن لـ Dispatch تفويض مجموعة التطبيقات المضمنة عبر A2A بشكل افتراضي. أضف وكلاء إضافيين هنا فقط إذا كنت تريد توجيه العمل إلى تطبيقات خارج تلك المجموعة المضمنة.",
       mcpAccessUpdated: "تم تحديث الوصول إلى تطبيق MCP",
-      selectAppForMcp:
-        "حدد تطبيقًا واحدًا على الأقل، أو اكشف عن جميع التطبيقات.",
+      selectAppForMcp: "حدد تطبيقًا واحدًا على الأقل، أو اكشف عن جميع التطبيقات.",
       mcpUrlCopied: "MCP URL منقول",
       mcpUrlCopyFailed: "تعذر نسخ MCP URL",
       unifiedMcpGateway: "بوابة MCP الموحدة",
@@ -220,8 +219,7 @@ const messages = {
     organization: "المؤسسة",
     organizationDescription: "يمكن لأي شخص في مؤسستك العرض",
     public: "Public",
-    publicDescription:
-      "يمكن لأي شخص قام بتسجيل الدخول باستخدام الرابط المشاهدة",
+    publicDescription: "يمكن لأي شخص قام بتسجيل الدخول باستخدام الرابط المشاهدة",
     viewer: "Viewer",
     viewerDescription: "يمكن عرض",
     editor: "Editor",

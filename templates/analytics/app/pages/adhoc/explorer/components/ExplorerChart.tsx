@@ -1,6 +1,6 @@
+import { useT } from "@agent-native/core/client";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
-import { useT } from "@agent-native/core/client";
 import {
   ResponsiveContainer,
   LineChart,

@@ -1,5 +1,6 @@
-import { cn } from "@/lib/utils";
 import { useT } from "@agent-native/core/client";
+
+import { cn } from "@/lib/utils";
 
 export type CompSettings = {
   durationInFrames: number;

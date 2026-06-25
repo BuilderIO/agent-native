@@ -161,7 +161,8 @@ const messages = {
       imageReplaced: "Imagen reemplazada.",
       htmlFragment: "Fragmento HTML",
       optionalCss: "CSS opcional",
-      invalidBlockDescription: "Este bloque generado no coincidio con el esquema de Plan, asi que se omitio mientras el resto del resumen siguio visible.",
+      invalidBlockDescription:
+        "Este bloque generado no coincidio con el esquema de Plan, asi que se omitio mientras el resto del resumen siguio visible.",
       validationDetails: "Detalles de validacion",
     },
     localCodebase: {
@@ -172,7 +173,8 @@ const messages = {
       codebaseSyncFailed: "Fallo la sincronizacion de la base de codigo",
       chooseFolderFailed: "No se pudo elegir la carpeta",
       syncLocalFailed: "No se pudo sincronizar la base de codigo local.",
-      folderUnavailable: "El acceso a carpetas no esta disponible en este navegador.",
+      folderUnavailable:
+        "El acceso a carpetas no esta disponible en este navegador.",
       filesSynced: "{{count}} archivos sincronizados",
       lastSynced: "Ultima sincronizacion {{date}}",
       codebaseUnlinked: "Base de codigo desvinculada",

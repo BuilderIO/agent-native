@@ -13,13 +13,13 @@ Anwendung.
 Der sinnvolle Weg zur Auswahl besteht nicht zuerst nach dem Protokoll. Wählen Sie die Produktoberfläche
 Sie möchten, dann verwenden Sie das passende Grundelement.
 
-| Oberfläche                      | Verwenden Sie es, wenn                                                                                                                   | Beginnen Sie mit                                                                            |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **Kopfloser Agent**             | Code, Jobs, Skripte, eine andere App oder ein anderer Agent sollten die Arbeit direkt aufrufen.                                          | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
-| **Rich-Chat auf Agent-Native**  | Sie möchten einen eigenständigen oder eingebetteten Chat, der durch die integrierte Agentenschleife unterstützt wird.                    | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
+| Oberfläche                      | Verwenden Sie es, wenn                                                                                                                     | Beginnen Sie mit                                                                            |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| **Kopfloser Agent**             | Code, Jobs, Skripte, eine andere App oder ein anderer Agent sollten die Arbeit direkt aufrufen.                                            | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
+| **Rich-Chat auf Agent-Native**  | Sie möchten einen eigenständigen oder eingebetteten Chat, der durch die integrierte Agentenschleife unterstützt wird.                      | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
 | **Rich-Chat auf Ihrem Agenten** | Sie haben den Agent woanders erstellt und möchten den Verfassenr, das Transkript, die Toolkarten und die nativen Widgets von Agent-Native. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
-| **Eingebetteter Sidecar**       | Sie haben bereits eine SaaS-App und möchten daneben einen Agenten mit Seitenkontext und Hostbefehlen.                                    | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
-| **Vollständige Bewerbung**      | Menschen und Agenten sollten robuste Bildschirme, Daten, Navigation und Zusammenarbeit gemeinsam nutzen.                                 | Vorlagen, actions, SQL-Status, Kontextbewusstsein                                           |
+| **Eingebetteter Sidecar**       | Sie haben bereits eine SaaS-App und möchten daneben einen Agenten mit Seitenkontext und Hostbefehlen.                                      | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
+| **Vollständige Bewerbung**      | Menschen und Agenten sollten robuste Bildschirme, Daten, Navigation und Zusammenarbeit gemeinsam nutzen.                                   | Vorlagen, actions, SQL-Status, Kontextbewusstsein                                           |
 
 Das sind Stufen, keine separaten Produkte. Ein Workflow kann als Headless starten
 Agent mit einer Aktion, erscheint im Chat als Tabelle oder Diagramm und wird später zum
@@ -374,13 +374,13 @@ Sie möchten eine vollständige Produktform.
 
 ## So wählen Sie aus {#how-to-choose}
 
-| Wenn Sie denken...                                                              | Auswählen                    |
-| ------------------------------------------------------------------------------- | ---------------------------- |
-| „Ich brauche nur ein aufrufbares Tool oder einen Workflow.“                     | Kopfloser Agent              |
-| „Ich möchte den Agenten des Frameworks, aber Chat sollte der Haupt-UI sein.“    | Rich-Chat auf Agent-Native   |
+| Wenn Sie denken...                                                                      | Auswählen                    |
+| --------------------------------------------------------------------------------------- | ---------------------------- |
+| „Ich brauche nur ein aufrufbares Tool oder einen Workflow.“                             | Kopfloser Agent              |
+| „Ich möchte den Agenten des Frameworks, aber Chat sollte der Haupt-UI sein.“            | Rich-Chat auf Agent-Native   |
 | „Ich habe bereits einen Agenten; dafür brauche ich einen ausgefeilten Chat-Oberfläche.“ | Rich-Chat über Ihren Agenten |
-| „Ich habe bereits eine SaaS-App. Fügen Sie daneben einen Agenten hinzu.“        | Eingebetteter Sidecar        |
-| „Der Agent und UI sollten sich gemeinsam als Produkt weiterentwickeln.“         | Vollständige Bewerbung       |
+| „Ich habe bereits eine SaaS-App. Fügen Sie daneben einen Agenten hinzu.“                | Eingebetteter Sidecar        |
+| „Der Agent und UI sollten sich gemeinsam als Produkt weiterentwickeln.“                 | Vollständige Bewerbung       |
 
 Halten Sie den Vertrag klein: Definieren Sie dauerhafte Operationen als actions, geben Sie explizit zurück
 Widget-Ergebnisse, wenn der Chat umfangreiches UI benötigt, und Vollbildanzeigen nur hinzufügen, wenn Benutzer

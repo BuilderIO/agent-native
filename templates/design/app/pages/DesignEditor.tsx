@@ -1,5 +1,34 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useParams, useNavigate, Link } from "react-router";
+import {
+  useActionQuery,
+  useActionMutation,
+  useSession,
+  useCollaborativeDoc,
+  isReconcileLeadClient,
+  generateTabId,
+  emailToColor,
+  emailToName,
+  PresenceBar,
+  AgentToggleButton,
+  NotificationsBell,
+  ShareButton,
+  isEmbedAuthActive,
+  sendToAgentChat,
+  getBrowserTabId,
+  readClientAppState,
+  setClientAppState,
+  useReconciledState,
+  usePresence,
+  useFollowUser,
+  LiveCursorOverlay,
+  useT,
+  type CollabUser,
+  type PromptComposerSubmitOptions,
+} from "@agent-native/core/client";
+import type { TweakDefinition } from "@shared/api";
+import {
+  resolveTweaksToCssVars,
+  type TweakSelections,
+} from "@shared/resolve-tweaks";
 import {
   IconArrowLeft,
   IconPencil,
@@ -27,39 +56,30 @@ import {
   IconArrowBackUp,
   IconArrowForwardUp,
 } from "@tabler/icons-react";
-import * as Y from "yjs";
-import {
-  useActionQuery,
-  useActionMutation,
-  useSession,
-  useCollaborativeDoc,
-  isReconcileLeadClient,
-  generateTabId,
-  emailToColor,
-  emailToName,
-  PresenceBar,
-  AgentToggleButton,
-  NotificationsBell,
-  ShareButton,
-  isEmbedAuthActive,
-  sendToAgentChat,
-  getBrowserTabId,
-  readClientAppState,
-  setClientAppState,
-  useReconciledState,
-  usePresence,
-  useFollowUser,
-  LiveCursorOverlay,
-  useT,
-  type CollabUser,
-  type PromptComposerSubmitOptions,
-} from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useParams, useNavigate, Link } from "react-router";
+import { toast } from "sonner";
+import * as Y from "yjs";
 
+import { DesignCanvas } from "@/components/design/DesignCanvas";
+import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
+import { EditPanel } from "@/components/design/EditPanel";
+import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
+import { QuestionFlow } from "@/components/design/QuestionFlow";
+import { TweaksPanel } from "@/components/design/TweaksPanel";
+import type {
+  ElementInfo,
+  DeviceFrameType,
+  ViewportTab,
+} from "@/components/design/types";
+import { ZOOM_PRESETS } from "@/components/design/types";
+import { VariantGrid } from "@/components/design/VariantGrid";
+import { VariantHandoffCard } from "@/components/design/VariantHandoffCard";
+import PromptPopover from "@/components/editor/PromptDialog";
+import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { useOpenMobileSidebar } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,16 +90,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { DesignCanvas } from "@/components/design/DesignCanvas";
-import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
-import { EditPanel } from "@/components/design/EditPanel";
-import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
-import { QuestionFlow } from "@/components/design/QuestionFlow";
-import { TweaksPanel } from "@/components/design/TweaksPanel";
-import { VariantGrid } from "@/components/design/VariantGrid";
-import { VariantHandoffCard } from "@/components/design/VariantHandoffCard";
-import PromptPopover from "@/components/editor/PromptDialog";
-import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
@@ -87,14 +105,6 @@ import {
   DESIGN_VARIANT_PICKED_EVENT,
   useVariantFlow,
 } from "@/hooks/use-variant-flow";
-import { useOpenMobileSidebar } from "@/components/layout/Layout";
-import type {
-  ElementInfo,
-  DeviceFrameType,
-  ViewportTab,
-} from "@/components/design/types";
-import { ZOOM_PRESETS } from "@/components/design/types";
-import { prettyScreenName } from "@/lib/screen-names";
 import {
   clearPendingGeneration,
   hasFreshPendingGeneration,
@@ -103,18 +113,8 @@ import {
   PENDING_GENERATION_STALE_MS,
   readPendingGeneration,
 } from "@/lib/pending-generation";
-import type { TweakDefinition } from "@shared/api";
-import {
-  resolveTweaksToCssVars,
-  type TweakSelections,
-} from "@shared/resolve-tweaks";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 
 const TAB_ID = generateTabId();
 

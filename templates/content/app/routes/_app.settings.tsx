@@ -9,9 +9,9 @@ import { Link } from "react-router";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";
-import { messagesByLocale } from "@/i18n-data";
 
 export function meta() {
   return [{ title: messagesByLocale["en-US"].settings.metaTitle }];

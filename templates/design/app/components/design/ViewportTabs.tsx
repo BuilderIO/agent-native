@@ -1,7 +1,7 @@
-import { useState, useRef, useCallback } from "react";
-import { cn } from "@/lib/utils";
-import { IconPlus, IconX } from "@tabler/icons-react";
 import { useT } from "@agent-native/core/client";
+import { IconPlus, IconX } from "@tabler/icons-react";
+import { useState, useRef, useCallback } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -9,6 +9,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+
 import type { ViewportTab } from "./types";
 
 interface ViewportTabsProps {

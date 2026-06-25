@@ -2676,15 +2676,13 @@ const analyticsSliceTranslations: {
       metric: "मीट्रिक",
       metricPlaceholder: "जैसे सक्रिय भुगतान खाते",
       definition: "परिभाषा",
-      definitionPlaceholder:
-        "इस मीट्रिक का क्या अर्थ है इसका सरल-अंग्रेज़ी विवरण",
+      definitionPlaceholder: "इस मीट्रिक का क्या अर्थ है इसका सरल-अंग्रेज़ी विवरण",
       department: "विभाग",
       departmentPlaceholder: "बिक्री/विपणन/उत्पाद/डेटा",
       owner: "मालिक",
       ownerPlaceholder: "जैसे डेटा-टीम@",
       approvedTitle: "अनुमत",
-      approvedDescription:
-        "स्वीकृत प्रविष्टियों को एजेंट द्वारा विहित माना जाता है।",
+      approvedDescription: "स्वीकृत प्रविष्टियों को एजेंट द्वारा विहित माना जाता है।",
       aiGeneratedTitle: "AI-जनित सुझाव",
       aiGeneratedDescription:
         "अस्वीकृत AI सुझाव समीक्षा के लिए दृश्यमान हैं लेकिन उन्हें सत्य नहीं माना जाता है।",
@@ -2702,11 +2700,9 @@ const analyticsSliceTranslations: {
       dataLag: "डेटा अंतराल",
       dataLagPlaceholder: "~15 मिनट/अगले दिन",
       knownGotchas: "ज्ञात गोचास",
-      knownGotchasPlaceholder:
-        "किनारे के मामले, शून्य, ज्ञात डेटा गुणवत्ता समस्याएं",
+      knownGotchasPlaceholder: "किनारे के मामले, शून्य, ज्ञात डेटा गुणवत्ता समस्याएं",
       commonQuestions: "सामान्य प्रश्न",
-      commonQuestionsPlaceholder:
-        "इस मीट्रिक के बारे में अक्सर पूछे जाने वाले प्रश्न",
+      commonQuestionsPlaceholder: "इस मीट्रिक के बारे में अक्सर पूछे जाने वाले प्रश्न",
       exampleUseCase: "उदाहरण उपयोग मामला",
       exampleUseCasePlaceholder: "किसी को इस मीट्रिक तक कब पहुंचना चाहिए?",
       saving: "सहेजा जा रहा है...",
@@ -2725,8 +2721,7 @@ const analyticsSliceTranslations: {
       connect: "जोड़ना",
       connectedAs: "{{viewer}} के रूप में जुड़ा हुआ है",
       githubConnected: "GitHub जुड़ा हुआ है",
-      githubReconnectNeeded:
-        "सहेजे गए GitHub टोकन को पुनः कनेक्ट करने की आवश्यकता है।",
+      githubReconnectNeeded: "सहेजे गए GitHub टोकन को पुनः कनेक्ट करने की आवश्यकता है।",
       githubOAuthRequest:
         "OAuth कोड खोज, फ़ाइल रीड, पुल अनुरोध और मुद्दों के लिए रेपो रीड एक्सेस का अनुरोध करेगा।",
       githubOAuthUnavailable:
@@ -2796,8 +2791,7 @@ const analyticsSliceTranslations: {
       neverUsed: "कभी भी इस्तेमाल नहीं किया",
       revoking: "निरस्त किया जा रहा है...",
       revoke: "रद्द करना",
-      intro:
-        "अपने डेटा स्रोतों को कनेक्ट करें, फिर एजेंट से डैशबोर्ड बनाने के लिए कहें।",
+      intro: "अपने डेटा स्रोतों को कनेक्ट करें, फिर एजेंट से डैशबोर्ड बनाने के लिए कहें।",
       configuredCount: "{{count}} कॉन्फ़िगर किया गया",
       searchPlaceholder: "डेटा स्रोत खोजें...",
       noMatch: 'कोई डेटा स्रोत "{{search}}" से मेल नहीं खाता',
@@ -2820,8 +2814,7 @@ const analyticsSliceTranslations: {
       filterInterpolation:
         "फ़िल्टर मानों को प्रक्षेपित करने के लिए {{example}} का उपयोग करें।",
       descriptionOptional: "विवरण (वैकल्पिक)",
-      descriptionPlaceholder:
-        "पैनल शीर्षक के अंतर्गत संक्षिप्त विवरण दिखाया गया है",
+      descriptionPlaceholder: "पैनल शीर्षक के अंतर्गत संक्षिप्त विवरण दिखाया गया है",
       cancel: "रद्द करना",
       saving: "सहेजा जा रहा है...",
       saveChanges: "परिवर्तनों को सुरक्षित करें",
@@ -2853,33 +2846,28 @@ const analyticsSliceTranslations: {
       customerEvidence: "ग्राहक साक्ष्य",
       evidenceDetail: "{{transcripts}} प्रतिलेख, {{emails}} ईमेल",
       reengageCandidates: "उम्मीदवारों को फिर से शामिल करें",
-      reengageDetail:
-        "सौदे के आकार और स्पष्ट पुनरीक्षण संकेतों के आधार पर रैंक किया गया",
+      reengageDetail: "सौदे के आकार और स्पष्ट पुनरीक्षण संकेतों के आधार पर रैंक किया गया",
       overview: "सिंहावलोकन",
       lossThemes: "हानि विषय",
       businessPain: "व्यवसायिक कष्ट",
       reengage: "पुनः मिलना",
       stageLeakage: "स्टेज लीकेज",
-      stageLeakageDescription:
-        "जहां अवसर रुकने से पहले बंद-खोया हुआ मूल्य पहुंच गया।",
+      stageLeakageDescription: "जहां अवसर रुकने से पहले बंद-खोया हुआ मूल्य पहुंच गया।",
       pipeline: "{{amount}} पाइपलाइन",
       largestLosses: "सबसे बड़ा नुकसान",
-      largestLossesDescription:
-        "संरक्षित डेटासेट में उच्चतम-मूल्य वाले बंद-खोए अवसर।",
+      largestLossesDescription: "संरक्षित डेटासेट में उच्चतम-मूल्य वाले बंद-खोए अवसर।",
       operationalPains: "ऑपरेशन संबंधी दर्द",
       operationalPainsDescription:
         "खोए हुए सौदों को लेकर दिन-प्रतिदिन बार-बार होने वाला झगड़ा।",
       businessPains: "व्यवसायिक कष्ट",
       businessPainsDescription: "समान खातों से जुड़ा आर्थिक और सामरिक प्रभाव।",
       painByDeal: "सौदे से दर्द",
-      painByDealDescription:
-        "व्यवसाय-दर्द संवर्धन फ़ाइल से संरक्षित संक्षिप्त साक्ष्य।",
+      painByDealDescription: "व्यवसाय-दर्द संवर्धन फ़ाइल से संरक्षित संक्षिप्त साक्ष्य।",
       bestReengagementPaths: "सर्वोत्तम पुनर्सगाई पथ",
       bestReengagementPathsDescription:
         "पुनरीक्षण भाषा, विलंबित समय, विरासत में मिली पाइपलाइन सफाई, या सुरक्षा के बाद फिर से खुलने वाले संकेतों से संबंधित है।",
       closedWonEyebrow: "फ़्यूज़न बंद जीत गया",
-      closedWonTitle:
-        "जिसने तकनीकी रुचि को हस्ताक्षरित नए व्यवसाय में बदल दिया",
+      closedWonTitle: "जिसने तकनीकी रुचि को हस्ताक्षरित नए व्यवसाय में बदल दिया",
       closedWonDescription:
         "कॉम्पैक्ट डील, Gong, Slack, ईमेल और SQL में संरक्षित व्यक्तित्व साक्ष्य के साथ लीगेसी फ्यूज़न क्लोज-वॉन डैशबोर्ड से माइग्रेट किया गया।",
       closedWonDeals: "बंद-जीत सौदे",
@@ -2892,18 +2880,15 @@ const analyticsSliceTranslations: {
       painThemes: "दर्द विषय",
       coverage: "कवरेज",
       wonDeals: "सौदे जीते",
-      wonDealsDescription:
-        "बंद-जीत फ़्यूज़न अवसरों को ARR द्वारा क्रमबद्ध किया गया।",
+      wonDealsDescription: "बंद-जीत फ़्यूज़न अवसरों को ARR द्वारा क्रमबद्ध किया गया।",
       personaCoverage: "व्यक्तित्व कवरेज",
       personaCoverageDescription:
         "संरक्षित व्यक्तित्व मानचित्र से क्रेता और हितधारक कंपनी का कवरेज।",
       contacts: "{{count}} संपर्क",
       operationalThemes: "परिचालन विषय",
-      operationalThemesDescription:
-        "वर्कफ़्लो घर्षण ने खरीदारी की गति को खोल दिया।",
+      operationalThemesDescription: "वर्कफ़्लो घर्षण ने खरीदारी की गति को खोल दिया।",
       businessThemes: "व्यावसायिक विषय",
-      businessThemesDescription:
-        "कार्यकारी स्तर के दांव उन घर्षणों से जुड़े हुए हैं।",
+      businessThemesDescription: "कार्यकारी स्तर के दांव उन घर्षणों से जुड़े हुए हैं।",
       evidenceCoverageByDeal: "सौदे द्वारा साक्ष्य कवरेज",
       evidenceCoverageByDealDescription:
         "मिलान किए गए डेटासेट से Gong, ईमेल, Slack, संपर्क और व्यक्तित्व कवरेज संरक्षित है।",
@@ -3125,8 +3110,7 @@ const analyticsSliceTranslations: {
       lostPipeline: "خط الأنابيب المفقود",
       averageDeal: "{{amount}} متوسط ​​الصفقة",
       customerEvidence: "أدلة العملاء",
-      evidenceDetail:
-        "نصوص {{transcripts}} ورسائل البريد الإلكتروني {{emails}}",
+      evidenceDetail: "نصوص {{transcripts}} ورسائل البريد الإلكتروني {{emails}}",
       reengageCandidates: "إعادة إشراك المرشحين",
       reengageDetail: "مرتبة حسب حجم الصفقة وإشارات إعادة الزيارة الصريحة",
       overview: "ملخص",
@@ -4567,15 +4551,13 @@ export const messagesByLocale = {
       deleteFailed: "{{name}} हटाया नहीं जा सका",
       deleteFailedWithMessage: "{{name}} हटाया नहीं जा सका: {{message}}",
       archiveFailed: "{{name}} आर्काइव नहीं किया जा सका",
-      archiveFailedWithMessage:
-        "{{name}} आर्काइव नहीं किया जा सका: {{message}}",
+      archiveFailedWithMessage: "{{name}} आर्काइव नहीं किया जा सका: {{message}}",
       hideFailed: "{{name}} छिपाया नहीं जा सका",
       hideFailedWithMessage: "{{name}} छिपाया नहीं जा सका: {{message}}",
       unhideFailed: "{{name}} दिखाया नहीं जा सका",
       unhideFailedWithMessage: "{{name}} दिखाया नहीं जा सका: {{message}}",
       updateVisibilityFailed: "दृश्यता अपडेट नहीं हो सकी",
-      updateVisibilityFailedWithMessage:
-        "दृश्यता अपडेट नहीं हो सकी: {{message}}",
+      updateVisibilityFailedWithMessage: "दृश्यता अपडेट नहीं हो सकी: {{message}}",
       archivedName: "“{{name}}” आर्काइव किया गया",
       nameSharedWithOrg: "“{{name}}” संगठन के साथ साझा किया गया",
       nameMadePrivate: "“{{name}}” निजी किया गया",
@@ -4629,8 +4611,7 @@ export const messagesByLocale = {
         "मुझसे डैशबोर्ड का विश्लेषण, ट्रेंड की तुलना या डेटा में गहराई से देखने को कहें...",
       suggestionArrGrowth: "इस तिमाही ARR वृद्धि को क्या चला रहा है?",
       suggestionChurn: "पिछले 6 महीनों के churn ट्रेंड दिखाएं",
-      suggestionAnomalies:
-        "HubSpot Sales डैशबोर्ड में anomalies का विश्लेषण करें",
+      suggestionAnomalies: "HubSpot Sales डैशबोर्ड में anomalies का विश्लेषण करें",
       suggestionMrr: "enterprise और SMB के बीच MRR की तुलना करें",
     },
     guidedQuestions: {
@@ -4649,8 +4630,7 @@ export const messagesByLocale = {
       pageUnderConstruction:
         "यह पेज अभी बनाया जा रहा है। कृपया बाद में फिर देखें या डैशबोर्ड पर लौटें।",
       askAnalytics: "Analytics से अपने डेटा के बारे में पूछें।",
-      askPlaceholder:
-        "डेटा, डैशबोर्ड, मेट्रिक्स या स्रोतों के बारे में पूछें...",
+      askPlaceholder: "डेटा, डैशबोर्ड, मेट्रिक्स या स्रोतों के बारे में पूछें...",
       askIntroTitle: "आप क्या खोजना चाहेंगे?",
       askIntroBody: "डेटा, डैशबोर्ड, मेट्रिक्स या स्रोतों के बारे में पूछें।",
 
@@ -6084,12 +6064,10 @@ const translatedAnalyticsDebtTranslations = {
       connectSourceFirst:
         "पहले एक स्रोत कनेक्ट करें, या एजेंट से एक तार जोड़ने में मदद करने के लिए कहें।",
       manageSources: "स्रोत प्रबंधित करें",
-      newAnalysisPlaceholder:
-        "उस प्रश्न का वर्णन करें जिसकी आप जांच करना चाहते हैं...",
+      newAnalysisPlaceholder: "उस प्रश्न का वर्णन करें जिसकी आप जांच करना चाहते हैं...",
       newAnalysisTitle: "नया विश्लेषण",
       newAnalysis: "नया विश्लेषण",
-      newDashboardPlaceholder:
-        "उस डैशबोर्ड का वर्णन करें जिसे आप बनाना चाहते हैं...",
+      newDashboardPlaceholder: "उस डैशबोर्ड का वर्णन करें जिसे आप बनाना चाहते हैं...",
       newDashboardTitle: "नया डैशबोर्ड",
       newDashboard: "नया डैशबोर्ड",
       noDataSourcesConfigured: "कोई डेटा स्रोत कॉन्फ़िगर नहीं किया गया",
@@ -6142,8 +6120,7 @@ const translatedAnalyticsDebtTranslations = {
       removeChart: "चार्ट हटाएँ",
       unhideFailed: "डैशबोर्ड को उजागर नहीं किया जा सका",
       untitledDashboard: "शीर्षक रहित डैशबोर्ड",
-      viewOnly:
-        "आप इस डैशबोर्ड को देख सकते हैं, लेकिन केवल संपादक ही इसे बदल सकते हैं।",
+      viewOnly: "आप इस डैशबोर्ड को देख सकते हैं, लेकिन केवल संपादक ही इसे बदल सकते हैं।",
     },
     markdown: {
       embedBlocked: "एंबेड अवरुद्ध है",
@@ -6665,15 +6642,13 @@ const translatedAnalyticsRawTranslations = {
       recommended: "अनुशंसित",
       panels: "{{count}} पैनल",
       installedAs: "{{name}} के रूप में स्थापित",
-      installsPrivateSqlDashboard:
-        "एक निजी SQL डैशबोर्ड के रूप में स्थापित होता है",
+      installsPrivateSqlDashboard: "एक निजी SQL डैशबोर्ड के रूप में स्थापित होता है",
       open: "खोलें",
       install: "इंस्टॉल करें",
       installing: "स्थापित कर रहा है",
       installSuccess: "{{name}} स्थापित किया गया",
       installFailed: "{{name}} स्थापित नहीं किया जा सका",
-      installFailedWithMessage:
-        "{{name}} इंस्टॉल नहीं किया जा सका: {{message}}",
+      installFailedWithMessage: "{{name}} इंस्टॉल नहीं किया जा सका: {{message}}",
     },
   },
   "ar-SA": {

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconConfetti,
   IconPlayerPause,
@@ -13,7 +14,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { isMacPlatform } from "@/lib/utils";
-import { useT } from "@agent-native/core/client";
 
 import { clampRectToViewport, type BubblePosition } from "./camera-positioner";
 

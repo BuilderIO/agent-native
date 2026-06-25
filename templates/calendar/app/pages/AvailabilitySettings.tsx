@@ -1,9 +1,11 @@
-import { useState, useEffect } from "react";
 import { useT } from "@agent-native/core/client";
+import type { AvailabilityConfig, DaySchedule } from "@shared/api";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
+
+import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import {
   Card,
   CardContent,
@@ -11,15 +13,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   useAvailability,
   useUpdateAvailability,
 } from "@/hooks/use-availability";
-import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { useDbStatus } from "@/hooks/use-db-status";
-import { CloudUpgrade } from "@/components/CloudUpgrade";
-import { toast } from "sonner";
-import type { AvailabilityConfig, DaySchedule } from "@shared/api";
 
 type DayName = keyof AvailabilityConfig["weeklySchedule"];
 

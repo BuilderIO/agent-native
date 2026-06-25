@@ -1453,8 +1453,7 @@ const brandKitDetailHiIN = {
   dismissFailedSlotsDescription:
     "पैनल से प्रत्येक विफल स्लॉट को हटा देता है। सफल उम्मीदवार रुके रहते हैं.",
   dismissFailed: "ख़ारिज करना विफल रहा",
-  dismissSlotDescription:
-    "इस असफल स्लॉट को लाइव उम्मीदवारों के पैनल से हटा देता है।",
+  dismissSlotDescription: "इस असफल स्लॉट को लाइव उम्मीदवारों के पैनल से हटा देता है।",
   dismissThisCandidate: "इस उम्मीदवार को बर्खास्त करें?",
   dismissThisSlot: "इस स्लॉट को ख़ारिज करें?",
   dismissedCandidate: "बर्खास्त उम्मीदवार.",
@@ -1480,8 +1479,7 @@ const brandKitDetailHiIN = {
     "मूल चैट थ्रेड के बिना किसी उम्मीदवार को जारी रखने के लिए डिजाइनरों के लिए साझा संदर्भ।",
   handoffSessions: "हैंडऑफ़ सत्र",
   imageCandidates: "छवि उम्मीदवार",
-  imagePromptPlaceholder:
-    "कोल्ड-स्टार्ट विलंबता के बारे में एक लेख के लिए ब्लॉग हीरो",
+  imagePromptPlaceholder: "कोल्ड-स्टार्ट विलंबता के बारे में एक लेख के लिए ब्लॉग हीरो",
   libraryEyebrow:
     "इस फ़िल्टर किए गए दृश्य में संपत्तियाँ सहेजी गईं। उन्हें चिन्हित करें जो भावी पीढ़ियों का मार्गदर्शन करें।",
   liveCandidatesActions: "लाइव उम्मीदवारों के कार्य",
@@ -1496,8 +1494,7 @@ const brandKitDetailHiIN = {
   newGenerationPresetDescription:
     "बार-बार छवि कार्य के लिए आउटपुट स्वरूप, पहलू अनुपात और पाठ नियमों को सहेजें।",
   newGenerationPreset: "नई पीढ़ी पूर्व निर्धारित",
-  noAssetsMatchDescription:
-    "सभी संपत्तियाँ, एक अलग फ़ोल्डर, या एक विस्तृत खोज आज़माएँ।",
+  noAssetsMatchDescription: "सभी संपत्तियाँ, एक अलग फ़ोल्डर, या एक विस्तृत खोज आज़माएँ।",
   noAssetsMatch: "कोई भी संपत्ति इस दृश्य से मेल नहीं खाती",
   noAssetsToShow: "दिखाने के लिए कोई संपत्ति नहीं.",
   noFeedbackYet: "अभी तक कोई प्रतिक्रिया नहीं।",
@@ -1515,8 +1512,7 @@ const brandKitDetailHiIN = {
   openChat: "चैट खोलें",
   previewUnavailable: "पूर्वावलोकन अनुपलब्ध",
   privateCopyCreated: "निजी ब्रांड किट की प्रतिलिपि बनाई गई",
-  processingPreviews:
-    "पूर्वावलोकन संसाधित करना और उन्हें ब्रांड किट में सहेजना।",
+  processingPreviews: "पूर्वावलोकन संसाधित करना और उन्हें ब्रांड किट में सहेजना।",
   promptTemplate: "शीघ्र टेम्पलेट",
   readyCandidate: "तैयार उम्मीदवार",
   referencesEyebrow: "Assets वर्तमान में पीढ़ी संदर्भ के लिए चिह्नित है।",
@@ -1539,8 +1535,7 @@ const brandKitDetailHiIN = {
     "सर्वर अभी भी इन परिसंपत्तियों को सहेजना समाप्त कर सकता है। हम इस ब्रांड किट की जाँच करते रहेंगे।",
   uploadTakingLonger: "अपलोड में अपेक्षा से अधिक समय लग रहा है.",
   videoCandidate: "वीडियो उम्मीदवार",
-  videoPromptPlaceholder:
-    "धीमे कैमरा पुश-इन के साथ आठ सेकंड का उत्पाद प्रकट होता है",
+  videoPromptPlaceholder: "धीमे कैमरा पुश-इन के साथ आठ सेकंड का उत्पाद प्रकट होता है",
   viewDetails: "विवरण देखें",
 } satisfies Partial<Messages["brandKitDetail"]>;
 
@@ -4445,8 +4440,7 @@ export const messagesByLocale = {
         "S3, R2, Spaces, Tigris, MinIO या कोई compatible provider उपयोग करें.",
       available: "उपलब्ध",
       connecting: "कनेक्ट हो रहा है",
-      noManualOptions:
-        "इस item के लिए कोई manual setup options उपलब्ध नहीं हैं.",
+      noManualOptions: "इस item के लिए कोई manual setup options उपलब्ध नहीं हैं.",
       builderManaged: "Builder managed image generation संभाल रहा है.",
       providerConfigured: "{{providers}} configured.",
 
@@ -4617,8 +4611,7 @@ export const messagesByLocale = {
       saveSettings: "حفظ الإعدادات",
       setupDescription: "أساسيان: التوليد والتخزين الدائم.",
       setupTitle: "إعداد Assets",
-      storageNeedsSetup:
-        "أضف مساحة تخزين متوافقة مع S3 لأصول الإنتاج والصادرات.",
+      storageNeedsSetup: "أضف مساحة تخزين متوافقة مع S3 لأصول الإنتاج والصادرات.",
       storageReady:
         "تتمتع النسخ الأصلية والصور المصغرة ومقاطع الفيديو والصادرات بمكانة متينة.",
     },

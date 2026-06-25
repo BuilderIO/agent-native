@@ -221,7 +221,7 @@ Skills هي ملفات موارد Markdown ضمن مسار `skills/` (يفضل `
 {
   "filename": "agents/design.md",
   "language": "markdown",
-  "code": "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# الدور\n\nأنت وكيل تصميم مركّز.\n\n## المسؤوليات\n\n- مراجعة التخطيطات وتدفقات التفاعل\n- اقتراح اتجاه مرئي أقوى\n- كن موجزًا وصاحب رأي"،
+  "code": "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# الدور\n\nأنت وكيل تصميم مركّز.\n\n## المسؤوليات\n\n- مراجعة التخطيطات وتدفقات التفاعل\n- اقتراح اتجاه مرئي أقوى\n- كن موجزًا وصاحب رأي",
   "annotations": [
     { "lines": "2", "label": "@mention handle", "note": "`name` هو ما يظهر في القائمة المنسدلة `@` وما يفوضه الوكيل الرئيسي." },
     { "lines": "3-4", "label": "متى يتم التفويض", "note": "`description` هو ما يقرأه المنسق ليقرر أن ملف التعريف هذا يناسب المهمة." },

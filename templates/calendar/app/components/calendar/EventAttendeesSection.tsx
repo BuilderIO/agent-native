@@ -1,7 +1,8 @@
-import { useEffect, useId, useMemo, useState } from "react";
-import { IconMessageCircle, IconUser } from "@tabler/icons-react";
 import { useT } from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
+import { IconMessageCircle, IconUser } from "@tabler/icons-react";
+import { useEffect, useId, useMemo, useState } from "react";
+
 import { AttendeeApolloPopover } from "@/components/calendar/ApolloPanel";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -15,12 +16,12 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { useAttendeePhotos } from "@/hooks/use-attendee-photos";
 import { useRsvpEvent } from "@/hooks/use-events";
-import { cn } from "@/lib/utils";
 import {
   canInlineRsvp,
   RsvpStatusIcon,
   type RsvpStatus,
 } from "@/lib/rsvp-status";
+import { cn } from "@/lib/utils";
 
 type RecurringScope = "single" | "all" | "thisAndFollowing";
 

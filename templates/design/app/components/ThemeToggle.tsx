@@ -1,5 +1,5 @@
-import { IconMoon, IconSun } from "@tabler/icons-react";
 import { useT } from "@agent-native/core/client";
+import { IconMoon, IconSun } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 

@@ -1,11 +1,4 @@
-import {
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useCallback,
-  useRef,
-} from "react";
-import type { Editor } from "@tiptap/react";
+import { useT } from "@agent-native/core/client";
 import {
   IconTypography,
   IconH1,
@@ -19,7 +12,15 @@ import {
   IconPencil,
   IconPhoto,
 } from "@tabler/icons-react";
-import { useT } from "@agent-native/core/client";
+import type { Editor } from "@tiptap/react";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useRef,
+} from "react";
+
 import { cn } from "@/lib/utils";
 interface ComposeSlashMenuProps {
   editor: Editor;

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconBold,
   IconItalic,
@@ -23,7 +24,6 @@ import {
 import { cn } from "@/lib/utils";
 
 import { captureAnchor, type CommentTextAnchor } from "./comment-anchors";
-import { useT } from "@agent-native/core/client";
 
 export type CommentRange = { from: number; to: number };
 

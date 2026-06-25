@@ -161,7 +161,8 @@ const messages = {
       imageReplaced: "Image replaced.",
       htmlFragment: "HTML fragment",
       optionalCss: "Optional CSS",
-      invalidBlockDescription: "This generated block did not match the Plan schema, so it was left out while the rest of the recap stayed visible.",
+      invalidBlockDescription:
+        "This generated block did not match the Plan schema, so it was left out while the rest of the recap stayed visible.",
       validationDetails: "Validation details",
     },
     localCodebase: {

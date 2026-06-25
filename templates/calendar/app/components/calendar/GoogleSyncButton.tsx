@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconRefresh } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -5,7 +6,6 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useSyncGoogle } from "@/hooks/use-google-auth";
 import { cn } from "@/lib/utils";
-import { useT } from "@agent-native/core/client";
 
 export function GoogleSyncButton() {
   const t = useT();

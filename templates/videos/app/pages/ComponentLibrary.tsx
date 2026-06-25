@@ -1,19 +1,20 @@
-import { useState, useEffect, useRef } from "react";
-import { useSearchParams } from "react-router";
+import { useT } from "@agent-native/core/client";
 import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebar,
 } from "@tabler/icons-react";
-import { ComponentLibraryView } from "@/pages/ComponentLibraryView";
+import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router";
+
 import { ComponentLibrarySidebar } from "@/components/ComponentLibrarySidebar";
-import { libraryComponents } from "@/remotion/componentRegistry";
-import { CurrentElementProvider } from "@/contexts/CurrentElementContext";
-import { useIsMobile } from "@/hooks/use-mobile";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@/components/layout/HeaderActions";
-import { useT } from "@agent-native/core/client";
+import { CurrentElementProvider } from "@/contexts/CurrentElementContext";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { ComponentLibraryView } from "@/pages/ComponentLibraryView";
+import { libraryComponents } from "@/remotion/componentRegistry";
 
 export default function ComponentLibrary() {
   const t = useT();

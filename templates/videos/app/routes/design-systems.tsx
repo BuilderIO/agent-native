@@ -1,5 +1,5 @@
-import DesignSystems from "@/pages/DesignSystems";
 import enUS from "@/i18n/en-US";
+import DesignSystems from "@/pages/DesignSystems";
 
 export function meta() {
   return [{ title: enUS.raw.routes.designSystems }];

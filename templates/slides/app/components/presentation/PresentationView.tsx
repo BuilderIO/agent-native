@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconChevronLeft,
   IconChevronRight,
@@ -18,7 +19,6 @@ import {
   findLegacyAnimationContainer,
   resolveSlideAnimationElement,
 } from "@/lib/slide-animation-elements";
-import { useT } from "@agent-native/core/client";
 
 interface PresentationViewProps {
   slides: Slide[];

@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useT } from "@agent-native/core/client";
 import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
+import { useState } from "react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useDocumentSyncStatus,
   useResolveDocumentSyncConflict,
 } from "@/hooks/use-notion";
-import { useLocalStorage } from "@/hooks/use-local-storage";
-import { toast } from "sonner";
-import { useT } from "@agent-native/core/client";
 
 interface NotionConflictBannerProps {
   documentId: string;

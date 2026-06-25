@@ -1,15 +1,15 @@
+import { postNavigate, isInAgentEmbed, useT } from "@agent-native/core/client";
+import type { EmailMessage } from "@shared/types";
+import { IconExternalLink } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { useSearchParams } from "react-router";
-import { postNavigate, isInAgentEmbed, useT } from "@agent-native/core/client";
-import { useThreadMessages } from "@/hooks/use-emails";
-import { formatEmailDate, formatEmailDateFull, cn } from "@/lib/utils";
-import { sanitizeHtml } from "@/lib/sanitize-html";
+
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconExternalLink } from "@tabler/icons-react";
-import type { EmailMessage } from "@shared/types";
-
+import { useThreadMessages } from "@/hooks/use-emails";
 import messages from "@/i18n/en-US";
+import { sanitizeHtml } from "@/lib/sanitize-html";
+import { formatEmailDate, formatEmailDateFull, cn } from "@/lib/utils";
 
 export function meta() {
   return [{ title: messages.mail.routeTitles.emailThread }];

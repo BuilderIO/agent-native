@@ -1,12 +1,9 @@
-import { useState } from "react";
+import { useT, type CollabUser } from "@agent-native/core/client";
+import type { DocumentVersion } from "@shared/api";
 import { IconArrowLeft, IconRotate, IconLoader2 } from "@tabler/icons-react";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
+import { useState } from "react";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,17 +14,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { VisualEditor } from "./VisualEditor";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import {
   useDocumentVersions,
   useRestoreDocumentVersion,
 } from "@/hooks/use-document-versions";
-import { toast } from "sonner";
-import type { DocumentVersion } from "@shared/api";
-import { useT, type CollabUser } from "@agent-native/core/client";
+
+import { VisualEditor } from "./VisualEditor";
 
 function formatRelativeTime(dateStr: string): string {
   const now = Date.now();

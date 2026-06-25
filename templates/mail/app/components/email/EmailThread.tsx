@@ -1835,7 +1835,9 @@ const ExpandedMessageCard = forwardRef<
                   <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>{t("mail.mobileActions.replyAll")}</TooltipContent>
+              <TooltipContent>
+                {t("mail.mobileActions.replyAll")}
+              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>

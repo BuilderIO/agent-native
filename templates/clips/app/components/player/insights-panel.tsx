@@ -1,3 +1,10 @@
+import { useActionQuery, useT } from "@agent-native/core/client";
+import {
+  IconEye,
+  IconUser,
+  IconPercentage,
+  IconTarget,
+} from "@tabler/icons-react";
 import {
   LineChart,
   Line,
@@ -7,14 +14,8 @@ import {
   Tooltip as ReTooltip,
   CartesianGrid,
 } from "recharts";
-import {
-  IconEye,
-  IconUser,
-  IconPercentage,
-  IconTarget,
-} from "@tabler/icons-react";
+
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useActionQuery, useT } from "@agent-native/core/client";
 
 export interface InsightsPanelProps {
   recordingId: string;

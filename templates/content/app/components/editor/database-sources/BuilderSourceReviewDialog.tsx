@@ -1,4 +1,12 @@
+import { useT } from "@agent-native/core/client";
+import type {
+  ContentDatabaseSource,
+  ContentDatabaseSourceChangeSet,
+  ContentDatabaseSourceReviewPayload,
+  DocumentPropertyValue,
+} from "@shared/api";
 import { IconCheck, IconX } from "@tabler/icons-react";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -7,13 +15,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
-import { useT } from "@agent-native/core/client";
-import type {
-  ContentDatabaseSource,
-  ContentDatabaseSourceChangeSet,
-  ContentDatabaseSourceReviewPayload,
-  DocumentPropertyValue,
-} from "@shared/api";
 
 function sourceRiskClass(risk: ContentDatabaseSourceChangeSet["riskLevel"]) {
   if (risk === "high") {

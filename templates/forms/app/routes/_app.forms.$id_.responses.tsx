@@ -1,5 +1,5 @@
-import { ResponsesPage } from "@/pages/ResponsesPage";
 import messages from "@/i18n/en-US";
+import { ResponsesPage } from "@/pages/ResponsesPage";
 
 export function meta() {
   return [{ title: messages.routeTitles.responsesForms }];

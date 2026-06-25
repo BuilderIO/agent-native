@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath, useT } from "@agent-native/core/client";
 import {
   IconCheck,
   IconLoader2,
@@ -8,6 +7,10 @@ import {
   IconPlayerPlay,
   IconCpu,
 } from "@tabler/icons-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -16,10 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { agentNativePath, useT } from "@agent-native/core/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

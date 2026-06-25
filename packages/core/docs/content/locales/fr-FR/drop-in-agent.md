@@ -23,7 +23,7 @@ Vous n'avez pas besoin de créer un agent natif à partir de zéro. Le chat de l
 | `<AgentChatSurface>`  | Une surface de discussion panneau/page pré-câblée                                                                       | Vous souhaitez discuter sans le wrapper de la barre latérale                            |
 | `<AssistantChat>`     | Rendu de chat de niveau inférieur avec crochets de composition/historique                                               | Vous avez besoin d'un chrome personnalisé autour de la conversation standard UI         |
 | `sendToAgentChat()`   | Envoyer un message au chat par programmation                                                                            | Un bouton qui confie le travail à l'agent au lieu de l'exécuter en ligne                |
-| `useActionMutation()` | Emballage frontal Typesafe autour d'une action                                                                            | Le UI doit exécuter la même opération qu'un outil d'agent exécuterait                   |
+| `useActionMutation()` | Emballage frontal Typesafe autour d'une action                                                                          | Le UI doit exécuter la même opération qu'un outil d'agent exécuterait                   |
 
 Tous ces éléments sont exportés depuis `@agent-native/core/client`.
 

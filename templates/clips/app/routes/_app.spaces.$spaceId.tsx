@@ -1,10 +1,10 @@
+import { useT } from "@agent-native/core/client";
 import { useMemo } from "react";
 import { useParams } from "react-router";
 
 import { FolderTree, type FolderNode } from "@/components/library/folder-tree";
 import { LibraryGrid } from "@/components/library/library-grid";
 import { useFolders, useSpaces, useOrganizations } from "@/hooks/use-library";
-import { useT } from "@agent-native/core/client";
 import enMessages from "@/i18n/en-US";
 
 export function meta() {

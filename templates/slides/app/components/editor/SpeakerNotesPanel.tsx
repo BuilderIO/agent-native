@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { IconChevronUp, IconChevronDown } from "@tabler/icons-react";
 import { useT } from "@agent-native/core/client";
+import { IconChevronUp, IconChevronDown } from "@tabler/icons-react";
+import { useState } from "react";
 
 interface SpeakerNotesPanelProps {
   notes: string;

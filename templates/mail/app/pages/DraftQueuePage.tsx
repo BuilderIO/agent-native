@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { useT } from "@agent-native/core/client";
 import {
   IconCheck,
   IconClock,
@@ -10,8 +9,10 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,7 +21,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -28,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   useDraftQueueMembers,
   useOpenQueuedDraft,
@@ -38,7 +39,7 @@ import {
   type QueuedEmailDraft,
 } from "@/hooks/use-draft-queue";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { useT } from "@agent-native/core/client";
+import { cn } from "@/lib/utils";
 
 type QueueScope = "review" | "requested";
 
@@ -69,7 +70,10 @@ function formatTime(timestamp: number) {
   });
 }
 
-function statusLabel(status: QueuedEmailDraft["status"], t: ReturnType<typeof useT>) {
+function statusLabel(
+  status: QueuedEmailDraft["status"],
+  t: ReturnType<typeof useT>,
+) {
   if (status === "in_review") return t("mail.draftQueue.statusInReview");
   return status;
 }
@@ -156,7 +160,9 @@ function QueueDraftDialog({
               </label>
               <Select value={ownerEmail} onValueChange={setOwnerEmail}>
                 <SelectTrigger className="h-9">
-                  <SelectValue placeholder={t("mail.draftQueue.chooseMember")} />
+                  <SelectValue
+                    placeholder={t("mail.draftQueue.chooseMember")}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {members.map((member) => (

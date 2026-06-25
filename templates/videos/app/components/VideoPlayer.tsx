@@ -1,14 +1,5 @@
+import { useT } from "@agent-native/core/client";
 import { Player, type PlayerRef } from "@remotion/player";
-import type { CompositionEntry } from "@/remotion/registry";
-import { cn } from "@/lib/utils";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  forwardRef,
-  useImperativeHandle,
-} from "react";
 import {
   IconPlayerPlay,
   IconPlayerPause,
@@ -17,6 +8,15 @@ import {
   IconArrowsMaximize,
   IconArrowsMinimize,
 } from "@tabler/icons-react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
+
 import {
   Select,
   SelectContent,
@@ -29,7 +29,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
+import { cn } from "@/lib/utils";
+import type { CompositionEntry } from "@/remotion/registry";
 
 export type VideoPlayerHandle = {
   seekTo: (frame: number) => void;

@@ -1,5 +1,6 @@
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import { PoweredByBadge, appPath, useT } from "@agent-native/core/client";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 import {
   IconCalendar,
   IconExternalLink,
@@ -8,17 +9,18 @@ import {
   IconWand,
 } from "@tabler/icons-react";
 import { and, eq, isNull } from "drizzle-orm";
-import { PoweredByBadge, appPath, useT } from "@agent-native/core/client";
-import { getRequestUserEmail } from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData } from "react-router";
+
 import {
   AttendeeStack,
   type AttendeeStackParticipant,
 } from "@/components/meetings/attendee-stack";
-import { getDb, schema } from "../../server/db";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import enMessages from "@/i18n/en-US";
+
+import { getDb, schema } from "../../server/db";
 
 interface ActionItem {
   id: string;

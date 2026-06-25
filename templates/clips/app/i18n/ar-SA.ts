@@ -339,8 +339,7 @@ const messages = {
     noTranscriptCaptured: "لم يتم التقاط أي نص.",
     backupFailed:
       "لم يتم التقاط أي خطاب محليًا، ولم ينته النسخ الاحتياطي. أعد المحاولة أو تحقق من أذونات الميكروفون والكلام.",
-    backupNotSetup:
-      "لم يتم التقاط أي كلام محليًا، ولم يتم إعداد النسخ الاحتياطي.",
+    backupNotSetup: "لم يتم التقاط أي كلام محليًا، ولم يتم إعداد النسخ الاحتياطي.",
     cleanupKept: "تعذر إنهاء عملية التنظيف. تم الاحتفاظ بالنص الأصلي.",
     cleanupBuilderFailed:
       "تعذر إنهاء عملية التنظيف على الرغم من اتصال Builder.io. تم الاحتفاظ بالنص الأصلي.",
@@ -747,16 +746,14 @@ const messages = {
     defaultTitle: "تسجيل مدمج",
     title: "دمج التسجيلات",
     pickAtLeastTwo: "اختر تسجيلين على الأقل لدمجهما",
-    videoUrlMissing:
-      "واحد أو أكثر من التسجيلات لا يحتوي بعد على رابط فيديو جاهز",
+    videoUrlMissing: "واحد أو أكثر من التسجيلات لا يحتوي بعد على رابط فيديو جاهز",
     connectStorage:
       "قم بتوصيل Builder.io أو تخزين متوافق مع S3 قبل دمج التسجيلات.",
     created: "تم إنشاء التسجيل المدمج",
     failed: "فشل دمج التسجيلات",
     noOtherRecordings: "لا توجد تسجيلات أخرى متاحة.",
     combineOrder: "ترتيب الدمج",
-    emptyQueue:
-      "انقر على التسجيلات في اليسار لإضافتها هنا. اسحب لإعادة الترتيب.",
+    emptyQueue: "انقر على التسجيلات في اليسار لإضافتها هنا. اسحب لإعادة الترتيب.",
     titleLabel: "العنوان",
     combining:
       "جارٍ الدمج باستخدام ffmpeg.wasm — {{progress}}%. قد تستغرق عمليات الدمج الكبيرة دقيقة.",
@@ -1243,7 +1240,7 @@ const messages = {
     recordingMenu: "قائمة التسجيل",
     moveToFolder: "نقل إلى مجلد",
     unarchive: "إلغاء الأرشفة",
-    shareNamedMeeting: "مشاركة \"{{title}}\"",
+    shareNamedMeeting: 'مشاركة "{{title}}"',
     shareMeeting: "مشاركة الاجتماع",
     shareLink: "رابط المشاركة",
     alreadyHaveIt: "لديّه بالفعل",
@@ -1251,7 +1248,8 @@ const messages = {
     invite: "دعوة",
     inviteFailed: "تعذرت دعوة الشخص",
     removePersonFailed: "تعذرت إزالة الشخص",
-    passwordProtectedDescription: "هذا الفيديو محمي. أدخل كلمة المرور للمشاهدة.",
+    passwordProtectedDescription:
+      "هذا الفيديو محمي. أدخل كلمة المرور للمشاهدة.",
     password: "كلمة المرور",
     unlock: "فتح القفل",
     noEngagementData: "لا توجد بيانات تفاعل بعد.",

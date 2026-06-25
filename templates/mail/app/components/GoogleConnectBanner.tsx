@@ -1,4 +1,9 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import {
+  agentNativePath,
+  isInBuilderFrame,
+  oauthRedirectUri,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconMail,
   IconX,
@@ -11,13 +16,9 @@ import {
   IconAlertTriangle,
   IconLogout,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+
 import { Button } from "@/components/ui/button";
-import {
-  agentNativePath,
-  isInBuilderFrame,
-  oauthRedirectUri,
-  useT,
-} from "@agent-native/core/client";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,

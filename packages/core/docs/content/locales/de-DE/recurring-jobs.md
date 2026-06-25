@@ -17,7 +17,7 @@ Jobs leben im [workspace](/docs/workspace) bei `jobs/<name>.md` – nur eine Mar
 {
   "filename": "jobs/morning-digest.md",
   "language": "markdown",
-  "code": "---\nschedule: \"0 7 * * *\"\nenabled: true\nrunAs: creator\n---\n\n# Morgenübersicht\n\nSummarize der E-Mails, die über Nacht eingegangen sind. Nach Absenderdomäne gruppieren.\nPin Die Top-3-Threads, die anscheinend heute eine Antwort benötigen, mit der Markierung\n\"Antwort erforderlich\". Antwortentwürfe für alle, die offensichtlich sind.“,
+  "code": "---\nschedule: \"0 7 * * *\"\nenabled: true\nrunAs: creator\n---\n\n# Morgenübersicht\n\nFasse die über Nacht eingegangenen E-Mails zusammen. Gruppiere sie nach Absenderdomäne.\nMarkiere die drei wichtigsten Threads, die heute wahrscheinlich eine Antwort benötigen,\nmit \"Antwort erforderlich\". Entwirf Antworten für alle offensichtlichen Fälle.",
   "annotations": [
     { "lines": "2", "label": "Wann", "note": "Standard-Cron mit 5 Feldern – `0 7 * * *` ist täglich um 07:00 Uhr." },
     { "lines": "3", "label": "Pause-Schalter", "note": "Flip to `false` to stop the job without deleting it." },

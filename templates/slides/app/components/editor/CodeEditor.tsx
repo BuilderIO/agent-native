@@ -1,5 +1,6 @@
-import type { Slide } from "@/context/DeckContext";
 import { useT } from "@agent-native/core/client";
+
+import type { Slide } from "@/context/DeckContext";
 
 interface CodeEditorProps {
   slide: Slide;

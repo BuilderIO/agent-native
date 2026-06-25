@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { ShareButton, useT } from "@agent-native/core/client";
 import {
   IconArrowLeft,
   IconAdjustments,
@@ -13,23 +13,25 @@ import {
   IconPin,
   IconWand,
 } from "@tabler/icons-react";
+import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
-import { ShareButton, useT } from "@agent-native/core/client";
-import type { ViewportTab } from "./types";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+import type { ViewportTab } from "./types";
 
 export type EditorMode = "comment" | "edit" | "draw";
 

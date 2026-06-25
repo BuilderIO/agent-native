@@ -132,7 +132,7 @@ Lors de l'examen des PR dans cet environnement :
 
 L'application [Dispatch](/docs/dispatch) est le plan de contrôle d'exécution de l'espace de travail. Il complète la gouvernance au niveau Git avec la gouvernance d'exécution :
 
-| Inquiétudes                               | Git et GitHub                        | Expédition                                                                 |
+| Inquiétudes                               | Git et GitHub                       | Expédition                                                                 |
 | ----------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------- |
 | Qui peut modifier le code                 | CODEOWNERS, protection des branches | —                                                                          |
 | Qui peut accéder aux secrets              | —                                   | Règle de Vault, subventions, workflow de demande                           |

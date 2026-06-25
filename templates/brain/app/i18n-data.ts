@@ -2391,8 +2391,7 @@ const baseMessagesByLocale = {
       grantDetail: {
         connected: "{{count}} सक्रिय connections Brain को दी गईं",
         granted: "Brain {{count}} connections तक पहुंच सकता है",
-        needsGrant:
-          "Connection Dispatch में मौजूद है; reuse के लिए Brain access दें",
+        needsGrant: "Connection Dispatch में मौजूद है; reuse के लिए Brain access दें",
         configuredSources:
           "{{count}} sources scoped credentials के साथ configured हैं",
         noSharedConnection: "अभी कोई shared workspace connection नहीं",
@@ -2432,13 +2431,11 @@ const baseMessagesByLocale = {
       source: "स्रोत",
       notApplicable: "लागू नहीं",
       emptyTitle: "अभी कोई कंपनी ज्ञान नहीं",
-      emptyFilteredDetail:
-        "knowledge set बढ़ाने के लिए search या filters साफ़ करें।",
+      emptyFilteredDetail: "knowledge set बढ़ाने के लिए search या filters साफ़ करें।",
       emptyDetail:
         "कंपनी ज्ञान बनाने के लिए source connect करें या review proposals approve करें।",
       updateFailedTitle: "कंपनी संदर्भ update विफल",
-      updateFailedDetail:
-        "Brain workspace context resource update नहीं कर सका।",
+      updateFailedDetail: "Brain workspace context resource update नहीं कर सका।",
       waitingOnSearch: "search-knowledge की प्रतीक्षा",
       waitingOnSearchDetail:
         "Brain अभी reviewed company knowledge load नहीं कर सका।",
@@ -4415,12 +4412,10 @@ const exactEnglishDebtOverrides: Partial<
       knowledgeBody: "ज्ञान शरीर",
       moreActions: "अधिक समीक्षा कार्रवाइयां",
       noFlags: "कोई झंडे नहीं",
-      noPrivacyDetail:
-        "कोई संपादन, निर्यात, या दृश्यता चेतावनी संलग्न नहीं की गई थी।",
+      noPrivacyDetail: "कोई संपादन, निर्यात, या दृश्यता चेतावनी संलग्न नहीं की गई थी।",
       noProposedKnowledge: "कोई प्रस्तावित ज्ञान नहीं.",
       noSnippets: "कोई स्निपेट नहीं",
-      noSourceSnippets:
-        "इस प्रस्ताव के साथ कोई स्रोत स्निपेट संलग्न नहीं किया गया था।",
+      noSourceSnippets: "इस प्रस्ताव के साथ कोई स्रोत स्निपेट संलग्न नहीं किया गया था।",
       notRecorded: "रिकार्ड नहीं किया गया",
       notScored: "स्कोर नहीं किया गया",
       pendingProposals: "लंबित प्रस्ताव",
@@ -4435,10 +4430,8 @@ const exactEnglishDebtOverrides: Partial<
       proposedKnowledge: "प्रस्तावित ज्ञान",
       publishCompanyContext: "कंपनी संदर्भ के रूप में प्रकाशित करें",
       queueReason: {
-        companyTier:
-          "कंपनी-स्तरीय ज्ञान के लिए समीक्षक के अनुमोदन की आवश्यकता होती है।",
-        default:
-          "टिकाऊ कंपनी ज्ञान बनने से पहले समीक्षक अनुमोदन के लिए कतारबद्ध।",
+        companyTier: "कंपनी-स्तरीय ज्ञान के लिए समीक्षक के अनुमोदन की आवश्यकता होती है।",
+        default: "टिकाऊ कंपनी ज्ञान बनने से पहले समीक्षक अनुमोदन के लिए कतारबद्ध।",
         privacySensitive:
           "गोपनीयता-संवेदनशील या संपादित सामग्री को समीक्षक की पुष्टि की आवश्यकता होती है।",
       },
@@ -4455,8 +4448,7 @@ const exactEnglishDebtOverrides: Partial<
         archiveKnowledgeDetail:
           "अनुमोदन लक्ष्यित ज्ञान को संग्रहीत के रूप में चिह्नित करता है।",
         archiveKnowledge: "ज्ञान संग्रहीत करें",
-        createNewDetail:
-          "अनुमोदन से एक नई टिकाऊ कंपनी ज्ञान प्रविष्टि जुड़ती है।",
+        createNewDetail: "अनुमोदन से एक नई टिकाऊ कंपनी ज्ञान प्रविष्टि जुड़ती है।",
         createNew: "नया ज्ञान बनाएँ",
         mergeExisting: "मौजूदा ज्ञान में विलय करें",
         mergeUpdateSupersede: "अद्यतन मर्ज करें और प्रतिस्थापित करें",
@@ -4492,8 +4484,7 @@ const exactEnglishDebtOverrides: Partial<
       startDetail: "उद्धृत कंपनी ज्ञान खोजने के लिए एक वाक्यांश दर्ज करें।",
       startTitle: "कंपनी ज्ञान खोज से शुरुआत करें",
       title: "कंपनी का ज्ञान खोजें",
-      unavailableDetail:
-        "पृष्ठ को ताज़ा करें और Brain लोड हो जाने पर पुनः प्रयास करें।",
+      unavailableDetail: "पृष्ठ को ताज़ा करें और Brain लोड हो जाने पर पुनः प्रयास करें।",
       unavailableTitle: "खोज अनुपलब्ध है",
       untitledResult: "शीर्षक रहित परिणाम",
       viewInBrain: "Brain में देखें",
@@ -4526,15 +4517,13 @@ const exactEnglishDebtOverrides: Partial<
         "Brain नामों का उपयोग तब किया जाता है जब वह स्वयं का और उस कार्यक्षेत्र का वर्णन करता है जिसकी वह सुरक्षा कर रहा है।",
       notRequired: "आवश्यक नहीं",
       notSet: "सेट नहीं",
-      notifySourceErrorsDescription:
-        "समीक्षा प्रवाह में सतह ख़राब या विफल कनेक्टर।",
+      notifySourceErrorsDescription: "समीक्षा प्रवाह में सतह ख़राब या विफल कनेक्टर।",
       notifySourceErrors: "स्रोत त्रुटियों पर सूचित करें",
       policy: {
         preSaveFilter: "फ़िल्टर को पहले से सहेजें",
         publishTier: "टियर प्रकाशित करें",
       },
-      publishingReviewDescription:
-        "दृश्यता, अनुमोदन और कनेक्टर ताल के लिए डिफ़ॉल्ट।",
+      publishingReviewDescription: "दृश्यता, अनुमोदन और कनेक्टर ताल के लिए डिफ़ॉल्ट।",
       requireApprovalDescription:
         "प्रकाशन से पहले मानव समीक्षा के लिए कंपनी-व्यापी ज्ञान वाले उम्मीदवारों की कतार लगाएं।",
       requireApproval: "कंपनी के ज्ञान के लिए अनुमोदन की आवश्यकता है",
@@ -4544,8 +4533,7 @@ const exactEnglishDebtOverrides: Partial<
       safetyEvidenceDescription:
         "समीक्षा कतार छोड़ने वाले उत्तरों के लिए संशोधन और उद्धरण नियम।",
       sanitizationInstructions: "सैनिटाइजेशन के निर्देश",
-      sanitizationModelDescription:
-        "प्री-सेव फ़िल्टरिंग पास के लिए वैकल्पिक ओवरराइड।",
+      sanitizationModelDescription: "प्री-सेव फ़िल्टरिंग पास के लिए वैकल्पिक ओवरराइड।",
       sanitizationModelPlaceholder: "डिफ़ॉल्ट एजेंट मॉडल या सस्ता फ़्लैश मॉडल",
       sanitizationModel: "स्वच्छता मॉडल",
       sanitizeCapturesDescription:
@@ -4593,8 +4581,7 @@ const exactEnglishDebtOverrides: Partial<
         brainAllowList: "Brain अनुमति-सूची",
       },
       approvedRepositories: "स्वीकृत भंडार",
-      autoSyncDescription:
-        "पृष्ठभूमि मतदान नियत समय पर इस स्रोत का उपयोग करता है",
+      autoSyncDescription: "पृष्ठभूमि मतदान नियत समय पर इस स्रोत का उपयोग करता है",
       autoSync: "स्वतः-सिंक",
       automaticCredentialSelection: "स्वचालित क्रेडेंशियल चयन",
       batchDistillationDescription:
@@ -4602,8 +4589,7 @@ const exactEnglishDebtOverrides: Partial<
       batchDistillation: "बैच आसवन",
       brainAppGrant: "Brain ऐप अनुदान",
       brainHealth: "Brain स्वास्थ्य",
-      captureInventoryFailedDetail:
-        "स्रोत पहुंच की जाँच करें और पुनः प्रयास करें।",
+      captureInventoryFailedDetail: "स्रोत पहुंच की जाँच करें और पुनः प्रयास करें।",
       captureInventoryFailedTitle: "इन्वेंट्री कैप्चर करना विफल रहा",
       catalogKeys: "कैटलॉग कुंजियाँ",
       connectProvider: "प्रदाता से कनेक्ट करें",
@@ -4652,8 +4638,7 @@ const exactEnglishDebtOverrides: Partial<
       noCapturesDetail:
         "कोई अन्य स्थिति आज़माएँ, स्रोत सिंक चलाएँ, या एक प्रतिलेख आयात करें।",
       noCapturesTitle: "कोई भी कैप्चर इस दृश्य से मेल नहीं खाता",
-      noConnectionProviders:
-        "साझा कैटलॉग से कोई Brain कनेक्शन प्रदाता उपलब्ध नहीं हैं।",
+      noConnectionProviders: "साझा कैटलॉग से कोई Brain कनेक्शन प्रदाता उपलब्ध नहीं हैं।",
       noCredentialKeysRequired: "किसी क्रेडेंशियल कुंजी की आवश्यकता नहीं है",
       noCredentialRefs: "इस संबंध पर कोई क्रेडेंशियल संदर्भ नहीं है",
       noCredentialRequired: "किसी प्रमाण पत्र की आवश्यकता नहीं है",
@@ -4678,8 +4663,7 @@ const exactEnglishDebtOverrides: Partial<
       readiness: {
         accessGrantedConnectionInactive:
           "पहुंच प्रदान की गई है, लेकिन कनेक्शन अभी तक सक्रिय नहीं है।",
-        addReusableConnection:
-          "Dispatch में पुन: प्रयोज्य प्रदाता कनेक्शन जोड़ें।",
+        addReusableConnection: "Dispatch में पुन: प्रयोज्य प्रदाता कनेक्शन जोड़ें।",
         addSharedOrScopedCredential:
           "एक साझा प्रदाता कनेक्शन या स्कोप्ड Brain क्रेडेंशियल जोड़ें।",
         brainCanUseSharedConnection:
@@ -4688,13 +4672,11 @@ const exactEnglishDebtOverrides: Partial<
         credentialNotLoaded: "क्रेडेंशियल उपलब्धता अभी तक लोड नहीं हुई है.",
         grantAppearsAfterConnection:
           "कार्यस्थान प्रदाता कनेक्शन मौजूद होने के बाद अनुदान प्रकट होता है।",
-        grantExistingConnection:
-          "मौजूदा प्रदाता को Brain ऐप से कनेक्शन प्रदान करें।",
+        grantExistingConnection: "मौजूदा प्रदाता को Brain ऐप से कनेक्शन प्रदान करें।",
         grantNeedsAttention:
           "Brain के पास अनुदान है, लेकिन प्रदाता कनेक्शन पर ध्यान देने की आवश्यकता है।",
         grantedRepair: "स्वीकृत, मरम्मत",
-        noCredentialKeyRequired:
-          "इस प्रदाता को क्रेडेंशियल कुंजी की आवश्यकता नहीं है.",
+        noCredentialKeyRequired: "इस प्रदाता को क्रेडेंशियल कुंजी की आवश्यकता नहीं है.",
         noGrant: "कोई अनुदान नहीं",
         notNeeded: "जरूरत नहीं",
         providerNeedsAppAccess:
@@ -4703,10 +4685,8 @@ const exactEnglishDebtOverrides: Partial<
           "इस प्रदाता को क्रेडेंशियल कुंजी के बिना कॉन्फ़िगर किया जा सकता है।",
         providerUnknown: "प्रदाता की तत्परता निर्धारित नहीं की जा सकी.",
         readyForSourceSetup: "स्रोत सेटअप के लिए तैयार.",
-        readyThroughScopedRefs:
-          "स्कोप्ड Brain क्रेडेंशियल रेफरी के माध्यम से तैयार।",
-        readyThroughSharedConnection:
-          "साझा कार्यक्षेत्र कनेक्शन के माध्यम से तैयार।",
+        readyThroughScopedRefs: "स्कोप्ड Brain क्रेडेंशियल रेफरी के माध्यम से तैयार।",
+        readyThroughSharedConnection: "साझा कार्यक्षेत्र कनेक्शन के माध्यम से तैयार।",
         reauthorizeProviderConnection:
           "साझा प्रदाता कनेक्शन को पुनः अधिकृत या मरम्मत करें।",
         registeredCredentialRefAvailable:
@@ -4717,8 +4697,7 @@ const exactEnglishDebtOverrides: Partial<
           "Brain मान दिखाए बिना प्रदाता कनेक्शन का पुन: उपयोग कर सकता है।",
         scopedCredentialRefsConfigured:
           "स्कोप्ड Brain क्रेडेंशियल रेफरी कॉन्फ़िगर किए गए हैं।",
-        scopedCredentialsAvailable:
-          "स्कोप्ड Brain क्रेडेंशियल पहले से ही उपलब्ध हैं।",
+        scopedCredentialsAvailable: "स्कोप्ड Brain क्रेडेंशियल पहले से ही उपलब्ध हैं।",
         scopedLocalCredentialRefs:
           "Brain अभी भी स्कोप्ड स्थानीय क्रेडेंशियल रेफरी का उपयोग कर सकता है।",
         sourceSetupNotImplemented:
@@ -4727,8 +4706,7 @@ const exactEnglishDebtOverrides: Partial<
           "एक कार्यक्षेत्र कनेक्शन मौजूद है और इसे Brain को दिया जा सकता है।",
         workspaceNotLoaded: "कार्यस्थान कनेक्शन स्थिति अभी तक लोड नहीं हुई है.",
       },
-      reviewRawCapturesDescription:
-        "आसवन से पहले आयातित कच्चे माल की समीक्षा करें।",
+      reviewRawCapturesDescription: "आसवन से पहले आयातित कच्चे माल की समीक्षा करें।",
       reviewRawCaptures: "कच्चे कैप्चर की समीक्षा करें",
       reviewRequiredDescription: "अनुमोदन से पहले कतार से ज्ञान निकाला गया",
       reviewRequired: "समीक्षा आवश्यक है",

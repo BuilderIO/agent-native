@@ -1,15 +1,16 @@
+import { useT } from "@agent-native/core/client";
+import { IconClock, IconSearch, IconX } from "@tabler/icons-react";
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { IconClock, IconSearch, IconX } from "@tabler/icons-react";
-import { cn, shortcutLabel } from "@/lib/utils";
+
+import { msToClock } from "@/components/player/scrubber";
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
 import { useRecordingSearch, type SearchHit } from "@/hooks/use-library";
-import { msToClock } from "@/components/player/scrubber";
-import { useT } from "@agent-native/core/client";
+import { cn, shortcutLabel } from "@/lib/utils";
 
 function highlight(
   text: string,

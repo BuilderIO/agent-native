@@ -1,5 +1,11 @@
-import { useState, useCallback, useRef, useMemo, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import {
+  sendToAgentChat,
+  openAgentSidebar,
+  useActionQuery,
+  useActionMutation,
+  appApiPath,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconArrowLeft,
   IconBrandGithub,
@@ -13,24 +19,19 @@ import {
   IconPalette,
   IconCheck,
 } from "@tabler/icons-react";
-import {
-  sendToAgentChat,
-  openAgentSidebar,
-  useActionQuery,
-  useActionMutation,
-  appApiPath,
-  useT,
-} from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
+
 import {
   useSetPageTitle,
   useSetHeaderActions,
 } from "@/components/layout/HeaderActions";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 
 interface GitHubLink {
   id: string;

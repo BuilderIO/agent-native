@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconH1,
   IconH2,
@@ -21,7 +22,6 @@ import {
 import { createPortal } from "react-dom";
 
 import { cn } from "@/lib/utils";
-import { useT } from "@agent-native/core/client";
 
 const SLASH_MENU_KEY = new PluginKey("slideSlashMenu");
 
@@ -98,17 +98,15 @@ export const SlashMenuUI = forwardRef<
   const t = useT();
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  const filtered = SLASH_COMMANDS.filter(
-    (cmd) => {
-      const title = t(cmd.titleKey);
-      const description = t(cmd.descriptionKey);
-      return (
-        !query ||
-        title.toLowerCase().includes(query.toLowerCase()) ||
-        description.toLowerCase().includes(query.toLowerCase())
-      );
-    },
-  );
+  const filtered = SLASH_COMMANDS.filter((cmd) => {
+    const title = t(cmd.titleKey);
+    const description = t(cmd.descriptionKey);
+    return (
+      !query ||
+      title.toLowerCase().includes(query.toLowerCase()) ||
+      description.toLowerCase().includes(query.toLowerCase())
+    );
+  });
 
   useImperativeHandle(ref, () => ({
     moveUp: () =>
@@ -157,9 +155,7 @@ export const SlashMenuUI = forwardRef<
               <Icon size={14} stroke={2} />
             </div>
             <div>
-              <div className="text-sm font-medium leading-tight">
-                {title}
-              </div>
+              <div className="text-sm font-medium leading-tight">{title}</div>
               <div className="text-xs text-muted-foreground leading-tight">
                 {description}
               </div>

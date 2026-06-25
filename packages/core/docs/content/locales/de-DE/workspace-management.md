@@ -132,7 +132,7 @@ Beim Überprüfen von PRs in dieser Umgebung:
 
 Die [Dispatch](/docs/dispatch)-App ist die Laufzeitsteuerungsebene des Arbeitsbereichs. Es ergänzt die Governance auf Git-Ebene durch die Laufzeit-Governance:
 
-| Bedenken                                 | Git und GitHub            | Versand                                                            |
+| Bedenken                                 | Git und GitHub          | Versand                                                            |
 | ---------------------------------------- | ----------------------- | ------------------------------------------------------------------ |
 | Wer kann Code ändern?                    | CODEOWNERS, Zweigschutz | —                                                                  |
 | Wer kann auf Geheimnisse zugreifen?      | —                       | Vault-Richtlinie, Zuschüsse, Antragsworkflow                       |

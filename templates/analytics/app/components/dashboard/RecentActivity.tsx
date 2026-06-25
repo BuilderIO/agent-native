@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Card,
@@ -6,7 +8,6 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { useT } from "@agent-native/core/client";
 
 const activities = [
   {

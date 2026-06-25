@@ -1,10 +1,13 @@
-import { Link, useSearchParams } from "react-router";
+import { useT } from "@agent-native/core/client";
+import type { ResponseInsightsWidgetResult } from "@shared/types";
 import {
   IconArrowLeft,
   IconChartBar,
   IconExternalLink,
   IconRefresh,
 } from "@tabler/icons-react";
+import { Link, useSearchParams } from "react-router";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,10 +19,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
 import { useResponseInsights } from "@/hooks/use-responses";
-import { useT } from "@agent-native/core/client";
-import type { ResponseInsightsWidgetResult } from "@shared/types";
+import { cn } from "@/lib/utils";
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value);

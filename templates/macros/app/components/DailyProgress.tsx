@@ -1,7 +1,11 @@
-import { useState, useEffect } from "react";
-import { cn, formatLocalDate } from "@/lib/utils";
 import { useActionQuery, useT } from "@agent-native/core/client";
+import {
+  IconTrendingUp,
+  IconActivity,
+  IconChartBar,
+} from "@tabler/icons-react";
 import { subDays } from "date-fns";
+import { useState, useEffect } from "react";
 import { Link } from "react-router";
 import {
   LineChart,
@@ -13,6 +17,8 @@ import {
   AreaChart,
   Area,
 } from "recharts";
+
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -21,12 +27,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  IconTrendingUp,
-  IconActivity,
-  IconChartBar,
-} from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
+import { cn, formatLocalDate } from "@/lib/utils";
 
 function readActiveChart() {
   if (typeof window === "undefined") return "weight";

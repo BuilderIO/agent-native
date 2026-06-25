@@ -1,5 +1,5 @@
-import { FormsListPage } from "@/pages/FormsListPage";
 import messages from "@/i18n/en-US";
+import { FormsListPage } from "@/pages/FormsListPage";
 
 export function meta() {
   const description = messages.routeDescriptions.formsIndex;

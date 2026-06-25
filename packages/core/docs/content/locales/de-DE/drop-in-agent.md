@@ -20,10 +20,10 @@ Sie müssen den Agent-nativen Ansatz nicht von Grund auf neu erstellen. Der Agen
 | `<AgentSidebar>`      | Umschließt Ihr Root-App-Layout und fügt einen umschaltbaren Seitenbereich hinzu, der den vollständigen Agenten enthält. | Sie möchten, dass der Agent neben Ihrer App auf jedem Bildschirm verfügbar ist         |
 | `<AgentToggleButton>` | Öffnet/schließt `<AgentSidebar>` (fügen Sie es in Ihren Header ein)                                                     | Mit `<AgentSidebar>` koppeln                                                           |
 | `<AgentPanel>`        | Das Rohpanel selbst – Chat + CLI + Arbeitsbereichsregisterkarten                                                        | Sie möchten die volle Kontrolle über das Layout oder eine dedizierte Agentenseite      |
-| `<AgentChatSurface>`  | Eine vorverkabelte Panel-/Seiten-Chat-Oberfläche                                                                        | Sie möchten ohne den Seitenleisten-Verpackung chatten                                     |
+| `<AgentChatSurface>`  | Eine vorverkabelte Panel-/Seiten-Chat-Oberfläche                                                                        | Sie möchten ohne den Seitenleisten-Verpackung chatten                                  |
 | `<AssistantChat>`     | Chat-Renderer auf niedrigerer Ebene mit Komponisten-/Verlaufs-Hooks                                                     | Sie benötigen benutzerdefiniertes Chrom rund um die Standardkonversation UI            |
 | `sendToAgentChat()`   | Programmgesteuert eine Nachricht an den Chat senden                                                                     | Eine Schaltfläche, die die Arbeit dem Agenten übergibt, anstatt sie inline auszuführen |
-| `useActionMutation()` | Typsicherer Frontend-Verpackung um eine Aktion                                                                             | UI muss den gleichen Vorgang ausführen, den ein Agent-Tool ausführen würde             |
+| `useActionMutation()` | Typsicherer Frontend-Verpackung um eine Aktion                                                                          | UI muss den gleichen Vorgang ausführen, den ein Agent-Tool ausführen würde             |
 
 Alle diese werden aus `@agent-native/core/client` exportiert.
 

@@ -1,5 +1,5 @@
-import { IconLoader2 } from "@tabler/icons-react";
 import { useT } from "@agent-native/core/client";
+import { IconLoader2 } from "@tabler/icons-react";
 
 export default function GeneratingOverlay() {
   const t = useT();

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { useState, useEffect } from "react";
@@ -10,7 +11,6 @@ import {
 } from "@/components/ui/tooltip";
 import { getResolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { useT } from "@agent-native/core/client";
 
 export function ThemeToggle({ className }: { className?: string }) {
   const { setTheme, resolvedTheme } = useTheme();

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useT } from "@agent-native/core/client";
 import {
   IconX,
   IconCheck,
@@ -6,6 +6,13 @@ import {
   IconMessageCircle,
   IconChevronDown,
 } from "@tabler/icons-react";
+import { useState, useRef, useEffect } from "react";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   useSlideComments,
   useCreateSlideComment,
@@ -16,12 +23,6 @@ import {
   type CommentThread,
   type SlideComment,
 } from "@/hooks/use-slide-comments";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
 
 interface SlideCommentsPanelProps {
   deckId: string | null;
@@ -184,7 +185,9 @@ function PendingCommentInput({
           disabled={!text.trim() || createComment.isPending}
           className="text-[11px] bg-[#609FF8] text-black font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-[#7AB2FA]"
         >
-          {createComment.isPending ? t("comments.saving") : t("comments.comment")}
+          {createComment.isPending
+            ? t("comments.saving")
+            : t("comments.comment")}
         </button>
       </div>
     </div>
@@ -338,7 +341,9 @@ function ThreadCard({
                         <IconCheck size={11} />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>{t("comments.resolveThread")}</TooltipContent>
+                    <TooltipContent>
+                      {t("comments.resolveThread")}
+                    </TooltipContent>
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -351,7 +356,9 @@ function ThreadCard({
                         <IconTrash size={11} />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>{t("comments.deleteComment")}</TooltipContent>
+                    <TooltipContent>
+                      {t("comments.deleteComment")}
+                    </TooltipContent>
                   </Tooltip>
                 </>
               )}

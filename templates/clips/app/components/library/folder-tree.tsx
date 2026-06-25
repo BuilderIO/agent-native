@@ -1,5 +1,4 @@
-import { useMemo, useState } from "react";
-import { NavLink } from "react-router";
+import { useT } from "@agent-native/core/client";
 import {
   IconChevronRight,
   IconFolder,
@@ -8,13 +7,10 @@ import {
   IconTrash,
   IconEdit,
 } from "@tabler/icons-react";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
+import { useMemo, useState } from "react";
+import { NavLink } from "react-router";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,14 +21,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { cn } from "@/lib/utils";
-import { useT } from "@agent-native/core/client";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   useCreateFolder,
   useDeleteFolder,
   useRenameFolder,
 } from "@/hooks/use-library";
-import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 export interface FolderNode {
   id: string;

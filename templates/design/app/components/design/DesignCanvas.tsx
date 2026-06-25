@@ -1,9 +1,7 @@
-import { useRef, useEffect, useCallback, useMemo } from "react";
 import { agentChat } from "@agent-native/core";
 import { usePinchZoom, useT } from "@agent-native/core/client";
-import { DeviceFrame } from "./DeviceFrame";
-import type { ElementInfo, DeviceFrameType } from "./types";
-import { isTrustedCanvasBridgeMessage } from "./bridge-security";
+import { useRef, useEffect, useCallback, useMemo } from "react";
+
 // NOTE: This wires up the NEW shared visual-editor DrawOverlay + comment-pin
 // components from `@/components/visual-editor`. The legacy iframe-only
 // DrawOverlay at `./DrawOverlay.tsx` is intentionally NOT used here — both
@@ -12,6 +10,10 @@ import {
   DrawOverlay as SharedDrawOverlay,
   CanvasCommentPins,
 } from "@/components/visual-editor";
+
+import { isTrustedCanvasBridgeMessage } from "./bridge-security";
+import { DeviceFrame } from "./DeviceFrame";
+import type { ElementInfo, DeviceFrameType } from "./types";
 
 /**
  * Tweak-bridge script. ALWAYS injected so the parent's postMessage

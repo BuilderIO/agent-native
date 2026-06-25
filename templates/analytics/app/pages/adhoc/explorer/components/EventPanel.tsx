@@ -1,9 +1,11 @@
-import { IconPlus } from "@tabler/icons-react";
 import { useT } from "@agent-native/core/client";
+import { IconPlus } from "@tabler/icons-react";
+
 import { Button } from "@/components/ui/button";
-import { EventRow } from "./EventRow";
+
 import type { ExplorerEvent } from "../types";
 import { createDefaultEvent } from "../types";
+import { EventRow } from "./EventRow";
 
 interface EventPanelProps {
   events: ExplorerEvent[];

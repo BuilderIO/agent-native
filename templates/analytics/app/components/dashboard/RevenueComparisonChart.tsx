@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   Bar,
   CartesianGrid,
@@ -13,7 +14,6 @@ import {
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useT } from "@agent-native/core/client";
 
 interface RevenueComparisonChartProps {
   title: string;

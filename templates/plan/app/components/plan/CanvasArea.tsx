@@ -1,3 +1,16 @@
+import { useT } from "@agent-native/core/client";
+import type {
+  PlanAnnotation,
+  PlanAnnotationPlacement,
+  PlanArtboard,
+  PlanBlock,
+  PlanBoardSection,
+  PlanCanvasNote,
+  PlanConnector,
+  PlanContent,
+  PlanWireframeSurface,
+} from "@shared/plan-content";
+import { IconMinus, IconPlus } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -10,21 +23,10 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
-import { IconMinus, IconPlus } from "@tabler/icons-react";
-import { useT } from "@agent-native/core/client";
+
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type {
-  PlanAnnotation,
-  PlanAnnotationPlacement,
-  PlanArtboard,
-  PlanBlock,
-  PlanBoardSection,
-  PlanCanvasNote,
-  PlanConnector,
-  PlanContent,
-  PlanWireframeSurface,
-} from "@shared/plan-content";
+
 import { Wireframe, type DesignElementSelection } from "./wireframe/Wireframe";
 
 /* -------------------------------------------------------------------------- */

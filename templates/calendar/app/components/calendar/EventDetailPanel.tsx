@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { format, parseISO, differenceInMinutes } from "date-fns";
+import { useT } from "@agent-native/core/client";
+import type { CalendarEvent } from "@shared/api";
 import {
   IconX,
   IconClock,
@@ -11,7 +11,18 @@ import {
   IconAlignLeft,
   IconVideo,
 } from "@tabler/icons-react";
-import { useT } from "@agent-native/core/client";
+import { format, parseISO, differenceInMinutes } from "date-fns";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { toast } from "sonner";
+
+import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
+import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
+import {
+  RenderedDescription,
+  AutoGrowTextarea,
+} from "@/components/calendar/EventDescription";
+import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
+import { useCalendarContext } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -19,19 +30,9 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-import type { CalendarEvent } from "@shared/api";
-import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
-import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
-import { useCalendarContext } from "@/components/layout/AppLayout";
-import {
-  RenderedDescription,
-  AutoGrowTextarea,
-} from "@/components/calendar/EventDescription";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
-import { toast } from "sonner";
-import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
+import { cn } from "@/lib/utils";
 
 interface EventDetailPanelProps {
   event: CalendarEvent | null;

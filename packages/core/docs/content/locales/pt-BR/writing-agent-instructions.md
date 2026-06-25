@@ -151,7 +151,7 @@ Cada orientação que você cria chega a uma das quatro superfícies. Saber qual
 | Superfície                        | Quem escreve                         | Quando estiver carregado                                         | O que pertence a esse lugar                                                       |
 | --------------------------------- | ------------------------------------ | ---------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | Instruções `AGENTS.md`            | Você (desenvolvedor)                 | Cada curva, conforme orientação                                  | Objetivo, regras básicas, chaves de estado, índice de ação, índice skills         |
-| Habilidades (`SKILL.md`)               | Você (desenvolvedor)                 | Sob demanda, quando o agente decide que a habilidade é relevante | Instruções passo a passo para um padrão específico, listas do que fazer/não fazer |
+| Habilidades (`SKILL.md`)          | Você (desenvolvedor)                 | Sob demanda, quando o agente decide que a habilidade é relevante | Instruções passo a passo para um padrão específico, listas do que fazer/não fazer |
 | Descrições de ações (ferramentas) | Você (desenvolvedor)                 | Cada turno, conforme lista de ferramentas                        | O que a ação faz, o que ela retorna, semântica dos parâmetros                     |
 | Contexto `application_state`      | Seu código UI (em tempo de execução) | A cada turno, conforme o estado do aplicativo ao vivo            | Navegação atual, seleção, objeto em foco, URL                                     |
 

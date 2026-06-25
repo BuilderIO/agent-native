@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
 import { useT } from "@agent-native/core/client";
+import type { CalendarEvent, UpdateEventScope } from "@shared/api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +14,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
-import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 
 type GuestNotificationAction = "update" | "cancellation";
 

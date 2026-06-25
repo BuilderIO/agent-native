@@ -1,3 +1,4 @@
+import { useFormatters, useT } from "@agent-native/core/client";
 import {
   IconMessage,
   IconMoodSmile,
@@ -8,7 +9,6 @@ import {
 import { Link } from "react-router";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useFormatters, useT } from "@agent-native/core/client";
 
 export type NotificationKind = "comment" | "reaction" | "mention" | "share";
 
@@ -140,7 +140,8 @@ function formatNotificationTime(
     const abs = Math.abs(delta);
     if (abs < 60) return formatRelativeTime(Math.round(delta), "second");
     if (abs < 3600) return formatRelativeTime(Math.round(delta / 60), "minute");
-    if (abs < 86400) return formatRelativeTime(Math.round(delta / 3600), "hour");
+    if (abs < 86400)
+      return formatRelativeTime(Math.round(delta / 3600), "hour");
     return formatDate(date);
   } catch {
     return iso;

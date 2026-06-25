@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconChevronDown, IconCheck } from "@tabler/icons-react";
 import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import {
@@ -10,7 +11,6 @@ import { common, createLowlight } from "lowlight";
 import { useState, useRef, useEffect, useCallback } from "react";
 
 import { cn } from "@/lib/utils";
-import { useT } from "@agent-native/core/client";
 
 const lowlight = createLowlight(common);
 

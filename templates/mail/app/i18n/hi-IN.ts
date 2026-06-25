@@ -336,8 +336,7 @@ const messages = {
       copy: "कॉपी करें",
       copied: "कॉपी हो गया",
       saving: "सहेज रहा है...",
-      readyToConnect:
-        "कनेक्ट करने के लिए तैयार - अपने Google खाते से साइन इन करें",
+      readyToConnect: "कनेक्ट करने के लिए तैयार - अपने Google खाते से साइन इन करें",
       connectBanner: "वास्तविक ईमेल भेजने और पाने के लिए Google कनेक्ट करें",
       ownerMismatch: "यह खाता किसी दूसरे लॉगिन से जुड़ा है",
       connectionFailed: "Google कनेक्शन विफल",
@@ -465,8 +464,7 @@ const messages = {
     actions: "कार्रवाइयां",
     editRule: "नियम संपादित करें",
     deleteRule: "नियम हटाएं",
-    noEventAutomations:
-      "मेल के लिए अभी कोई event-triggered automation नहीं है।",
+    noEventAutomations: "मेल के लिए अभी कोई event-triggered automation नहीं है।",
     eventAutomationsPrompt:
       "एजेंट से ऐसी automation बनाने को कहें: “जब मुझे अपने बॉस से ईमेल मिले, उसे star करें और मुझे notify करें।”",
     disabled: "अक्षम",
@@ -495,8 +493,7 @@ const messages = {
     signatureHelp:
       "नए drafts में quoted reply history से पहले जोड़ा जाता है। Markdown links और images समर्थित हैं।",
     writingStyle: "लेखन शैली",
-    writingStylePlaceholder:
-      "छोटा, विशिष्ट, गर्मजोशी भरा। औपचारिक filler से बचें।",
+    writingStylePlaceholder: "छोटा, विशिष्ट, गर्मजोशी भरा। औपचारिक filler से बचें।",
     saveDraftingSettings: "Drafting settings सहेजें",
     reset: "रीसेट",
     trackingDescription:

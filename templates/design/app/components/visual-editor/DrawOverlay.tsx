@@ -1,3 +1,12 @@
+import { useT } from "@agent-native/core/client";
+import {
+  IconEraser,
+  IconArrowBackUp,
+  IconArrowForwardUp,
+  IconSend,
+  IconCursorText,
+  IconX,
+} from "@tabler/icons-react";
 /**
  * NOTE: This is the new shared visual-editor DrawOverlay, mirrored from the
  * slides template so both apps share the same comment/draw/save UX.
@@ -8,24 +17,16 @@
  * this shared version in a follow-up. Don't import both in the same screen.
  */
 import { useState, useRef, useCallback, useEffect } from "react";
-import {
-  IconEraser,
-  IconArrowBackUp,
-  IconArrowForwardUp,
-  IconSend,
-  IconCursorText,
-  IconX,
-} from "@tabler/icons-react";
 import { toast } from "sonner";
-import { useT } from "@agent-native/core/client";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 export interface DrawAnnotation {
   id: string;
