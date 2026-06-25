@@ -505,7 +505,7 @@ export function FileTreeRead({
               )}
             </span>
             {note && !isOpen && (
-              <span className="line-clamp-2 min-w-[min(16rem,100%)] flex-1 break-words text-xs leading-5 text-plan-muted">
+              <span className="an-file-tree-note min-w-[min(16rem,100%)] flex-1 break-words text-xs leading-5 text-plan-muted">
                 {note}
               </span>
             )}
