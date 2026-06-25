@@ -60,9 +60,12 @@ describe("sync-builder-starter-manifest", () => {
           compilerOptions?: { baseUrl?: string };
         };
         expect(tsconfig.compilerOptions?.baseUrl).toBe(".");
-        expect(files.get("server/plugins/agent-chat.ts")).toContain(
-          'appId: "builder-agent-native-starter"',
-        );
+        expect(
+          fs.readFileSync(
+            path.join(snapshot.dir, "server/plugins/agent-chat.ts"),
+            "utf-8",
+          ),
+        ).toContain('appId: "builder-agent-native-starter"');
         expect(files.get("netlify.toml")).toContain('publish = "dist"');
         expect(files.get("netlify.toml")).not.toContain("templates/chat");
       } finally {
@@ -71,6 +74,15 @@ describe("sync-builder-starter-manifest", () => {
     },
     STARTER_MANIFEST_TIMEOUT_MS,
   );
+
+  it("does not sync starter-owned plugin prompt and marketing files", () => {
+    expect(STARTER_TOOLCHAIN_SYNC_PATHS).not.toContain(
+      "server/plugins/agent-chat.ts",
+    );
+    expect(STARTER_TOOLCHAIN_SYNC_PATHS).not.toContain(
+      "server/plugins/auth.ts",
+    );
+  });
 
   it(
     "preserves starter identity fields and pinned core when merging",

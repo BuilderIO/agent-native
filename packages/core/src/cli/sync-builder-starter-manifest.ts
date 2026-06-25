@@ -17,8 +17,8 @@ export const STARTER_TOOLCHAIN_SYNC_PATHS = [
   "app/vite-env.d.ts",
   "app/routes.ts",
   "server/routes/[...page].get.ts",
-  "server/plugins/agent-chat.ts",
-  "server/plugins/auth.ts",
+  // server/plugins/* are intentionally excluded: starter keeps its own
+  // systemPrompt and auth marketing copy; post-process only rewrites appId/title.
   "server/middleware/auth.ts",
   "components.json",
   ".oxfmtrc.json",
