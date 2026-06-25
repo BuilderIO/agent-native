@@ -3989,6 +3989,12 @@ function DatabaseSettingsSourcePanel({
         onOpenBuilder={() =>
           onNavPush({ kind: "provider", providerId: "builder" })
         }
+        onOpenConnectedBuilder={(connected) =>
+          onNavPush({
+            kind: "model",
+            model: builderModelSummaryFromSource(connected),
+          })
+        }
         onOpenSecondary={(secondary) =>
           onNavPush({
             kind: "secondarySource",
@@ -4405,6 +4411,18 @@ function DatabaseSettingsSourcePanel({
 
 // Root of the Sources drill-down: third-party integrations + Agent-Native apps,
 // each provider a row. Builder is live; the rest are disabled "coming soon".
+function builderModelSummaryFromSource(
+  source: ContentDatabaseSource,
+): BuilderCmsModelSummary {
+  return {
+    id: source.sourceTable,
+    name: source.sourceTable,
+    displayName: source.sourceName,
+    kind: "data",
+    fields: [],
+  };
+}
+
 function SourcesListView({
   source,
   sources,
@@ -4412,6 +4430,7 @@ function SourcesListView({
   builderSpaceLabel,
   reviewableCount,
   onOpenBuilder,
+  onOpenConnectedBuilder,
   onOpenSecondary,
   onAddSource,
 }: {
@@ -4421,6 +4440,7 @@ function SourcesListView({
   builderSpaceLabel: string | null;
   reviewableCount: number;
   onOpenBuilder: () => void;
+  onOpenConnectedBuilder: (source: ContentDatabaseSource) => void;
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
@@ -4457,11 +4477,17 @@ function SourcesListView({
                     ? "Primary"
                     : undefined
               }
+              badgeCount={
+                connected.metadata.federation?.role !== "secondary" &&
+                connected.sourceType === "builder-cms"
+                  ? reviewableCount
+                  : 0
+              }
               onClick={
                 connected.metadata.federation?.role === "secondary"
                   ? () => onOpenSecondary(connected)
                   : connected.sourceType === "builder-cms"
-                    ? onOpenBuilder
+                    ? () => onOpenConnectedBuilder(connected)
                     : undefined
               }
               disabled={
@@ -4491,7 +4517,6 @@ function SourcesListView({
                 ? "Connected"
                 : undefined
           }
-          badgeCount={reviewableCount}
           onClick={onOpenBuilder}
         />
         <DatabaseSettingsRow
