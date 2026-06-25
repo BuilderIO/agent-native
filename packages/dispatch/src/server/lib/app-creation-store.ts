@@ -1860,7 +1860,7 @@ export async function startWorkspaceAppCreation(input: {
       mode: "coming-soon",
       appId: built.appId,
       message:
-        "Builder app creation is coming soon here. Set a default Builder project in Dispatch or provide BUILDER_BRANCH_PROJECT_ID to enable branch creation.",
+        "This requires a code change. Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
     };
   }
 

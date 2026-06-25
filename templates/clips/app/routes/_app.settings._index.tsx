@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   IconBrain,
   IconBrandSlack,
+  IconCheck,
+  IconChevronDown,
   IconCloud,
   IconExternalLink,
   IconKey,
@@ -14,12 +16,16 @@ import {
   useSession,
   agentNativePath,
   appApiPath,
-  openBuilderConnectPopup,
+  parseChangelog,
   useActionQuery,
+  useBuilderConnectFlow,
+  useBuilderStatus,
   ChangelogSettingsCard,
 } from "@agent-native/core/client";
 import changelog from "../../CHANGELOG.md?raw";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -28,6 +34,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/library/page-header";
@@ -92,6 +103,39 @@ const S3_STORAGE_FIELDS = [
     key: "S3_PUBLIC_BASE_URL",
     label: "Public base URL",
     placeholder: "https://cdn.example.com",
+  },
+] as const;
+
+const AI_PROVIDER_FIELDS = [
+  {
+    key: "ANTHROPIC_API_KEY",
+    label: "Anthropic",
+    placeholder: "sk-ant-...",
+    storage: "agent-engine",
+  },
+  {
+    key: "OPENAI_API_KEY",
+    label: "OpenAI",
+    placeholder: "sk-...",
+    storage: "agent-engine",
+  },
+  {
+    key: "GEMINI_API_KEY",
+    label: "Gemini",
+    placeholder: "AI...",
+    storage: "secret",
+  },
+  {
+    key: "GROQ_API_KEY",
+    label: "Groq",
+    placeholder: "gsk_...",
+    storage: "secret",
+  },
+  {
+    key: "OPENROUTER_API_KEY",
+    label: "OpenRouter",
+    placeholder: "sk-or-...",
+    storage: "agent-engine",
   },
 ] as const;
 
@@ -253,10 +297,105 @@ async function saveS3StorageSettings(
   }
 }
 
+async function saveAgentEngineApiKey(
+  key: string,
+  value: string,
+): Promise<void> {
+  const res = await fetch(
+    agentNativePath("/_agent-native/agent-engine/api-key"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, value, scope: "user" }),
+    },
+  );
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(body?.error ?? `Save failed (${res.status})`);
+  }
+}
+
+async function saveRegisteredSecret(key: string, value: string): Promise<void> {
+  const res = await fetch(
+    agentNativePath(`/_agent-native/secrets/${encodeURIComponent(key)}`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value }),
+    },
+  );
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(body?.error ?? `Save failed (${res.status})`);
+  }
+}
+
+function CompactChangelogAside() {
+  const entries = useMemo(() => parseChangelog(changelog), []);
+  const [expanded, setExpanded] = useState(false);
+
+  if (entries.length === 0) return null;
+
+  const latestBody = entries[0]?.body ?? "";
+  const canExpand = latestBody.length > 260 || entries.length > 1;
+
+  return (
+    <aside className="2xl:sticky 2xl:top-6 2xl:self-start">
+      <div className="relative">
+        <div
+          className={cn(
+            "overflow-hidden transition-[max-height] duration-200 ease-out",
+            expanded ? "max-h-[70vh]" : "max-h-72",
+          )}
+        >
+          <ChangelogSettingsCard
+            markdown={changelog}
+            limit={1}
+            className="rounded-md"
+          />
+        </div>
+        {canExpand && !expanded ? (
+          <div className="pointer-events-none absolute inset-x-px bottom-10 h-16 bg-gradient-to-t from-card to-transparent" />
+        ) : null}
+        {canExpand ? (
+          <div className="mt-2 flex justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={() => setExpanded((value) => !value)}
+            >
+              {expanded ? "Collapse" : "Expand"}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    </aside>
+  );
+}
+
 export default function SettingsIndexRoute() {
   const { session } = useSession();
   const email = session?.email ?? "";
   const storageStatus = useVideoStorageStatus();
+  const builderStatus = useBuilderStatus();
+  const builderConnect = useBuilderConnectFlow({
+    popupUrl:
+      builderStatus.status?.cliAuthUrl ?? builderStatus.status?.connectUrl,
+    trackingSource: "clips_settings",
+    trackingFlow: "clips_setup",
+    onConnected: async () => {
+      await Promise.all([storageStatus.refetch(), builderStatus.refetch()]);
+      toast.success("Builder.io connected");
+    },
+  });
   const slackStatus = useActionQuery<SlackInstallationsResponse>(
     "list-slack-installations",
     undefined,
@@ -275,6 +414,45 @@ export default function SettingsIndexRoute() {
   const [transcriptCleanupEnabled, setTranscriptCleanupEnabled] =
     useState(true);
   const [s3Values, setS3Values] = useState<Record<string, string>>({});
+  const [s3Expanded, setS3Expanded] = useState(false);
+  const [apiKeysExpanded, setApiKeysExpanded] = useState(false);
+  const [apiKeyValues, setApiKeyValues] = useState<Record<string, string>>({});
+  const [apiKeyStatus, setApiKeyStatus] = useState<Record<string, boolean>>({});
+  const [apiKeyStatusLoading, setApiKeyStatusLoading] = useState(true);
+  const [savingApiKey, setSavingApiKey] = useState<string | null>(null);
+
+  const refreshApiKeyStatus = useCallback(async () => {
+    setApiKeyStatusLoading(true);
+    try {
+      const [envRes, secretsRes] = await Promise.all([
+        fetch(agentNativePath("/_agent-native/env-status")),
+        fetch(agentNativePath("/_agent-native/secrets")),
+      ]);
+      const envData = envRes.ok
+        ? ((await envRes.json()) as Array<{
+            key: string;
+            configured?: boolean;
+          }>)
+        : [];
+      const secretsData = secretsRes.ok
+        ? ((await secretsRes.json()) as Array<{
+            key: string;
+            status?: string;
+          }>)
+        : [];
+      const next = Object.fromEntries(
+        envData.map((entry) => [entry.key, Boolean(entry.configured)]),
+      );
+      for (const entry of secretsData) {
+        next[entry.key] = entry.status === "set";
+      }
+      setApiKeyStatus(next);
+    } catch {
+      setApiKeyStatus({});
+    } finally {
+      setApiKeyStatusLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -290,6 +468,10 @@ export default function SettingsIndexRoute() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    void refreshApiKeyStatus();
+  }, [refreshApiKeyStatus]);
 
   async function handleSave() {
     setSaving(true);
@@ -339,6 +521,33 @@ export default function SettingsIndexRoute() {
     }
   }
 
+  async function handleSaveApiKey(key: string) {
+    const value = (apiKeyValues[key] ?? "").trim();
+    if (!value) {
+      toast.error("Paste a provider key first.");
+      return;
+    }
+
+    setSavingApiKey(key);
+    try {
+      const field = AI_PROVIDER_FIELDS.find((item) => item.key === key);
+      if (field?.storage === "secret") {
+        await saveRegisteredSecret(key, value);
+      } else {
+        await saveAgentEngineApiKey(key, value);
+      }
+      setApiKeyValues((current) => ({ ...current, [key]: "" }));
+      setApiKeyStatus((current) => ({ ...current, [key]: true }));
+      window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
+      await refreshApiKeyStatus();
+      toast.success("API key saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save key");
+    } finally {
+      setSavingApiKey(null);
+    }
+  }
+
   async function handleConnectSlack() {
     const beforeCount = slackInstallations.length;
     setConnectingSlack(true);
@@ -380,6 +589,24 @@ export default function SettingsIndexRoute() {
 
   const storageConfigured = !!storageStatus.data?.configured;
   const activeProviderName = storageStatus.data?.activeProvider?.name ?? null;
+  const activeProviderId = storageStatus.data?.activeProvider?.id ?? null;
+  const builderConnected = Boolean(
+    builderConnect.configured ||
+    builderStatus.status?.configured ||
+    storageStatus.data?.builderConfigured ||
+    activeProviderId === "builder",
+  );
+  const builderOrgName =
+    builderConnect.orgName ?? builderStatus.status?.orgName ?? null;
+  const builderStatusLoading =
+    storageStatus.isLoading ||
+    builderStatus.loading ||
+    !builderConnect.hasFetchedStatus;
+  const s3Configured = activeProviderId === "s3";
+  const s3Collapsed = builderConnected && !s3Expanded;
+  const configuredApiKeyCount = AI_PROVIDER_FIELDS.filter(
+    (field) => apiKeyStatus[field.key],
+  ).length;
   const slackInstallations = slackStatus.data?.installations ?? [];
   const slackOauthConfigured = slackStatus.data?.oauthConfigured ?? false;
   const slackSigningConfigured = slackStatus.data?.signingConfigured ?? false;
@@ -392,346 +619,582 @@ export default function SettingsIndexRoute() {
           Settings
         </h1>
       </PageHeader>
-      <div className="p-6 max-w-2xl mx-auto space-y-6">
-        <p className="text-sm text-muted-foreground">
-          Preferences and connected services for this Clips workspace.
-        </p>
+      <div className="mx-auto w-full max-w-6xl p-6">
+        <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="min-w-0 space-y-6">
+            <p className="text-sm text-muted-foreground">
+              Preferences and connected services for this Clips workspace.
+            </p>
 
-        <ChangelogSettingsCard markdown={changelog} />
-
-        <Card id="video-storage" className="scroll-mt-16">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <IconCloud className="size-4 text-primary" />
-              Video storage
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-accent/30 px-3 py-2.5">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <IconServer className="h-4 w-4 text-muted-foreground" />
-                  {storageStatus.isLoading
-                    ? "Checking storage"
-                    : storageConfigured
-                      ? (activeProviderName ?? "Storage connected")
-                      : "Not connected"}
+            <Card id="video-storage" className="scroll-mt-16">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <IconCloud className="size-4 text-primary" />
+                  Video storage
+                </CardTitle>
+                <CardDescription>
+                  Builder.io is the primary storage path for Clips uploads. S3
+                  is available when you need to bring your own bucket.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div
+                  className={cn(
+                    "flex flex-col gap-3 rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between",
+                    builderConnected
+                      ? "border-primary/35 bg-primary/5"
+                      : "border-border bg-accent/30",
+                  )}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      {builderConnected ? (
+                        <IconCheck className="h-4 w-4 text-primary" />
+                      ) : (
+                        <IconKey className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      {builderStatusLoading
+                        ? "Checking Builder.io"
+                        : builderConnected
+                          ? "Builder.io connected"
+                          : "Connect Builder.io"}
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {builderConnected
+                        ? builderOrgName
+                          ? `Using Builder.io for ${builderOrgName}.`
+                          : "New clips use the connected Builder.io provider."
+                        : "Includes object storage, uploads, and managed transcription for new clips."}
+                    </p>
+                  </div>
+                  {builderConnected ? (
+                    <Badge variant="secondary" className="shrink-0">
+                      Connected
+                    </Badge>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() =>
+                        builderConnect.start({
+                          trackingSource: "clips_settings_video_storage",
+                          trackingFlow: "video_storage",
+                        })
+                      }
+                      disabled={
+                        builderConnect.connecting || builderStatusLoading
+                      }
+                    >
+                      {builderConnect.connecting ? (
+                        <IconLoader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <IconExternalLink className="h-4 w-4" />
+                      )}
+                      Connect Builder.io
+                    </Button>
+                  )}
                 </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {storageConfigured
-                    ? "New clips will upload to the connected provider."
-                    : "Save S3-compatible credentials or connect Builder.io from the recorder."}
-                </p>
-              </div>
-              <span className="shrink-0 rounded-full bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                {storageConfigured ? "Connected" : "Pending"}
-              </span>
-            </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              {S3_STORAGE_FIELDS.map((field) => (
-                <div key={field.key} className="space-y-1.5">
-                  <Label htmlFor={field.key}>{field.label}</Label>
+                <Collapsible
+                  open={builderConnected ? !s3Collapsed : true}
+                  onOpenChange={(open) => setS3Expanded(open)}
+                >
+                  <div className="rounded-md border border-border">
+                    <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                          <IconServer className="h-4 w-4 text-muted-foreground" />
+                          S3-compatible storage
+                          <Badge variant="outline" className="text-[10px]">
+                            Secondary
+                          </Badge>
+                          {s3Configured ? (
+                            <Badge variant="secondary" className="text-[10px]">
+                              Active
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {builderConnected
+                            ? "Use this only if this workspace should upload to your own bucket instead of Builder.io."
+                            : storageConfigured && activeProviderName
+                              ? `Currently using ${activeProviderName}.`
+                              : "Use your own bucket if you do not want Builder.io storage."}
+                        </p>
+                      </div>
+                      {builderConnected ? (
+                        <CollapsibleTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0"
+                          >
+                            {s3Collapsed ? "Configure S3" : "Hide S3"}
+                            <IconChevronDown
+                              className={cn(
+                                "h-4 w-4 transition-transform",
+                                !s3Collapsed && "rotate-180",
+                              )}
+                            />
+                          </Button>
+                        </CollapsibleTrigger>
+                      ) : null}
+                    </div>
+
+                    <CollapsibleContent>
+                      <div className="space-y-4 border-t border-border px-3 py-4">
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          {S3_STORAGE_FIELDS.map((field) => (
+                            <div key={field.key} className="space-y-1.5">
+                              <Label htmlFor={field.key}>{field.label}</Label>
+                              <Input
+                                id={field.key}
+                                type={
+                                  "secret" in field && field.secret
+                                    ? "password"
+                                    : "text"
+                                }
+                                value={s3Values[field.key] ?? ""}
+                                onChange={(event) =>
+                                  setS3Values((current) => ({
+                                    ...current,
+                                    [field.key]: event.target.value,
+                                  }))
+                                }
+                                placeholder={field.placeholder}
+                                autoComplete="off"
+                                disabled={savingStorage}
+                              />
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="flex justify-end">
+                          <Button
+                            onClick={handleSaveS3Storage}
+                            disabled={savingStorage || storageStatus.isLoading}
+                          >
+                            {savingStorage && (
+                              <IconLoader2 className="h-4 w-4 animate-spin" />
+                            )}
+                            Save storage
+                          </Button>
+                        </div>
+                      </div>
+                    </CollapsibleContent>
+                  </div>
+                </Collapsible>
+              </CardContent>
+            </Card>
+
+            <Card id="slack" className="scroll-mt-16">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <IconBrandSlack className="size-4 text-primary" />
+                  Agent-Native Clips for Slack
+                </CardTitle>
+                <CardDescription>
+                  Share a public clip, paste the link in Slack, and it plays
+                  inline — no extra steps for viewers. Connect each workspace
+                  once.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col gap-3 rounded-md border border-border bg-accent/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <IconBrandSlack className="h-4 w-4 text-muted-foreground" />
+                      {slackStatus.isLoading
+                        ? "Checking Slack"
+                        : slackConnected
+                          ? `${slackInstallations.length} workspace${
+                              slackInstallations.length === 1 ? "" : "s"
+                            } connected`
+                          : slackOauthConfigured
+                            ? "Not connected"
+                            : "OAuth credentials needed"}
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Public Clips links can render as playable Slack previews.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={handleConnectSlack}
+                    disabled={
+                      connectingSlack ||
+                      slackStatus.isLoading ||
+                      !slackOauthConfigured
+                    }
+                  >
+                    {connectingSlack ? (
+                      <IconLoader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <IconExternalLink className="h-4 w-4" />
+                    )}
+                    Connect Slack
+                  </Button>
+                </div>
+
+                {!slackOauthConfigured ? (
+                  <div className="rounded-md border border-border p-3 text-xs text-muted-foreground">
+                    Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET for this
+                    deployment before connecting workspaces.
+                  </div>
+                ) : null}
+
+                {!slackSigningConfigured ? (
+                  <div className="rounded-md border border-border p-3 text-xs text-muted-foreground">
+                    Set SLACK_SIGNING_SECRET so Slack event callbacks can be
+                    verified.
+                  </div>
+                ) : null}
+
+                {slackInstallations.length > 0 ? (
+                  <div className="space-y-2">
+                    {slackInstallations.map((installation) => (
+                      <div
+                        key={installation.id}
+                        className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium">
+                            {installation.teamName || installation.teamId}
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                            <span>{installation.status}</span>
+                            {installation.enterpriseName ? (
+                              <span>{installation.enterpriseName}</span>
+                            ) : null}
+                            <span>Connected by {installation.ownerEmail}</span>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0"
+                          aria-label={`Disconnect ${
+                            installation.teamName || installation.teamId
+                          }`}
+                          onClick={() => setDisconnectSlackTarget(installation)}
+                        >
+                          <IconTrash className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+
+            <Card id="ai-providers" className="scroll-mt-16">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <IconBrain className="size-4 text-primary" />
+                  AI setup
+                </CardTitle>
+                <CardDescription>
+                  Builder.io is the default path for managed AI credits.
+                  Provider keys are optional and can be added here.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div
+                  className={cn(
+                    "flex flex-col gap-3 rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between",
+                    builderConnected
+                      ? "border-primary/35 bg-primary/5"
+                      : "border-border bg-accent/30",
+                  )}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      {builderConnected ? (
+                        <IconCheck className="h-4 w-4 text-primary" />
+                      ) : (
+                        <IconKey className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      {builderStatusLoading
+                        ? "Checking Builder.io"
+                        : builderConnected
+                          ? "Builder.io connected"
+                          : "Builder.io is the easiest setup"}
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {builderConnected
+                        ? "Included AI credits and managed transcription are available for Clips."
+                        : "Connect Builder first for included AI credits, object storage, uploads, and managed transcription."}
+                    </p>
+                  </div>
+                  {builderConnected ? (
+                    <Badge variant="secondary" className="shrink-0">
+                      Connected
+                    </Badge>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() =>
+                        builderConnect.start({
+                          trackingSource: "clips_settings_ai_setup",
+                          trackingFlow: "connect_llm",
+                        })
+                      }
+                      disabled={
+                        builderConnect.connecting || builderStatusLoading
+                      }
+                    >
+                      {builderConnect.connecting ? (
+                        <IconLoader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <IconExternalLink className="h-4 w-4" />
+                      )}
+                      Connect Builder.io
+                    </Button>
+                  )}
+                </div>
+
+                <Collapsible
+                  open={apiKeysExpanded}
+                  onOpenChange={setApiKeysExpanded}
+                >
+                  <div className="rounded-md border border-border">
+                    <CollapsibleTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 text-sm font-medium">
+                            <IconKey className="h-4 w-4 text-muted-foreground" />
+                            Bring your own provider key
+                            {configuredApiKeyCount > 0 ? (
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px]"
+                              >
+                                {configuredApiKeyCount} set
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            Add Anthropic, OpenAI, Gemini, Groq, or OpenRouter
+                            keys for provider-billed usage.
+                          </p>
+                        </div>
+                        <IconChevronDown
+                          className={cn(
+                            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                            apiKeysExpanded && "rotate-180",
+                          )}
+                        />
+                      </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="space-y-3 border-t border-border px-3 py-4">
+                        {apiKeyStatusLoading ? (
+                          <div className="text-xs text-muted-foreground">
+                            Checking provider keys…
+                          </div>
+                        ) : null}
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {AI_PROVIDER_FIELDS.map((field) => {
+                            const configured = Boolean(apiKeyStatus[field.key]);
+                            const savingThisKey = savingApiKey === field.key;
+                            return (
+                              <div key={field.key} className="space-y-1.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <Label htmlFor={field.key}>
+                                    {field.label}
+                                  </Label>
+                                  {configured ? (
+                                    <span className="flex items-center gap-1 text-[10px] font-medium text-primary">
+                                      <IconCheck className="h-3 w-3" />
+                                      Set
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="flex gap-2">
+                                  <Input
+                                    id={field.key}
+                                    type="password"
+                                    value={apiKeyValues[field.key] ?? ""}
+                                    onChange={(event) =>
+                                      setApiKeyValues((current) => ({
+                                        ...current,
+                                        [field.key]: event.target.value,
+                                      }))
+                                    }
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") {
+                                        void handleSaveApiKey(field.key);
+                                      }
+                                    }}
+                                    placeholder={
+                                      configured
+                                        ? "Replace key…"
+                                        : field.placeholder
+                                    }
+                                    autoComplete="off"
+                                    disabled={savingThisKey}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="shrink-0"
+                                    onClick={() => handleSaveApiKey(field.key)}
+                                    disabled={
+                                      savingThisKey ||
+                                      !(apiKeyValues[field.key] ?? "").trim()
+                                    }
+                                  >
+                                    {savingThisKey ? (
+                                      <IconLoader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      "Save"
+                                    )}
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </CollapsibleContent>
+                  </div>
+                </Collapsible>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <IconUser className="size-4 text-primary" />
+                  Profile
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="email">Email</Label>
+                  <Input id="email" value={email} readOnly disabled />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="display-name">Display name</Label>
                   <Input
-                    id={field.key}
-                    type={
-                      "secret" in field && field.secret ? "password" : "text"
-                    }
-                    value={s3Values[field.key] ?? ""}
-                    onChange={(event) =>
-                      setS3Values((current) => ({
-                        ...current,
-                        [field.key]: event.target.value,
-                      }))
-                    }
-                    placeholder={field.placeholder}
-                    autoComplete="off"
-                    disabled={savingStorage}
+                    id="display-name"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="Your name"
+                    disabled={loading}
                   />
                 </div>
-              ))}
-            </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Playback</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="speed">Default playback speed</Label>
+                  <Select
+                    value={defaultSpeed}
+                    onValueChange={setDefaultSpeed}
+                    disabled={loading}
+                  >
+                    <SelectTrigger id="speed" className="w-40">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SPEEDS.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}×
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Applied automatically when you open a recording.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Transcript</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <Label
+                      htmlFor="transcript-cleanup"
+                      className="cursor-pointer"
+                    >
+                      Background cleanup
+                    </Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Show the native transcript immediately, then clean it up
+                      in the background when available.
+                    </p>
+                  </div>
+                  <Switch
+                    id="transcript-cleanup"
+                    checked={transcriptCleanupEnabled}
+                    onCheckedChange={setTranscriptCleanupEnabled}
+                    disabled={loading}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Notifications</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label htmlFor="email-notif" className="cursor-pointer">
+                      Email notifications
+                    </Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Get an email when someone comments, reacts, or shares a
+                      recording with you.
+                    </p>
+                  </div>
+                  <Switch
+                    id="email-notif"
+                    checked={emailNotifications}
+                    onCheckedChange={setEmailNotifications}
+                    disabled={loading}
+                  />
+                </div>
+              </CardContent>
+            </Card>
 
             <div className="flex justify-end">
               <Button
-                onClick={handleSaveS3Storage}
-                disabled={savingStorage || storageStatus.isLoading}
+                onClick={handleSave}
+                disabled={loading || saving}
+                className="bg-primary hover:bg-primary/90"
               >
-                {savingStorage && (
-                  <IconLoader2 className="h-4 w-4 animate-spin" />
-                )}
-                Save storage
+                {saving ? "Saving…" : "Save changes"}
               </Button>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card id="slack" className="scroll-mt-16">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <IconBrandSlack className="size-4 text-primary" />
-              Agent-Native Clips for Slack
-            </CardTitle>
-            <CardDescription>
-              Share a public clip, paste the link in Slack, and it plays inline
-              — no extra steps for viewers. Connect each workspace once.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-col gap-3 rounded-md border border-border bg-accent/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <IconBrandSlack className="h-4 w-4 text-muted-foreground" />
-                  {slackStatus.isLoading
-                    ? "Checking Slack"
-                    : slackConnected
-                      ? `${slackInstallations.length} workspace${
-                          slackInstallations.length === 1 ? "" : "s"
-                        } connected`
-                      : slackOauthConfigured
-                        ? "Not connected"
-                        : "OAuth credentials needed"}
-                </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Public Clips links can render as playable Slack previews.
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-                onClick={handleConnectSlack}
-                disabled={
-                  connectingSlack ||
-                  slackStatus.isLoading ||
-                  !slackOauthConfigured
-                }
-              >
-                {connectingSlack ? (
-                  <IconLoader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <IconExternalLink className="h-4 w-4" />
-                )}
-                Connect Slack
-              </Button>
-            </div>
-
-            {!slackOauthConfigured ? (
-              <div className="rounded-md border border-border p-3 text-xs text-muted-foreground">
-                Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET for this deployment
-                before connecting workspaces.
-              </div>
-            ) : null}
-
-            {!slackSigningConfigured ? (
-              <div className="rounded-md border border-border p-3 text-xs text-muted-foreground">
-                Set SLACK_SIGNING_SECRET so Slack event callbacks can be
-                verified.
-              </div>
-            ) : null}
-
-            {slackInstallations.length > 0 ? (
-              <div className="space-y-2">
-                {slackInstallations.map((installation) => (
-                  <div
-                    key={installation.id}
-                    className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">
-                        {installation.teamName || installation.teamId}
-                      </div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                        <span>{installation.status}</span>
-                        {installation.enterpriseName ? (
-                          <span>{installation.enterpriseName}</span>
-                        ) : null}
-                        <span>Connected by {installation.ownerEmail}</span>
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="shrink-0"
-                      aria-label={`Disconnect ${
-                        installation.teamName || installation.teamId
-                      }`}
-                      onClick={() => setDisconnectSlackTarget(installation)}
-                    >
-                      <IconTrash className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        <Card id="ai-providers" className="scroll-mt-16">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <IconBrain className="size-4 text-primary" />
-              AI setup
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-col gap-3 rounded-md border border-border bg-accent/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <IconKey className="h-4 w-4 text-muted-foreground" />
-                  Builder.io is the easiest setup
-                </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Connect Builder first for included AI credits, object storage,
-                  uploads, and managed transcription. BYOK is still available
-                  from the agent sidebar.
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-                onClick={() => {
-                  openBuilderConnectPopup({
-                    source: "clips_settings_ai_providers",
-                  });
-                  toast.message("Finish connecting Builder.io in the popup.");
-                }}
-              >
-                <IconExternalLink className="h-4 w-4" />
-                Connect Builder.io
-              </Button>
-            </div>
-
-            <div className="rounded-md border border-border p-3">
-              <div className="text-sm font-medium">
-                Bring your own provider key
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Open the agent sidebar menu, then API Keys & Connections, to add
-                Anthropic, OpenAI, Gemini, Groq, or other supported keys. Usage
-                bills to the provider account you connect.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <IconUser className="size-4 text-primary" />
-              Profile
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" value={email} readOnly disabled />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="display-name">Display name</Label>
-              <Input
-                id="display-name"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Your name"
-                disabled={loading}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Playback</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="speed">Default playback speed</Label>
-              <Select
-                value={defaultSpeed}
-                onValueChange={setDefaultSpeed}
-                disabled={loading}
-              >
-                <SelectTrigger id="speed" className="w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SPEEDS.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}×
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Applied automatically when you open a recording.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Transcript</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <Label htmlFor="transcript-cleanup" className="cursor-pointer">
-                  Background cleanup
-                </Label>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Show the native transcript immediately, then clean it up in
-                  the background when available.
-                </p>
-              </div>
-              <Switch
-                id="transcript-cleanup"
-                checked={transcriptCleanupEnabled}
-                onCheckedChange={setTranscriptCleanupEnabled}
-                disabled={loading}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Notifications</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="email-notif" className="cursor-pointer">
-                  Email notifications
-                </Label>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Get an email when someone comments, reacts, or shares a
-                  recording with you.
-                </p>
-              </div>
-              <Switch
-                id="email-notif"
-                checked={emailNotifications}
-                onCheckedChange={setEmailNotifications}
-                disabled={loading}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="flex justify-end">
-          <Button
-            onClick={handleSave}
-            disabled={loading || saving}
-            className="bg-primary hover:bg-primary/90"
-          >
-            {saving ? "Saving…" : "Save changes"}
-          </Button>
+          </div>
+          <CompactChangelogAside />
         </div>
       </div>
       <AlertDialog

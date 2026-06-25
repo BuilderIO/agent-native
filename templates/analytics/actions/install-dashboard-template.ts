@@ -41,6 +41,49 @@ function uniqueConstraintMessage(err: unknown): boolean {
   return /unique|constraint|primary key/i.test(message);
 }
 
+function filterId(filter: unknown): string | null {
+  if (!filter || typeof filter !== "object" || Array.isArray(filter)) {
+    return null;
+  }
+  const id = (filter as { id?: unknown }).id;
+  return typeof id === "string" && id.trim() ? id : null;
+}
+
+function mergeMissingFilters(
+  targetConfig: Record<string, unknown>,
+  seedConfig: Record<string, unknown>,
+): { config: Record<string, unknown>; addedFilterIds: string[] } {
+  const seedFilters = Array.isArray(seedConfig.filters)
+    ? (seedConfig.filters as unknown[])
+    : [];
+  if (seedFilters.length === 0) {
+    return { config: targetConfig, addedFilterIds: [] };
+  }
+
+  const targetFilters = Array.isArray(targetConfig.filters)
+    ? [...targetConfig.filters]
+    : [];
+  const existingIds = new Set(
+    targetFilters
+      .map((filter) => filterId(filter))
+      .filter((id): id is string => id !== null),
+  );
+  const addedFilterIds: string[] = [];
+  for (const filter of seedFilters) {
+    const id = filterId(filter);
+    if (id && existingIds.has(id)) continue;
+    targetFilters.push(filter);
+    if (id) {
+      existingIds.add(id);
+      addedFilterIds.push(id);
+    }
+  }
+
+  return addedFilterIds.length > 0
+    ? { config: { ...targetConfig, filters: targetFilters }, addedFilterIds }
+    : { config: targetConfig, addedFilterIds };
+}
+
 export default defineAction({
   description:
     "Install a dashboard template from the Analytics catalog into the user's SQL-backed dashboards. Use list-dashboard-templates first when choosing a template. " +
@@ -125,7 +168,10 @@ export default defineAction({
           .filter((id): id is string => !!id),
       );
 
-      const seedConfig = cloneDashboardConfig(entry);
+      const seedConfig = cloneDashboardConfig(entry) as unknown as Record<
+        string,
+        unknown
+      >;
       const seedPanels = Array.isArray(seedConfig.panels)
         ? (seedConfig.panels as unknown as Array<Record<string, unknown>>)
         : [];
@@ -146,13 +192,15 @@ export default defineAction({
         }
       }
 
-      const mergedConfig: Record<string, unknown> = {
+      let mergedConfig: Record<string, unknown> = {
         ...targetConfig,
         panels: [...existingPanels, ...appended],
       };
+      const filterMerge = mergeMissingFilters(mergedConfig, seedConfig);
+      mergedConfig = filterMerge.config;
       const panelCount = (mergedConfig.panels as unknown[]).length;
 
-      if (appended.length > 0) {
+      if (appended.length > 0 || filterMerge.addedFilterIds.length > 0) {
         const saved = await upsertDashboard(
           targetId,
           target.kind,

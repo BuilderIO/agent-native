@@ -4363,6 +4363,7 @@ export function createProductionAgentHandler(
     // change. With the flag OFF this whole branch is skipped and the inline
     // `startRun` path below runs exactly as before (byte-for-byte).
     if (dispatchToBackground) {
+      let backgroundRowInserted = false;
       try {
         // Insert the run row up front so /runs/active sees it immediately and
         // the slot stays held while the background function cold-starts. Mark
@@ -4370,6 +4371,7 @@ export function createProductionAgentHandler(
         await insertRun(runId, effectiveThreadId, effectiveTurnId, {
           dispatchMode: "background",
         });
+        backgroundRowInserted = true;
       } catch (err) {
         // A duplicate-PK collision means the row already exists (ret­ried POST);
         // any other failure means we can't safely hand off — fall back to the
@@ -4418,14 +4420,59 @@ export function createProductionAgentHandler(
         setResponseStatus(event, 500);
         return { error: "Failed to subscribe to background run" };
       }
-      // Dispatch failed before any worker could claim the run. Fail loud: flip
-      // the row terminal so the held slot is released (and any reconnect sees a
-      // terminal status instead of spinning), then 500 so the client can retry.
-      // We do NOT silently fall through to inline here — that risks a later,
-      // delayed background delivery double-executing the same runId.
-      await updateRunStatusIfRunning(runId, "errored").catch(() => {});
-      setResponseStatus(event, 500);
-      return { error: "Failed to dispatch background run" };
+
+      // ─── Dispatch failed → degrade to a normal synchronous (inline) run ────
+      // `fireInternalDispatch` throws ONLY when the self-POST failed *fast*
+      // (rejected the connection, or returned a non-2xx within the ~250ms settle
+      // race). The `_process-run` route verifies the HMAC token and validates
+      // the body BEFORE it ever reaches the SQL atomic claim, so a fast throw
+      // means NO background worker claimed this run — there is nothing to
+      // double-execute. Rather than break the chat with "Failed to dispatch
+      // background run", we run the turn inline (the same synchronous path the
+      // flag-off branch below takes), reusing the already-inserted run row.
+      //
+      // Safety against a (very improbable) delayed background delivery: claim the
+      // run atomically here via `claimBackgroundRun`, which flips the row's
+      // dispatch_mode `background → background-processing` in one conditional
+      // UPDATE. If a delayed dispatch DID land and a worker already won the
+      // claim, our claim returns false and we must NOT run inline (that would
+      // double-execute) — fall back to subscribing to the worker's run instead.
+      // The SQL atomic claim is the single source of truth for ownership, so at
+      // most one of {inline fallback, background worker} ever executes this run.
+      if (backgroundRowInserted) {
+        let claimedInline = false;
+        try {
+          claimedInline = await claimBackgroundRun(runId);
+        } catch (err) {
+          console.error(
+            "[agent-chat] inline-fallback claim failed:",
+            err instanceof Error ? err.message : err,
+          );
+        }
+        if (!claimedInline) {
+          // A background worker already owns this run (a delayed delivery landed
+          // after our fast throw). Stream its events instead of running a second
+          // copy. If we somehow can't subscribe, surface an error rather than
+          // risk a double-run.
+          const stream = subscribeToRun(runId, 0);
+          if (stream) {
+            setResponseHeader(event, "Content-Type", "text/event-stream");
+            setResponseHeader(event, "Cache-Control", "no-cache");
+            setResponseHeader(event, "Connection", "keep-alive");
+            setResponseHeader(event, "X-Run-Id", runId);
+            return stream;
+          }
+          await updateRunStatusIfRunning(runId, "errored").catch(() => {});
+          setResponseStatus(event, 500);
+          return { error: "Failed to dispatch background run" };
+        }
+        // We own the run. `startRun` (below) calls `insertRun` again, but its
+        // duplicate-PK collision is swallowed (`insertRun(...).catch(() => {})`),
+        // so the existing `background-processing` row is reused — no double row.
+      }
+      // Fall through to the inline `startRun` path below (the same one the
+      // flag-off branch uses). If the row was never inserted, `startRun` inserts
+      // it fresh; if it was, the claim above made us the sole owner.
     }
 
     const trackedProgressOwner =

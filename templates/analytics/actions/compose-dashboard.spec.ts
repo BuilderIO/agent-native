@@ -127,6 +127,10 @@ describe("compose-dashboard", () => {
     const saved = store.get("big-compose")!;
     const panels = saved.config.panels as Array<Record<string, unknown>>;
     expect(panels).toHaveLength(20);
+    expect(saved.config.filters).toEqual([
+      expect.objectContaining({ id: "timeRange", default: "90d" }),
+      expect.objectContaining({ id: "emailFilter", default: "all" }),
+    ]);
 
     // Each panel has the canonical first-party shape.
     for (const panel of panels) {
@@ -158,9 +162,51 @@ describe("compose-dashboard", () => {
     expect(pageviews.sql).toContain("event_name = 'pageview'");
     expect(pageviews.sql).toContain("{{timeRange}}");
     expect(pageviews.sql).toContain("{{emailFilter}}");
+    const cliCopies = panels.find((p) => p.id === "cli-copies-over-time")!;
+    expect(cliCopies.sql).toContain("{{timeRange}}");
+    expect(cliCopies.sql).toContain("{{emailFilter}}");
+    const topUrls = panels.find((p) => p.id === "top-visited-urls")!;
+    expect(topUrls.sql).toContain("LIKE 'http://%'");
+    expect(topUrls.sql).toContain("LIKE 'https://%'");
+    expect(topUrls.sql).toContain("substr(path, 1, 2) != '//'");
+    expect(topUrls.sql).not.toContain("LIKE 'http%'");
     // Windowed metric retains its default 30d window when none requested.
     const referred = panels.find((p) => p.id === "referred-signups-30d")!;
     expect(referred.sql).toContain("interval '30 days'");
+  });
+
+  it("adds shared filters when appending filtered panels to an existing dashboard", async () => {
+    store.set("existing-unfiltered", {
+      config: {
+        name: "Existing",
+        filters: [{ id: "region", label: "Region", type: "text" }],
+        panels: [
+          {
+            id: "sessions-by-app",
+            title: "Sessions",
+            chartType: "bar",
+            source: "first-party",
+            width: 2,
+            sql: "SELECT COALESCE(NULLIF(app, ''), 'unknown') AS app, COUNT(*) AS count FROM analytics_events WHERE event_name = 'session status' GROUP BY COALESCE(NULLIF(app, ''), 'unknown')",
+            config: {},
+          },
+        ],
+      },
+    });
+
+    await composeDashboard.run(
+      {
+        dashboardId: "existing-unfiltered",
+        metrics: ["total-signups"],
+      },
+      { userEmail: "alice@example.com", orgId: null, caller: "tool" },
+    );
+
+    expect(store.get("existing-unfiltered")!.config.filters).toEqual([
+      { id: "region", label: "Region", type: "text" },
+      expect.objectContaining({ id: "timeRange" }),
+      expect.objectContaining({ id: "emailFilter" }),
+    ]);
   });
 
   it("accepts a stringified JSON array of metrics (CLI/gateway shape)", async () => {
