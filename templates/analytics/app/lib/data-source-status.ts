@@ -79,6 +79,10 @@ const sharedConnectionLabels: Record<SharedConnectionStatusKind, string> = {
   local_credentials: "Local credentials",
 };
 
+function normalizeCredentialKey(key: string): string {
+  return key.trim().toUpperCase();
+}
+
 export function credentialRowsFromStatus(
   data: DataSourceStatusResponse | EnvKeyStatus[] | undefined,
 ): EnvKeyStatus[] {
@@ -90,7 +94,9 @@ export function getOptionalCredentialKeys(source: DataSource): Set<string> {
   return new Set(
     source.walkthroughSteps
       .filter((step) => step.optional)
-      .map((step) => step.inputKey)
+      .map((step) =>
+        step.inputKey ? normalizeCredentialKey(step.inputKey) : undefined,
+      )
       .filter((k): k is string => Boolean(k)),
   );
 }
@@ -99,13 +105,21 @@ export function isSourceConfigured(
   source: DataSource,
   envStatus: EnvKeyStatus[],
 ): boolean {
-  const statusMap = new Map(envStatus.map((s) => [s.key, s.configured]));
+  const statusMap = new Map(
+    envStatus.map((s) => [normalizeCredentialKey(s.key), s.configured]),
+  );
   const optionalKeys = getOptionalCredentialKeys(source);
-  const requiredKeys = source.envKeys.filter((key) => !optionalKeys.has(key));
+  const requiredKeys = source.envKeys.filter(
+    (key) => !optionalKeys.has(normalizeCredentialKey(key)),
+  );
   if (source.credentialRequirementMode === "any") {
-    return requiredKeys.some((key) => statusMap.get(key) === true);
+    return requiredKeys.some(
+      (key) => statusMap.get(normalizeCredentialKey(key)) === true,
+    );
   }
-  return requiredKeys.every((key) => statusMap.get(key) === true);
+  return requiredKeys.every(
+    (key) => statusMap.get(normalizeCredentialKey(key)) === true,
+  );
 }
 
 export function getWorkspaceProviderIdForSource(

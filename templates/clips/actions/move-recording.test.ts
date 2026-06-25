@@ -29,6 +29,10 @@ vi.mock("../server/lib/recordings.js", () => ({
   parseSpaceIds: (raw: string | null | undefined) =>
     raw ? (JSON.parse(raw) as string[]) : [],
   requireActiveOrganizationId: () => mockRequireActiveOrganizationId(),
+  sameOwnerEmail: (
+    a: string | null | undefined,
+    b: string | null | undefined,
+  ) => (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase(),
 }));
 
 vi.mock("../server/db/index.js", () => {

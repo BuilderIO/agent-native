@@ -11,8 +11,8 @@ function jsonResponse(data: unknown): Response {
   });
 }
 
-function Probe() {
-  const status = useAgentEngineConfigured();
+function Probe({ enabled = true }: { enabled?: boolean }) {
+  const status = useAgentEngineConfigured(enabled);
   return <output>{status.state}</output>;
 }
 
@@ -95,5 +95,25 @@ describe("useAgentEngineConfigured", () => {
     });
 
     expect(container.textContent).toBe("missing");
+  });
+
+  it("ignores missing-key events when provider checks are disabled", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe enabled={false} />);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toBe("configured");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toBe("configured");
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

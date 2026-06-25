@@ -133,6 +133,25 @@ describe("data-source-status", () => {
     });
   });
 
+  it("keeps any-mode provider status when checking an exact legacy key", async () => {
+    mocks.hasCredential.mockImplementation(async (key: string) =>
+      key === "HUBSPOT_ACCESS_TOKEN" ? true : false,
+    );
+
+    const result = (await dataSourceStatus.run({
+      key: "HUBSPOT_ACCESS_TOKEN",
+    })) as any;
+    const hubspot = result.providers.find(
+      (provider: any) => provider.provider === "hubspot",
+    );
+
+    expect(hubspot).toMatchObject({
+      configured: true,
+      configuredKeys: ["HUBSPOT_ACCESS_TOKEN"],
+      missingRequiredKeys: [],
+    });
+  });
+
   it("treats a connected HubSpot workspace connection as configured", async () => {
     mocks.workspaceSummary = {
       ...mocks.workspaceSummary,

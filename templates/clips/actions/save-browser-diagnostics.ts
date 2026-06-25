@@ -53,8 +53,11 @@ function truncate(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }
 
-function redactString(value: string): string {
-  return redactBrowserDiagnosticString(value);
+function redactString(
+  value: string,
+  options?: { redactQueryValues?: boolean },
+): string {
+  return redactBrowserDiagnosticString(value, options);
 }
 
 function redactUrlString(value: string): string {
@@ -97,14 +100,17 @@ function sanitizeConsoleLog(entry: z.infer<typeof consoleLogSchema>): {
   stack?: string;
 } {
   const stack = entry.stack
-    ? truncate(redactString(entry.stack), MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH)
+    ? truncate(
+        redactString(entry.stack, { redactQueryValues: true }),
+        MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH,
+      )
     : "";
   return {
     timestampMs: Math.round(entry.timestampMs),
     elapsedMs: Math.round(entry.elapsedMs),
     level: entry.level,
     message: truncate(
-      redactString(entry.message),
+      redactString(entry.message, { redactQueryValues: true }),
       MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH,
     ),
     ...(stack ? { stack } : {}),
@@ -113,10 +119,13 @@ function sanitizeConsoleLog(entry: z.infer<typeof consoleLogSchema>): {
 
 function sanitizeNetworkRequest(entry: z.infer<typeof networkRequestSchema>) {
   const statusText = entry.statusText
-    ? truncate(redactString(entry.statusText), 120)
+    ? truncate(redactString(entry.statusText, { redactQueryValues: true }), 120)
     : "";
   const error = entry.error
-    ? truncate(redactString(entry.error), MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH)
+    ? truncate(
+        redactString(entry.error, { redactQueryValues: true }),
+        MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH,
+      )
     : "";
   return {
     timestampMs: Math.round(entry.timestampMs),

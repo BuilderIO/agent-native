@@ -60,6 +60,21 @@ describe("data source status", () => {
     expect(isSourceConfigured(hubspot!, envStatus)).toBe(true);
   });
 
+  it("matches credential status keys case-insensitively after trimming", () => {
+    const hubspot = dataSources.find((source) => source.id === "hubspot");
+    const envStatus: EnvKeyStatus[] = [
+      {
+        key: " hubspot_private_app_token ",
+        label: "HubSpot private app token",
+        required: false,
+        configured: true,
+      },
+    ];
+
+    expect(hubspot).toBeTruthy();
+    expect(isSourceConfigured(hubspot!, envStatus)).toBe(true);
+  });
+
   it("treats provider-level HubSpot credentials as ready for analysis prompts", () => {
     const hubspot = dataSources.find((source) => source.id === "hubspot");
     const envStatus: EnvKeyStatus[] = [

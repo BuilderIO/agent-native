@@ -468,6 +468,60 @@ describe("shareable resource access helpers", () => {
     });
   });
 
+  it("upserts and revokes user shares case-insensitively", async () => {
+    await insertDoc({ id: "doc-user-case-actions" });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-user-case-actions",
+          principalType: "user",
+          principalId: "Viewer+QA@Example.COM",
+          role: "viewer",
+        }),
+      ).resolves.toMatchObject({ updated: false });
+
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-user-case-actions",
+          principalType: "user",
+          principalId: viewerEmail,
+          role: "admin",
+        }),
+      ).resolves.toMatchObject({ updated: true });
+    });
+
+    let shares = await db
+      .select()
+      .from(docShares)
+      .where(eq(docShares.resourceId, "doc-user-case-actions"));
+    expect(shares).toHaveLength(1);
+    expect(shares[0]).toMatchObject({
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "admin",
+    });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        unshareResource.run({
+          resourceType,
+          resourceId: "doc-user-case-actions",
+          principalType: "user",
+          principalId: "VIEWER+QA@EXAMPLE.COM",
+        }),
+      ).resolves.toEqual({ ok: true });
+    });
+
+    shares = await db
+      .select()
+      .from(docShares)
+      .where(eq(docShares.resourceId, "doc-user-case-actions"));
+    expect(shares).toHaveLength(0);
+  });
+
   it("attaches legacy unscoped owner resources to the active org when making them org-visible", async () => {
     await insertDoc({ id: "doc-legacy-solo", orgId: null });
 

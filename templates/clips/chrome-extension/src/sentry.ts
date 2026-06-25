@@ -29,11 +29,14 @@ function extensionVersion(): string {
   }
 }
 
-function scrubUrl(value: string): string {
+function scrubUrl(
+  value: string,
+  options: { redactAllQueryValues?: boolean } = {},
+): string {
   try {
     const url = new URL(value);
     for (const key of [...url.searchParams.keys()]) {
-      if (SENSITIVE_QUERY_PARAM_RE.test(key)) {
+      if (options.redactAllQueryValues || SENSITIVE_QUERY_PARAM_RE.test(key)) {
         url.searchParams.set(key, "<redacted>");
       }
     }
@@ -62,6 +65,36 @@ function scrubEvent<T extends Sentry.Event>(event: T): T {
     delete (event.user as Record<string, unknown>).ip_address;
   }
   return event;
+}
+
+function scrubScopeString(value: string): string {
+  const scrubbed = scrubUrl(value, { redactAllQueryValues: true });
+  if (scrubbed !== value) return scrubbed;
+  return value.replace(/https?:\/\/[^\s"'<>]+/g, (url) =>
+    scrubUrl(url, { redactAllQueryValues: true }),
+  );
+}
+
+function scrubScopeValue(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): unknown {
+  if (typeof value === "string") return scrubScopeString(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => scrubScopeValue(item, seen));
+  }
+  if (!value || typeof value !== "object") return value;
+  if (seen.has(value)) return "[Circular]";
+  if (Object.prototype.toString.call(value) !== "[object Object]") {
+    return value;
+  }
+  seen.add(value);
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+      key,
+      scrubScopeValue(entry, seen),
+    ]),
+  );
 }
 
 function installGlobalErrorCapture(surface: string): void {
@@ -147,17 +180,22 @@ export function captureExtensionError(
     return Sentry.withScope((scope) => {
       if (context.tags) {
         for (const [key, value] of Object.entries(context.tags)) {
-          if (typeof value === "string") scope.setTag(key, value);
+          if (typeof value === "string") {
+            scope.setTag(key, scrubScopeString(value));
+          }
         }
       }
       if (context.extra) {
         for (const [key, value] of Object.entries(context.extra)) {
-          if (value !== undefined) scope.setExtra(key, value);
+          if (value !== undefined) scope.setExtra(key, scrubScopeValue(value));
         }
       }
       if (context.contexts) {
         for (const [key, value] of Object.entries(context.contexts)) {
-          scope.setContext(key, value);
+          scope.setContext(
+            key,
+            scrubScopeValue(value) as Record<string, unknown>,
+          );
         }
       }
       return Sentry.captureException(error);

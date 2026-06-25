@@ -66,7 +66,7 @@ export function useAgentEngineConfigured(
     };
     const onMissing = () => {
       if (!enabled) {
-        setState("missing");
+        setState("configured");
         return;
       }
       void check({ missingFallback: true });

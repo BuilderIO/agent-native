@@ -1594,9 +1594,15 @@ function pushConsole(
   const timestampMs = Number.isFinite(entry.timestampMs)
     ? (entry.timestampMs as number)
     : nowMs();
-  const message = truncate(redactString(entry.message), MAX_MESSAGE_LENGTH);
+  const message = truncate(
+    redactString(entry.message, { redactQueryValues: true }),
+    MAX_MESSAGE_LENGTH,
+  );
   const stack = entry.stack
-    ? truncate(redactString(entry.stack), MAX_MESSAGE_LENGTH)
+    ? truncate(
+        redactString(entry.stack, { redactQueryValues: true }),
+        MAX_MESSAGE_LENGTH,
+      )
     : "";
   session.consoleLogs.push({
     timestampMs,
@@ -1803,7 +1809,10 @@ function handleResponseReceived(
     pending.ok = response.status >= 200 && response.status < 400;
   }
   if (typeof response.statusText === "string") {
-    pending.statusText = truncate(redactString(response.statusText), 120);
+    pending.statusText = truncate(
+      redactString(response.statusText, { redactQueryValues: true }),
+      120,
+    );
   }
 }
 
@@ -1833,7 +1842,12 @@ function finalizeNetworkRequest(
     ...(typeof pending.ok === "boolean" ? { ok: pending.ok } : {}),
     durationMs: Math.round(durationMs),
     ...(error
-      ? { error: truncate(redactString(error), MAX_MESSAGE_LENGTH) }
+      ? {
+          error: truncate(
+            redactString(error, { redactQueryValues: true }),
+            MAX_MESSAGE_LENGTH,
+          ),
+        }
       : {}),
   });
 }

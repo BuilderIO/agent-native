@@ -151,9 +151,12 @@ export default defineAction({
     );
     const visibleKeys = new Set(results.map((result) => result.key));
     const providers = credentialProviderConfigs
-      .filter((provider) =>
-        provider.requiredKeys.every((key) => visibleKeys.has(key)),
-      )
+      .filter((provider) => {
+        const requiredMode = provider.requiredMode ?? "all";
+        return requiredMode === "any"
+          ? provider.requiredKeys.some((key) => visibleKeys.has(key))
+          : provider.requiredKeys.every((key) => visibleKeys.has(key));
+      })
       .map((provider) => {
         const optionalKeys = provider.optionalKeys ?? [];
         const requiredMode = provider.requiredMode ?? "all";
