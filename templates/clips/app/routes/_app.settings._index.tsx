@@ -66,8 +66,6 @@ import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import enMessages from "@/i18n/en-US";
 import { cn } from "@/lib/utils";
 
-import changelog from "../../CHANGELOG.md?raw";
-
 export function meta() {
   return [{ title: enMessages.settings.pageTitle }];
 }
@@ -343,7 +341,12 @@ async function saveRegisteredSecret(key: string, value: string): Promise<void> {
 }
 
 function CompactChangelogAside() {
-  const entries = useMemo(() => parseChangelog(changelog), []);
+  const t = useT();
+  const localizedChangelog = t("settings.changelogMarkdown");
+  const entries = useMemo(
+    () => parseChangelog(localizedChangelog),
+    [localizedChangelog],
+  );
   const [expanded, setExpanded] = useState(false);
 
   if (entries.length === 0) return null;
@@ -361,8 +364,12 @@ function CompactChangelogAside() {
           )}
         >
           <ChangelogSettingsCard
-            markdown={changelog}
+            markdown={localizedChangelog}
             limit={1}
+            title={t("settings.whatsNew")}
+            closeLabel={t("common.cancel")}
+            emptyText={t("settings.changelogEmpty")}
+            viewAllLabel={t("settings.viewAllUpdates")}
             className="rounded-md"
           />
         </div>
@@ -378,7 +385,7 @@ function CompactChangelogAside() {
               className="h-7 px-2 text-xs text-muted-foreground"
               onClick={() => setExpanded((value) => !value)}
             >
-              {expanded ? "Collapse" : "Expand"}
+              {expanded ? t("settings.collapse") : t("settings.expand")}
             </Button>
           </div>
         ) : null}

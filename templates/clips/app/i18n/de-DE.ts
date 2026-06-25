@@ -569,6 +569,20 @@ const messages = {
     languageDescription:
       "Wähle die Oberflächensprache für dieses Konto. Clips merkt sie sich geräteübergreifend.",
     languageLabel: "Oberflächensprache",
+    whatsNew: "Neuigkeiten",
+    changelogEmpty: "Noch keine Updates.",
+    viewAllUpdates: "Alle Updates anzeigen",
+    expand: "Erweitern",
+    collapse: "Einklappen",
+    changelogMarkdown: `# Änderungsprotokoll
+
+Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kannst es jederzeit über das Befehlsmenü (Cmd+K -> "Neuigkeiten") oder über die Einstellungen öffnen.
+
+## 2026-06-23
+
+### Hinzugefügt
+
+- Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd+K) und in den Einstellungen verfügbar.`,
     profile: "Profil",
     email: "E-Mail",
     displayName: "Anzeigename",

@@ -562,6 +562,20 @@ const messages = {
     languageDescription:
       "Elige el idioma de la interfaz para esta cuenta. Clips lo recordará en todos tus dispositivos.",
     languageLabel: "Idioma de la interfaz",
+    whatsNew: "Novedades",
+    changelogEmpty: "Aún no hay actualizaciones.",
+    viewAllUpdates: "Ver todas las actualizaciones",
+    expand: "Expandir",
+    collapse: "Contraer",
+    changelogMarkdown: `# Registro de cambios
+
+Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puedes abrirlo en cualquier momento desde el menú de comandos (Cmd+K -> "Novedades") o desde Ajustes.
+
+## 2026-06-23
+
+### Añadido
+
+- Ahora puedes ver las novedades directamente dentro de Clips. El registro de cambios vive en el menú de comandos (Cmd+K) y en Ajustes.`,
     profile: "Perfil",
     email: "Correo electrónico",
     displayName: "Nombre visible",
