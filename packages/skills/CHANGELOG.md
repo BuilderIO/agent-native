@@ -1,5 +1,11 @@
 # @agent-native/skills
 
+## 0.2.103
+
+### Patch Changes
+
+- d6588ff: Print early interactive startup feedback before delegating skills installs to the shared core flow.
+
 ## 0.2.102
 
 ### Patch Changes
