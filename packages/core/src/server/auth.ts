@@ -3148,6 +3148,7 @@ async function mountBetterAuthRoutes(
       try {
         await auth.api.signUpEmail({
           body: { email, password, name: email.split("@")[0], callbackURL },
+          headers: event.headers,
         });
         return { ok: true };
       } catch (e: any) {
@@ -3383,6 +3384,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
         const auth = await getBetterAuth();
         await auth.api.signUpEmail({
           body: { email, password, name: email.split("@")[0] },
+          headers: event.headers,
         });
         return { ok: true };
       } catch (e: any) {

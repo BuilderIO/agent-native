@@ -135,6 +135,32 @@ describe("getDbExec", () => {
   });
 });
 
+describe("sqliteToPostgresParams", () => {
+  it("converts placeholders while preserving question marks inside SQL literals", async () => {
+    const { sqliteToPostgresParams } = await import("./client.js");
+
+    expect(
+      sqliteToPostgresParams(
+        "SELECT substring(referrer from 'https?://([^/?#]+)') AS domain FROM analytics_events WHERE owner_email = ? AND path LIKE ?",
+      ),
+    ).toBe(
+      "SELECT substring(referrer from 'https?://([^/?#]+)') AS domain FROM analytics_events WHERE owner_email = $1 AND path LIKE $2",
+    );
+  });
+
+  it("ignores question marks in identifiers, comments, and dollar-quoted strings", async () => {
+    const { sqliteToPostgresParams } = await import("./client.js");
+
+    expect(
+      sqliteToPostgresParams(
+        'SELECT "weird?column", $$literal ? value$$ FROM analytics_events -- comment ?\nWHERE owner_email = ? /* block ? */ AND org_id = ?',
+      ),
+    ).toBe(
+      'SELECT "weird?column", $$literal ? value$$ FROM analytics_events -- comment ?\nWHERE owner_email = $1 /* block ? */ AND org_id = $2',
+    );
+  });
+});
+
 describe("retryOnDdlRace", () => {
   afterEach(() => {
     vi.resetModules();

@@ -136,7 +136,7 @@ describe("chat view-transition helpers", () => {
   it("marks and consumes a namespaced chat-home handoff once", () => {
     markAgentChatHomeHandoff("forms");
 
-    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBeNull();
     expect(consumeAgentChatHomeHandoff("forms")).toBe(true);
     expect(consumeAgentChatHomeHandoff("forms")).toBe(false);
   });

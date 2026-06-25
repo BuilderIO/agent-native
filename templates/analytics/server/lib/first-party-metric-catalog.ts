@@ -480,6 +480,28 @@ const ENTRIES: FirstPartyMetric[] = [
     },
   },
   {
+    key: "top-referrer-domains",
+    title: "Top Referrer Domains",
+    chartType: "table",
+    source: "first-party",
+    width: 2,
+    windowed: false,
+    buildSql: fixed(
+      `WITH raw_referrers AS (SELECT COALESCE(NULLIF(referrer, ''), NULLIF(properties::jsonb ->> 'referrer', ''), NULLIF(properties::jsonb ->> 'landing_referrer', '')) AS raw_referrer, NULLIF(hostname, '') AS page_host, COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key FROM analytics_events WHERE event_name = 'pageview' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), referrer_domains AS (SELECT lower(CASE WHEN lower(raw_referrer) LIKE 'http://%' OR lower(raw_referrer) LIKE 'https://%' THEN split_part(split_part(split_part(raw_referrer, '://', 2), '/', 1), chr(63), 1) WHEN raw_referrer LIKE '//%' THEN split_part(split_part(substr(raw_referrer, 3), '/', 1), chr(63), 1) ELSE split_part(split_part(raw_referrer, '/', 1), chr(63), 1) END) AS referrer_domain, lower(page_host) AS page_host, user_key FROM raw_referrers WHERE raw_referrer IS NOT NULL) SELECT referrer_domain, COUNT(*) AS visits, COUNT(DISTINCT user_key) AS users FROM referrer_domains WHERE referrer_domain <> '' AND (page_host IS NULL OR referrer_domain <> page_host) GROUP BY referrer_domain ORDER BY visits DESC LIMIT 20`,
+    ),
+    config: {
+      description:
+        "External referrer domains seen on pageview events in the selected time range.",
+      sortable: true,
+      limit: 20,
+      columns: [
+        { key: "referrer_domain", label: "Referrer domain" },
+        { key: "visits", label: "Visits", format: "number" },
+        { key: "users", label: "Users", format: "number" },
+      ],
+    },
+  },
+  {
     key: "top-visited-clips",
     title: "Top Visited Clips",
     chartType: "table",

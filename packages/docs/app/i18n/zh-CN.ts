@@ -223,7 +223,7 @@ const zhCN = {
       uiSurfaces: "UI 表面",
       i18n: "i18n",
       mcpAuth: "MCP 授权",
-      battleTestedComponents: "久经实战的组件",
+      battleTestedComponents: "久经实战的基础模块",
       mcpA2a: "MCP + A2A",
       externalAgents: "外部代理",
       a2aHandoffs: "A2A 切换",

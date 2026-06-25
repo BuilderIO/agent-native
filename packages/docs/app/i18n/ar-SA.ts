@@ -227,7 +227,7 @@ const arSA = {
       uiSurfaces: "UI الأسطح",
       i18n: "i18n",
       mcpAuth: "MCP المصادقة",
-      battleTestedComponents: "مكونات مجرّبة عمليًا",
+      battleTestedComponents: "لبنات بناء مجرّبة",
       mcpA2a: "MCP + A2A",
       externalAgents: "وكلاء خارجيون",
       a2aHandoffs: "A2A عمليات التسليم",

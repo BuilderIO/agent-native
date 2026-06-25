@@ -228,7 +228,7 @@ const hiIN = {
       uiSurfaces: "UI सतहें",
       i18n: "i18n",
       mcpAuth: "MCP प्रामाणिक",
-      battleTestedComponents: "परखे हुए components",
+      battleTestedComponents: "परखे हुए building blocks",
       mcpA2a: "MCP + A2A",
       externalAgents: "बाहरी एजेंट",
       a2aHandoffs: "A2A हैंडऑफ़",

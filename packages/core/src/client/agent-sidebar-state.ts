@@ -21,6 +21,13 @@ export interface AgentSidebarStateChangeDetail {
   mode: AgentSidebarStateMode;
 }
 
+export function getAgentSidebarOpenPreferenceKey(
+  storageKey?: string | null,
+): string {
+  const suffix = storageKey?.trim();
+  return suffix ? `agent-native.${suffix}.sidebar-open` : SIDEBAR_OPEN_KEY;
+}
+
 export function dispatchAgentSidebarStateChange(
   detail: AgentSidebarStateChangeDetail,
 ): void {
@@ -32,16 +39,21 @@ export function dispatchAgentSidebarStateChange(
   );
 }
 
-export function setAgentSidebarOpenPreference(open: boolean): void {
+export function setAgentSidebarOpenPreference(
+  open: boolean,
+  storageKey?: string | null,
+): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(SIDEBAR_OPEN_KEY, String(open));
+    localStorage.setItem(
+      getAgentSidebarOpenPreferenceKey(storageKey),
+      String(open),
+    );
   } catch {}
 }
 
 export function requestAgentSidebarOpen(): void {
   if (typeof window === "undefined") return;
-  setAgentSidebarOpenPreference(true);
   window.dispatchEvent(new CustomEvent("agent-panel:open"));
 }
 
@@ -55,11 +67,13 @@ export function getAgentSidebarUrlOpenOverride(): boolean | null {
   return null;
 }
 
-export function consumeAgentSidebarUrlOpenOverride(): boolean | null {
+export function consumeAgentSidebarUrlOpenOverride(
+  storageKey?: string | null,
+): boolean | null {
   const override = getAgentSidebarUrlOpenOverride();
   if (override === null || typeof window === "undefined") return override;
 
-  setAgentSidebarOpenPreference(override);
+  setAgentSidebarOpenPreference(override, storageKey);
 
   try {
     const url = new URL(window.location.href);
@@ -119,7 +133,10 @@ export function subscribeAgentSidebarUrlChanges(
   };
 }
 
-export function getInitialAgentSidebarOpen(defaultOpen: boolean): boolean {
+export function getInitialAgentSidebarOpen(
+  defaultOpen: boolean,
+  storageKey?: string | null,
+): boolean {
   const urlOverride = getAgentSidebarUrlOpenOverride();
   if (urlOverride !== null) return urlOverride;
 
@@ -133,8 +150,13 @@ export function getInitialAgentSidebarOpen(defaultOpen: boolean): boolean {
   }
 
   try {
-    const saved = localStorage.getItem(SIDEBAR_OPEN_KEY);
-    if (saved !== null) return saved === "true";
+    const saved = localStorage.getItem(
+      getAgentSidebarOpenPreferenceKey(storageKey),
+    );
+    if (saved === "false") return false;
+    // Never let durable storage turn on a sidebar that is default-closed.
+    // Programmatic chat handoffs open the current sidebar transiently instead.
+    if (defaultOpen && saved === "true") return true;
   } catch {}
   return defaultOpen;
 }

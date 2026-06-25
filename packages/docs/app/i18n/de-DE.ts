@@ -228,7 +228,7 @@ const deDE = {
       uiSurfaces: "UI Oberflächen",
       i18n: "i18n",
       mcpAuth: "MCP-Authentifizierung",
-      battleTestedComponents: "Bewährte Komponenten",
+      battleTestedComponents: "Bewährte Bausteine",
       mcpA2a: "MCP + A2A",
       externalAgents: "Externe Agenten",
       a2aHandoffs: "A2A Übergaben",

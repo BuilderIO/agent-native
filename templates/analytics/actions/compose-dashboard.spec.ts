@@ -72,6 +72,7 @@ const LARGE_METRICS = [
   "cli-copies-over-time",
   "pageviews-over-time",
   "top-visited-urls",
+  "top-referrer-domains",
   "top-visited-clips",
   "one-day-retention-by-template",
   "seven-day-retention-by-template",
@@ -107,7 +108,7 @@ beforeEach(() => {
 });
 
 describe("compose-dashboard", () => {
-  it("builds a large dashboard (20 metrics) in one call with correct SQL", async () => {
+  it("builds a large dashboard (21 metrics) in one call with correct SQL", async () => {
     const result: any = await composeDashboard.run(
       {
         dashboardId: "big-compose",
@@ -127,7 +128,7 @@ describe("compose-dashboard", () => {
 
     const saved = store.get("big-compose")!;
     const panels = saved.config.panels as Array<Record<string, unknown>>;
-    expect(panels).toHaveLength(20);
+    expect(panels).toHaveLength(21);
     expect(saved.config.filters).toEqual([
       expect.objectContaining({ id: "timeRange", default: "90d" }),
       expect.objectContaining({ id: "emailFilter", default: "all" }),
@@ -171,6 +172,11 @@ describe("compose-dashboard", () => {
     expect(topUrls.sql).toContain("LIKE 'https://%'");
     expect(topUrls.sql).toContain("substr(path, 1, 2) != '//'");
     expect(topUrls.sql).not.toContain("LIKE 'http%'");
+    const topReferrers = panels.find((p) => p.id === "top-referrer-domains")!;
+    expect(topReferrers.sql).toContain("referrer_domain");
+    expect(topReferrers.sql).toContain("split_part");
+    expect(topReferrers.sql).toContain("chr(63)");
+    expect(topReferrers.sql).not.toContain("$1");
     // Windowed metric retains its default 30d window when none requested.
     const referred = panels.find((p) => p.id === "referred-signups-30d")!;
     expect(referred.sql).toContain("interval '30 days'");

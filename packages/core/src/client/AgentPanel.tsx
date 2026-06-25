@@ -98,7 +98,7 @@ import {
   consumeAgentSidebarUrlOpenOverride,
   dispatchAgentSidebarStateChange,
   getInitialAgentSidebarOpen,
-  SIDEBAR_OPEN_KEY,
+  setAgentSidebarOpenPreference,
   subscribeAgentSidebarUrlChanges,
 } from "./agent-sidebar-state.js";
 import { AgentNativeRouteWarmup } from "./route-warmup.js";
@@ -2356,8 +2356,9 @@ export function AgentSidebar({
   threadUrlSync,
 }: AgentSidebarProps) {
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
-  const [open, setOpen] = useState(() =>
-    getInitialAgentSidebarOpen(defaultOpen),
+  const [open, setOpen] = useState(
+    () =>
+      openOnChatRunning || getInitialAgentSidebarOpen(defaultOpen, storageKey),
   );
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(initialWidth);
@@ -2403,24 +2404,26 @@ export function AgentSidebar({
     (next: boolean | ((prev: boolean) => boolean)) => {
       setOpen((prev) => {
         const value = typeof next === "function" ? next(prev) : next;
-        try {
-          localStorage.setItem(SIDEBAR_OPEN_KEY, String(value));
-        } catch {}
+        setAgentSidebarOpenPreference(value, storageKey);
         return value;
       });
     },
-    [],
+    [storageKey],
   );
 
   const applyUrlOpenOverride = useCallback(() => {
-    const override = consumeAgentSidebarUrlOpenOverride();
+    const override = consumeAgentSidebarUrlOpenOverride(storageKey);
     if (override !== null) setOpenPersisted(override);
-  }, [setOpenPersisted]);
+  }, [setOpenPersisted, storageKey]);
 
   useEffect(() => {
     applyUrlOpenOverride();
     return subscribeAgentSidebarUrlChanges(applyUrlOpenOverride);
   }, [applyUrlOpenOverride]);
+
+  useEffect(() => {
+    if (openOnChatRunning) setOpen(true);
+  }, [openOnChatRunning]);
 
   const toggleFullscreen = useCallback(() => {
     setFullscreen((prev) => {
@@ -2496,7 +2499,7 @@ export function AgentSidebar({
           : "__default__";
 
       if (detail?.isRunning === true) {
-        if (openOnChatRunning) setOpenPersisted(true);
+        if (openOnChatRunning) setOpen(true);
         setRunningTabIds((prev) => {
           const next = new Set(prev);
           next.add(tabId);

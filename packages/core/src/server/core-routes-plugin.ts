@@ -569,6 +569,22 @@ export function resolveLegacyToolsRedirect(
   return `${basePath}/extensions${suffix}${search}`;
 }
 
+export function getFrameworkRouteRequestUrl(event: H3Event): URL {
+  const url = getRequestURL(event);
+  if (url.search) return url;
+
+  // In some mounted Nitro/H3 paths, `event.url` is normalized while the raw
+  // Node request URL still has the query string. Builder callbacks carry the
+  // signed `_an_state` there, so preserve it before validating the flow.
+  const rawUrl =
+    event.node?.req?.url ??
+    (typeof event.path === "string" ? event.path : undefined);
+  const queryStart = rawUrl?.indexOf("?") ?? -1;
+  if (queryStart < 0) return url;
+  url.search = rawUrl!.slice(queryStart);
+  return url;
+}
+
 function redactValues(text: string, values: Array<string | null | undefined>) {
   let out = text;
   for (const value of values) {
@@ -1372,10 +1388,7 @@ export function createCoreRoutesPlugin(
             return { error: "Authentication required" };
           }
 
-          const requestUrl = new URL(
-            `${event.url?.pathname || "/"}${event.url?.search || ""}`,
-            getBuilderBrowserOriginForEvent(event),
-          );
+          const requestUrl = getFrameworkRouteRequestUrl(event);
           const connectToken = requestUrl.searchParams.get(
             BUILDER_CONNECT_PARAM,
           );
@@ -1673,9 +1686,7 @@ export function createCoreRoutesPlugin(
           // mismatches and missing/forged _an_state without leaking the
           // signed token itself.
           try {
-            const debugSearch = new URLSearchParams(
-              (event.url?.search || "").replace(/^\?/, ""),
-            );
+            const debugSearch = getFrameworkRouteRequestUrl(event).searchParams;
             const stateRaw = debugSearch.get(BUILDER_STATE_PARAM);
             const stateOwnerProbe =
               verifyBuilderCallbackStateAndGetOwner(stateRaw);
@@ -1692,10 +1703,7 @@ export function createCoreRoutesPlugin(
           }
           clearBuilderConnectOwnerCookie(event);
 
-          const requestUrl = new URL(
-            `${event.url?.pathname || "/"}${event.url?.search || ""}`,
-            getOrigin(event),
-          );
+          const requestUrl = getFrameworkRouteRequestUrl(event);
           let connectTracking = getBuilderConnectTrackingParams(
             requestUrl.searchParams,
           );

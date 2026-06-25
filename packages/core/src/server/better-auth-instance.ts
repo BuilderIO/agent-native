@@ -392,6 +392,7 @@ export interface BetterAuthInstance {
         name: string;
         callbackURL?: string;
       };
+      headers?: Headers;
     }) => Promise<any>;
     signOut: (opts: { headers: Headers }) => Promise<any>;
   };

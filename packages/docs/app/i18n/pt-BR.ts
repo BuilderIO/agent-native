@@ -227,7 +227,7 @@ const ptBR = {
       uiSurfaces: "UI superfícies",
       i18n: "i18n",
       mcpAuth: "MCP Autenticação",
-      battleTestedComponents: "Componentes testados",
+      battleTestedComponents: "Blocos testados",
       mcpA2a: "MCP + A2A",
       externalAgents: "Agentes externos",
       a2aHandoffs: "A2A transferências",

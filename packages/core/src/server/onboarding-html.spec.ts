@@ -5,6 +5,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
+import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 
 describe("getOnboardingHtml", () => {
   afterEach(() => {
@@ -131,6 +132,17 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("password: document.getElementById('l-pass').value");
   });
 
+  it("captures first-touch attribution on the standalone auth page", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).toContain("function __anCaptureSignupAttribution()");
+    expect(html).toContain("localStorage.getItem('an_attribution')");
+    expect(html).toContain("document.cookie = 'an_ft='");
+    expect(html).toContain("'utm_source'");
+    expect(html).toContain("var returnPath = __anNormalizeReturnPath");
+    expect(html).toContain("__anExternalReferrerHost(document.referrer || '')");
+  });
+
   it("omits hosted terms and privacy links on unhosted email signup", () => {
     const html = getOnboardingHtml();
 
@@ -144,13 +156,33 @@ describe("getOnboardingHtml", () => {
       requestHost: "calendar.agent-native.com",
     });
 
+    expect(html).toContain('data-i18n="legalPrefix"');
+    expect(html).toContain('href="https://www.agent-native.com/terms"');
+    expect(html).toContain('data-i18n="legalTerms">Terms</a>');
     expect(html).toContain(
-      'By signing up, you accept our <a href="https://www.agent-native.com/terms"',
+      'href="https://www.agent-native.com/privacy" target="_blank" rel="noreferrer"',
     );
-    expect(html).toContain(
-      '<a href="https://www.agent-native.com/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>',
-    );
+    expect(html).toContain('data-i18n="legalPrivacy">Privacy Policy</a>');
     expect(html).toContain(".legal-note");
+  });
+
+  it("renders a locale picker that shares the app locale preference", () => {
+    const html = getOnboardingHtml({
+      requestHost: "forms.agent-native.com",
+    });
+
+    expect(html).toContain('id="auth-locale-trigger"');
+    expect(html).toContain('id="auth-locale-menu"');
+    expect(html).toContain(
+      `var __AN_AUTH_LOCALE_STORAGE_KEY = "${LOCALE_STORAGE_KEY}"`,
+    );
+    expect(html).toContain('data-locale-value="es-ES"');
+    expect(html).toContain("Español (Spanish)");
+    expect(html).toContain('data-i18n="createAccount"');
+    expect(html).toContain("Crear cuenta");
+    expect(html).toContain("function __anApplyAuthLocale");
+    expect(html).toContain("function __anSetAuthLocaleMenuOpen");
+    expect(html).toContain("root.setAttribute('dir', meta.dir || 'ltr')");
   });
 
   it("shows configured terms and privacy links on custom email signup", () => {

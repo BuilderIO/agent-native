@@ -27,6 +27,7 @@ import {
   hasBetterAuthUserEmail,
   trackSignupEvent,
 } from "./better-auth-instance.js";
+import { signupAttributionFromCookieHeader } from "./attribution.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
@@ -695,11 +696,15 @@ export async function createOAuthSession(
     await addSession(sessionToken, email);
     setFrameworkSessionCookie(event, sessionToken);
     if (shouldTrackSignup && opts.trackSignup) {
+      const attribution = signupAttributionFromCookieHeader(
+        getHeader(event, "cookie") ?? null,
+      );
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
         authUserId: opts.trackSignup.authUserId,
         email,
         name: opts.trackSignup.name,
+        attribution,
       });
     }
     // Desktop SSO: record this session in the home-dir broker file so

@@ -421,6 +421,9 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
   if (stripped.includes("?")) {
     throw new Error("Bind placeholders are not supported in dashboard SQL");
   }
+  if (/\$\d+\b/.test(stripped)) {
+    throw new Error("Bind placeholders are not supported in dashboard SQL");
+  }
 
   const cteNames = new Set<string>();
   const cteRe = /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+as\s*\(/gi;

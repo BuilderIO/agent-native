@@ -228,7 +228,7 @@ const featureCloudRows = [
       {
         labelKey: "battleTestedComponents",
         className:
-          "feature-cloud-center-card max-w-[260px] whitespace-normal rounded-2xl border border-[var(--docs-accent)] bg-neutral-100 px-6 py-5 text-center text-2xl text-neutral-950 opacity-100 shadow-[0_18px_70px_rgba(255,255,255,0.92)] dark:bg-[#151515] dark:text-white dark:shadow-[0_18px_70px_rgba(0,0,0,0.96)] sm:max-w-[310px] sm:px-8 sm:py-6 sm:text-4xl",
+          "feature-cloud-center-card max-w-[260px] whitespace-normal rounded-2xl border border-neutral-300 bg-neutral-100 px-6 py-5 text-center text-2xl text-neutral-950 opacity-100 shadow-[0_18px_70px_rgba(255,255,255,0.92)] dark:border-white/30 dark:bg-[#151515] dark:text-white dark:shadow-[0_18px_70px_rgba(0,0,0,0.96)] sm:max-w-[310px] sm:px-8 sm:py-6 sm:text-3xl",
       },
       { labelKey: "mcpA2a", className: "text-5xl opacity-[0.92]" },
       { labelKey: "externalAgents", className: "text-2xl opacity-[0.32]" },
@@ -422,17 +422,15 @@ function FeatureWordCloud({ className = "" }: { className?: string }) {
 function BatteriesIncludedCloud() {
   const t = useT();
   return (
-    <section className="batteries-cloud-section relative overflow-hidden border-t border-[var(--docs-border)] bg-white px-6 py-24 text-neutral-950 dark:bg-black dark:text-white sm:py-28 lg:min-h-[680px] lg:py-36">
+    <section className="batteries-cloud-section relative overflow-hidden border-t border-[var(--docs-border)] bg-white px-6 py-24 text-neutral-950 dark:bg-black dark:text-white sm:py-28 lg:flex lg:min-h-[680px] lg:items-center lg:py-36">
       <FeatureWordCloud className="absolute inset-y-0 left-[-10vw] right-[-26vw] z-0 hidden translate-x-[140px] lg:block" />
       <div className="pointer-events-none absolute inset-y-0 left-0 z-[1] hidden w-[46%] bg-gradient-to-r from-white/90 via-white/68 via-70% to-transparent dark:from-black/90 dark:via-black/68 lg:block" />
 
-      <div className="relative z-10 mx-auto max-w-[1200px]">
+      <div className="relative z-10 mx-auto w-full max-w-[1200px]">
         <div className="max-w-[410px] text-center lg:text-left">
           <h2 className="mb-4 text-3xl font-bold tracking-tight text-neutral-950 dark:text-white md:text-4xl">
             {t("home.batteries.titleLine1")}
-            <span className="block text-[var(--docs-accent)]">
-              {t("home.batteries.titleLine2")}
-            </span>
+            <span className="block">{t("home.batteries.titleLine2")}</span>
           </h2>
           <p className="mx-auto mb-5 max-w-[350px] text-base leading-relaxed text-neutral-600 dark:text-white/58 lg:mx-0">
             {t("home.batteries.body")}

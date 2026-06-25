@@ -101,6 +101,12 @@ describe("deriveReferralSource", () => {
     expect(deriveReferralSource({ landing_path: "/plan/abc" })).toBe(
       "plan_share",
     );
+    expect(deriveReferralSource({ landing_path: "/plans/abc" })).toBe(
+      "plan_share",
+    );
+    expect(deriveReferralSource({ landing_path: "/recaps/abc" })).toBe(
+      "plan_share",
+    );
     expect(deriveReferralSource({ landing_path: "/share-plan/abc" })).toBe(
       "plan_share",
     );

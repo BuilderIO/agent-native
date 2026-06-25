@@ -117,7 +117,7 @@ describe("useAgentChatHomeHandoffLinks", () => {
 
     expect(event.defaultPrevented).toBe(true);
     expect(pathname(container)).toBe("/dashboard");
-    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBeNull();
     expect(consumeAgentChatHomeHandoff("chat")).toBe(true);
   });
 

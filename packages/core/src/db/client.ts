@@ -326,9 +326,129 @@ export function intType(): string {
 // Parameter conversion: ? -> $1, $2, $3
 // ---------------------------------------------------------------------------
 
-function sqliteToPostgresParams(sql: string): string {
+export function sqliteToPostgresParams(sql: string): string {
+  let out = "";
+  let param = 0;
   let i = 0;
-  return sql.replace(/\?/g, () => `$${++i}`);
+  let mode:
+    | "normal"
+    | "single"
+    | "double"
+    | "line-comment"
+    | "block-comment"
+    | "dollar" = "normal";
+  let dollarTag = "";
+
+  while (i < sql.length) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    if (mode === "line-comment") {
+      out += ch;
+      i++;
+      if (ch === "\n") mode = "normal";
+      continue;
+    }
+
+    if (mode === "block-comment") {
+      out += ch;
+      if (ch === "*" && next === "/") {
+        out += next;
+        i += 2;
+        mode = "normal";
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    if (mode === "single") {
+      out += ch;
+      if (ch === "\\" && next) {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === "'" && next === "'") {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === "'") mode = "normal";
+      i++;
+      continue;
+    }
+
+    if (mode === "double") {
+      out += ch;
+      if (ch === '"' && next === '"') {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === '"') mode = "normal";
+      i++;
+      continue;
+    }
+
+    if (mode === "dollar") {
+      if (dollarTag && sql.startsWith(dollarTag, i)) {
+        out += dollarTag;
+        i += dollarTag.length;
+        mode = "normal";
+        dollarTag = "";
+        continue;
+      }
+      out += ch;
+      i++;
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      out += ch + next;
+      i += 2;
+      mode = "line-comment";
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      out += ch + next;
+      i += 2;
+      mode = "block-comment";
+      continue;
+    }
+    if (ch === "'") {
+      out += ch;
+      i++;
+      mode = "single";
+      continue;
+    }
+    if (ch === '"') {
+      out += ch;
+      i++;
+      mode = "double";
+      continue;
+    }
+    if (ch === "$") {
+      const match = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/.exec(sql.slice(i));
+      if (match) {
+        dollarTag = match[0];
+        out += dollarTag;
+        i += dollarTag.length;
+        mode = "dollar";
+        continue;
+      }
+    }
+    if (ch === "?") {
+      out += `$${++param}`;
+      i++;
+      continue;
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
 }
 
 function sqlAndArgs(sql: string | { sql: string; args?: unknown[] }): {

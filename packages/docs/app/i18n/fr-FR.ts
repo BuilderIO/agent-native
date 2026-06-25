@@ -228,7 +228,7 @@ const frFR = {
       uiSurfaces: "Surfaces UI",
       i18n: "i18n",
       mcpAuth: "MCP Authentification",
-      battleTestedComponents: "Composants éprouvés",
+      battleTestedComponents: "Briques éprouvées",
       mcpA2a: "MCP + A2A",
       externalAgents: "Agents externes",
       a2aHandoffs: "Transferts A2A",

@@ -237,7 +237,7 @@ const enUS = {
       uiSurfaces: "UI surfaces",
       i18n: "i18n",
       mcpAuth: "MCP Auth",
-      battleTestedComponents: "Battle-tested components",
+      battleTestedComponents: "Battle-tested building blocks",
       mcpA2a: "MCP + A2A",
       externalAgents: "External agents",
       a2aHandoffs: "A2A handoffs",
