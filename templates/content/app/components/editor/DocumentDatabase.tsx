@@ -3989,12 +3989,7 @@ function DatabaseSettingsSourcePanel({
       <SourcesListView
         source={source}
         sources={sources}
-        builderConfigured={builderConfigured}
-        builderSpaceLabel={builderSpaceLabel}
         reviewableCount={reviewableBuilderChangeSets.length}
-        onOpenBuilder={() =>
-          onNavPush({ kind: "provider", providerId: "builder" })
-        }
         onOpenConnectedBuilder={(connected) =>
           onNavPush({
             kind: "model",
@@ -4024,6 +4019,11 @@ function DatabaseSettingsSourcePanel({
             .map((item) => item.sourceTable),
         ]}
         canEdit={canEdit}
+        builderConfigured={builderConfigured}
+        builderSpaceLabel={builderSpaceLabel}
+        onOpenBuilder={() =>
+          onNavPush({ kind: "provider", providerId: "builder" })
+        }
         onPickLocalTable={(table) =>
           onNavPush({
             kind: "keyConfirm",
@@ -4431,117 +4431,85 @@ function builderModelSummaryFromSource(
 function SourcesListView({
   source,
   sources,
-  builderConfigured,
-  builderSpaceLabel,
   reviewableCount,
-  onOpenBuilder,
   onOpenConnectedBuilder,
   onOpenSecondary,
   onAddSource,
 }: {
   source: ContentDatabaseSource | null;
   sources: ContentDatabaseSource[];
-  builderConfigured: boolean;
-  builderSpaceLabel: string | null;
   reviewableCount: number;
-  onOpenBuilder: () => void;
   onOpenConnectedBuilder: (source: ContentDatabaseSource) => void;
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
-  const isBuilderSource = source?.sourceType === "builder-cms";
   const connectedSources =
     sources.length > 0 ? sources : source ? [source] : [];
-  return (
-    <div className="grid min-w-0 gap-4">
-      {connectedSources.length === 0 ? (
-        <div className="min-w-0 break-words text-xs text-muted-foreground">
-          This database is local. Connect a source to map its columns onto these
-          rows.
-        </div>
-      ) : (
-        <div className="grid min-w-0 gap-1.5">
-          <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Connected sources
-          </div>
-          {connectedSources.map((connected, index) => (
-            <DatabaseSettingsRow
-              key={connected.id}
-              icon={
-                connected.sourceType === "builder-cms" ? (
-                  <BuilderLogoMark className="size-4" />
-                ) : (
-                  <IconLayoutGrid className="size-4" />
-                )
-              }
-              label={connected.sourceName}
-              value={
-                connected.metadata.federation?.role === "secondary"
-                  ? "Federated"
-                  : index === 0
-                    ? "Primary"
-                    : undefined
-              }
-              badgeCount={
-                connected.metadata.federation?.role !== "secondary" &&
-                connected.sourceType === "builder-cms"
-                  ? reviewableCount
-                  : 0
-              }
-              onClick={
-                connected.metadata.federation?.role === "secondary"
-                  ? () => onOpenSecondary(connected)
-                  : connected.sourceType === "builder-cms"
-                    ? () => onOpenConnectedBuilder(connected)
-                    : undefined
-              }
-              disabled={
-                connected.metadata.federation?.role !== "secondary" &&
-                connected.sourceType !== "builder-cms"
-              }
-            />
-          ))}
-          <DatabaseSettingsRow
-            icon={<IconPlus className="size-4" />}
-            label="Add another source"
-            onClick={onAddSource}
-          />
-        </div>
-      )}
-      <div className="grid min-w-0 gap-1.5">
-        <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Integrations
+
+  // A brand-new database has no sources — the only action is to add one.
+  // Integrations (Builder, Notion, …) live inside the "Add a source" flow.
+  if (connectedSources.length === 0) {
+    return (
+      <div className="grid min-w-0 gap-2">
+        <div className="min-w-0 break-words px-2 text-xs text-muted-foreground">
+          Connect a Builder collection or another table to map onto these rows.
         </div>
         <DatabaseSettingsRow
-          icon={<BuilderLogoMark className="size-4" />}
-          label="Builder"
+          icon={<IconPlus className="size-4" />}
+          label="Add a source"
+          onClick={onAddSource}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid min-w-0 gap-1.5">
+      <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        Connected sources
+      </div>
+      {connectedSources.map((connected, index) => (
+        <DatabaseSettingsRow
+          key={connected.id}
+          icon={
+            connected.sourceType === "builder-cms" ? (
+              <BuilderLogoMark className="size-4" />
+            ) : (
+              <IconLayoutGrid className="size-4" />
+            )
+          }
+          label={connected.sourceName}
           value={
-            isBuilderSource
-              ? (builderSpaceLabel ?? "Connected")
-              : builderConfigured
-                ? "Connected"
+            connected.metadata.federation?.role === "secondary"
+              ? "Federated"
+              : index === 0
+                ? "Primary"
                 : undefined
           }
-          onClick={onOpenBuilder}
+          badgeCount={
+            connected.metadata.federation?.role !== "secondary" &&
+            connected.sourceType === "builder-cms"
+              ? reviewableCount
+              : 0
+          }
+          onClick={
+            connected.metadata.federation?.role === "secondary"
+              ? () => onOpenSecondary(connected)
+              : connected.sourceType === "builder-cms"
+                ? () => onOpenConnectedBuilder(connected)
+                : undefined
+          }
+          disabled={
+            connected.metadata.federation?.role !== "secondary" &&
+            connected.sourceType !== "builder-cms"
+          }
         />
-        <DatabaseSettingsRow
-          icon={<NotionLogoMark className="size-4" />}
-          label="Notion"
-          value="Coming soon"
-          disabled
-        />
-      </div>
-      <div className="grid min-w-0 gap-1.5">
-        <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Agent-Native apps
-        </div>
-        <DatabaseSettingsRow
-          icon={<IconTimeline className="size-4" />}
-          label="Analytics"
-          value="Coming soon"
-          disabled
-        />
-      </div>
+      ))}
+      <DatabaseSettingsRow
+        icon={<IconPlus className="size-4" />}
+        label="Add another source"
+        onClick={onAddSource}
+      />
     </div>
   );
 }
@@ -4740,10 +4708,16 @@ function CanonicalKeyConfirmView({
 function AddSourceView({
   excludeDatabaseIds,
   canEdit,
+  builderConfigured,
+  builderSpaceLabel,
+  onOpenBuilder,
   onPickLocalTable,
 }: {
   excludeDatabaseIds: string[];
   canEdit: boolean;
+  builderConfigured: boolean;
+  builderSpaceLabel: string | null;
+  onOpenBuilder: () => void;
   onPickLocalTable: (table: {
     databaseId: string;
     documentId: string;
@@ -4789,8 +4763,28 @@ function AddSourceView({
           Integrations
         </div>
         <DatabaseSettingsRow
+          icon={<BuilderLogoMark className="size-4" />}
+          label="Builder"
+          value={
+            builderSpaceLabel ?? (builderConfigured ? "Connected" : undefined)
+          }
+          onClick={canEdit ? onOpenBuilder : undefined}
+          disabled={!canEdit}
+        />
+        <DatabaseSettingsRow
           icon={<NotionLogoMark className="size-4" />}
           label="Notion"
+          value="Coming soon"
+          disabled
+        />
+      </div>
+      <div className="grid min-w-0 gap-1.5">
+        <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Agent-Native apps
+        </div>
+        <DatabaseSettingsRow
+          icon={<IconTimeline className="size-4" />}
+          label="Analytics"
           value="Coming soon"
           disabled
         />
