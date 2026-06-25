@@ -11,6 +11,7 @@ import {
   createStandaloneChatSnapshot,
   diffStarterToolchainFiles,
   generateStandaloneChatManifest,
+  listStarterSyncPaths,
   mergeStarterManifest,
   STARTER_TOOLCHAIN_SYNC_PATHS,
   syncStarterManifestFiles,
@@ -57,7 +58,10 @@ describe("sync-builder-starter-manifest", () => {
           "v8_viteEnvironmentApi",
         );
         const tsconfig = JSON.parse(files.get("tsconfig.json") ?? "{}") as {
-          compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> };
+          compilerOptions?: {
+            baseUrl?: string;
+            paths?: Record<string, string[]>;
+          };
         };
         expect(tsconfig.compilerOptions?.baseUrl).toBeUndefined();
         expect(tsconfig.compilerOptions?.paths?.["*"]).toEqual(["./*"]);
@@ -83,6 +87,10 @@ describe("sync-builder-starter-manifest", () => {
     expect(STARTER_TOOLCHAIN_SYNC_PATHS).not.toContain(
       "server/plugins/auth.ts",
     );
+  });
+
+  it("includes pnpm-lock.yaml in starter CI staging paths", () => {
+    expect(listStarterSyncPaths()).toContain("pnpm-lock.yaml");
   });
 
   it(

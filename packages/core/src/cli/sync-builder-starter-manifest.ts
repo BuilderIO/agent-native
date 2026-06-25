@@ -41,6 +41,7 @@ export type StandaloneChatSnapshot = {
 export function listStarterSyncPaths(): string[] {
   return [
     "package.json",
+    "pnpm-lock.yaml",
     "pnpm-workspace.yaml",
     ...STARTER_TOOLCHAIN_SYNC_PATHS,
   ];
