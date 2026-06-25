@@ -1395,8 +1395,10 @@ if (shouldKill) {
   for (const port of ports) killPort(port);
 }
 
-console.log("[dev-lazy] Prebuilding @agent-native/core...");
-execSync("pnpm --filter @agent-native/core build", { stdio: "inherit" });
+console.log("[dev-lazy] Prebuilding workspace packages...");
+execSync("node scripts/prebuild-workspace-packages.ts dev", {
+  stdio: "inherit",
+});
 
 if (usePollingFileWatcher) {
   console.log(

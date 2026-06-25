@@ -50,7 +50,7 @@ describe("salvaged invalid block warning", () => {
     });
 
     expect(container.textContent).toContain("Invalid tabs block");
-    expect(container.textContent).toContain("raw.document.validationDetails");
+    expect(container.textContent).toContain("Validation details");
     expect(container.textContent).toContain(
       "data.tabs.0.blocks.0.data.annotations.0.lines",
     );
