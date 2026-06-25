@@ -15,6 +15,7 @@ let claimStateRows: Array<{
   status: string | null;
   diag_stage?: string | null;
 }> = [];
+let runOwnerRows: Array<{ owner_email: string | null }> = [];
 let insertEventBehavior: () => void = () => {};
 
 const mockDb = {
@@ -49,6 +50,10 @@ const mockDb = {
       )
     ) {
       return { rows: claimStateRows, rowsAffected: 0 };
+    }
+    // getRunOwnerEmail: SELECT t.owner_email FROM agent_runs r JOIN chat_threads t ...
+    if (/JOIN chat_threads/i.test(rawSql)) {
+      return { rows: runOwnerRows, rowsAffected: 0 };
     }
     if (/INSERT INTO agent_run_events/i.test(rawSql)) {
       insertEventBehavior();
@@ -88,6 +93,7 @@ const {
   updateRunStatusIfRunning,
   getRunStatus,
   readBackgroundRunClaim,
+  getRunOwnerEmail,
   writeLedgerEntry,
   readLedgerEntry,
   clearLedgerForThread,
@@ -104,6 +110,7 @@ describe("run store", () => {
     claimSlotRows = [];
     runStatusRows = [];
     claimStateRows = [];
+    runOwnerRows = [];
     ledgerRows = [];
     insertEventBehavior = () => {};
     vi.clearAllMocks();
@@ -134,6 +141,19 @@ describe("run store", () => {
 
     claimStateRows = [];
     expect(await readBackgroundRunClaim("run-missing")).toBeNull();
+  });
+
+  it("getRunOwnerEmail resolves the thread owner for a run, or null when missing", async () => {
+    runOwnerRows = [{ owner_email: "owner@example.com" }];
+    expect(await getRunOwnerEmail("run-1")).toBe("owner@example.com");
+    // resolves by joining agent_runs to chat_threads, keyed by the runId only —
+    // the caller cannot supply the owner, only select the HMAC-signed run row.
+    const joinCall = execCalls.find((c) => /JOIN chat_threads/i.test(c.sql));
+    expect(joinCall).toBeTruthy();
+    expect(joinCall?.args).toEqual(["run-1"]);
+
+    runOwnerRows = [];
+    expect(await getRunOwnerEmail("run-missing")).toBeNull();
   });
 
   it("persists a terminal event when marking a run aborted", async () => {
