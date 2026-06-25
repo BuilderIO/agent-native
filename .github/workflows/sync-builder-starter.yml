@@ -4,10 +4,12 @@ on:
   push:
     branches: [main]
     paths:
-      - "templates/chat/package.json"
+      # Broad trigger: starter sync is idempotent and only opens a PR when synced
+      # paths actually drift. Toolchain file list lives in sync-builder-starter-manifest.ts.
+      - "templates/chat/**"
       - "pnpm-workspace.yaml"
       - "packages/core/src/cli/create.ts"
-      - "packages/core/src/cli/sync-builder-starter-manifest.ts"
+      - "packages/core/src/cli/sync-builder-starter-manifest*"
       - "scripts/sync-builder-starter-manifest.ts"
       - ".github/workflows/sync-builder-starter.yml"
   workflow_dispatch:
