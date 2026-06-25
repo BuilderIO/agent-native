@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.77.7
+
+### Patch Changes
+
+- e5bdcb3: Paginate the All Chats history client so older conversations can be loaded without truncating the history list.
+- e5bdcb3: Drop benign reasonless browser AbortError events from Sentry reporting.
+- e5bdcb3: Repair duplicate persisted chat message ids during thread normalization.
+- e5bdcb3: Ensure hosted template apps can inject Google Analytics from Netlify build-time configuration.
+- e5bdcb3: Normalize email casing when resolving shareable-resource ownership and user shares, and let resources opt into owner access across active-org drift.
+- e5bdcb3: Re-check current LLM connection status before a stale missing-credentials event can keep chat locked after reconnecting Builder, and prevent page chat surfaces from rendering sidebar settings in the main content area.
+- e5bdcb3: Allow browser Sentry initialization to build a DSN from Vite-exposed Sentry client key, project id, and ingest host env vars when runtime config injection is unavailable.
+
 ## 0.77.6
 
 ### Patch Changes
