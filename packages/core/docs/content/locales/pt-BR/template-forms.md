@@ -10,7 +10,7 @@ Forms é um construtor de formulários nativo do agente. Descreva o formulário 
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Inscrição beta</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>Compartilhar</button><button class='primary'>Despublicar</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>Editar</span><span class='wf-pill'>Resultados 187</span><span class='wf-pill'>Configurações</span><span class='wf-pill'>Integrações</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>Inscrição beta</h2><p class='wf-muted' style='margin:0'>Reserve a spot in the upcoming private beta cohort.</p><div class='wf-card'><strong>Nome completo</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>E-mail profissional</strong><input value='you@company.com'/></div><div class='wf-card'><strong>Sua função</strong><input value='Select...'/></div><div class='wf-card'><strong>Tamanho da equipe</strong><input value='Select...'/></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Inscrição beta</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>Compartilhar</button><button class='primary'>Despublicar</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>Editar</span><span class='wf-pill'>Resultados 187</span><span class='wf-pill'>Configurações</span><span class='wf-pill'>Integrações</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>Inscrição beta</h2><p class='wf-muted' style='margin:0'>Reserve uma vaga na próxima beta privada.</p><div class='wf-card'><strong>Nome completo</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>E-mail profissional</strong><input value='you@company.com'/></div><div class='wf-card'><strong>Sua função</strong><input value='Select...'/></div><div class='wf-card'><strong>Tamanho da equipe</strong><input value='Select...'/></div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ Ao abrir o aplicativo, você vê seus formulários, o editor atual e uma visuali
 
 ```an-diagram title="Construa, publique, colete" summary="O agente e o editor visual editam uma definição de formulário SQL-backed. A página de preenchimento público não é autenticada e os envios são direcionados do lado do servidor para seus destinos."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Agent prompt<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">Visual editor<br><small class=\"diagram-muted\">labels, validation, order</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">fields JSON, settings JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL via Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Public fill page<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / Sheets</small></div></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Prompt do agente<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">Editor visual<br><small class=\"diagram-muted\">rótulos, validação, ordem</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">JSON de campos, JSON de configurações</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL com Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Página pública de preenchimento<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / Planilhas</small></div></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -84,7 +84,7 @@ Escolha formulários e quaisquer outros modelos desejados durante a configuraç�
 
 ### Modelo de dados
 
-Todos os dados residem em SQL via Drizzle ORM. Esquema: `templates/forms/server/db/schema.ts`. Os formulários carregam o `ownableColumns` padrão e uma tabela de compartilhamentos de estrutura correspondente, para que eles se encaixem no modelo de compartilhamento por usuário/por organização.
+Todos os dados residem em SQL com Drizzle ORM. Esquema: `templates/forms/server/db/schema.ts`. Os formulários carregam o `ownableColumns` padrão e uma tabela de compartilhamentos de estrutura correspondente, para que eles se encaixem no modelo de compartilhamento por usuário/por organização.
 
 | Tabela        | O que ele contém                                                                                                                                                                                                                      |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -94,7 +94,7 @@ Todos os dados residem em SQL via Drizzle ORM. Esquema: `templates/forms/server/
 
 As formas `fields` e `settings` JSON são definidas em `templates/forms/shared/types.ts` (`FormField`, `FormSettings`). As configurações privadas do proprietário, como webhook de integração URLs e origens permitidas, são removidas antes que qualquer dado chegue à página de preenchimento público via `toPublicFormSettings`.
 
-```an-schema title="Forms data model" summary="Three tables. Fields and integrations are JSON columns on forms, so the agent's edits are surgical patches rather than cross-table row changes."
+```an-schema title="Modelo de dados de formulários" summary="Três tabelas. Os campos e integrações são colunas JSON nos formulários, portanto, as edições do agente são correções cirúrgicas, em vez de alterações de linhas entre tabelas."
 {
   "entities": [
     {
@@ -106,9 +106,9 @@ As formas `fields` e `settings` JSON são definidas em `templates/forms/shared/t
         { "name": "title", "type": "string" },
         { "name": "description", "type": "string", "nullable": true },
         { "name": "slug", "type": "string", "note": "unique; public URL" },
-        { "name": "fields", "type": "json", "note": "FormField[] — all field types" },
-        { "name": "settings", "type": "json", "note": "FormSettings — integrations, etc." },
-        { "name": "status", "type": "enum", "note": "draft | published | closed" },
+        { "name": "fields", "type": "json", "note": "FormField[] — todos os tipos de campo" },
+        { "name": "settings", "type": "json", "note": "FormSettings — integrações, etc." },
+        { "name": "status", "type": "enum", "note": "rascunho | publicado | fechado" },
         { "name": "deleted_at", "type": "datetime", "nullable": true, "note": "soft delete" },
         { "name": "owner_email", "type": "string" },
         { "name": "org_id", "type": "id", "nullable": true }
@@ -117,7 +117,7 @@ As formas `fields` e `settings` JSON são definidas em `templates/forms/shared/t
     {
       "id": "responses",
       "name": "responses",
-      "note": "One submission per row",
+      "note": "Um envio por linha",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "form_id", "type": "id", "fk": "forms.id" },
@@ -130,12 +130,12 @@ As formas `fields` e `settings` JSON são definidas em `templates/forms/shared/t
     {
       "id": "form_shares",
       "name": "form_shares",
-      "note": "Framework shares table — principals to roles per form",
+      "note": "Tabela de compartilhamentos da estrutura — principais para funções por formulário",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "form_id", "type": "id", "fk": "forms.id" },
         { "name": "principal", "type": "string", "note": "user or org" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+        { "name": "role", "type": "enum", "note": "visualizador | editor | administrador" }
       ]
     }
   ],

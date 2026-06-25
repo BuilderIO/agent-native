@@ -38,7 +38,7 @@ Das Kollaborationssystem besteht aus fünf ineinandergreifenden Ebenen.
 
 ```an-diagram title="Fünf ineinandergreifende Schichten" summary="Vom speicherinternen CRDT bis hin zum Transport, der Aktualisierungen zwischen Peers überträgt – jede Schicht hat eine Aufgabe."
 {
-  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; conflict-free merge, no coordinator</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; SQL canonical content</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; updatedAt-gated reconcile</span><small class=\"diagram-muted\">agent edits propagate via the SQL bump</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; Lead-client election</span><small class=\"diagram-muted\">exactly one tab applies the snapshot</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; SSE fast-path + polling</span><small class=\"diagram-muted\">~tens of ms, degrades to 2s poll anywhere</small></div></div>",
+  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; konfliktfreier Merge, kein Koordinator</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; Kanonischer SQL-Inhalt</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; updatedAt-gesteuerter Abgleich</span><small class=\"diagram-muted\">Agentenänderungen verbreiten sich über den SQL-Bump</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; Lead-Client-Wahl</span><small class=\"diagram-muted\">genau ein Tab wendet den Snapshot an</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; SSE-Schnellpfad + Polling</span><small class=\"diagram-muted\">~Zehner-ms, fällt überall auf 2-s-Polling zurück</small></div></div>",
   "css": ".diagram-stack{display:flex;flex-direction:column;gap:8px}.diagram-stack .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
 }
 ```
@@ -62,7 +62,7 @@ erforderlich.
 
 ### 3. `updatedAt`-gesteuerter Abgleich (Agent-Edit-Weitergabe)
 
-Agent actions pusht nicht prozessintern in Yjs. Stattdessen bearbeitet die Aktion die
+Agentenaktionen pusht nicht prozessintern in Yjs. Stattdessen bearbeitet die Aktion die
 kanonische SQL-Inhaltsspalte und Bumps `updatedAt`. Das Change-Sync-System
 erkennt die Beule, der offene Editor ruft den Datensatz erneut ab und der Lead-Client
 wendet den neuen Inhalt über `setContent` in das freigegebene Y.Doc an. Ein `updatedAt`
@@ -102,7 +102,7 @@ Netzwerkfehler nutzen einen exponentiellen Backoff mit Jitter, der auf ~15 s beg
 
 ```an-diagram title="Zwei Bearbeitungspfade, einer zusammenführen" summary="Menschliche Tastenanschläge fließen Y.Doc → Server → SSE. Agentenänderungen durchlaufen SQL: Die Aktion stößt auf „UpdatedAt“, der Hauptkunde stimmt ab, dann wird die Änderung erneut in Yjs eingegeben."
 {
-  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">Human edit</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce ~80ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">Agent edit</span><div class=\"diagram-node\">Action writes SQL<br><small class=\"diagram-muted\">bumps updatedAt</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>Lead client<br><small class=\"diagram-muted\">setContent into Y.Doc</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
+  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">Menschliche Bearbeitung</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">Debounce ~80 ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">Agentenbearbeitung</span><div class=\"diagram-node\">Action schreibt SQL<br><small class=\"diagram-muted\">aktualisiert updatedAt</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>Lead-Client<br><small class=\"diagram-muted\">setContent in Y.Doc</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
   "css": ".diagram-collab{display:flex;flex-direction:column;gap:14px}.diagram-collab .lane{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-collab .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -227,7 +227,7 @@ Vorlagen können ein Kommentarsystem mit Thread-Diskussionen zu Dokumenten hinzu
 - Kommentarseitenleiste mit Thread-Ansicht und Antwort UI
 - Threads auflösen/auflösen
 - Schaltfläche **An AI senden** – sendet den Kommentar-Thread-Kontext über `sendToAgentChat()` an den Agenten-Chat
-- Agent actions: `list-comments`, `add-comment`
+- Agentenaktionen: `list-comments`, `add-comment`
 - Notion-Kommentarsynchronisierung: `sync-notion-comments`-Aktion für bidirektionales Ziehen/Push
 
 ## Zusammenarbeitsrouten {#collab-routes}
@@ -248,13 +248,13 @@ Alle Collab-Routen werden durch das Collab-Plugin automatisch unter `/_agent-nat
 Die `edit-document`-Aktion der Inhaltsvorlage ist die primäre Möglichkeit, mit der Agenten im kollaborativen Modus Änderungen an Dokumenten vornehmen:
 
 ```bash
-# Single edit
+# Einzelbearbeitung
 pnpm action edit-document --id doc123 --find "old text" --replace "new text"
 
-# Batch edits
+# Stapelbearbeitungen
 pnpm action edit-document --id doc123 --edits '[{"find":"old","replace":"new"}]'
 
-# Delete text
+# Text löschen
 pnpm action edit-document --id doc123 --find "delete me" --replace ""
 ```
 
@@ -625,7 +625,7 @@ Schlüsseleigenschaften:
 ```an-callout
 {
   "tone": "risk",
-  "body": "**Same-region simultaneous rewrite is last-write-wins.** If the agent rewrites a passage while a human has unsaved edits in the *exact same region*, the lead-client snapshot can clobber the in-flight human edit. Edits in different regions always merge cleanly via the CRDT. For structured documents, use granular server-side merge to sidestep this entirely."
+  "body": "**Das gleichzeitige Umschreiben in derselben Region ist das letzte Schreiben, das gewinnt.** Wenn der Agent eine Passage neu schreibt, während ein Mensch nicht gespeicherte Bearbeitungen in der *genau gleichen Region* hat, kann der Lead-Client-Snapshot die menschliche Bearbeitung während der Übertragung beeinträchtigen. Bearbeitungen in verschiedenen Regionen werden über die CRDT immer sauber zusammengeführt. Verwenden Sie bei strukturierten Dokumenten die granulare serverseitige Zusammenführung, um dies vollständig zu umgehen."
 }
 ```
 

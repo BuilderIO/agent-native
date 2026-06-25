@@ -1,5 +1,9 @@
-import { useDroppable } from "@dnd-kit/core";
-import { useSortable } from "@dnd-kit/sortable";
+import { useT } from "@agent-native/core/client";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { DocumentTreeNode } from "@shared/api";
 import {
@@ -38,11 +42,6 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import {
-  documentSection,
-  type SidebarDocumentSection,
-} from "./document-sidebar-dnd";
-
 interface DocumentTreeItemProps {
   node: DocumentTreeNode;
   depth: number;
@@ -51,12 +50,9 @@ interface DocumentTreeItemProps {
   expandedIds: Set<string>;
   onToggleExpanded: (id: string) => void;
   onSelect: (id: string) => void;
-  onCreateChildPage: (parentId: string) => void;
-  onCreateChildDatabase: (parentId: string) => void;
+  onCreateChild: (parentId: string) => void;
   onDelete: (id: string) => void;
   onToggleFavorite: (id: string, isFavorite: boolean) => void;
-  activeDropTargetId: string | null;
-  activeDragSection: SidebarDocumentSection | null;
 }
 
 export function getDocumentSidebarIconKind(
@@ -98,13 +94,11 @@ export function DocumentTreeItem({
   expandedIds,
   onToggleExpanded,
   onSelect,
-  onCreateChildPage,
-  onCreateChildDatabase,
+  onCreateChild,
   onDelete,
   onToggleFavorite,
-  activeDropTargetId,
-  activeDragSection,
 }: DocumentTreeItemProps) {
+  const t = useT();
   const expanded = expandedIds.has(node.id);
   const hasChildren = node.children.length > 0;
   const isActive = node.id === activeId;
@@ -117,10 +111,6 @@ export function DocumentTreeItem({
     node.accessRole === "admin";
   const hasMenuActions = canEdit || canManage;
   const canCreateChild = canEdit && !isLocalFileNode;
-  const canDropOnNode =
-    canEdit &&
-    !isLocalFileNode &&
-    (!activeDragSection || activeDragSection === documentSection(node));
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const indent = depth * 12 + 12;
   const rowWidth =
@@ -138,24 +128,6 @@ export function DocumentTreeItem({
     id: node.id,
     disabled: !canEdit || isLocalFileNode,
   });
-  const beforeDropId = `before:${node.id}`;
-  const insideDropId = `inside:${node.id}`;
-  const afterDropId = `after:${node.id}`;
-  const { setNodeRef: setBeforeDropRef } = useDroppable({
-    id: beforeDropId,
-    disabled: !canDropOnNode,
-  });
-  const { setNodeRef: setInsideDropRef } = useDroppable({
-    id: insideDropId,
-    disabled: !canDropOnNode,
-  });
-  const { setNodeRef: setAfterDropRef } = useDroppable({
-    id: afterDropId,
-    disabled: !canDropOnNode,
-  });
-  const isBeforeDropTarget = activeDropTargetId === beforeDropId;
-  const isInsideDropTarget = activeDropTargetId === insideDropId;
-  const isAfterDropTarget = activeDropTargetId === afterDropId;
 
   return (
     <div
@@ -174,8 +146,6 @@ export function DocumentTreeItem({
           "group relative flex min-w-56 items-center gap-1.5 rounded-md py-[5px] pe-2 text-sm cursor-pointer select-none",
           canEdit && !isLocalFileNode && "cursor-grab active:cursor-grabbing",
           isDragging && "bg-accent/70 text-accent-foreground shadow-sm",
-          isInsideDropTarget &&
-            "bg-primary/20 text-foreground ring-2 ring-inset ring-primary/45",
           isActive
             ? "bg-accent text-accent-foreground"
             : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -193,33 +163,6 @@ export function DocumentTreeItem({
         }}
         aria-expanded={hasChildren ? expanded : undefined}
       >
-        <span
-          ref={setBeforeDropRef}
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 h-1/3"
-        />
-        <span
-          ref={setInsideDropRef}
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-1/3 h-1/3"
-        />
-        <span
-          ref={setAfterDropRef}
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3"
-        />
-        {isBeforeDropTarget && (
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute left-2 right-2 top-0 h-0.5 rounded-full bg-primary"
-          />
-        )}
-        {isAfterDropTarget && (
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-primary"
-          />
-        )}
         <span className="relative flex-shrink-0 w-5 h-5">
           <span
             className={cn(
@@ -305,7 +248,7 @@ export function DocumentTreeItem({
                     }}
                   >
                     <IconTrash size={14} className="me-2" />
-                    Delete
+                    {t("database.delete")}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -313,48 +256,29 @@ export function DocumentTreeItem({
           )}
 
           {canCreateChild && (
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <IconPlus size={14} />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>Add child</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="start" className="w-44">
-                <DropdownMenuItem
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onCreateChildPage(node.id);
+                    onCreateChild(node.id);
                   }}
                 >
-                  <IconFileText className="mr-2 size-4" />
-                  Page
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCreateChildDatabase(node.id);
-                  }}
-                >
-                  <IconDatabase className="mr-2 size-4" />
-                  Database
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  <IconPlus size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("sidebar.addSubPage")}</TooltipContent>
+            </Tooltip>
           )}
         </div>
       </div>
 
       {hasChildren && expanded && (
-        <>
+        <SortableContext
+          items={node.children.map((child) => child.id)}
+          strategy={verticalListSortingStrategy}
+        >
           {node.children.map((child) => (
             <DocumentTreeItem
               key={child.id}
@@ -365,33 +289,33 @@ export function DocumentTreeItem({
               expandedIds={expandedIds}
               onToggleExpanded={onToggleExpanded}
               onSelect={onSelect}
-              onCreateChildPage={onCreateChildPage}
-              onCreateChildDatabase={onCreateChildDatabase}
+              onCreateChild={onCreateChild}
               onDelete={onDelete}
               onToggleFavorite={onToggleFavorite}
-              activeDropTargetId={activeDropTargetId}
-              activeDragSection={activeDragSection}
             />
           ))}
-        </>
+        </SortableContext>
       )}
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete page?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("sidebar.deletePageQuestion")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{node.title || "Untitled"}&rdquo; and all its sub-pages
-              will be permanently deleted. This cannot be undone.
+              {t("sidebar.deletePageDescription", {
+                title: node.title || t("sidebar.untitled"),
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => onDelete(node.id)}
             >
-              Delete
+              {t("database.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

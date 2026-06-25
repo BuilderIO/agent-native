@@ -1,4 +1,4 @@
-import { isReconcileLeadClient } from "@agent-native/core/client";
+import { isReconcileLeadClient, useT } from "@agent-native/core/client";
 import { Extension } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
@@ -193,6 +193,7 @@ export function SlideInlineEditor({
   agentActive,
   onComment,
 }: SlideInlineEditorProps) {
+  const t = useT();
   const { bgClass, bgStyle } = resolveBackground(slide.background);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Guard flag: prevents the seeding setContent from triggering onContentChange
@@ -271,7 +272,7 @@ export function SlideInlineEditor({
         ...(ydoc ? ({ history: false } as any) : {}),
       }),
       Placeholder.configure({
-        placeholder: "Start typing… or press / for commands",
+        placeholder: t("raw.startTypingCommands"),
       }),
       Link.configure({
         openOnClick: false,
@@ -481,7 +482,7 @@ export function SlideInlineEditor({
       {agentActive && (
         <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#00B5FF]/20 border border-[#00B5FF]/40 text-[#00B5FF] text-xs font-medium animate-pulse pointer-events-none">
           <div className="w-1.5 h-1.5 rounded-full bg-[#00B5FF]" />
-          AI editing
+          {t("raw.aiEditing")}
         </div>
       )}
     </div>
@@ -497,17 +498,17 @@ function SlideEditorCanvas({
   slide: Slide;
 }) {
   const layoutPadding: Record<string, string> = {
-    title: "px-[110px] py-[80px]",
-    content: "px-[110px] py-[80px]",
+    title: "px-[110px] py-[80px]", // i18n-ignore Tailwind class list
+    content: "px-[110px] py-[80px]", // i18n-ignore Tailwind class list
     "two-column": "px-[70px] py-[50px]",
-    section: "px-[110px] py-[80px]",
-    statement: "px-[110px] py-[60px]",
+    section: "px-[110px] py-[80px]", // i18n-ignore Tailwind class list
+    statement: "px-[110px] py-[60px]", // i18n-ignore Tailwind class list
     image: "px-[80px] py-[60px]",
     "full-image": "p-0",
     blank: "p-8",
   };
 
-  const padding = layoutPadding[slide.layout] ?? "px-[110px] py-[80px]";
+  const padding = layoutPadding[slide.layout] ?? "px-[110px] py-[80px]"; // i18n-ignore Tailwind class list
 
   return (
     <div

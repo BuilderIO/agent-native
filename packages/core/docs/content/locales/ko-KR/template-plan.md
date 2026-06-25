@@ -396,14 +396,14 @@ pnpm dev
 | `plan_guest_mints` | 게스트 세션 발행을 위한 비율 제한 기록                                                                                                                                             |
 | `plan_assets`      | base64로 저장된 인라인 이미지 자산(업로드 공급자가 없는 경우 대체)                                                                                                                 |
 
-```an-schema title="Plan data model" summary="One plan row owns ordered sections plus comments, events, versions, shares, and inline assets."
+```an-schema title="계획 데이터 모델" summary="하나의 계획 행은 주문된 섹션과 설명, 이벤트, 버전, 공유 및 인라인 자산을 소유합니다."
 {
   "entities": [
     { "id": "plans", "name": "plans", "note": "each plan or recap", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "title", "type": "text" },
       { "name": "brief", "type": "text", "nullable": true },
-      { "name": "kind", "type": "enum", "note": "plan | recap" },
+      { "name": "kind", "type": "enum", "note": "계획 | 요약" },
       { "name": "status", "type": "text" },
       { "name": "source", "type": "text", "nullable": true },
       { "name": "hosted_plan_id", "type": "text", "nullable": true, "note": "hosted_plan_url paired" },
@@ -442,7 +442,7 @@ pnpm dev
     { "id": "plan_shares", "name": "plan_shares", "note": "per-principal grants", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "plan_id", "type": "text", "fk": "plans.id" },
-      { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+      { "name": "role", "type": "enum", "note": "뷰어 | 편집자 | 관리자" }
     ] },
     { "id": "plan_guest_mints", "name": "plan_guest_mints", "note": "rate-limit records for guest session issuance", "fields": [
       { "name": "id", "type": "text", "pk": true }

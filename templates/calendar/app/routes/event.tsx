@@ -1,5 +1,9 @@
-import { useActionQuery } from "@agent-native/core/client";
-import { postNavigate, isInAgentEmbed } from "@agent-native/core/client";
+import {
+  isInAgentEmbed,
+  postNavigate,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
 import {
   IconClock,
@@ -14,11 +18,12 @@ import { useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { messagesByLocale } from "@/i18n-data";
 
 type EventPreviewResult = CalendarEvent | { error: string };
 
 export function meta() {
-  return [{ title: "Event Preview" }];
+  return [{ title: messagesByLocale["en-US"].routeTitles.eventPreview }];
 }
 
 function formatDuration(start: string, end: string): string {
@@ -31,6 +36,7 @@ function formatDuration(start: string, end: string): string {
 }
 
 function EventCard({ event }: { event: CalendarEvent }) {
+  const t = useT();
   const inEmbed = isInAgentEmbed();
 
   return (
@@ -133,7 +139,7 @@ function EventCard({ event }: { event: CalendarEvent }) {
                 onClick={() => postNavigate("/")}
               >
                 <IconCalendar className="h-3.5 w-3.5" />
-                Open calendar
+                {t("eventPreview.openCalendar")}
                 <IconArrowUpRight className="h-3 w-3" />
               </Button>
             </div>
@@ -145,11 +151,12 @@ function EventCard({ event }: { event: CalendarEvent }) {
 }
 
 function ErrorCard({ message }: { message: string }) {
+  const t = useT();
   return (
     <div className="min-h-screen bg-background flex items-start justify-center p-4">
       <div className="w-full max-w-sm rounded-xl border border-border bg-card shadow-sm px-5 py-4">
         <p className="text-sm text-destructive font-medium">
-          Could not load event
+          {t("eventPreview.couldNotLoadEvent")}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">{message}</p>
       </div>
@@ -158,6 +165,7 @@ function ErrorCard({ message }: { message: string }) {
 }
 
 export default function EventPreviewRoute() {
+  const t = useT();
   const [searchParams] = useSearchParams();
   const id = searchParams.get("id") ?? "";
   const calendarId = searchParams.get("calendarId") ?? "primary";
@@ -169,9 +177,7 @@ export default function EventPreviewRoute() {
   );
 
   if (!id) {
-    return (
-      <ErrorCard message="No event id provided. Add ?id=<eventId> to the URL." />
-    );
+    return <ErrorCard message={t("eventPreview.noEventId")} />;
   }
 
   if (isLoading) {

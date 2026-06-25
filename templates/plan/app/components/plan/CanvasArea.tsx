@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import type {
   PlanAnnotation,
   PlanAnnotationPlacement,
@@ -118,6 +119,7 @@ export function CanvasArea({
   selectedDesignElementKey?: string | null;
   onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
+  const t = useT();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const initialView = useMemo<CanvasView>(
     () => ({
@@ -641,7 +643,7 @@ export function CanvasArea({
   return (
     <section
       className="plan-canvas relative h-[65vh] overflow-hidden border-b border-plan-line"
-      aria-label="Plan artboard canvas"
+      aria-label={t("raw.canvas.artboardCanvas")}
     >
       <div
         ref={viewportRef}
@@ -829,7 +831,7 @@ export function CanvasArea({
           size="icon"
           className="size-6"
           onClick={() => zoomByFactor(1 / 1.2)}
-          aria-label="Zoom out"
+          aria-label={t("raw.canvas.zoomOut")}
         >
           <IconMinus className="size-3" />
         </Button>
@@ -842,7 +844,7 @@ export function CanvasArea({
           size="icon"
           className="size-6"
           onClick={() => zoomByFactor(1.2)}
-          aria-label="Zoom in"
+          aria-label={t("raw.canvas.zoomIn")}
         >
           <IconPlus className="size-3" />
         </Button>
@@ -1678,6 +1680,7 @@ function CanvasMarkupComposer({
   onCancel: () => void;
   onSubmit: (text: string) => Promise<void>;
 }) {
+  const t = useT();
   const [text, setText] = useState("");
   const [error, setError] = useState(false);
   const screenPoint = {
@@ -1738,7 +1741,7 @@ function CanvasMarkupComposer({
       </div>
       {error && (
         <p className="mt-2 px-1 text-xs text-destructive">
-          Couldn't save markup. Try again.
+          {t("raw.canvas.markupSaveFailed")}
         </p>
       )}
     </form>

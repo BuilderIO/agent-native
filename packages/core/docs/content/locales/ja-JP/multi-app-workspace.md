@@ -66,7 +66,7 @@ CLI には、すべてのファーストパーティ テンプレートの複数
 
 ```bash
 cd my-company-platform
-cp .env.example .env             # fill in ANTHROPIC_API_KEY, BETTER_AUTH_SECRET, ...
+cp .env.example .env             # ANTHROPIC_API_KEY、BETTER_AUTH_SECRET、...を入力します。
 pnpm install
 pnpm dev                         # opens Dispatch; other apps start on first visit
 ```

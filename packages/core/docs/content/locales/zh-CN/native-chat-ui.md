@@ -19,7 +19,7 @@ description: "操作声明的本机聊天渲染器、可重用的 DataTable/Data
 
 ```an-diagram title="原生渲染路径" summary="操作返回 JSON；运行时匹配显式小部件判别式或 chatUI.renderer； AssistantChat 安装真实的 React 组件。没有 iframe，没有 HTML 执行。"
 {
-  "html": "<div class=\"diagram-render\"><div class=\"diagram-node\">Action runs<br><small class=\"diagram-muted\">returns structured JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Match</span><small class=\"diagram-muted\">explicit widget &middot; chatUI.renderer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;AssistantChat&gt;<br><small class=\"diagram-muted\">mounts a React widget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill ok\">DataTable</div><div class=\"diagram-pill ok\">DataChart</div><div class=\"diagram-pill ok\">DataInsights</div></div></div>",
+  "html": "<div class=\"diagram-render\"><div class=\"diagram-node\">Action 运行<br><small class=\"diagram-muted\">返回结构化 JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Match</span><small class=\"diagram-muted\">explicit widget &middot; chatUI.renderer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;AssistantChat&gt;<br><small class=\"diagram-muted\">挂载 React widget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill ok\">DataTable</div><div class=\"diagram-pill ok\">DataChart</div><div class=\"diagram-pill ok\">DataInsights</div></div></div>",
   "css": ".diagram-render{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-render .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-render .col{display:flex;flex-direction:column;gap:6px;padding:12px}.diagram-render .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -100,7 +100,7 @@ export default defineAction({
 ```an-callout
 {
   "tone": "success",
-  "body": "The renderer only takes over when the action declares `chatUI` **or** the result carries an explicit known `widget` discriminant. It never shape-infers arbitrary objects and never executes HTML or JavaScript from tool results — so a native widget can't become an injection vector."
+  "body": "仅当操作声明 `chatUI`**或**结果携带显式已知的 `widget` 判别式时，渲染器才会接管。它从不形​​状推断任意对象，也从不从工具结果执行 HTML 或 JavaScript - 因此本机小部件不能成为注入向量。"
 }
 ```
 
@@ -211,7 +211,7 @@ export default defineAction({
 
 ```an-diagram title="BYO 运行时保留 Agent-Native 聊天 shell" summary="您的外部代理通过连接器传输标准化事件； Agent-Native 保留作曲家、成绩单、工具卡、批准和本机小部件。"
 {
-  "html": "<div class=\"diagram-byo\"><div class=\"diagram-box\" data-rough>Your agent<br><small class=\"diagram-muted\">OpenAI &middot; Claude &middot; Vercel AI &middot; AG-UI &middot; HTTP</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">connector</span><small class=\"diagram-muted\">normalized message-* / tool-* events</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill\">&lt;AssistantChat runtime=&hellip; /&gt;</div><small class=\"diagram-muted\">composer &middot; transcript &middot; tool cards</small><small class=\"diagram-muted\">approvals &middot; native widgets</small></div></div>",
+  "html": "<div class=\"diagram-byo\"><div class=\"diagram-box\" data-rough>你的代理<br><small class=\"diagram-muted\">OpenAI &middot; Claude &middot; Vercel AI &middot; AG-UI &middot; HTTP</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">connector</span><small class=\"diagram-muted\">标准化 message-* / tool-* 事件</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill\">&lt;AssistantChat runtime=&hellip; /&gt;</div><small class=\"diagram-muted\">composer &middot; transcript &middot; tool cards</small><small class=\"diagram-muted\">approvals &middot; native widgets</small></div></div>",
   "css": ".diagram-byo{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-byo .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-byo .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-byo .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

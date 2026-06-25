@@ -22,7 +22,7 @@ A2A is the substrate for cross-app delegation in this framework — most promine
 
 ```an-diagram title="한 상담원이 다른 상담원에게 일을 맡깁니다." summary="메일 에이전트는 분석 에이전트의 카드를 발견하고 JSON-RPC 메시지를 보낸 다음 완료된 작업을 돌려받습니다."
 {
-  "html": "<div class=\"diagram-handoff\"><div class=\"diagram-card\"><strong>Mail agent</strong><small class=\"diagram-muted\">needs analytics</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">GET /.well-known/agent-card.json</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">POST /_agent-native/a2a<br><small class=\"diagram-muted\">message/send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-pill ok\">task · completed</div></div><div class=\"diagram-card\" data-rough><strong>Analytics agent</strong><small class=\"diagram-muted\">runs run-query, returns result</small></div></div>",
+  "html": "<div class=\"diagram-handoff\"><div class=\"diagram-card\"><strong>Mail 에이전트</strong><small class=\"diagram-muted\">needs analytics</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">GET /.well-known/agent-card.json</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">POST /_agent-native/a2a<br><small class=\"diagram-muted\">message/send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-pill ok\">작업 · 완료</div></div><div class=\"diagram-card\" data-rough><strong>Analytics 에이전트</strong><small class=\"diagram-muted\">run-query를 실행하고 결과 반환</small></div></div>",
   "css": ".diagram-handoff{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-handoff .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-handoff .diagram-arrow{font-size:20px;line-height:1}"
 }
 ```
@@ -119,11 +119,11 @@ _(버전은 다를 수 있습니다. 현재 `protocolVersion`에 대해서는 `/
 | `tasks/get`      | ID로 작업 가져오기 — 비동기 작업을 완료하도록 폴링하는 데 사용됩니다.                                                | `id`                          |
 | `tasks/cancel`   | 실행 중인 작업 취소                                                                                                  | `id`                          |
 
-```an-api title="Primary A2A endpoint" summary="All JSON-RPC methods are POSTed here. message/send shown."
+```an-api title="기본 A2A 엔드포인트" summary="모든 JSON-RPC 메소드는 여기에 POSTed 있습니다. message/send가 표시됩니다."
 {
   "method": "POST",
   "path": "/_agent-native/a2a",
-  "summary": "Send a message and wait for the completed task",
+  "summary": "메시지를 보내고 완료된 작업을 기다립니다.",
   "description": "JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `tasks/cancel`. Pass `async: true` to return immediately in `working` state and poll with `tasks/get`.",
   "auth": "JWT bearer signed with A2A_SECRET (or legacy apiKeyEnv static token)",
   "params": [
@@ -148,7 +148,7 @@ _(버전은 다를 수 있습니다. 현재 `protocolVersion`에 대해서는 `/
 
 ```an-diagram title="서버리스의 비동기 작업 수명 주기" summary="async:true는 밀리초 단위로 작업을 반환하고 호출자가 폴링하는 동안 새로 실행하면 에이전트 루프가 실행됩니다."
 {
-  "html": "<div class=\"diagram-async\"><div class=\"diagram-box\" data-rough>message/send<br><small class=\"diagram-muted\">async: true</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">enqueue task</span><span class=\"diagram-pill warn\">return working</span><small class=\"diagram-muted\">~milliseconds</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>self-fire POST /_agent-native/a2a/_process-task<br><small class=\"diagram-muted\">HMAC token · fresh execution · full timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">tasks/get (poll)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">completed</div></div></div>",
+  "html": "<div class=\"diagram-async\"><div class=\"diagram-box\" data-rough>message/send<br><small class=\"diagram-muted\">async: true</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">enqueue task</span><span class=\"diagram-pill warn\">return working</span><small class=\"diagram-muted\">~밀리초</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>자체 실행 POST /_agent-native/a2a/_process-task<br><small class=\"diagram-muted\">HMAC token · 새 실행 · 전체 타임아웃</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">tasks/get (poll)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">completed</div></div></div>",
   "css": ".diagram-async{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-async .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-arrow{font-size:20px;line-height:1}",
   "caption": "A recurring sweeper re-claims any task left in flight if the function execution dies mid-run."
 }
@@ -165,9 +165,9 @@ _(버전은 다를 수 있습니다. 현재 `protocolVersion`에 대해서는 `/
   "language": "json",
   "code": "{\n  \"role\": \"user\",\n  \"parts\": [\n    { \"type\": \"text\", \"text\": \"Show signups by source\" },\n    { \"type\": \"data\", \"data\": { \"dateRange\": \"last-30d\" } },\n    {\n      \"type\": \"file\",\n      \"file\": { \"name\": \"report.csv\", \"mimeType\": \"text/csv\", \"bytes\": \"...\" }\n    }\n  ]\n}",
   "annotations": [
-    { "lines": "4", "label": "text part", "note": "Plain natural-language instruction the agent reads." },
-    { "lines": "5", "label": "data part", "note": "Structured JSON arguments — e.g. a date range — passed alongside the prompt." },
-    { "lines": "6-9", "label": "file part", "note": "Attach a file by name, `mimeType`, and base64 `bytes`." }
+    { "lines": "4", "label": "text part", "note": "에이전트가 읽는 일반 자연어 지침입니다." },
+    { "lines": "5", "label": "data part", "note": "구조화된 JSON 인수 — e.g. 날짜 범위 - 프롬프트와 함께 전달됩니다." },
+    { "lines": "6-9", "label": "file part", "note": "이름, `mimeType` 및 base64 `bytes`로 파일을 첨부합니다." }
   ]
 }
 ```

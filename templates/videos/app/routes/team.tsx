@@ -1,9 +1,10 @@
 import { TeamPage } from "@agent-native/core/client/org";
 
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
+import enUS from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: "Team — Remotion Studio" }];
+  return [{ title: enUS.raw.routes.team }];
 }
 
 export default function TeamRoute() {

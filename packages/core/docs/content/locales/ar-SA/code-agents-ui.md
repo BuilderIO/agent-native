@@ -382,11 +382,11 @@ npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # sh
 
 نقاط نهاية الترحيل عن بعد الأساسية هي:
 
-```an-api title="Desktop claims queued work"
+```an-api title="يطالب سطح المكتب بالعمل في قائمة الانتظار"
 {
   "method": "POST",
   "path": "/_agent-native/integrations/remote/poll",
-  "summary": "Desktop long-polls the relay to claim enqueued commands",
+  "summary": "يقوم سطح المكتب باستقصاء طويل للمرحل للمطالبة بالأوامر الموضوعة في قائمة الانتظار",
   "description": "Outbound-only from a paired Desktop host. Desktop authenticates with its device token and claims work that mobile or Telegram enqueued.",
   "auth": "Desktop device token",
   "responses": [

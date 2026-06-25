@@ -133,6 +133,7 @@ function MonthYearPicker({
   const todayYear = getYear(today);
   const viewedMonthIdx = getMonth(viewMonth);
   const viewedYear = getYear(viewMonth);
+  const t = useT();
 
   return (
     <div className="w-56 p-2">
@@ -141,7 +142,7 @@ function MonthYearPicker({
           type="button"
           onClick={() => setYearState(year - 1)}
           className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label="Previous year"
+          aria-label={t("sidebar.previousYear")}
         >
           <IconChevronLeft className="h-3.5 w-3.5 rtl:-scale-x-100" />
         </button>
@@ -150,7 +151,7 @@ function MonthYearPicker({
           type="button"
           onClick={() => setYearState(year + 1)}
           className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label="Next year"
+          aria-label={t("sidebar.nextYear")}
         >
           <IconChevronRight className="h-3.5 w-3.5 rtl:-scale-x-100" />
         </button>
@@ -419,6 +420,7 @@ function GoogleAccountsSection({
   accounts: Array<{ email: string }>;
   onClose: () => void;
 }) {
+  const t = useT();
   const { toggleHiddenCalendar, isHiddenCalendar } = useCalendarContext();
   const {
     prefs: { colorMode, singleColor },
@@ -464,7 +466,7 @@ function GoogleAccountsSection({
       <div className="mb-1 flex min-h-8 items-center justify-between px-3">
         <div className="flex items-center">
           <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            My Calendars
+            {t("sidebar.myCalendars")}
           </span>
         </div>
         <div className="flex items-center">
@@ -478,7 +480,9 @@ function GoogleAccountsSection({
                 <IconSettings className="h-3.5 w-3.5" />
               </Link>
             </TooltipTrigger>
-            <TooltipContent>Google Calendar settings</TooltipContent>
+            <TooltipContent>
+              {t("sidebar.googleCalendarSettings")}
+            </TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -495,7 +499,7 @@ function GoogleAccountsSection({
                 <IconPlus className="h-3.5 w-3.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Add Google account</TooltipContent>
+            <TooltipContent>{t("sidebar.addGoogleAccount")}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -548,7 +552,7 @@ function GoogleAccountsSection({
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-[160px] text-xs">
-                    Color by meeting type (external, internal, 1:1, group, etc.)
+                    {t("sidebar.colorByMeetingType")}
                   </TooltipContent>
                 </Tooltip>
                 {/* Single color options */}
@@ -620,10 +624,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const updateExternalColor = useUpdateExternalCalendarColor();
   const isConnected = googleStatus.data?.connected ?? false;
   const [peopleGroupOpen, setPeopleGroupOpen] = useState(
-    () => overlayPeople.length <= 2,
+    () => overlayPeople.length <= 2, // i18n-ignore scanner false positive
   );
   const [feedsGroupOpen, setFeedsGroupOpen] = useState(
-    () => externalCalendars.length <= 2,
+    () => externalCalendars.length <= 2, // i18n-ignore scanner false positive
   );
 
   useEffect(() => {
@@ -734,7 +738,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <div className="flex min-h-8 items-center justify-between px-3">
               <div className="flex items-center gap-1">
                 <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                  Other Calendars
+                  {t("sidebar.otherCalendars")}
                 </span>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -743,10 +747,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="right">
-                    <p>
-                      Add a teammate's calendar or subscribe to a public
-                      calendar URL
-                    </p>
+                    <p>{t("sidebar.otherCalendarsDescription")}</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -844,8 +845,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                               </TooltipTrigger>
                               <TooltipContent side="right">
                                 {isHiddenCalendar("people", person.email)
-                                  ? "Show calendar"
-                                  : "Hide calendar"}
+                                  ? t("sidebar.showCalendar")
+                                  : t("sidebar.hideCalendar")}
                               </TooltipContent>
                             </Tooltip>
                             <button
@@ -938,8 +939,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                               </TooltipTrigger>
                               <TooltipContent side="right">
                                 {isHiddenCalendar("external", cal.id)
-                                  ? "Show calendar"
-                                  : "Hide calendar"}
+                                  ? t("sidebar.showCalendar")
+                                  : t("sidebar.hideCalendar")}
                               </TooltipContent>
                             </Tooltip>
                             <button
@@ -989,7 +990,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               </TooltipTrigger>
               <TooltipContent side="top">
                 <p>
-                  Keyboard shortcuts{" "}
+                  {t("keyboardShortcuts.title")}{" "}
                   <kbd className="ms-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
                     ?
                   </kbd>

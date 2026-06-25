@@ -16,7 +16,7 @@ description: "고정 입력에 대해 실제 에이전트를 실행하고 구성
 
 ```an-diagram title="고정 입력에서 배포 게이트까지" summary="러너는 실제로 각 사례에 대해 에이전트 루프를 실행하고, 출력에 점수를 매기고, 득점자가 임계값 아래로 떨어지면 0이 아닌 상태로 종료하여 드롭인 CI 게이트가 됩니다."
 {
-  "html": "<div class=\"eval-flow\"><div class=\"diagram-node\">*.eval.ts<br><small class=\"diagram-muted\">prompt + expected behavior</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Run the agent loop<br><small class=\"diagram-muted\">real engine/model</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Scorers<br><small class=\"diagram-muted\">every one must pass threshold</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box ok\">exit 0 &rarr; deploy</div><div class=\"diagram-box warn\">exit 1 &rarr; block</div></div></div>",
+  "html": "<div class=\"eval-flow\"><div class=\"diagram-node\">*.eval.ts<br><small class=\"diagram-muted\">prompt + expected behavior</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">에이전트 루프 실행<br><small class=\"diagram-muted\">real engine/model</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Scorers<br><small class=\"diagram-muted\">every one must pass threshold</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box ok\">exit 0 &rarr; deploy</div><div class=\"diagram-box warn\">exit 1 &rarr; block</div></div></div>",
   "css": ".eval-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.eval-flow .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.eval-flow .diagram-col{display:flex;flex-direction:column;gap:8px}.eval-flow .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -122,7 +122,7 @@ const concise = createScorer({
 
 ```bash
 agent-native eval                    # run every *.eval.ts; non-zero exit on failure
-agent-native eval billing            # only files whose path contains "billing"
+agent-native eval billing            # 경로에 "billing"이 포함된 파일만
 agent-native eval --json             # machine-readable report (for CI)
 agent-native eval --threshold 0.8    # override every eval's pass threshold (0..1)
 ```

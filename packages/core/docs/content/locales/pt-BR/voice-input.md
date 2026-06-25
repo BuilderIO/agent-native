@@ -21,7 +21,7 @@ A escolha do provedor é armazenada no estado do aplicativo em `voice-transcript
 
 ```an-diagram title="Substituição do provedor de transcrição de voz" summary="O compositor grava o áudio e, em seguida, percorre os provedores de servidores em ordem, acessando o navegador Web Speech API somente quando nenhum provedor de servidor estiver disponível."
 {
-  "html": "<div class=\"diagram-voice\"><div class=\"diagram-node\">Mic button<br><small class=\"diagram-muted\">records webm/opus</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill accent\">1 &middot; Builder Gemini</div><small class=\"diagram-muted\">default when Builder connected</small><div class=\"diagram-pill\">2 &middot; BYOK cloud</div><small class=\"diagram-muted\">Gemini &middot; Groq &middot; OpenAI Whisper</small></div><div class=\"diagram-arrow diagram-warn\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box diagram-warn\" data-rough>3 &middot; Browser Web Speech<br><small class=\"diagram-muted\">fallback on 400 &middot; streams live</small></div></div>",
+  "html": "<div class=\"diagram-voice\"><div class=\"diagram-node\">Botão de microfone<br><small class=\"diagram-muted\">grava webm/opus</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill accent\">1 &middot; Builder Gemini</div><small class=\"diagram-muted\">padrão quando Builder está conectado</small><div class=\"diagram-pill\">2 &middot; BYOK cloud</div><small class=\"diagram-muted\">Gemini &middot; Groq &middot; OpenAI Whisper</small></div><div class=\"diagram-arrow diagram-warn\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box diagram-warn\" data-rough>3 &middot; Browser Web Speech<br><small class=\"diagram-muted\">fallback on 400 &middot; streams live</small></div></div>",
   "css": ".diagram-voice{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-voice .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-voice .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -43,17 +43,17 @@ Defina `GEMINI_API_KEY`, `GROQ_API_KEY` ou `OPENAI_API_KEY` como uma variável d
 ```an-callout
 {
   "tone": "info",
-  "body": "**Credential resolution order:** the route checks the user's own encrypted secret first, then the shared deployment key. A power user with their own key always overrides the shared one. If neither exists, the route returns a 400 the composer recognizes and silently falls back to browser Web Speech."
+  "body": "**Ordem de resolução de credenciais:** a rota verifica primeiro o segredo criptografado do próprio usuário e depois a chave de implantação compartilhada. Um usuário avançado com sua própria chave sempre substitui a chave compartilhada. Se nenhum deles existir, a rota retornará um 400 que o compositor reconhece e retorna silenciosamente ao navegador Web Speech."
 }
 ```
 
 ## A rota {#route}
 
-```an-api title="Voice transcription route"
+```an-api title="Rota de transcrição de voz"
 {
   "method": "POST",
   "path": "/_agent-native/transcribe-voice",
-  "summary": "Transcribe a recorded audio clip into prompt text",
+  "summary": "Transcrever um clipe de áudio gravado em texto de prompt",
   "auth": "Active session (Better Auth cookie). Same-origin only.",
   "description": "The composer POSTs the recorded clip here; the route resolves a provider and returns the transcribed text. You should not call this directly.",
   "params": [

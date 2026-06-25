@@ -113,7 +113,7 @@ Montado em `/_agent-native/runs/*` pelo plugin core-routes. **Somente leitura em
 | `GET`    | `/_agent-native/runs/:id`         |
 | `DELETE` | `/_agent-native/runs/:id`         |
 
-```an-api title="List active runs" method="GET" path="/_agent-native/runs"
+```an-api title="Listar execuções ativas" method="GET" path="/_agent-native/runs"
 {
   "method": "GET",
   "path": "/_agent-native/runs",
@@ -182,7 +182,7 @@ event: run.progress.updated
 condition: "status is failed"
 mode: agentic
 ---
-Notify me that run {{runId}} has failed.
+Notificar me that run {{runId}} has failed.
 ```
 
 ## Como funciona {#internals}

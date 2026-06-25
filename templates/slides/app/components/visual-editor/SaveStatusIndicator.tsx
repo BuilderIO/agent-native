@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconCloudOff } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
@@ -14,18 +15,19 @@ export function SaveStatusIndicator({
   offline,
   className,
 }: SaveStatusIndicatorProps) {
+  const t = useT();
   if (offline) {
     return (
       <div
         data-save-status="offline"
-        title="Changes will save when reconnected"
+        title={t("raw.saveReconnect")}
         className={cn(
           "flex items-center gap-1 text-[11px] text-amber-500 whitespace-nowrap",
           className,
         )}
       >
         <IconCloudOff className="w-3 h-3" />
-        <span className="hidden xl:inline">Offline</span>
+        <span className="hidden xl:inline">{t("raw.offline")}</span>
       </div>
     );
   }

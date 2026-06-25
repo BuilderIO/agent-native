@@ -63,12 +63,13 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
+import enMessages from "@/i18n/en-US";
 import { cn } from "@/lib/utils";
 
 import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
-  return [{ title: "Settings · Clips" }];
+  return [{ title: enMessages.settings.pageTitle }];
 }
 
 const SPEEDS = ["1", "1.2", "1.5", "1.75", "2"];
@@ -76,37 +77,37 @@ const SPEEDS = ["1", "1.2", "1.5", "1.75", "2"];
 const S3_STORAGE_FIELDS = [
   {
     key: "S3_ENDPOINT",
-    label: "Endpoint URL",
+    labelKey: "settings.s3EndpointLabel",
     placeholder: "https://s3.us-east-1.amazonaws.com",
     required: true,
   },
   {
     key: "S3_BUCKET",
-    label: "Bucket",
+    labelKey: "settings.s3BucketLabel",
     placeholder: "my-clips-bucket",
     required: true,
   },
   {
     key: "S3_ACCESS_KEY_ID",
-    label: "Access key ID",
+    labelKey: "settings.s3AccessKeyLabel",
     placeholder: "AKIA...",
     required: true,
   },
   {
     key: "S3_SECRET_ACCESS_KEY",
-    label: "Secret access key",
+    labelKey: "settings.s3SecretAccessKeyLabel",
     placeholder: "••••••••",
     required: true,
     secret: true,
   },
   {
     key: "S3_REGION",
-    label: "Region",
+    labelKey: "settings.s3RegionLabel",
     placeholder: "us-east-1",
   },
   {
     key: "S3_PUBLIC_BASE_URL",
-    label: "Public base URL",
+    labelKey: "settings.s3PublicBaseUrlLabel",
     placeholder: "https://cdn.example.com",
   },
 ] as const;
@@ -574,7 +575,7 @@ export default function SettingsIndexRoute() {
       }
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to connect Slack",
+        err instanceof Error ? err.message : t("settings.slackConnectFailed"),
       );
     } finally {
       setConnectingSlack(false);
@@ -592,7 +593,9 @@ export default function SettingsIndexRoute() {
       toast.success(t("settings.slackDisconnectedToast"));
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to disconnect Slack",
+        err instanceof Error
+          ? err.message
+          : t("settings.slackDisconnectFailed"),
       );
     } finally {
       setDisconnectingSlack(false);
@@ -619,8 +622,7 @@ export default function SettingsIndexRoute() {
   const configuredApiKeyCount = AI_PROVIDER_FIELDS.filter(
     (field) => apiKeyStatus[field.key],
   ).length;
-  const slackInstallations: SlackInstallation[] =
-    slackStatus.data?.installations ?? [];
+  const slackInstallations = slackStatus.data?.installations ?? [];
   const slackOauthConfigured = slackStatus.data?.oauthConfigured ?? false;
   const slackSigningConfigured = slackStatus.data?.signingConfigured ?? false;
   const slackConnected = slackInstallations.length > 0;
@@ -798,7 +800,9 @@ export default function SettingsIndexRoute() {
                         <div className="grid gap-4 sm:grid-cols-2">
                           {S3_STORAGE_FIELDS.map((field) => (
                             <div key={field.key} className="space-y-1.5">
-                              <Label htmlFor={field.key}>{field.label}</Label>
+                              <Label htmlFor={field.key}>
+                                {t(field.labelKey)}
+                              </Label>
                               <Input
                                 id={field.key}
                                 type={

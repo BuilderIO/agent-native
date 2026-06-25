@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   useState,
   useEffect,
@@ -537,6 +538,7 @@ export function SlideInner({
   aspectRatio?: AspectRatio;
   onOverflowChange?: (info: SlideOverflowInfo) => void;
 }) {
+  const t = useT();
   const dims = getAspectRatioDims(aspectRatio);
   const sizeStyle: React.CSSProperties = {
     width: dims.width,
@@ -586,7 +588,7 @@ export function SlideInner({
           <Skeleton className="w-full h-full bg-white/[0.06]" />
         </div>
         <span className="text-xs text-white/40 animate-pulse">
-          Generating image...
+          {t("raw.generatingImage")}
         </span>
       </div>
     </div>

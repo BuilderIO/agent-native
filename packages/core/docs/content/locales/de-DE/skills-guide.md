@@ -15,7 +15,7 @@ Die Frontmatter `name` und `description` jedes Skills werden immer in den skills
 
 ```an-diagram title="Progressive Offenlegung" summary="Nur der Name + die Beschreibung jeder Fähigkeit sind immer im Kontext. Der gesamte Körper wird bedarfsgerecht belastet, wenn die Aufgabe passt."
 {
-  "html": "<div class=\"sk-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Always in the system prompt</span><div class=\"sk-list\"><span class=\"diagram-pill\">storing-data &mdash; <small class=\"diagram-muted\">add data models&hellip;</small></span><span class=\"diagram-pill\">real-time-sync &mdash; <small class=\"diagram-muted\">wire polling&hellip;</small></span><span class=\"diagram-pill\">create-skill &mdash; <small class=\"diagram-muted\">add a skill&hellip;</small></span></div><small class=\"diagram-muted\">just name + description (cheap)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><small class=\"diagram-muted\">task matches a description</small><span class=\"diagram-pill accent\">load on demand</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Full <code>SKILL.md</code> body<br><small class=\"diagram-muted\">rules, code, do/don't</small></div></div>",
+  "html": "<div class=\"sk-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Immer im Systemprompt</span><div class=\"sk-list\"><span class=\"diagram-pill\">storing-data &mdash; <small class=\"diagram-muted\">add data models&hellip;</small></span><span class=\"diagram-pill\">real-time-sync &mdash; <small class=\"diagram-muted\">wire polling&hellip;</small></span><span class=\"diagram-pill\">create-skill &mdash; <small class=\"diagram-muted\">add a skill&hellip;</small></span></div><small class=\"diagram-muted\">just name + description (cheap)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><small class=\"diagram-muted\">task matches a description</small><span class=\"diagram-pill accent\">load on demand</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Full <code>SKILL.md</code> body<br><small class=\"diagram-muted\">Regeln, Code, Dos und Don’ts</small></div></div>",
   "css": ".sk-flow{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.sk-flow .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:240px}.sk-flow .sk-list{display:flex;flex-direction:column;gap:6px}.sk-flow .center{display:flex;flex-direction:column;align-items:center;gap:6px}.sk-flow .diagram-arrow{font-size:22px}"
 }
 ```
@@ -29,7 +29,7 @@ Dies sind die skills, die mit der **Standardvorlage** gebündelt sind. Der genau
 | `storing-data`         | Datenmodelle hinzufügen, Konfiguration oder Status lesen/schreiben          |
 | `real-time-sync`       | Verdrahtungsabfragesynchronisierung, Debugging UI wird nicht aktualisiert   |
 | `delegate-to-agent`    | KI-Arbeit von UI oder actions an den Agenten delegieren                     |
-| `actions`              | Agent actions wird erstellt oder ausgeführt                                 |
+| `actions`              | Agentenaktionen wird erstellt oder ausgeführt                               |
 | `self-modifying-code`  | App-Quelle, Komponenten oder Stile bearbeiten                               |
 | `create-skill`         | Neues skills für den Agenten hinzufügen                                     |
 | `capture-learnings`    | Korrekturen und Muster aufzeichnen                                          |
@@ -86,10 +86,10 @@ Jeder Skill ist eine Markdown-Datei mit YAML-Frontmatter:
   "language": "markdown",
   "code": "---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import",
   "annotations": [
-    { "lines": "2", "label": "Discovery key", "note": "The `name` matches the folder; it is how the skill is invoked as `/project-imports`." },
-    { "lines": "3-5", "label": "The trigger", "note": "This `description` is the **only** text always in context. Make it state precisely *when* the skill applies." },
-    { "lines": "9-14", "label": "Rules first", "note": "Lead with the hard rule and the why; the agent reads the body only once the task matches." },
-    { "lines": "27-30", "label": "Cross-link", "note": "Point at related skills so the agent can chain them instead of re-deriving guidance." }
+    { "lines": "2", "label": "Entdeckungsschlüssel", "note": "The `name` matches the folder; it is how the skill is invoked as `/project-imports`." },
+    { "lines": "3-5", "label": "Der Auslöser", "note": "Dieses `description` ist der **einzige** Text, der immer im Kontext steht. Geben Sie genau an, wann die Fertigkeit angewendet wird." },
+    { "lines": "9-14", "label": "Regeln zuerst", "note": "Beginnen Sie mit der harten Regel und dem Warum; der Agent liest den Body erst, wenn die Aufgabe passt." },
+    { "lines": "27-30", "label": "Quervernetzung", "note": "Zeigen Sie auf verwandte Fähigkeiten, damit der Agent sie verketten kann, anstatt die Anleitung erneut abzuleiten." }
   ]
 }
 ```
@@ -132,7 +132,7 @@ Dies ersetzt den alten Trick, sich darauf zu verlassen, dass Claude-Code nur `.c
 
 ```an-diagram title="Welcher Agent lädt welchen Skill?" summary="Der Bereich entscheidet, ob der In-App-Laufzeitagent einen Skill sieht. Dev-Skills sind nur für Ihren Codierungsagenten sichtbar."
 {
-"html": "<div class=\"sc-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill\">.agents/skills/</span><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: both</span><small class=\"diagram-muted\">default</small></div><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: runtime</span></div><div class=\"sc-row\"><span class=\"diagram-pill warn\">scope: dev</span></div></div><div class=\"sc-targets\"><div class=\"diagram-box\">Runtime agent<br><small class=\"diagram-muted\">reads <code>both</code> + <code>runtime</code></small></div><div class=\"diagram-box\">Coding agent<br><small class=\"diagram-muted\">Claude Code reads <code>.claude/skills/</code> + <code>dev</code></small></div></div></div>",
+"html": "<div class=\"sc-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill\">.agents/skills/</span><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: both</span><small class=\"diagram-muted\">default</small></div><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: runtime</span></div><div class=\"sc-row\"><span class=\"diagram-pill warn\">scope: dev</span></div></div><div class=\"sc-targets\"><div class=\"diagram-box\">Runtime agent<br><small class=\"diagram-muted\">reads <code>both</code> + <code>runtime</code></small></div><div class=\"diagram-box\">Coding-Agent<br><small class=\"diagram-muted\">Claude Code reads <code>.claude/skills/</code> + <code>dev</code></small></div></div></div>",
 "css": ".sc-grid{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}.sc-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.sc-grid .sc-row{display:flex;align-items:center;gap:8px}.sc-grid .sc-targets{display:flex;flex-direction:column;gap:10px}"
 }
 
@@ -199,30 +199,30 @@ Hosted ist der Standardinstallationspfad. Der lokale Start dient explizit der An
 Offline-Arbeit oder datenschutzrelevante Nutzung.
 
 ```bash
-# Happy path: exported instructions plus hosted MCP connector.
+# Glücklicher Weg: exportierte Anweisungen plus gehosteter MCP-Connector.
 npx @agent-native/core@latest skills add visual-plan
 npx @agent-native/core@latest skills add assets
 
-# Repo-first Content docs/blog/MDX editing.
+# Repo-first Content docs/blog/MDX Bearbeitung.
 npx @agent-native/core@latest skills add content --mode local-files --scope project
 
-# Vercel/open Skills CLI: exported instructions only, no MCP config.
+# Vercel/open-Fähigkeiten CLI: Nur exportierte Anweisungen, keine MCP-Konfiguration.
 npx skills@latest add BuilderIO/agent-native --skill assets
 
-# Register a hosted MCP connector for local agent clients.
+# Registrieren Sie einen gehosteten MCP-Connector für lokale Agent-Clients.
 npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
 
-# Materialize and run editable local source.
+# Materialisieren Sie eine bearbeitbare lokale Quelle und führen Sie sie aus.
 npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
 
-# Build marketplace adapters: Codex plugin, Claude marketplace, Vercel skills,
-# plain/Claude skills, and MCP configs.
+# Marktplatz-Adapter erstellen: Codex Plugin, Claude marketplace, Vercel Fähigkeiten,
+# plain/Claude-Fähigkeiten und MCP-Konfigurationen.
 npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
 
-# Install a local exported bundle with the Vercel/open Skills CLI.
+# Installieren Sie ein lokal exportiertes Bundle mit den Vercel/open-Fähigkeiten CLI.
 npx skills@latest add ./dist/assets-skill --skill assets -a codex -y
 
-# Add the generated Claude Code marketplace, then install its Assets plugin.
+# Fügen Sie den generierten Claude Code-Marktplatz hinzu und installieren Sie dann dessen Assets-Plugin.
 claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace
 claude plugin install agent-native-assets@agent-native-apps
 ```
@@ -272,7 +272,7 @@ Arbeitsbereich). Aktualisieren Sie die eingerüsteten skills vom aktuellen/neues
 
 ```bash
 npm run skills:update
-# or, without relying on the local package script:
+# oder, ohne sich auf das lokale Paketskript zu verlassen:
 npx @agent-native/core@latest skills update scaffold --project
 ```
 

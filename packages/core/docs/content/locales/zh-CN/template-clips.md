@@ -11,7 +11,7 @@ search: "Clips 浏览器日志 开发人员日志 控制台日志 网络日志 �
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Engineering clips</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>OKRs review</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Onboarding flow</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Bug repro</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>Agent-readable</span><span>Transcript + frames ready for share links</span><div style='flex:1'></div><button>分享</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Transcript search</strong><div class='wf-box'>Matched chapter 03:12 · rollout risks and owner handoff</div><div class='wf-box'>Meeting summary and action items</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>工程 Clips</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>OKR 评审</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>入门流程</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Bug 复现</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>代理可读</span><span>转写 + 帧已可用于分享链接</span><div style='flex:1'></div><button>分享</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>转录搜索</strong><div class='wf-box'>匹配章节 03:12 · 发布风险和负责人交接</div><div class='wf-box'>会议摘要和行动项</div></div></div>"
 }
 ```
 
@@ -19,7 +19,7 @@ search: "Clips 浏览器日志 开发人员日志 控制台日志 网络日志 �
 
 ```an-diagram title="捕获、转录、重用" summary="三种捕获类型集中在一个库中；代理进行抄写、标题和总结，然后每个抄本都可以搜索和共享。"
 {
-  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">Screen recording</div><div class=\"diagram-node\">Calendar meeting</div><div class=\"diagram-node\">Fn-hold dictation</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>One library<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">title · summary · chapters</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">Search</div><div class=\"diagram-pill\">分享</div><div class=\"diagram-pill\">Agent-readable links</div></div></div>",
+  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">屏幕录制</div><div class=\"diagram-node\">日历会议</div><div class=\"diagram-node\">按住 Fn 听写</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>一个库<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">标题 · 摘要 · 章节</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">搜索</div><div class=\"diagram-pill\">分享</div><div class=\"diagram-pill\">代理可读 links</div></div></div>",
   "css": ".diagram-clips{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-clips .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-clips .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-clips .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -91,11 +91,11 @@ Slack 预览使用相同的共享边界。 `/api/slack/unfurl` Webhook
 密码、过期命中、存档标记或垃圾标记。其他剪辑仍然得到
 正常共享页面标题/缩略图元数据并需要打开剪辑。
 
-```an-api title="Agent context entry point"
+```an-api title="代理上下文入口点"
 {
   "method": "GET",
   "path": "/api/agent-context.json",
-  "summary": "Compact, agent-readable description of a shared clip",
+  "summary": "共享剪辑的紧凑、代理可读的描述",
   "description": "Returns clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript and frame APIs. Advertised by the public share page so a text- or image-only agent can understand a recording without ingesting raw video.",
   "auth": "Same public / password / expiry rules as the share page",
   "params": [
@@ -107,11 +107,11 @@ Slack 预览使用相同的共享边界。 `/api/slack/unfurl` Webhook
 }
 ```
 
-```an-api title="Timestamped transcript"
+```an-api title="带时间戳的文字记录"
 {
   "method": "GET",
   "path": "/api/agent-transcript.json",
-  "summary": "Timestamped transcript segments for a shared clip",
+  "summary": "共享剪辑的带时间戳的转录片段",
   "params": [
     { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
   ],
@@ -121,11 +121,11 @@ Slack 预览使用相同的共享边界。 `/api/slack/unfurl` Webhook
 }
 ```
 
-```an-api title="Frame at a timestamp"
+```an-api title="具有时间戳的帧"
 {
   "method": "GET",
   "path": "/api/agent-frame.jpg",
-  "summary": "A JPEG frame extracted from the video at an original-video timestamp",
+  "summary": "在原始视频时间戳处从视频中提取的 JPEG 帧",
   "params": [
     { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" },
     { "name": "atMs", "in": "query", "type": "integer", "required": true, "description": "Original-video timestamp in milliseconds" }
@@ -251,7 +251,7 @@ Clips 是一个带有本机记录器的较大模板（它附带了用于本地�
 
 所有数据通过 Drizzle ORM 存储在 SQL 中。架构：`templates/clips/server/db/schema.ts`。录音、会议、听写、日历帐户和词汇都带有标准 `ownableColumns` 并具有匹配的框架共享表，因此它们属于每用户/每组织共享模型。
 
-```an-schema title="Clips core data model" summary="recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
+```an-schema title="Clips 核心数据模型" summary="recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
 {
   "entities": [
     {
@@ -263,15 +263,15 @@ Clips 是一个带有本机记录器的较大模板（它附带了用于本地�
         { "name": "title", "type": "text" },
         { "name": "video_url", "type": "text", "note": "plus format / size / duration / thumbnails" },
         { "name": "status", "type": "text" },
-        { "name": "edits_json", "type": "text", "note": "Non-destructive edits" },
+        { "name": "edits_json", "type": "text", "note": "非破坏性编辑" },
         { "name": "chapters_json", "type": "text", "nullable": true },
-        { "name": "password", "type": "text", "nullable": true, "note": "Privacy: password / expiry" }
+        { "name": "password", "type": "text", "nullable": true, "note": "隐私：密码/有效期" }
       ]
     },
     {
       "id": "recording_transcripts",
       "name": "recording_transcripts",
-      "note": "Split out so the library and transcript views render fast",
+      "note": "拆分以便库和转录视图可以快速渲染",
       "fields": [
         { "name": "recording_id", "type": "text", "fk": "recordings.id" },
         { "name": "segments_json", "type": "text", "note": "{ startMs, endMs, text }" },
@@ -298,9 +298,9 @@ Clips 是一个带有本机记录器的较大模板（它附带了用于本地�
       "note": "Push-to-talk dictation history; ownableColumns",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
-        { "name": "full_text", "type": "text", "note": "Raw" },
+        { "name": "full_text", "type": "text", "note": "原料" },
         { "name": "cleaned_text", "type": "text", "nullable": true },
-        { "name": "source", "type": "text", "note": "fn-hold, etc." },
+        { "name": "source", "type": "text", "note": "fn-按住等" },
         { "name": "target_app", "type": "text", "nullable": true }
       ]
     }

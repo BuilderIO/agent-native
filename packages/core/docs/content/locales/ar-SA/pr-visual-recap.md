@@ -26,7 +26,7 @@ PR Visual Recap هو إجراء GitHub يحول كل طلب سحب إلى **مر
 
 ```an-diagram title="ماذا يحدث في كل دفعة للعلاقات العامة" summary="يغذي الفرق المحدود وكيل ترميز حقيقي، والذي يقوم بتأليف ملخص؛ يقوم سير العمل بالتقاط لقطات شاشة له وإدراج تعليق واحد ثابت."
 {
-  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">PR push<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Coding agent<br><small class=\"diagram-muted\">Claude Code / Codex reads diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Headless Chrome<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">One sticky PR comment<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
+  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">دفع PR<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">وكيل البرمجة<br><small class=\"diagram-muted\">Claude Code / Codex يقرأ diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Chrome بلا واجهة<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">تعليق PR ثابت واحد<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
   "css": ".diagram-recap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-recap .diagram-arrow{font-size:20px;line-height:1}.diagram-recap .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-recap .diagram-foot{flex-basis:100%;margin-top:10px;font-size:13px}"
 }
 ```
@@ -159,7 +159,7 @@ npx @agent-native/core@latest recap setup
 
 ```an-diagram title="بوابة موافقة Fork PR" summary="لا يحصل ممثلو العلاقات العامة في Fork على أي أسرار بشكل افتراضي؛ يعمل المؤلفون الموثوق بهم تلقائيًا، ويتطلب المساهمون الخارجيون ملصقًا جديدًا لملخص المشرف."
 {
-  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">Fork PR opened<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Trusted author</span><small class=\"diagram-muted\">OWNER, MEMBER, or COLLABORATOR runs automatically</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Outside contributor</span><small class=\"diagram-muted\">maintainer reviews diff, then applies <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Gate checks<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Recap runs<br><small class=\"diagram-muted\">base-repo code only · fork diff is text input</small></div></div>",
+  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">تم فتح PR من fork<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">مؤلف موثوق</span><small class=\"diagram-muted\">OWNER أو MEMBER أو COLLABORATOR يعمل تلقائيًا</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">مساهم خارجي</span><small class=\"diagram-muted\">يراجع المشرف diff ثم يطبقه <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">فحوصات البوابة<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">تشغيلات الملخص<br><small class=\"diagram-muted\">كود base-repo فقط · diff من fork هو إدخال نصي</small></div></div>",
   "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-arrow{font-size:20px;line-height:1}.diagram-fork .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}"
 }
 ```
@@ -272,15 +272,15 @@ npx @agent-native/core@latest plan local serve --dir plans/pr-123-visual-recap -
 كل سطر غير فارغ وغير تعليقي هو إما **سلسلة فرعية حرفية** أو نمط **`/regex/flags`**:
 
 ```
-# Lines starting with # are comments.
+# الأسطر التي تبدأ بـ # هي تعليقات.
 
-# Literal substring — any diff line containing this string is allowed.
+# سلسلة فرعية حرفية — أي سطر مختلف يحتوي على هذه السلسلة مسموح به.
 sk-test-fixture1234567890abcdef
 
 # Regex pattern — written as /pattern/flags (JS syntax).
 /^.STRIPE_KEY=sk-test-/i
 
-# Another literal.
+# حرفية أخرى.
 EXAMPLE_API_KEY=placeholder-value
 ```
 
@@ -315,10 +315,10 @@ EXAMPLE_API_KEY=placeholder-value
 ```yaml
 name: PR Visual Recap
 
-# Thin caller — the full workflow logic lives in BuilderIO/agent-native.
-# Fixes and improvements reach this repo automatically on each run.
-# To pin a specific version for reproducibility replace '@main' with a
-# tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
+# المتصل البسيط — منطق سير العمل الكامل موجود في BuilderIO/agent-native.
+# تصل الإصلاحات والتحسينات إلى هذا الريبو تلقائيًا في كل مرة يتم تشغيلها.
+# لتثبيت إصدار محدد قابل لإعادة الإنتاج، استبدل '@main' بـ
+# وسم أو SHA، مثل '@v1.2.3' أو '@abc1234'.
 
 on:
   pull_request:
@@ -351,10 +351,10 @@ jobs:
 ### التثبيت عبر CLI
 
 ```bash
-# Write the thin caller instead of the full copy:
+# اكتب المتصل الرقيق بدلاً من النسخة الكاملة:
 npx @agent-native/core@latest recap setup --reusable
 
-# Or with a pinned ref for reproducibility:
+# أو مع مرجع مثبت لقابلية التكرار:
 npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
 ```
 

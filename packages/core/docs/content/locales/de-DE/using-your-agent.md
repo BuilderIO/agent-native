@@ -1,17 +1,17 @@
 ---
 title: "Mit Ihrem Agenten"
-description: "Die tägliche Arbeit mit dem Agenten: Er sieht, was Sie sehen, Sie steuern es, betten es ein, gehen auf UI-light und bearbeiten es gemeinsam."
+description: "Die tägliche Arbeit mit dem Agenten: Er sieht, was Sie sehen, Sie steuern es, betten es ein, gehen auf UI-arm und bearbeiten es gemeinsam."
 ---
 
 # Mit Ihrem Agenten
 
 Die entscheidende Idee hinter agent-native ist, dass der Agent und der UI **gleichberechtigte Partner** sind – siehe [What Is Agent-Native?](/docs/what-is-agent-native) für das Warum. In diesem Abschnitt geht es um die andere Hälfte dieses Versprechens: Wie es sich anfühlt, tatsächlich mit dem Agenten zu arbeiten, sobald er neben Ihrer App angedockt ist.
 
-Es gibt eine einfache Durchgangslinie. Der Agent **sieht**, was Sie gerade sehen, Sie **lenken** es auf das, was Sie möchten, Sie können es überall **einbetten**, Sie können vollständig **UI-light** verwenden, wenn das besser passt, und Sie können dieselben Dokumente gleichzeitig **mitbearbeiten**. Jede davon ist eine Seite in diesem Abschnitt.
+Es gibt eine einfache Durchgangslinie. Der Agent **sieht**, was Sie gerade sehen, Sie **lenken** es auf das, was Sie möchten, Sie können es überall **einbetten**, Sie können vollständig **UI-arm** verwenden, wenn das besser passt, und Sie können dieselben Dokumente gleichzeitig **mitbearbeiten**. Jede davon ist eine Seite in diesem Abschnitt.
 
 ```an-diagram title="Die alltägliche Schleife" summary="Fünf Möglichkeiten, mit einem angedockten Agenten zu arbeiten – jede davon ist eine Seite in diesem Abschnitt."
 {
-  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>UI-light</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">Co-edit</span><small class=\"diagram-muted\">live, side by side</small></div></div>",
+  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>UI-arm</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">Gemeinsam bearbeiten</span><small class=\"diagram-muted\">live, nebeneinander</small></div></div>",
   "css": ".diagram-loop{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-loop .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px;flex:1}.diagram-loop .diagram-arrow{align-self:center;font-size:22px;line-height:1}"
 }
 ```
@@ -40,7 +40,7 @@ Meistens steuern Sie den Agenten durch Eingaben in den Chat. Zwei Dinge machen d
 **Stimme.** Der Komponist hat ein Mikrofon. Diktieren Sie eine Anfrage, anstatt sie einzugeben. Die Anbieteroptionen reichen von der gehosteten Transkription von Builder über Bring-Your-Own-Key bis hin zu einem Browser-Fallback.
 
 → [**Agent Mentions**](/docs/agent-mentions) – `@` – benutzerdefinierte Agenten, verbundene Agenten und Dateien im Chat erwähnen.
-→ [**Voice Input**](/docs/voice-input) – Diktat im Chat Composer und wie die Transkription weitergeleitet wird.
+→ [**Voice Input**](/docs/voice-input) – Diktat im Chat Verfassenr und wie die Transkription weitergeleitet wird.
 
 ## Sie betten es ein {#you-embed-it}
 
@@ -49,7 +49,7 @@ Der Agent ist keine separate App, zu der Sie wechseln. Es wird als eine Handvoll
 → [**Drop-in Agent**](/docs/drop-in-agent) – Mounten Sie `<AgentPanel>`, `<AgentSidebar>` und `sendToAgentChat()` in jede React-App.
 → [**Agent Surfaces**](/docs/agent-surfaces) – Wählen Sie, ob der Workflow Headless, Chat-First, eingebettet oder eine vollständige App sein soll.
 
-## Sie können UI-light wählen {#ui-light}
+## Sie können UI-arm wählen {#ui-light}
 
 Nicht jede App benötigt ein vollständiges Dashboard. Wenn der Agent das Produkt ist, können Sie die meisten benutzerdefinierten UI überspringen: Öffnen Sie die App, fragen Sie nach, was Sie möchten, und lassen Sie den Agenten den Rest erledigen. Der Agent verfügt immer noch über seine Verwaltungsoberfläche – Verlauf, Arbeitsbereich, Einstellungen –, aber die primäre Interaktion besteht aus Gesprächen und nicht aus Klicks.
 
@@ -67,5 +67,5 @@ Wenn Sie und der Agent an demselben Dokument arbeiten, wechseln Sie sich nicht a
 - [**Agent Mentions**](/docs/agent-mentions) – leiten Sie es mit `@`-Erwähnungen
 - [**Voice Input**](/docs/voice-input) – steuern Sie es durch Sprechen
 - [**Drop-in Agent**](/docs/drop-in-agent) – in jede React-App einbetten
-- [**Pure-Agent Apps**](/docs/pure-agent-apps) – gehen Sie zu UI-light, wenn der Agent das Produkt ist
+- [**Pure-Agent Apps**](/docs/pure-agent-apps) – gehen Sie zu UI-arm, wenn der Agent das Produkt ist
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) – gemeinsam dasselbe Dokument bearbeiten

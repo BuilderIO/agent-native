@@ -22,13 +22,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import messages from "@/i18n/en-US";
 import { scheduleFormsRoutePrewarm } from "@/lib/route-prewarm";
 import { TAB_ID } from "@/lib/tab-id";
 
-const SEO_TITLE =
-  "Agent-Native Forms - Open Source AI form builder and response analytics";
-const SEO_DESCRIPTION =
-  "Open Source AI form builder for creating, publishing, editing, and analyzing forms and responses from a chat-first workspace.";
+const SEO_TITLE = messages.routeTitles.formsIndex;
+const SEO_DESCRIPTION = messages.routeDescriptions.formsIndex;
 
 export function meta() {
   return [

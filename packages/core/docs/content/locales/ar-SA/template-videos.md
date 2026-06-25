@@ -10,7 +10,7 @@ description: "استديو فيديو برمجي للرسومات المتحرك
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Logo reveal</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>Remotion preview</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>New track</button></div><div class='wf-box'>Title fade · 0-48 frames</div><div class='wf-box'>Logo scale · 48-120 frames</div><div class='wf-box'>Camera push · 72-144 frames</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>إظهار الشعار</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>معاينة Remotion</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>مسار جديد</button></div><div class='wf-box'>تلاشي العنوان · الإطارات 0-48</div><div class='wf-box'>تكبير الشعار · الإطارات 48-120</div><div class='wf-box'>دفع الكاميرا · الإطارات 72-144</div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ description: "استديو فيديو برمجي للرسومات المتحرك
 
 ```an-diagram title="الرسوم المتحركة كبيانات" summary="التكوين هو مكون React؛ تتم قراءة كل رسم متحرك من المسار، لذا يقوم الوكيل والمخطط الزمني بتحرير نفس البيانات."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Timeline<br><small class=\"diagram-muted\">drag, resize, scrub</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">\"fade in at 2s\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">AnimationTrack</span><small class=\"diagram-muted\">startFrame / easing / animatedProps</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>React composition<br><small class=\"diagram-muted\">Remotion &lt;Player&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">MP4 / WebM</div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Timeline<br><small class=\"diagram-muted\">سحب، تغيير حجم، تنقل زمني</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">\"fade in at 2s\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">AnimationTrack</span><small class=\"diagram-muted\">startFrame / easing / animatedProps</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>تركيب React<br><small class=\"diagram-muted\">Remotion &lt;Player&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">MP4 / WebM</div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -99,7 +99,7 @@ pnpm dev
 
 مخطط جانب الخادم موجود في `templates/videos/server/db/schema.ts`:
 
-```an-schema title="Video data model" summary="SQL-backed compositions plus design systems and nestable folders, each with a framework shares table."
+```an-schema title="نموذج بيانات الفيديو" summary="SQL المؤلفات المدعومة بالإضافة إلى أنظمة التصميم والمجلدات المتداخلة، كل منها مزود بجدول مشاركات إطار العمل."
 {
   "entities": [
     {
@@ -110,7 +110,7 @@ pnpm dev
         { "name": "id", "type": "text", "pk": true },
         { "name": "title", "type": "text" },
         { "name": "type", "type": "text" },
-        { "name": "data", "type": "text", "note": "Full composition JSON blob" },
+        { "name": "data", "type": "text", "note": "التركيبة الكاملة JSON blob" },
         { "name": "created_at", "type": "text" },
         { "name": "updated_at", "type": "text" }
       ]
@@ -138,7 +138,7 @@ pnpm dev
     {
       "id": "folder_memberships",
       "name": "folder_memberships",
-      "note": "Many-to-many join",
+      "note": "انضمام متعدد إلى متعدد",
       "fields": [
         { "name": "folder_id", "type": "text", "fk": "folders.id" },
         { "name": "composition_id", "type": "text", "fk": "compositions.id" }

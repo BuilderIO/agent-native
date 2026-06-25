@@ -2,6 +2,7 @@ import {
   agentNativePath,
   isInBuilderFrame,
   oauthRedirectUri,
+  useT,
 } from "@agent-native/core/client";
 import {
   IconMail,
@@ -34,38 +35,33 @@ interface EnvKeyStatus {
 
 const STEPS = [
   {
-    title: "Enable the Gmail API",
-    description:
-      "Open Google Cloud Console and click 'Enable' on the Gmail API.",
+    titleKey: "mail.googleConnect.enableGmailApi",
+    descriptionKey: "mail.googleConnect.enableGmailApiDescription",
     url: "https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com",
-    linkText: "Enable Gmail API",
+    linkTextKey: "mail.googleConnect.enableGmailApiLink",
   },
   {
-    title: "Enable the People API",
-    description:
-      "Enable the People API for contact autocomplete when composing emails.",
+    titleKey: "mail.googleConnect.enablePeopleApi",
+    descriptionKey: "mail.googleConnect.enablePeopleApiDescription",
     url: "https://console.cloud.google.com/flows/enableapi?apiid=people.googleapis.com",
-    linkText: "Enable People API",
+    linkTextKey: "mail.googleConnect.enablePeopleApiLink",
   },
   {
-    title: "Configure OAuth consent screen",
-    description:
-      'Set the app name to anything (e.g. "My Mail"), choose "External" user type, and add your email as a test user. If you see an overview page, consent is already configured — skip to the next step.',
+    titleKey: "mail.googleConnect.configureConsent",
+    descriptionKey: "mail.googleConnect.configureConsentDescription",
     url: "https://console.cloud.google.com/apis/credentials/consent",
-    linkText: "Configure consent screen",
+    linkTextKey: "mail.googleConnect.configureConsentLink",
   },
   {
-    title: "Create OAuth credentials",
-    description:
-      '1) Click "+ Create Credentials" → "OAuth client ID"\n2) Choose "Web application"\n3) Add this redirect URI:',
+    titleKey: "mail.googleConnect.createCredentials",
+    descriptionKey: "mail.googleConnect.createCredentialsDescription",
     url: "https://console.cloud.google.com/apis/credentials",
-    linkText: "Create credentials",
+    linkTextKey: "mail.googleConnect.createCredentialsLink",
     showRedirectUri: true,
   },
   {
-    title: "Upload credentials JSON",
-    description:
-      'Click "Download JSON" on the credentials page, then upload it here.',
+    titleKey: "mail.googleConnect.uploadCredentialsJson",
+    descriptionKey: "mail.googleConnect.uploadCredentialsJsonDescription",
     showUpload: true,
   },
 ];
@@ -86,6 +82,7 @@ interface DesktopAuthIssue {
 export function GoogleConnectBanner({
   variant = "banner",
 }: GoogleConnectBannerProps) {
+  const t = useT();
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
   const [wantAddAccount, setWantAddAccount] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -234,7 +231,7 @@ export function GoogleConnectBanner({
       setShowWizard(true);
       fetchStatus();
       setAuthError(
-        (authUrl.error as any)?.message || "Failed to connect. Try again.",
+        (authUrl.error as any)?.message || t("mail.error.failedToConnect"),
       );
     }
   }, [authUrl.error, fetchStatus]);
@@ -327,7 +324,7 @@ export function GoogleConnectBanner({
       const clientSecret = creds.client_secret;
 
       if (!clientId || !clientSecret) {
-        throw new Error("Could not find client_id and client_secret in JSON");
+        throw new Error(t("mail.error.missingGoogleCredentials"));
       }
 
       const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
@@ -343,7 +340,7 @@ export function GoogleConnectBanner({
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save credentials");
+        throw new Error(data.error || t("mail.error.failedToSaveCredentials"));
       }
 
       setSaved(true);
@@ -351,7 +348,9 @@ export function GoogleConnectBanner({
       // Reload after a short delay to let Vite restart with new env vars
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to parse JSON");
+      setSaveError(
+        err instanceof Error ? err.message : t("mail.error.failedToParseJson"),
+      );
     } finally {
       setSaving(false);
     }
@@ -373,11 +372,10 @@ export function GoogleConnectBanner({
           <IconMail className="h-7 w-7 text-white/40" />
         </div>
         <h2 className="text-lg font-semibold text-foreground">
-          Connect your Google account
+          {t("mail.googleConnect.connectTitle")}
         </h2>
         <p className="mt-2 max-w-sm text-sm text-muted-foreground leading-relaxed">
-          Send and receive real email. Connect your Gmail account to get
-          started.
+          {t("mail.googleConnect.heroDescription")}
         </p>
         <Button
           size="sm"
@@ -390,10 +388,10 @@ export function GoogleConnectBanner({
         >
           <GoogleIcon className="h-4 w-4" />
           {authUrl.isLoading
-            ? "Connecting..."
+            ? t("mail.accounts.connecting")
             : allConfigured
-              ? "Sign in with Google"
-              : "Connect Google"}
+              ? t("mail.accounts.signInWithGoogle")
+              : t("mail.accounts.connectGoogle")}
         </Button>
 
         <GoogleAuthIssuePanel
@@ -410,8 +408,7 @@ export function GoogleConnectBanner({
         {showWizard && !allConfigured && (
           <div className="mt-10 w-full max-w-lg text-start">
             <p className="text-xs text-muted-foreground mb-3">
-              Follow these steps to connect your Google account. Takes about 3
-              minutes.
+              {t("mail.googleConnect.setupIntro")}
             </p>
             <div className="space-y-3">
               {STEPS.map((step, i) => {
@@ -454,13 +451,13 @@ export function GoogleConnectBanner({
                           <span className="text-muted-foreground me-1.5">
                             {i + 1}.
                           </span>
-                          {step.title}
+                          {t(step.titleKey)}
                         </p>
 
                         {isActive && (
                           <div className="mt-2 space-y-2.5">
                             <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
-                              {step.description}
+                              {t(step.descriptionKey)}
                             </p>
 
                             {step.showRedirectUri && (
@@ -480,10 +477,10 @@ export function GoogleConnectBanner({
                                   {copiedKey === "redirect" ? (
                                     <>
                                       <IconCheck className="h-3 w-3" />
-                                      Copied
+                                      {t("mail.googleConnect.copied")}
                                     </>
                                   ) : (
-                                    "Copy"
+                                    t("mail.googleConnect.copy")
                                   )}
                                 </Button>
                               </div>
@@ -508,7 +505,7 @@ export function GoogleConnectBanner({
                                   }}
                                 >
                                   <IconExternalLink className="h-3 w-3" />
-                                  {step.linkText}
+                                  {t(step.linkTextKey)}
                                 </a>
                               </Button>
                             )}
@@ -547,7 +544,9 @@ export function GoogleConnectBanner({
                                   ) : (
                                     <IconUpload className="h-3 w-3" />
                                   )}
-                                  {saving ? "Saving..." : "Upload JSON"}
+                                  {saving
+                                    ? t("mail.googleConnect.saving")
+                                    : t("mail.googleConnect.uploadJson")}
                                 </Button>
                               </div>
                             )}
@@ -555,8 +554,9 @@ export function GoogleConnectBanner({
                             {step.showUpload && allConfigured && (
                               <div className="flex items-center gap-2 text-xs text-green-500">
                                 <IconCheck className="h-3.5 w-3.5" />
-                                Credentials configured. Click "Sign in with
-                                Google" above to connect.
+                                {t(
+                                  "mail.googleConnect.credentialsConfiguredSignIn",
+                                )}
                               </div>
                             )}
                           </div>
@@ -598,7 +598,7 @@ export function GoogleConnectBanner({
               disabled={addAccountUrl.isLoading || addAccountUrl.isFetching}
               className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
             >
-              + Add account
+              + {t("mail.accounts.addAccount")}
             </button>
           </div>
           <Button
@@ -631,8 +631,8 @@ export function GoogleConnectBanner({
           </div>
           <p className="text-[13px] font-medium leading-tight text-foreground/80">
             {allConfigured
-              ? "Ready to connect — sign in with your Google account"
-              : "Connect Google to send and receive real email"}
+              ? t("mail.googleConnect.readyToConnect")
+              : t("mail.googleConnect.connectBanner")}
           </p>
         </div>
 
@@ -645,7 +645,7 @@ export function GoogleConnectBanner({
               onClick={() => setShowWizard(false)}
             >
               <IconChevronUp className="h-3 w-3" />
-              Hide setup
+              {t("mail.googleConnect.hideSetup")}
             </Button>
           ) : allConfigured ? (
             <Button
@@ -658,7 +658,9 @@ export function GoogleConnectBanner({
               disabled={authUrl.isLoading || authUrl.isFetching}
             >
               <GoogleIcon className="h-3 w-3" />
-              {authUrl.isFetching ? "Connecting..." : "Sign in with Google"}
+              {authUrl.isFetching
+                ? t("mail.accounts.connecting")
+                : t("mail.accounts.signInWithGoogle")}
             </Button>
           ) : (
             <Button
@@ -667,7 +669,7 @@ export function GoogleConnectBanner({
               onClick={handleConnect}
               disabled={authUrl.isLoading || authUrl.isFetching}
             >
-              {authUrl.isFetching ? "..." : "Connect Google"}
+              {authUrl.isFetching ? "..." : t("mail.accounts.connectGoogle")}
             </Button>
           )}
           <Button
@@ -692,8 +694,7 @@ export function GoogleConnectBanner({
       {showWizard && !allConfigured && (
         <div className="px-4 pb-4 pt-1 max-w-2xl">
           <p className="text-xs text-muted-foreground mb-3">
-            Follow these steps to connect your Google account. Takes about 3
-            minutes.
+            {t("mail.googleConnect.setupIntro")}
           </p>
           <div className="space-y-3">
             {STEPS.map((step, i) => {
@@ -736,13 +737,13 @@ export function GoogleConnectBanner({
                         <span className="text-muted-foreground me-1.5">
                           {i + 1}.
                         </span>
-                        {step.title}
+                        {t(step.titleKey)}
                       </p>
 
                       {isActive && (
                         <div className="mt-2 space-y-2.5">
                           <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
-                            {step.description}
+                            {t(step.descriptionKey)}
                           </p>
 
                           {step.showRedirectUri && (
@@ -762,10 +763,10 @@ export function GoogleConnectBanner({
                                 {copiedKey === "redirect" ? (
                                   <>
                                     <IconCheck className="h-3 w-3" />
-                                    Copied
+                                    {t("mail.googleConnect.copied")}
                                   </>
                                 ) : (
-                                  "Copy"
+                                  t("mail.googleConnect.copy")
                                 )}
                               </Button>
                             </div>
@@ -790,7 +791,7 @@ export function GoogleConnectBanner({
                                 }}
                               >
                                 <IconExternalLink className="h-3 w-3" />
-                                {step.linkText}
+                                {t(step.linkTextKey)}
                               </a>
                             </Button>
                           )}
@@ -829,7 +830,9 @@ export function GoogleConnectBanner({
                                 ) : (
                                   <IconUpload className="h-3 w-3" />
                                 )}
-                                {saving ? "Saving..." : "Upload JSON"}
+                                {saving
+                                  ? t("mail.googleConnect.saving")
+                                  : t("mail.googleConnect.uploadJson")}
                               </Button>
                             </div>
                           )}
@@ -837,8 +840,9 @@ export function GoogleConnectBanner({
                           {step.showUpload && allConfigured && (
                             <div className="flex items-center gap-2 text-xs text-green-500">
                               <IconCheck className="h-3.5 w-3.5" />
-                              Credentials configured. Click "Connect Google"
-                              above to sign in.
+                              {t(
+                                "mail.googleConnect.credentialsConfiguredConnect",
+                              )}
                             </div>
                           )}
                         </div>
@@ -866,12 +870,15 @@ function GoogleAuthIssuePanel({
   onDismiss: () => void;
   className?: string;
 }) {
+  const t = useT();
   if (!issue) return null;
   const account = issue.accountId || "that Google account";
   const isOwnerMismatch = issue.code === "account_owner_mismatch";
   const detail = isOwnerMismatch
-    ? `Sign out, then sign in with ${account}.`
-    : issue.message || issue.error || `Sign out, then sign in with ${account}.`;
+    ? t("mail.googleConnect.signOutThenSignIn", { account })
+    : issue.message ||
+      issue.error ||
+      t("mail.googleConnect.signOutThenSignIn", { account });
   const shouldOfferSignOut =
     isOwnerMismatch ||
     Boolean(issue.existingOwner || issue.attemptedOwner || issue.accountId);
@@ -887,8 +894,8 @@ function GoogleAuthIssuePanel({
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-foreground">
             {isOwnerMismatch
-              ? "This account is connected to another login"
-              : "Google connection failed"}
+              ? t("mail.googleConnect.ownerMismatch")
+              : t("mail.googleConnect.connectionFailed")}
           </p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {detail}
@@ -901,7 +908,7 @@ function GoogleAuthIssuePanel({
                 onClick={onSignOut}
               >
                 <IconLogout className="h-3.5 w-3.5" />
-                Sign out
+                {t("mail.googleConnect.signOut")}
               </Button>
               <Button
                 size="sm"
@@ -909,7 +916,7 @@ function GoogleAuthIssuePanel({
                 className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
                 onClick={onDismiss}
               >
-                Dismiss
+                {t("mail.googleConnect.dismiss")}
               </Button>
             </div>
           )}
@@ -917,7 +924,7 @@ function GoogleAuthIssuePanel({
         <button
           className="shrink-0 rounded p-1 text-muted-foreground hover:bg-white/5 hover:text-foreground"
           onClick={onDismiss}
-          aria-label="Dismiss Google sign-in notice"
+          aria-label={t("mail.googleConnect.dismissNotice")}
         >
           <IconX className="h-3.5 w-3.5" />
         </button>

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconCopy,
   IconDots,
@@ -42,6 +43,7 @@ export function LibraryCard({
   compact?: boolean;
   showInstructions?: boolean;
 }) {
+  const t = useT();
   const instructions = getLibraryCustomInstructions(library);
   const previewAssets = (
     library.previewAssets?.length
@@ -113,14 +115,14 @@ export function LibraryCard({
           </div>
           {!compact ? (
             <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-              {library.description || "No description yet"}
+              {library.description || t("brandKits.noDescriptionYet")}
             </p>
           ) : null}
         </div>
         {showInstructions && instructions ? (
           <div className="rounded-md border bg-muted/30 px-3 py-2">
             <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Instructions
+              {t("brandKits.instructions")}
             </div>
             <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
               {instructions}
@@ -128,11 +130,19 @@ export function LibraryCard({
           </div>
         ) : null}
         <div className="mt-auto flex flex-wrap items-center gap-2">
-          <Badge variant="secondary">{library.referenceCount ?? 0} refs</Badge>
-          <Badge variant="outline">{library.generatedCount ?? 0} assets</Badge>
+          <Badge variant="secondary">
+            {t("brandKits.refsCount", { count: library.referenceCount ?? 0 })}
+          </Badge>
+          <Badge variant="outline">
+            {t("brandKits.assetsCount", {
+              count: library.generatedCount ?? 0,
+            })}
+          </Badge>
           {(library as any).videoCount ? (
             <Badge variant="outline">
-              {(library as any).videoCount} videos
+              {t("brandKits.videosCount", {
+                count: (library as any).videoCount,
+              })}
             </Badge>
           ) : null}
         </div>
@@ -150,7 +160,7 @@ export function LibraryCard({
               variant="secondary"
               size="icon"
               className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-              aria-label="Brand kit actions"
+              aria-label={t("brandKitDetail.brandKitActions")}
             >
               <IconDots className="h-4 w-4" />
             </Button>
@@ -159,7 +169,7 @@ export function LibraryCard({
             {onEdit ? (
               <DropdownMenuItem onSelect={() => onEdit()}>
                 <IconPencil className="mr-2 h-4 w-4 shrink-0" />
-                Edit
+                {t("brandKitDetail.editBrandKit")}
               </DropdownMenuItem>
             ) : null}
             {onDuplicate ? (
@@ -171,7 +181,9 @@ export function LibraryCard({
                 }}
               >
                 <IconCopy className="mr-2 h-4 w-4 shrink-0" />
-                {duplicatePending ? "Duplicating..." : "Duplicate"}
+                {duplicatePending
+                  ? t("brandKitDetail.duplicating")
+                  : t("brandKitDetail.duplicate")}
               </DropdownMenuItem>
             ) : null}
           </DropdownMenuContent>

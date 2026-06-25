@@ -11,7 +11,7 @@ search: "क्लिप ब्राउज़र लॉग डेवलपर �
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Engineering clips</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>OKRs review</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Onboarding flow</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Bug repro</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>Agent-readable</span><span>Transcript + frames ready for share links</span><div style='flex:1'></div><button>साझा करें</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Transcript search</strong><div class='wf-box'>Matched chapter 03:12 · rollout risks and owner handoff</div><div class='wf-box'>Meeting summary and action items</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>इंजीनियरिंग क्लिप</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>OKR समीक्षा</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>ऑनबोर्डिंग प्रवाह</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>बग पुनरुत्पादन</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>agent-readable</span><span>Transcript + frames share links के लिए तैयार</span><div style='flex:1'></div><button>साझा करें</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>transcript search</strong><div class='wf-box'>मिला chapter 03:12 · rollout risks और owner handoff</div><div class='wf-box'>मीटिंग सारांश और कार्य आइटम</div></div></div>"
 }
 ```
 
@@ -19,7 +19,7 @@ search: "क्लिप ब्राउज़र लॉग डेवलपर �
 
 ```an-diagram title="कैप्चर करना, प्रतिलेखन करना, पुन: उपयोग करना" summary="एक पुस्तकालय में तीन कैप्चर प्रकार की भूमि; एजेंट प्रतिलेखन, शीर्षक और सारांश प्रस्तुत करता है, फिर प्रत्येक प्रतिलेख खोजने योग्य और साझा करने योग्य होता है।"
 {
-  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">Screen recording</div><div class=\"diagram-node\">Calendar meeting</div><div class=\"diagram-node\">Fn-hold dictation</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>One library<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">title · summary · chapters</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">Search</div><div class=\"diagram-pill\">साझा करें</div><div class=\"diagram-pill\">Agent-readable links</div></div></div>",
+  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">screen recording</div><div class=\"diagram-node\">कैलेंडर मीटिंग</div><div class=\"diagram-node\">Fn दबाकर डिक्टेशन</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>एक library<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">शीर्षक · सारांश · अध्याय</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">खोजें</div><div class=\"diagram-pill\">साझा करें</div><div class=\"diagram-pill\">agent-readable links</div></div></div>",
   "css": ".diagram-clips{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-clips .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-clips .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-clips .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -91,11 +91,11 @@ Slack पूर्वावलोकन समान साझाकरण स�
 पासवर्ड, एक्सपायरी हिट, आर्काइव मार्कर, या ट्रैश मार्कर। अन्य क्लिप अभी भी मिलते हैं
 सामान्य शेयर-पेज शीर्षक/थंबनेल मेटाडेटा और क्लिप खोलने की आवश्यकता है।
 
-```an-api title="Agent context entry point"
+```an-api title="एजेंट संदर्भ प्रविष्टि बिंदु"
 {
   "method": "GET",
   "path": "/api/agent-context.json",
-  "summary": "Compact, agent-readable description of a shared clip",
+  "summary": "किसी साझा क्लिप का संक्षिप्त, एजेंट-पठनीय विवरण",
   "description": "Returns clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript and frame APIs. Advertised by the public share page so a text- or image-only agent can understand a recording without ingesting raw video.",
   "auth": "Same public / password / expiry rules as the share page",
   "params": [
@@ -107,11 +107,11 @@ Slack पूर्वावलोकन समान साझाकरण स�
 }
 ```
 
-```an-api title="Timestamped transcript"
+```an-api title="टाइमस्टैम्प्ड प्रतिलेख"
 {
   "method": "GET",
   "path": "/api/agent-transcript.json",
-  "summary": "Timestamped transcript segments for a shared clip",
+  "summary": "किसी साझा क्लिप के लिए टाइमस्टैम्प्ड ट्रांसक्रिप्ट सेगमेंट",
   "params": [
     { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
   ],
@@ -121,11 +121,11 @@ Slack पूर्वावलोकन समान साझाकरण स�
 }
 ```
 
-```an-api title="Frame at a timestamp"
+```an-api title="टाइमस्टैम्प पर फ़्रेम"
 {
   "method": "GET",
   "path": "/api/agent-frame.jpg",
-  "summary": "A JPEG frame extracted from the video at an original-video timestamp",
+  "summary": "एक JPEG फ़्रेम मूल-वीडियो टाइमस्टैम्प पर वीडियो से निकाला गया",
   "params": [
     { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" },
     { "name": "atMs", "in": "query", "type": "integer", "required": true, "description": "Original-video timestamp in milliseconds" }
@@ -251,7 +251,7 @@ pnpm dev
 
 सभी डेटा Drizzle ORM के माध्यम से SQL में रहता है। स्कीमा: `templates/clips/server/db/schema.ts`. रिकॉर्डिंग, बैठकें, श्रुतलेख, कैलेंडर खाते और शब्दावली सभी मानक `ownableColumns` को ले जाते हैं और एक मिलान फ्रेमवर्क शेयर तालिका रखते हैं, इसलिए वे प्रति-उपयोगकर्ता / प्रति-संगठन साझाकरण मॉडल में स्लॉट हो जाते हैं।
 
-```an-schema title="Clips core data model" summary="recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
+```an-schema title="क्लिप्स कोर डेटा मॉडल" summary="recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
 {
   "entities": [
     {
@@ -263,15 +263,15 @@ pnpm dev
         { "name": "title", "type": "text" },
         { "name": "video_url", "type": "text", "note": "plus format / size / duration / thumbnails" },
         { "name": "status", "type": "text" },
-        { "name": "edits_json", "type": "text", "note": "Non-destructive edits" },
+        { "name": "edits_json", "type": "text", "note": "गैर-विनाशकारी संपादन" },
         { "name": "chapters_json", "type": "text", "nullable": true },
-        { "name": "password", "type": "text", "nullable": true, "note": "Privacy: password / expiry" }
+        { "name": "password", "type": "text", "nullable": true, "note": "गोपनीयता: पासवर्ड / समाप्ति" }
       ]
     },
     {
       "id": "recording_transcripts",
       "name": "recording_transcripts",
-      "note": "Split out so the library and transcript views render fast",
+      "note": "विभाजित करें ताकि लाइब्रेरी और ट्रांसक्रिप्ट दृश्य तेजी से प्रस्तुत हों",
       "fields": [
         { "name": "recording_id", "type": "text", "fk": "recordings.id" },
         { "name": "segments_json", "type": "text", "note": "{ startMs, endMs, text }" },
@@ -298,9 +298,9 @@ pnpm dev
       "note": "Push-to-talk dictation history; ownableColumns",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
-        { "name": "full_text", "type": "text", "note": "Raw" },
+        { "name": "full_text", "type": "text", "note": "कच्चा" },
         { "name": "cleaned_text", "type": "text", "nullable": true },
-        { "name": "source", "type": "text", "note": "fn-hold, etc." },
+        { "name": "source", "type": "text", "note": "एफएन टीम, आदि।" },
         { "name": "target_app", "type": "text", "nullable": true }
       ]
     }

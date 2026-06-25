@@ -1,15 +1,15 @@
 ---
-title: "Anweisungen für Schreibagenten & Skills"
+title: "Anweisungen für Schreibagenten & Fähigkeiten"
 description: "So schreiben Sie großartige Agentenanweisungen für eine agentennative App oder Vorlage: AGENTS.md, skills und Toolbeschreibungen."
 ---
 
-# Anweisungen für Schreibagenten & Skills
+# Anweisungen für Schreibagenten & Fähigkeiten
 
 Das Verhalten des Agenten in einer agentennativen App ist nur so gut wie die Anweisungen, die Sie ihm geben. Drei Oberflächen tragen diese Anleitung: `AGENTS.md` (die Karte), skills (die tiefen Tauchgänge) und Aktions-/Werkzeugbeschreibungen (wie der Agent das richtige Werkzeug auswählt). Schreiben Sie jedes einzelne zum schnellen Auffinden, nicht für Prosa.
 
 ```an-diagram title="Drei erstellte Oberflächen + eine Laufzeitoberfläche" summary="AGENTS.md und Werkzeugbeschreibungen werden bei jeder Runde geladen; Kompetenzbelastung bei Bedarf; application_state wird live von Ihrer Benutzeroberfläche geschrieben."
 {
-  "html": "<div class=\"diagram-surfaces\"><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Every turn</span><strong>AGENTS.md</strong><small class=\"diagram-muted\">the map: purpose, core rules, state keys, action + skills index</small></div><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Every turn</span><strong>Tool descriptions</strong><small class=\"diagram-muted\">drive tool selection — one precise sentence each</small></div><div class=\"diagram-card ondemand\" data-rough><span class=\"diagram-pill\">On demand</span><strong>Skills</strong><small class=\"diagram-muted\">deep how-to, loaded when the description fires</small></div><div class=\"diagram-card runtime\" data-rough><span class=\"diagram-pill ok\">Live</span><strong>application_state</strong><small class=\"diagram-muted\">written by your UI: navigation, selection, focus</small></div></div>",
+  "html": "<div class=\"diagram-surfaces\"><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Jeder Turn</span><strong>AGENTS.md</strong><small class=\"diagram-muted\">die Karte: Zweck, Kernregeln, State-Keys, Action- + Skill-Index</small></div><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Jeder Turn</span><strong>Tool-Beschreibungen</strong><small class=\"diagram-muted\">steuert Tool-Auswahl — je ein präziser Satz</small></div><div class=\"diagram-card ondemand\" data-rough><span class=\"diagram-pill\">Bei Bedarf</span><strong>Fähigkeiten</strong><small class=\"diagram-muted\">tiefes How-to, geladen wenn die Beschreibung greift</small></div><div class=\"diagram-card runtime\" data-rough><span class=\"diagram-pill ok\">Live</span><strong>application_state</strong><small class=\"diagram-muted\">von deiner UI geschrieben: Navigation, Auswahl, Fokus</small></div></div>",
   "css": ".diagram-surfaces{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.diagram-surfaces .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
 }
 ```
@@ -22,39 +22,39 @@ Das Verhalten des Agenten in einer agentennativen App ist nur so gut wie die Anw
 - **Kernregeln** – die Handvoll Invarianten, die immer gelten müssen (Daten in SQL, Operationen durchlaufen actions, KI geht durch den Agenten-Chat, Schemaänderungen sind additiv). Kurze, zwingende Aufzählungszeichen.
 - **Anwendungsstatusschlüssel** – die `navigation`/Auswahl-/Fokusschlüssel, die der Agent liest, um anhand ihrer Form zu erfahren, was der Benutzer sieht.
 - **Aktionstabelle** – eine kompakte Tabelle mit Aktionsnamen und Zweck.
-- **Skills-Index** – eine Liste der vorhandenen skills und wann sie jeweils gelesen werden sollen.
+- **Fähigkeiten-Index** – eine Liste der vorhandenen skills und wann sie jeweils gelesen werden sollen.
 
 Wenn ein Abschnitt über einen Bildschirm hinauswächst, gehört er zu einer Fertigkeit. `AGENTS.md` antwortet mit „Was ist diese App und was kann ich tun“, nicht mit „Wie genau mache ich das Schwierige?“.
 
 ```markdown
-# Projects App
+# Projekte-App
 
-One workspace for projects, tasks, and notes. Agent and UI share the same SQL
-data and the same actions.
+Ein Arbeitsbereich für Projekte, Aufgaben und Notizen. Agent und UI teilen dieselben SQL-Daten
+und dieselben actions.
 
-## Core Rules
+## Grundregeln
 
-- Data lives in SQL via Drizzle. Use actions for all writes.
-- All AI work goes through the agent chat; never call an LLM inline.
-- Schema changes are additive only.
+- Daten leben in SQL über Drizzle. Verwenden Sie actions für alle Schreibvorgänge.
+- Alle KI-Arbeit läuft über den Agenten-Chat; rufen Sie niemals ein LLM inline auf.
+- Schemaänderungen sind nur additiv.
 
-## Application State
+## Anwendungsstatus
 
 - `navigation.view`: `home` | `project`
-- `navigation.projectId`: selected project on a project page
+- `navigation.projectId`: ausgewähltes Projekt auf einer Projektseite
 
-## Actions
+## Aktionen
 
-| Action           | Purpose                     |
-| ---------------- | --------------------------- |
-| `list-projects`  | List accessible projects    |
-| `create-project` | Create a project            |
-| `update-project` | Rename or archive a project |
+| Action           | Zweck                                   |
+| ---------------- | --------------------------------------- |
+| `list-projects`  | Zugängliche Projekte auflisten          |
+| `create-project` | Ein Projekt erstellen                   |
+| `update-project` | Ein Projekt umbenennen oder archivieren |
 
-## Skills
+## Fähigkeiten
 
-- `project-imports` — read before importing legacy CSV exports.
-- `sharing` — read before exposing a project to other users.
+- `project-imports` — vor dem Import alter CSV-Exporte lesen.
+- `sharing` — vor dem Freigeben eines Projekts für andere Benutzer lesen.
 ```
 
 ## Einzelquelle AGENTS.md {#single-source}
@@ -84,12 +84,12 @@ Schreiben Sie `SKILL.md` als die schlanke, unverzichtbare Ebene: die Regel, die 
 
 ```text
 .agents/skills/project-imports/
-├── SKILL.md            # rule + happy path + do/don't
+├── SKILL.md            # Regel + glücklicher Weg + do/don't
 └── references/
-    └── csv-format.md   # full column spec, encodings, edge cases
+    └── csv-format.md   # Vollständige Spaltenspezifikation, Kodierungen, Randfälle
 ```
 
-Dadurch bleibt die stets geladene Oberfläche klein und die Tiefe lässt sich skalieren, ohne den Kontext aufzublähen. Das vollständige Skill-Format finden Sie im [Skills Guide](/docs/skills-guide).
+Dadurch bleibt die stets geladene Oberfläche klein und die Tiefe lässt sich skalieren, ohne den Kontext aufzublähen. Das vollständige Skill-Format finden Sie im [Fähigkeiten Guide](/docs/skills-guide).
 
 ## Aktionsorientierte Tabellen schreiben {#action-tables}
 
@@ -114,9 +114,9 @@ defineAction({
 });
 ```
 
-## Skills vs. actions {#skills-vs-actions}
+## Fähigkeiten vs. actions {#skills-vs-actions}
 
-Skills und actions ergänzen sich. Eine Fertigkeit ist eine Anleitung, die der Agent liest; ein
+Fähigkeiten und actions ergänzen sich. Eine Fertigkeit ist eine Anleitung, die der Agent liest; ein
 Aktion ist Code, den der Agent ausführen kann.
 
 | Bedarf                                                                                         | Verwenden                                  |
@@ -151,7 +151,7 @@ Jede Anleitung, die Sie verfassen, landet auf einer von vier Oberflächen. Wenn 
 | Oberfläche                    | Wer schreibt es            | Wenn es geladen ist                                                      | Was dorthin gehört                                                       |
 | ----------------------------- | -------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
 | `AGENTS.md`-Anweisungen       | Sie (Entwickler)           | Jede Runde als Orientierung                                              | Zweck, Kernregeln, Statusschlüssel, Aktionsindex, skills-Index           |
-| Skills (`SKILL.md`)           | Sie (Entwickler)           | Auf Anfrage, wenn der Agent entscheidet, dass die Fähigkeit relevant ist | Schritt-für-Schritt-Anleitung für ein bestimmtes Muster, Do/Don't-Listen |
+| Fähigkeiten (`SKILL.md`)      | Sie (Entwickler)           | Auf Anfrage, wenn der Agent entscheidet, dass die Fähigkeit relevant ist | Schritt-für-Schritt-Anleitung für ein bestimmtes Muster, Do/Don't-Listen |
 | Aktionsbeschreibungen (Tools) | Sie (Entwickler)           | Jede Runde, wie die Werkzeugliste                                        | Was die Aktion bewirkt, was sie zurückgibt, Parametersemantik            |
 | `application_state`-Kontext   | Ihr UI-Code (zur Laufzeit) | Jede Runde, als Live-App-Status                                          | Aktuelle Navigation, Auswahl, fokussiertes Objekt, URL                   |
 
@@ -163,11 +163,11 @@ Jede Anleitung, die Sie verfassen, landet auf einer von vier Oberflächen. Wenn 
 ## Was gehört wohin {#what-goes-where}
 
 - **AGENTS.md** – gilt für die gesamte App, in jeder Runde: Zweck, Kernregeln, Statusschlüssel, Aktionsindex, skills-Index.
-- **Skills** – wiederverwendbare Anleitung für ein bestimmtes Muster, die bei Bedarf geladen wird. Gilt für alle, die in der App arbeiten.
+- **Fähigkeiten** – wiederverwendbare Anleitung für ein bestimmtes Muster, die bei Bedarf geladen wird. Gilt für alle, die in der App arbeiten.
 - **Speicher (`memory/MEMORY.md`)** – Präferenzen und Korrekturen pro Benutzer, keine verfasste Anleitung.
 
 ## Was kommt als nächstes? {#whats-next}
 
-- [Skills Guide](/docs/skills-guide) – das Skill-Dateiformat, das Framework skills und das App-gestützte skills.
+- [Fähigkeiten Guide](/docs/skills-guide) – das Skill-Dateiformat, das Framework skills und das App-gestützte skills.
 - [Creating Templates](/docs/creating-templates) – wie `AGENTS.md` und skills in eine versandfähige Vorlage passen.
 - [The four-area checklist](/docs/key-concepts#four-area-checklist) – das Vier-Bereichs-Modell, das jedes Merkmal erfüllen muss.

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconRefresh } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -7,6 +8,7 @@ import { useSyncGoogle } from "@/hooks/use-google-auth";
 import { cn } from "@/lib/utils";
 
 export function GoogleSyncButton() {
+  const t = useT();
   const syncGoogle = useSyncGoogle();
   const [lastResult, setLastResult] = useState<string | null>(null);
 
@@ -14,13 +16,11 @@ export function GoogleSyncButton() {
     syncGoogle.mutate(undefined, {
       onSuccess: (data: any) => {
         const count = data?.synced ?? 0;
-        setLastResult(`${count} event${count !== 1 ? "s" : ""} synced`);
-        toast.success(
-          `Synced ${count} event${count !== 1 ? "s" : ""} from Google Calendar`,
-        );
+        setLastResult(t("googleSync.syncedCount", { count }));
+        toast.success(t("googleSync.syncedFromGoogleCalendar", { count }));
       },
       onError: () => {
-        toast.error("Failed to sync with Google Calendar");
+        toast.error(t("googleSync.failed"));
       },
     });
   }
@@ -39,7 +39,7 @@ export function GoogleSyncButton() {
             syncGoogle.isPending && "animate-spin",
           )}
         />
-        Sync Google
+        {t("googleSync.syncGoogle")}
       </Button>
       {lastResult && (
         <span className="text-xs text-muted-foreground">{lastResult}</span>

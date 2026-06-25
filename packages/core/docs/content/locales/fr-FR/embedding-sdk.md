@@ -13,7 +13,7 @@ side-car intégré ou application complète, commencez par
 
 ```an-diagram title="La membrane d'encastrement" summary="L'application hôte fournit l'authentification côté serveur et le contexte de la page en direct ; Agent-Native exécute le side-car durable et atteint l'onglet ouvert via les actions du client et les commandes de l'hôte."
 {
-  "html": "<div class=\"diagram-embed\"><div class=\"diagram-box\" data-rough><strong>Host SaaS app</strong><small class=\"diagram-muted\">your UI, your auth</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">getContext &rarr;</div><div class=\"diagram-pill\">&larr; client actions</div><div class=\"diagram-pill\">&larr; host commands</div></div><div class=\"diagram-panel center\" data-rough><strong>Agent-Native sidecar</strong><small class=\"diagram-muted\">durable chat · app state · extensions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL<br><small class=\"diagram-muted\">framework tables</small></div></div>",
+  "html": "<div class=\"diagram-embed\"><div class=\"diagram-box\" data-rough><strong>App SaaS hôte</strong><small class=\"diagram-muted\">votre UI, votre auth</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">getContext &rarr;</div><div class=\"diagram-pill\">&larr; actions client</div><div class=\"diagram-pill\">&larr; commandes hôte</div></div><div class=\"diagram-panel center\" data-rough><strong>Agent-Native sidecar</strong><small class=\"diagram-muted\">chat durable · état de l’app · extensions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL<br><small class=\"diagram-muted\">tables du framework</small></div></div>",
   "css": ".diagram-embed{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-embed .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -147,7 +147,7 @@ uniquement lorsque cela correspond mieux à votre situation :
 | Mode                                   | Utilisez-le quand                                                                                                                                     | Forfait                                             |
 | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | **Sélecteur d'applications intégrées** | Lancement d'une application Agent-Native complète en tant qu'iframe ciblée (sélecteur d'actifs, générateur de formulaires, panneau d'approbation).    | `@agent-native/embedding`                           |
-| **Pont hôte `<AgentNative>`**          | Applications side-car autonomes ou iframes d'origine croisée qui relient manuellement le contexte de la page et le client actions.                    | `@agent-native/core/client`                         |
+| **Pont hôte `<AgentNative>`**          | Applications side-car autonomes ou iframes d'origine croisée qui relient manuellement le contexte de la page et le actions client.                    | `@agent-native/core/client`                         |
 | **Extensions portables**               | Permettre aux utilisateurs hôtes de créer des mini-applications en bac à sable lorsque le SaaS possède déjà le stockage/l'approbation des extensions. | Emplacement d'extension `@agent-native/core/client` |
 
 Le package `@agent-native/embedding` de niveau inférieur expose :
@@ -247,7 +247,7 @@ for await (const chunk of sendMessage(
 
 > Le plugin ci-dessus avec piles incluses est préférable. Utilisez ce pont de niveau inférieur
 > uniquement pour les applications side-car autonomes ou les iframes d'origine croisée dans lesquels vous câblez la page
-> contexte et client actions vous-même.
+> contexte et actions client vous-même.
 
 Pour les applications side-car autonomes ou les iframes d'origine croisée, utilisez le `<AgentNative />` de niveau inférieur. Il restitue le contexte de la page side-car et des fils iframe, le client en direct actions et les commandes d'actualisation/navigation de l'hôte en un seul endroit :
 
@@ -375,7 +375,7 @@ Pour un collègue de style CLAW, l'iframe peut également enregistrer son onglet
 
 ```an-diagram title="Pont de session de navigateur géré par le serveur" summary="Un outil backend met le travail en file d'attente ; l'onglet enregistré le revendique, l'exécute sur la page en direct et le résultat est renvoyé à l'agent — afin qu'un agent backend/Slack/A2A puisse toujours toucher l'onglet ouvert."
 {
-  "html": "<div class=\"diagram-bridge\"><div class=\"diagram-node\" data-rough>Backend agent<br><small class=\"diagram-muted\">chat · Slack · A2A</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>enqueue request<br><small class=\"diagram-muted\">/_agent-native/browser-sessions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Live tab claims it<br><small class=\"diagram-muted\">registered bridge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">result &rarr; agent</div></div>",
+  "html": "<div class=\"diagram-bridge\"><div class=\"diagram-node\" data-rough>Agent backend<br><small class=\"diagram-muted\">discussion · Slack · A2A</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>enqueue request<br><small class=\"diagram-muted\">/_agent-native/browser-sessions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>L’onglet actif le réclame<br><small class=\"diagram-muted\">registered bridge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">result &rarr; agent</div></div>",
   "css": ".diagram-bridge{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -422,7 +422,7 @@ Il existe deux classes d'actions :
 
 Le backend actions doit être le serveur par défaut pour tout ce qui doit survivre aux actualisations, aux navigateurs fermés, aux tentatives ou aux exécutions déclenchées par l'intégration. Ils appartiennent à la couche d'action/outil Agent-Native normale de l'application side-car, où l'agent peut les appeler à partir du chat, des automatisations, des intégrations Slack/Telegram/e-mail et des tâches en arrière-plan.
 
-Le client actions constitue un pont actif vers un onglet de navigateur. L'hôte les annonce avec `source: "client"` et `availability: "browser-session"`, et le side-car doit traiter ce manifeste comme temporaire. Ré-listez actions lorsque l'itinéraire ou la sélection change, et revenez au backend actions lorsque l'onglet disparaît.
+Le actions client constitue un pont actif vers un onglet de navigateur. L'hôte les annonce avec `source: "client"` et `availability: "browser-session"`, et le side-car doit traiter ce manifeste comme temporaire. Ré-listez actions lorsque l'itinéraire ou la sélection change, et revenez au backend actions lorsque l'onglet disparaît.
 
 ### Extensions portables
 
@@ -548,9 +548,9 @@ Modèle de sécurité :
 
 ### Sessions et onglets
 
-Le pont hôte est limité à une paire iframe/fenêtre hôte. Si le même utilisateur ouvre plusieurs onglets, chaque onglet possède son propre `session`, son propre contexte, sa sélection, son client actions et ses propres réponses de commande en attente. Ne présumez pas qu'une action client découverte dans un onglet peut s'exécuter dans un autre onglet, ou qu'elle existera toujours après la navigation.
+Le pont hôte est limité à une paire iframe/fenêtre hôte. Si le même utilisateur ouvre plusieurs onglets, chaque onglet possède son propre `session`, son propre contexte, sa sélection, son actions client et ses propres réponses de commande en attente. Ne présumez pas qu'une action client découverte dans un onglet peut s'exécuter dans un autre onglet, ou qu'elle existera toujours après la navigation.
 
-Pour les produits multi-onglets, conservez l'état durable dans SQL/backend actions et utilisez le client actions uniquement pour les parties locales des onglets : focalisation d'une ligne, copie de l'état visible de l'éditeur, sélection d'un élément de canevas ou actualisation du cache de requête React actuel. Incluez suffisamment de contexte `route`, `resource` et `selection` pour que le side-car décide si l'onglet actuel est le bon endroit pour exécuter une action de session de navigateur.
+Pour les produits multi-onglets, conservez l'état durable dans SQL/backend actions et utilisez le actions client uniquement pour les parties locales des onglets : focalisation d'une ligne, copie de l'état visible de l'éditeur, sélection d'un élément de canevas ou actualisation du cache de requête React actuel. Incluez suffisamment de contexte `route`, `resource` et `selection` pour que le side-car décide si l'onglet actuel est le bon endroit pour exécuter une action de session de navigateur.
 
 ### Modèle de commande
 

@@ -21,7 +21,7 @@ description: "सार्वजनिक मार्गों को एजे
 
 ```an-diagram title="सार्वजनिक मार्ग क्या प्रकाशित करता है" summary="एक सार्वजनिक मार्ग एजेंट-अनुकूल अभ्यावेदन को बढ़ावा देता है। रूट पढ़ना कॉलिंग टूल से अलग है - टूल एक्सेस ऑप्ट-इन रहता है।"
 {
-  "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>Public route<br><small class=\"diagram-muted\">derived from route access settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">.md mirror</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">Tools stay private</span><small class=\"diagram-muted\">publicMcp + publicAgent.expose required</small></div></div>",
+  "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>सार्वजनिक रूट<br><small class=\"diagram-muted\">derived from route access settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">.md mirror</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">टूल निजी रहते हैं</span><small class=\"diagram-muted\">publicMcp + publicAgent.expose required</small></div></div>",
   "css": ".diagram-web{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-web .diagram-arrow{font-size:22px;line-height:1}.diagram-web .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.diagram-web .gate{display:flex;flex-direction:column;gap:4px;align-items:flex-start}"
 }
 ```
@@ -87,10 +87,10 @@ description: "सार्वजनिक मार्गों को एजे
 {
   "filename": "actions/search-docs.ts",
   "language": "ts",
-  "code": "export default defineAction({\n  description: \"Search published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"Search published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});",
+  "code": "export default defineAction({\n  description: \"खोजें published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"खोजें published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});",
   "annotations": [
-    { "lines": "4", "label": "Explicit opt-in", "note": "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are." },
-    { "lines": "5-7", "label": "Self-describe safety", "note": "Mark it read-only, declare whether it needs auth, and flag whether it is consequential. Public MCP excludes consequential/write actions unless policy explicitly allows them." }
+    { "lines": "4", "label": "स्पष्ट ऑप्ट-इन", "note": "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are." },
+    { "lines": "5-7", "label": "स्व-वर्णन सुरक्षा", "note": "इसे केवल पढ़ने के लिए चिह्नित करें, घोषित करें कि क्या इसे प्रमाणीकरण की आवश्यकता है, और ध्वजांकित करें कि क्या यह परिणामी है। सार्वजनिक MCP consequential/write कार्यों को तब तक बाहर करता है जब तक कि नीति स्पष्ट रूप से उन्हें अनुमति न दे।" }
   ]
 }
 ```
@@ -122,7 +122,7 @@ const files = buildAgentWebStaticFiles({
       path: "/docs",
       title: "Docs",
       description: "Start here.",
-      markdown: "# Docs\n\nStart here.\n",
+      markdown: "# दस्तावेज़\n\nयहां प्रारंभ करें.\n",
       markdownPath: "/docs/getting-started.md",
       lastmod: new Date(),
     },

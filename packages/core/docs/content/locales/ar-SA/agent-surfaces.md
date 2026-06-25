@@ -110,11 +110,11 @@ export default defineAction({
 - **UI** — من خلال `useActionQuery` أو `useActionMutation` أو `callAction`
 - **أداة الوكيل** — من حلقة الدردشة المضمنة
 
-```an-api title="Calling an action over HTTP"
+```an-api title="استدعاء إجراء عبر HTTP"
 {
   "method": "POST",
   "path": "/_agent-native/actions/summarize-week",
-  "summary": "Invoke any action by name over HTTP",
+  "summary": "استدعاء أي إجراء بالاسم عبر HTTP",
   "description": "Every `defineAction` is auto-mounted at `/_agent-native/actions/<name>`. The JSON body is validated against the action's zod schema before `run` executes.",
   "request": {
     "contentType": "application/json",
@@ -268,7 +268,7 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 يمكن لـ Actions عرض نتائج عناصر واجهة مستخدم أصلية صريحة، لذا لا يقتصر الأمر على إخراج الدردشة
 نص. يتم عرض الجداول والمخططات وبطاقات المنتجات المكتوبة كـ React للطرف الأول
-مكونات في الدردشة، بدون إطارات iframe. انظر [Native Chat UI](/docs/native-chat-ui).
+مكونات في الدردشة، بدون إطارات iframe. انظر [Native واجهة الدردشة](/docs/native-chat-ui).
 
 ## دردشة غنية مع وكيلك {#byo-agent}
 
@@ -300,7 +300,7 @@ export function SupportAgentChat() {
 وكيل الترميز (Gemini CLI، Claude Code، ...) من خلال
 [harness layer](/docs/harness-agents#acp)، وليس وقت تشغيل الدردشة هنا.
 
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+[Native واجهة الدردشة — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
 هو الموطن الأساسي لأشكال الأحداث، ومساعدي وقت التشغيل، و`chatUI`
 البيانات التعريفية لنتيجة الأداة. ابدأ من هنا عند توصيل وكيل خارجي بالدردشة.
 
@@ -389,7 +389,7 @@ export function AppShell({ children }) {
 ## المستندات ذات الصلة {#related-docs}
 
 - [Actions](/docs/actions) — حدد عملية مقطوعة الرأس مرة واحدة.
-- [Native Chat UI](/docs/native-chat-ui) — عرض نتائج الإجراءات المكتوبة في الدردشة.
+- [Native واجهة الدردشة](/docs/native-chat-ui) — عرض نتائج الإجراءات المكتوبة في الدردشة.
 - [Drop-in Agent](/docs/drop-in-agent) — قم بتثبيت الدردشة أو الشريط الجانبي أو أسطح اللوحات.
 - [Component API](/docs/components) — مقطوعات الدردشة/الملحن React ذات المستوى الأدنى.
 - [Embedding SDK](/docs/embedding-sdk) — أضف Agent-Native إلى تطبيق موجود.

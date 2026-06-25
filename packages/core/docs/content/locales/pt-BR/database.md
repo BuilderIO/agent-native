@@ -89,13 +89,13 @@ export const tasks = table("tasks", {
 
 A tabela `tasks` acima define as mesmas colunas em cada back-end:
 
-```an-schema title="The tasks table" summary="Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
+```an-schema title="A tabela de tarefas" summary="Definida uma vez com os auxiliares do framework; o dialeto é escolhido em tempo de execução a partir de DATABASE_URL."
 {
   "entities": [
     {
       "id": "tasks",
       "name": "tasks",
-      "note": "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
+      "note": "Tabela de domínio. Adicione owner_email (ou ...ownableColumns()) para que o escopo no nível SQL filtre as linhas para o usuário autenticado.",
       "fields": [
         { "name": "id", "type": "text", "pk": true, "nullable": false },
         { "name": "title", "type": "text", "nullable": false },
@@ -168,9 +168,9 @@ Em vez de enviar diretamente, as alterações de esquema devem ser aplicadas por
   "language": "ts",
   "code": "import { runMigrations } from \"@agent-native/core/db\";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: \"my_app_migrations\" },\n);",
   "annotations": [
-    { "lines": "6-7", "label": "Additive only", "note": "`ADD COLUMN IF NOT EXISTS` is safe to re-run and never drops data. Renames look like drop+create to Drizzle, so add-then-migrate instead." },
-    { "lines": "13-16", "label": "Dialect gating", "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features." },
-    { "lines": "19", "label": "Per-app version table", "note": "Each app tracks its own applied versions so migrations are idempotent across restarts and instances." }
+    { "lines": "6-7", "label": "Somente aditivo", "note": "`ADD COLUMN IF NOT EXISTS` é seguro para ser executado novamente e nunca descarta dados. As renomeações parecem drop+create para Drizzle, então adicione e migre." },
+    { "lines": "13-16", "label": "Controle de dialeto", "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features." },
+    { "lines": "19", "label": "Tabela de versões por aplicativo", "note": "Cada aplicativo rastreia suas próprias versões aplicadas para que as migrações sejam idempotentes entre reinicializações e instâncias." }
   ]
 }
 ```

@@ -16,7 +16,7 @@ Agent-Native **Plan** 앱은 설치 가능한 하나의 번들로 제공됩니�
 
 ```an-diagram title="세 가지 경로, 하나의 번들" summary="범용 CLI, Claude Code 플러그인 및 Codex 플러그인은 모두 동일한 두 가지 기술과 호스팅된 계획 커넥터를 설치합니다."
 {
-  "html": "<div class=\"diagram-routes\"><div class=\"diagram-col\"><div class=\"diagram-node\">Universal CLI<br><small class=\"diagram-muted\">skills add visual-plan</small></div><div class=\"diagram-node\">Claude Code plugin<br><small class=\"diagram-muted\">/plugin install</small></div><div class=\"diagram-node\">Codex plugin<br><small class=\"diagram-muted\">codex plugin add</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">/visual-plan</span><span class=\"diagram-pill accent\">/visual-recap</span><small class=\"diagram-muted\">two skills</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com/_agent-native/mcp</small></div></div>",
+  "html": "<div class=\"diagram-routes\"><div class=\"diagram-col\"><div class=\"diagram-node\">Universal CLI<br><small class=\"diagram-muted\">skills add visual-plan</small></div><div class=\"diagram-node\">Claude Code 플러그인<br><small class=\"diagram-muted\">/plugin install</small></div><div class=\"diagram-node\">Codex 플러그인<br><small class=\"diagram-muted\">codex plugin add</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">/visual-plan</span><span class=\"diagram-pill accent\">/visual-recap</span><small class=\"diagram-muted\">two skills</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com/_agent-native/mcp</small></div></div>",
   "css": ".diagram-routes{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-routes .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-routes .diagram-arrow{font-size:22px;line-height:1}.diagram-routes .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-routes .center .diagram-pill{margin:2px}"
 }
 ```
@@ -84,7 +84,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 
 ```an-diagram title="호스팅 대 로컬 파일 모드" summary="기본적으로 기술은 커넥터를 통해 게시됩니다. 로컬 파일 모드는 MDX을 디스크에 쓰고 대신 localhost 브리지를 통해 미리 봅니다."
 {
-  "html": "<div class=\"diagram-modes\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Default · hosted</span><strong>Publish to the Plan app</strong><small class=\"diagram-muted\">MCP connector &rarr; hosted DB &rarr; share links, comments, history, screenshots</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Local-files privacy</span><strong>Write MDX to disk</strong><small class=\"diagram-muted\">plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost bridge &rarr; hosted Plan UI reads local source. No DB writes until <code>publish-visual-plan</code>.</small></div></div>",
+  "html": "<div class=\"diagram-modes\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">기본 · 호스팅됨</span><strong>Plan 앱에 게시</strong><small class=\"diagram-muted\">MCP connector &rarr; hosted DB &rarr; share links, comments, history, screenshots</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">로컬 파일 개인정보 보호</span><strong>MDX를 디스크에 쓰기</strong><small class=\"diagram-muted\">plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost bridge &rarr; hosted Plan UI reads local source. No DB 쓰기s until <code>publish-visual-plan</code>.</small></div></div>",
   "css": ".diagram-modes{display:flex;gap:14px;flex-wrap:wrap}.diagram-modes .diagram-card{flex:1 1 260px;display:flex;flex-direction:column;gap:6px;padding:16px 18px}"
 }
 ```
@@ -156,7 +156,7 @@ npx @agent-native/core@latest recap doctor
 ```bash
 codex plugin marketplace add BuilderIO/agent-native
 codex plugin add agent-native-visual-plans@agent-native-apps
-codex mcp login plan   # OAuth in the browser
+codex mcp login plan   # 브라우저의 OAuth
 ```
 
 설치 후 **새 Codex 스레드를 시작**하여 skills 및 MCP 도구가 세션에 로드되도록 합니다. 플러그인은 URL 전용 커넥터(`[mcp_servers.plan]` → `https://plan.agent-native.com/_agent-native/mcp`)를 제공합니다. `codex mcp login plan`는 OAuth 흐름을 실행합니다. 위의 범용 CLI 경로는 함께 설치하고 인증하는 하나의 명령을 선호하거나 로컬 파일 또는 자체 호스팅 모드를 원하는 경우 Codex(`npx @agent-native/core@latest skills add visual-plan --client codex`)에도 작동합니다.

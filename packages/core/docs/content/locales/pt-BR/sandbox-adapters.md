@@ -42,7 +42,7 @@ Manter o contrato restrito significa que um adaptador remoto herda a mesma postu
 
 ```an-diagram title="Os pais guardam os segredos; o adaptador só executa código" summary="run-code constrói o módulo e executa a ponte de loopback; o adaptador recebe um módulo não secreto + limites e retorna stdout/stderr/exit."
 {
-  "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>Parent process</strong><small class=\"diagram-muted\">builds module · loopback bridge · env scrub · output format</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">local child · Docker · remote · durable</small></div></div>",
+  "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>Processo pai</strong><small class=\"diagram-muted\">cria módulo · ponte loopback · limpeza de env · formato de saída</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">processo filho local · Docker · remoto · durável</small></div></div>",
   "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -135,7 +135,7 @@ registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 Seleciona um adaptador integrado por ID. Atualmente apenas `local` (o padrão) está conectado; valores desconhecidos voltam para o local em vez de falhar na execução.
 
 ```bash
-AGENT_NATIVE_SANDBOX=local   # the default — explicit
+AGENT_NATIVE_SANDBOX=local   # o padrão - explícito
 ```
 
 ### `registerSandboxAdapter()` {#register}

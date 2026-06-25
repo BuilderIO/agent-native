@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   Area,
   AreaChart,
@@ -32,6 +33,7 @@ export function TimeSeriesChart({
   error,
   yFormatter,
 }: TimeSeriesChartProps) {
+  const t = useT();
   const formatXLabel = (value: any) => {
     try {
       const d = new Date(value);
@@ -53,7 +55,7 @@ export function TimeSeriesChart({
           <p className="text-sm text-red-400 py-8 text-center">{error}</p>
         ) : data.length === 0 ? (
           <p className="text-sm text-muted-foreground py-8 text-center">
-            No data available
+            {t("common.noDataAvailable")}
           </p>
         ) : (
           <div className="h-[300px] w-full">

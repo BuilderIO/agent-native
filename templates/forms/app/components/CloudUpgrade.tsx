@@ -1,4 +1,4 @@
-import { agentNativePath, appApiPath } from "@agent-native/core/client";
+import { agentNativePath, appApiPath, useT } from "@agent-native/core/client";
 import {
   IconCheck,
   IconLoader2,
@@ -28,8 +28,9 @@ interface CloudUpgradeProps {
 
 interface Provider {
   id: string;
-  name: string;
-  description: string;
+  name?: string;
+  nameKey?: string;
+  descriptionKey: string;
   urlPrefix: string;
   needsAuthToken: boolean;
   steps: string[];
@@ -39,7 +40,7 @@ const PROVIDERS: Provider[] = [
   {
     id: "turso",
     name: "Turso",
-    description: "SQLite at the edge",
+    descriptionKey: "cloudUpgrade.providerDescriptions.turso",
     urlPrefix: "libsql://",
     needsAuthToken: true,
     steps: [
@@ -53,7 +54,7 @@ const PROVIDERS: Provider[] = [
   {
     id: "neon",
     name: "Neon",
-    description: "Serverless Postgres",
+    descriptionKey: "cloudUpgrade.providerDescriptions.neon",
     urlPrefix: "postgres://",
     needsAuthToken: false,
     steps: [
@@ -67,7 +68,7 @@ const PROVIDERS: Provider[] = [
   {
     id: "supabase",
     name: "Supabase",
-    description: "Open source Firebase alternative",
+    descriptionKey: "cloudUpgrade.providerDescriptions.supabase",
     urlPrefix: "postgres://",
     needsAuthToken: false,
     steps: [
@@ -80,8 +81,8 @@ const PROVIDERS: Provider[] = [
   },
   {
     id: "d1",
-    name: "Cloudflare D1",
-    description: "SQLite on Cloudflare's edge",
+    nameKey: "cloudUpgrade.providerNames.d1",
+    descriptionKey: "cloudUpgrade.providerDescriptions.d1",
     urlPrefix: "d1://",
     needsAuthToken: true,
     steps: [
@@ -96,10 +97,11 @@ const PROVIDERS: Provider[] = [
 ];
 
 export function CloudUpgrade({
-  title = "Share Publicly",
-  description = "To share content publicly, connect a cloud database.",
+  title,
+  description,
   onClose,
 }: CloudUpgradeProps) {
+  const t = useT();
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [dbUrl, setDbUrl] = useState("");
   const [authToken, setAuthToken] = useState("");
@@ -110,13 +112,15 @@ export function CloudUpgrade({
   const connectingRef = useRef(false);
 
   const provider = PROVIDERS.find((p) => p.id === selectedProvider);
+  const providerName = (provider: Provider) =>
+    provider.nameKey ? t(provider.nameKey) : (provider.name ?? provider.id);
 
   const handleConnect = useCallback(async () => {
     if (connectingRef.current) return;
     connectingRef.current = true;
 
     if (!dbUrl.trim()) {
-      setErrorMsg("Database URL is required");
+      setErrorMsg(t("cloudUpgrade.databaseUrlRequired"));
       setStatus("error");
       connectingRef.current = false;
       return;
@@ -141,7 +145,7 @@ export function CloudUpgrade({
 
       if (!saveRes.ok) {
         const data = await saveRes.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save credentials");
+        throw new Error(data.error || t("cloudUpgrade.saveCredentialsFailed"));
       }
 
       // Poll db-health until it returns ok
@@ -162,9 +166,7 @@ export function CloudUpgrade({
       }
 
       if (!ok) {
-        throw new Error(
-          "Database connection failed after 30 attempts. Check your credentials.",
-        );
+        throw new Error(t("cloudUpgrade.connectionFailedAfterAttempts"));
       }
 
       setStatus("success");
@@ -172,12 +174,14 @@ export function CloudUpgrade({
         window.location.reload();
       }, 1500);
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : "Connection failed");
+      setErrorMsg(
+        e instanceof Error ? e.message : t("cloudUpgrade.connectionFailed"),
+      );
       setStatus("error");
     } finally {
       connectingRef.current = false;
     }
-  }, [dbUrl, authToken]);
+  }, [dbUrl, authToken, t]);
 
   const isConnecting = status === "saving" || status === "polling";
 
@@ -187,9 +191,13 @@ export function CloudUpgrade({
         <DialogHeader>
           <div className="flex items-center gap-2">
             <IconCloud className="h-5 w-5 text-primary" />
-            <DialogTitle>{title}</DialogTitle>
+            <DialogTitle>
+              {title ?? t("cloudUpgrade.sharePublicly")}
+            </DialogTitle>
           </div>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogDescription>
+            {description ?? t("cloudUpgrade.sharePubliclyDescription")}
+          </DialogDescription>
         </DialogHeader>
 
         {/* Provider selection */}
@@ -213,10 +221,10 @@ export function CloudUpgrade({
                     : "text-foreground",
                 )}
               >
-                {p.name}
+                {providerName(p)}
               </span>
               <span className="mt-0.5 text-xs text-muted-foreground">
-                {p.description}
+                {t(p.descriptionKey)}
               </span>
             </button>
           ))}
@@ -226,7 +234,7 @@ export function CloudUpgrade({
         {provider && (
           <div className="rounded-lg border border-border bg-muted/30 p-3">
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Setup steps
+              {t("cloudUpgrade.setupSteps")}
             </p>
             <ol className="space-y-1">
               {provider.steps.map((step, i) => (
@@ -264,12 +272,14 @@ export function CloudUpgrade({
               <Label className="text-xs">
                 DATABASE_AUTH_TOKEN
                 {provider && !provider.needsAuthToken && (
-                  <span className="ml-1 text-muted-foreground">(optional)</span>
+                  <span className="ml-1 text-muted-foreground">
+                    ({t("common.optional")})
+                  </span>
                 )}
               </Label>
               <Input
                 type="password"
-                placeholder="Auth token"
+                placeholder={t("cloudUpgrade.authToken")}
                 value={authToken}
                 onChange={(e) => setAuthToken(e.target.value)}
                 disabled={isConnecting}
@@ -288,7 +298,7 @@ export function CloudUpgrade({
         {status === "success" && (
           <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
             <IconCheck className="h-3.5 w-3.5" />
-            <span>Connected successfully. Reloading...</span>
+            <span>{t("cloudUpgrade.connectedReloading")}</span>
           </div>
         )}
 
@@ -303,14 +313,14 @@ export function CloudUpgrade({
               <IconLoader2 className="h-4 w-4 animate-spin" />
               <span>
                 {status === "saving"
-                  ? "Saving credentials..."
-                  : "Testing connection..."}
+                  ? t("cloudUpgrade.savingCredentials")
+                  : t("cloudUpgrade.testingConnection")}
               </span>
             </>
           ) : (
             <>
               <IconDatabase className="h-4 w-4" />
-              <span>Test & Connect</span>
+              <span>{t("cloudUpgrade.testAndConnect")}</span>
             </>
           )}
         </Button>

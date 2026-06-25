@@ -21,7 +21,7 @@ side-car intégré ou sous forme d'écran d'application complet, voir [Agent Sur
 
 ```an-diagram title="Une définition, sept consommateurs" summary="Un seul defineAction() se déploie sur chaque surface (agent, interface utilisateur, HTTP, MCP, A2A et CLI) avec un schéma validé et un corps run()."
 {
-  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agent tool<br><small class=\"diagram-muted\">JSON Schema in context</small></div><div class=\"diagram-node\">React hooks<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">imperative client</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP tool<br><small class=\"diagram-muted\">external hosts</small></div><div class=\"diagram-node\">A2A tool<br><small class=\"diagram-muted\">other agent-native apps</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
+  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), défini une fois</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Outil agent<br><small class=\"diagram-muted\">JSON Schema en contexte</small></div><div class=\"diagram-node\">Hooks React<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">client impératif</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">Outil MCP<br><small class=\"diagram-muted\">hôtes externes</small></div><div class=\"diagram-node\">Outil A2A<br><small class=\"diagram-muted\">autres apps agent-native</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
   "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
 }
 ```
@@ -434,7 +434,7 @@ export default defineAction({
 
 Les discriminants intégrés sont `"data-table"`, `"data-chart"` et
 `"data-insights"`, avec des générateurs et des schémas sécurisés pour le serveur
-`@agent-native/core/data-widgets`. Voir [Native Chat UI](/docs/native-chat-ui)
+`@agent-native/core/data-widgets`. Voir [Native Interface de chat](/docs/native-chat-ui)
 pour le contrat de résultat complet et les conseils d'exécution BYO, ou
 [Agent Surfaces](/docs/agent-surfaces) pour savoir comment la même action peut rester
 sans tête, rendu dans le chat ou passage en plein écran.

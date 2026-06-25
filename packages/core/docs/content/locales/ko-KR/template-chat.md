@@ -12,7 +12,7 @@ description: "최소 채팅 우선 에이전트 기본 앱: 내구성 있는 채
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>How can I help?</h1><p class='wf-muted' style='margin:10px 0 0'>Chat about anything. Add actions, components, pages, jobs, or your own backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Message the agent...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>무엇을 도와드릴까요?</h1><p class='wf-muted' style='margin:10px 0 0'>무엇이든 채팅하세요. actions, 컴포넌트, 페이지, 작업 또는 자체 백엔드를 추가하세요.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>에이전트에게 메시지...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
 }
 ```
 
@@ -37,7 +37,7 @@ description: "최소 채팅 우선 에이전트 기본 앱: 내구성 있는 채
 
 ```an-diagram title="Chat 셸에 포함된 내용" summary="프레임워크의 표준 런타임(작업, 내구성 있는 스레드, 라이브 동기화 및 인증)에 대한 얇은 채팅 표면과 자체 UI를 추가할 수 있는 공간이 있습니다."
 {
-  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">Thread list<br><small class=\"diagram-muted\">create · reopen · pin · archive</small></div><div class=\"diagram-node\">Full-page chat<br><small class=\"diagram-muted\">framework chat surface on /</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">Core SQL tables<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">Live sync &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">login · orgs · sessions</small></div></div></div>",
+  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">스레드 목록<br><small class=\"diagram-muted\">생성 · 다시 열기 · 고정 · 보관</small></div><div class=\"diagram-node\">전체 페이지 채팅<br><small class=\"diagram-muted\">/ 의 프레임워크 채팅 화면</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">핵심 SQL 테이블<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">실시간 동기화 &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">로그인 · 조직 · 세션</small></div></div></div>",
   "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -125,5 +125,5 @@ export default function ChatRoute() {
 - [**Getting Started**](/docs) — 헤드리스, 채팅 및 도메인 템플릿 중에서 선택
 - [**Agent Surfaces**](/docs/agent-surfaces) — 헤드리스, 채팅, 임베디드 및 전체 앱 패턴
 - [**Actions**](/docs/actions) — 액션 시스템 채팅과 UI 모두 호출
-- [**Native Chat UI**](/docs/native-chat-ui) — 채팅 화면 기본 요소 및 런타임 옵션
+- [**Native 채팅 UI**](/docs/native-chat-ui) — 채팅 화면 기본 요소 및 런타임 옵션
 - [**Pure-Agent Apps**](/docs/pure-agent-apps) — 나중에 Chat으로 확장될 수 있는 작업 전용 앱

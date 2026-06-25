@@ -1,4 +1,4 @@
-import { VisibilityBadge } from "@agent-native/core/client";
+import { VisibilityBadge, useT } from "@agent-native/core/client";
 import {
   IconDots,
   IconTrash,
@@ -37,6 +37,7 @@ export default function DeckCard({
   isDuplicating = false,
   designSystemTitle,
 }: DeckCardProps) {
+  const t = useT();
   const firstSlide = deck.slides?.[0];
   const [isRenaming, setIsRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -150,7 +151,7 @@ export default function DeckCard({
                 e.stopPropagation();
               }}
               className="p-2 sm:p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-border hover:bg-black/80"
-              aria-label="Deck options"
+              aria-label={t("raw.deckOptions")}
             >
               <IconDots className="w-3.5 h-3.5 text-foreground/70" />
             </button>

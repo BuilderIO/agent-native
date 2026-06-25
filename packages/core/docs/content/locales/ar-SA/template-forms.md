@@ -10,7 +10,7 @@ Forms عبارة عن أداة إنشاء نماذج أصلية للوكيل. ق
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>الاشتراك التجريبي</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>يشارك</button><button class='primary'>إلغاء النشر</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>يحرر</span><span class='wf-pill'>النتائج 187</span><span class='wf-pill'>إعدادات</span><span class='wf-pill'>التكامل</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>الاشتراك التجريبي</h2><p class='wf-muted' style='margin:0'>Reserve a spot in the upcoming private beta cohort.</p><div class='wf-card'><strong>الاسم الكامل</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>البريد الإلكتروني للعمل</strong><input value='you@company.com'/></div><div class='wf-card'><strong>دورك</strong><input value='Select...'/></div><div class='wf-card'><strong>حجم الفريق</strong><input value='Select...'/></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>الاشتراك التجريبي</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>يشارك</button><button class='primary'>إلغاء النشر</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>يحرر</span><span class='wf-pill'>النتائج 187</span><span class='wf-pill'>إعدادات</span><span class='wf-pill'>التكامل</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>الاشتراك التجريبي</h2><p class='wf-muted' style='margin:0'>احجز مكانًا في مجموعة البيتا الخاصة القادمة.</p><div class='wf-card'><strong>الاسم الكامل</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>البريد الإلكتروني للعمل</strong><input value='you@company.com'/></div><div class='wf-card'><strong>دورك</strong><input value='Select...'/></div><div class='wf-card'><strong>حجم الفريق</strong><input value='Select...'/></div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ Forms عبارة عن أداة إنشاء نماذج أصلية للوكيل. ق
 
 ```an-diagram title="بناء ونشر وجمع" summary="يقوم الوكيل والمحرر المرئي بتحرير تعريف نموذج SQL-backed واحد. لم تتم مصادقة صفحة التعبئة العامة، ويتم توجيه عمليات الإرسال من جانب الخادم إلى وجهاتك."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Agent prompt<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">Visual editor<br><small class=\"diagram-muted\">labels, validation, order</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">fields JSON, settings JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL via Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Public fill page<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / Sheets</small></div></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">موجه الوكيل<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">محرر مرئي<br><small class=\"diagram-muted\">التسميات والتحقق والترتيب</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">JSON للحقول وJSON للإعدادات</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL عبر Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">صفحة تعبئة عامة<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / جداول</small></div></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -94,7 +94,7 @@ npx @agent-native/core@latest create my-platform
 
 يتم تعريف الأشكال `fields` و`settings` JSON في `templates/forms/shared/types.ts` (`FormField`، `FormSettings`). تتم إزالة الإعدادات الخاصة بالمالك مثل خطاف الويب التكاملي URL والأصول المسموح بها قبل أن تصل أي بيانات إلى صفحة التعبئة العامة عبر `toPublicFormSettings`.
 
-```an-schema title="Forms data model" summary="Three tables. Fields and integrations are JSON columns on forms, so the agent's edits are surgical patches rather than cross-table row changes."
+```an-schema title="نموذج بيانات النماذج" summary="ثلاث جداول. الحقول وعمليات التكامل عبارة عن أعمدة JSON في النماذج، لذا فإن تعديلات الوكيل عبارة عن تصحيحات جراحية بدلاً من تغييرات الصفوف عبر الجدول."
 {
   "entities": [
     {
@@ -106,9 +106,9 @@ npx @agent-native/core@latest create my-platform
         { "name": "title", "type": "string" },
         { "name": "description", "type": "string", "nullable": true },
         { "name": "slug", "type": "string", "note": "unique; public URL" },
-        { "name": "fields", "type": "json", "note": "FormField[] — all field types" },
-        { "name": "settings", "type": "json", "note": "FormSettings — integrations, etc." },
-        { "name": "status", "type": "enum", "note": "draft | published | closed" },
+        { "name": "fields", "type": "json", "note": "FormField[] — جميع أنواع الحقول" },
+        { "name": "settings", "type": "json", "note": "إعدادات النموذج — عمليات التكامل، وما إلى ذلك." },
+        { "name": "status", "type": "enum", "note": "مسودة | نشرت | مغلق" },
         { "name": "deleted_at", "type": "datetime", "nullable": true, "note": "soft delete" },
         { "name": "owner_email", "type": "string" },
         { "name": "org_id", "type": "id", "nullable": true }
@@ -117,7 +117,7 @@ npx @agent-native/core@latest create my-platform
     {
       "id": "responses",
       "name": "responses",
-      "note": "One submission per row",
+      "note": "إرسال واحد لكل صف",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "form_id", "type": "id", "fk": "forms.id" },
@@ -130,12 +130,12 @@ npx @agent-native/core@latest create my-platform
     {
       "id": "form_shares",
       "name": "form_shares",
-      "note": "Framework shares table — principals to roles per form",
+      "note": "جدول مشاركات إطار العمل — المبادئ الأساسية للأدوار لكل نموذج",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "form_id", "type": "id", "fk": "forms.id" },
         { "name": "principal", "type": "string", "note": "user or org" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+        { "name": "role", "type": "enum", "note": "عارض | محرر | admin" }
       ]
     }
   ],

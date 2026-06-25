@@ -2,7 +2,7 @@ import {
   BlockRegistryProvider,
   type BlockRenderContext,
 } from "@agent-native/core/blocks";
-import type { RichMarkdownCollabUser } from "@agent-native/core/client";
+import { useT, type RichMarkdownCollabUser } from "@agent-native/core/client";
 import type { PlanFileTreeBlock } from "@shared/plan-content";
 import type {
   PlanAnnotation,
@@ -187,6 +187,7 @@ export function PlanContentRenderer({
   recapScreenshotTheme = null,
   sourceUrl,
 }: PlanContentRendererProps) {
+  const t = useT();
   // Deep-link scroll on load/reload/back-forward (TOC clicks aside).
   usePlanHashScroll(content.blocks);
   const planLabel = isRecap
@@ -681,7 +682,9 @@ export function PlanContentRenderer({
         {autosaveFailed && (
           <div className="pointer-events-none absolute bottom-4 left-1/2 z-50 -translate-x-1/2">
             <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/80 bg-background/95 px-3 py-1.5 text-sm shadow-lg backdrop-blur-sm">
-              <span className="text-muted-foreground">Couldn't save</span>
+              <span className="text-muted-foreground">
+                {t("raw.content.saveFailed")}
+              </span>
               <Button
                 type="button"
                 variant="link"
@@ -739,7 +742,7 @@ export function PlanContentRenderer({
                     value={content.title || fallbackTitle}
                     editable={metadataEditable}
                     className="max-w-3xl text-[1.8rem] font-bold leading-[1.15] tracking-[-0.02em] sm:text-[2.25rem]"
-                    placeholder="Untitled plan"
+                    placeholder={t("raw.content.untitledPlan")}
                     onCommit={(title) => onMetadataChange?.({ title })}
                   />
                   {metadataEditable ? (
@@ -748,7 +751,7 @@ export function PlanContentRenderer({
                       value={content.brief || fallbackBrief}
                       editable
                       className="mt-4 max-w-2xl plan-doc-body text-plan-muted"
-                      placeholder="Add a short plan summary"
+                      placeholder={t("raw.content.addSummary")}
                       onCommit={(brief) => onMetadataChange?.({ brief })}
                     />
                   ) : (
@@ -1183,6 +1186,7 @@ function RecapStatStrip({
   fileTreeBlock: PlanFileTreeBlock | undefined;
   className?: string;
 }) {
+  const t = useT();
   const stats = computeRecapStats(fileTreeBlock);
   if (!stats) return null;
   const { files, added, removed } = stats;
@@ -1193,7 +1197,7 @@ function RecapStatStrip({
   return (
     <p
       className={cn("text-xs tabular-nums text-plan-muted/80", className)}
-      aria-label="Change statistics"
+      aria-label={t("raw.content.changeStatistics")}
     >
       {parts.join(" · ")}
     </p>

@@ -11,7 +11,7 @@ Dieser Leitfaden behandelt die betriebliche Seite der Ausführung eines agentenn
 
 ```an-diagram title="Zwei Governance-Ebenen" summary="Git regelt den Code; Dispatch regelt die Laufzeit. Sie ergänzen sich – wiederholen Sie nicht das eine in dem anderen."
 {
-  "html": "<div class=\"gov\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Git / GitHub</span><strong>Code governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">CODEOWNERS</span><span class=\"diagram-pill\">branch protection</span><span class=\"diagram-pill\">PR review</span><span class=\"diagram-pill\">git log / blame</span></div></div><div class=\"diagram-pill diagram-muted\">+</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Dispatch</span><strong>Runtime governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">vault secrets &amp; grants</span><span class=\"diagram-pill\">workspace resources</span><span class=\"diagram-pill\">agent profiles</span><span class=\"diagram-pill\">approvals &amp; audit</span></div></div></div>",
+  "html": "<div class=\"gov\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Git und GitHub</span><strong>Code-Governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">CODEOWNERS</span><span class=\"diagram-pill\">branch protection</span><span class=\"diagram-pill\">PR-Review</span><span class=\"diagram-pill\">git log / blame</span></div></div><div class=\"diagram-pill diagram-muted\">+</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Dispatch</span><strong>Runtime governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">vault secrets &amp; grants</span><span class=\"diagram-pill\">workspace resources</span><span class=\"diagram-pill\">agent profiles</span><span class=\"diagram-pill\">approvals &amp; audit</span></div></div></div>",
   "css": ".gov{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.gov .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:240px}.gov .gov-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}"
 }
 ```
@@ -64,16 +64,16 @@ Die CODEOWNERS-Datei von GitHub weist Prüfer automatisch PRs zu, basierend auf 
 # Framework core — affects every app; platform team reviews all changes
 packages/core/                     @your-org/platform-team
 
-# Dispatch control plane — secrets, integrations, workspace resources
+# Dispatch Kontrollebene – Geheimnisse, Integrationen, Arbeitsbereichsressourcen
 templates/dispatch/                @your-org/platform-team
 
-# Per-app ownership — each team reviews their own app
+# Besitz pro App – jedes Team überprüft seine eigene App
 templates/mail/                    @your-org/mail-team
 templates/analytics/               @your-org/analytics-team
 templates/calendar/                @your-org/calendar-team
 # ... add an entry per app
 
-# Workspace-level config — broad review since it affects everyone
+# Konfiguration auf Arbeitsbereichsebene – umfassende Überprüfung, da sie jeden betrifft
 .github/                           @your-org/platform-team
 package.json                       @your-org/platform-team
 pnpm-workspace.yaml                @your-org/platform-team
@@ -132,7 +132,7 @@ Beim Überprüfen von PRs in dieser Umgebung:
 
 Die [Dispatch](/docs/dispatch)-App ist die Laufzeitsteuerungsebene des Arbeitsbereichs. Es ergänzt die Governance auf Git-Ebene durch die Laufzeit-Governance:
 
-| Bedenken                                 | Git / GitHub            | Versand                                                            |
+| Bedenken                                 | Git und GitHub          | Versand                                                            |
 | ---------------------------------------- | ----------------------- | ------------------------------------------------------------------ |
 | Wer kann Code ändern?                    | CODEOWNERS, Zweigschutz | —                                                                  |
 | Wer kann auf Geheimnisse zugreifen?      | —                       | Vault-Richtlinie, Zuschüsse, Antragsworkflow                       |

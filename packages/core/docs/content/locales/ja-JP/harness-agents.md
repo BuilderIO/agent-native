@@ -215,7 +215,7 @@ const run = startAgentHarnessRun({
 
 ```an-diagram title="ターン、プロセス、デプロイをまたいで再開" summary="各ターンは、不透明なresumeStateをSQLに切り離します。次のターンでは、チャット履歴を再生する代わりに、それが createSession にフィードバックされます。"
 {
-  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Turn N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opaque · SQL harness session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Turn N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
+  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>ターンN<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">不透明 · SQL harnessセッション</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>ターンN+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
   "css": ".diagram-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-resume .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -267,7 +267,7 @@ Agent-Native actions から `createSession.tools` までの意図的なセット
 ネイティブ ウィジェットの `mcpApp` ペイロード)、`approval-request`、`file-change`、
 `compaction`、`usage`、`error`、および `done`。ツールの結果は
 同じ翻訳、アクション宣言されたネイティブ ウィジェットは引き続きレンダリングされます — を参照
-[Native Chat UI](/docs/native-chat-ui).
+[Native チャット UI](/docs/native-chat-ui).
 
 ## バックグラウンド実行と UI {#background-runs}
 
@@ -341,7 +341,7 @@ registerAgentHarness({
 
 ## 関連ドキュメント {#related-docs}
 
-- [Native Chat UI](/docs/native-chat-ui) — `AgentChatRuntime` とのチャット UI の背後に独自のエージェントを配置します。
+- [Native チャット UI](/docs/native-chat-ui) — `AgentChatRuntime` とのチャット UI の背後に独自のエージェントを配置します。
 - [Agent Surfaces](/docs/agent-surfaces) — ヘッドレス、チャット、サイドカー、またはフルアプリを選択します。
 - [Agent-Native Code UI](/docs/code-agents-ui) — 再利用可能なコーディング ワークスペース サーフェス。
 - [Custom Agents & Teams](/docs/agent-teams) — バックグラウンド実行とサブエージェントの委任。

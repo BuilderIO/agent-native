@@ -16,7 +16,7 @@ Agent-Native **プラン** アプリは、1 つのインストール可能なバ
 
 ```an-diagram title="3つのルート、1つのバンドル" summary="ユニバーサル CLI、Claude Code プラグイン、および Codex プラグインはすべて、同じ 2 つのスキルとホストされたプラン コネクタをインストールします。"
 {
-  "html": "<div class=\"diagram-routes\"><div class=\"diagram-col\"><div class=\"diagram-node\">Universal CLI<br><small class=\"diagram-muted\">skills add visual-plan</small></div><div class=\"diagram-node\">Claude Code plugin<br><small class=\"diagram-muted\">/plugin install</small></div><div class=\"diagram-node\">Codex plugin<br><small class=\"diagram-muted\">codex plugin add</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">/visual-plan</span><span class=\"diagram-pill accent\">/visual-recap</span><small class=\"diagram-muted\">two skills</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com/_agent-native/mcp</small></div></div>",
+  "html": "<div class=\"diagram-routes\"><div class=\"diagram-col\"><div class=\"diagram-node\">Universal CLI<br><small class=\"diagram-muted\">skills add visual-plan</small></div><div class=\"diagram-node\">Claude Codeプラグイン<br><small class=\"diagram-muted\">/plugin install</small></div><div class=\"diagram-node\">Codexプラグイン<br><small class=\"diagram-muted\">codex plugin add</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">/visual-plan</span><span class=\"diagram-pill accent\">/visual-recap</span><small class=\"diagram-muted\">two skills</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com/_agent-native/mcp</small></div></div>",
   "css": ".diagram-routes{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-routes .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-routes .diagram-arrow{font-size:22px;line-height:1}.diagram-routes .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-routes .center .diagram-pill{margin:2px}"
 }
 ```
@@ -84,7 +84,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 
 ```an-diagram title="ホスト ファイル モードとローカル ファイル モード" summary="デフォルトでは、スキルはコネクタを通じて公開されます。ローカル ファイル モードは、MDX をディスクに書き込み、代わりにローカルホスト ブリッジ経由でプレビューします。"
 {
-  "html": "<div class=\"diagram-modes\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Default · hosted</span><strong>Publish to the Plan app</strong><small class=\"diagram-muted\">MCP connector &rarr; hosted DB &rarr; share links, comments, history, screenshots</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Local-files privacy</span><strong>Write MDX to disk</strong><small class=\"diagram-muted\">plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost bridge &rarr; hosted Plan UI reads local source. No DB writes until <code>publish-visual-plan</code>.</small></div></div>",
+  "html": "<div class=\"diagram-modes\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">デフォルト · ホスト済み</span><strong>Planアプリに公開</strong><small class=\"diagram-muted\">MCP connector &rarr; hosted DB &rarr; share links, comments, history, screenshots</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">ローカルファイルのプライバシー</span><strong>MDX をディスクに書き込む</strong><small class=\"diagram-muted\">plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost bridge &rarr; hosted Plan UI reads local source. No DB 書き込みs until <code>publish-visual-plan</code>.</small></div></div>",
   "css": ".diagram-modes{display:flex;gap:14px;flex-wrap:wrap}.diagram-modes .diagram-card{flex:1 1 260px;display:flex;flex-direction:column;gap:6px;padding:16px 18px}"
 }
 ```
@@ -156,7 +156,7 @@ npx @agent-native/core@latest recap doctor
 ```bash
 codex plugin marketplace add BuilderIO/agent-native
 codex plugin add agent-native-visual-plans@agent-native-apps
-codex mcp login plan   # OAuth in the browser
+codex mcp login plan   # ブラウザのOAuth
 ```
 
 インストール後、**新しい Codex スレッドを開始**して、skills ツールと MCP ツールがセッションに読み込まれるようにします。このプラグインには、URL 専用コネクタ (`[mcp_servers.plan]` → `https://plan.agent-native.com/_agent-native/mcp`) が同梱されています。 `codex mcp login plan` は OAuth フローを実行します。インストールと認証を一緒に行う 1 つのコマンドを使用する場合、またはローカル ファイルまたはセルフホスト モードが必要な場合は、上記のユニバーサル CLI ルートは Codex (`npx @agent-native/core@latest skills add visual-plan --client codex`) にも機能します。

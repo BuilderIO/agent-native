@@ -17,12 +17,12 @@ description: "क्रोन-अनुसूचित संकेत एजे
 {
   "filename": "jobs/morning-digest.md",
   "language": "markdown",
-  "code": "---\nschedule: \"0 7 * * *\"\nenabled: true\nrunAs: creator\n---\n\n# Morning digest\n\nSummarize the emails received overnight. Group by sender domain.\nPin the top 3 threads that look like they need a reply today to the\n\"Needs reply\" label. Draft replies for any that are obvious.",
+  "code": "---\nschedule: \"0 7 * * *\"\nenabled: true\nrunAs: creator\n---\n\n# मॉर्निंग डाइजेस्ट\n\nरात भर में प्राप्त ईमेल का सारांश बनाएं। प्रेषक डोमेन के आधार पर समूह बनाएं।\nशीर्ष 3 थ्रेड्स को पिन करें जो देखने में ऐसे लगते हैं जैसे उन्हें आज उत्तर की आवश्यकता है\n\"उत्तर की आवश्यकता है\" लेबल पर। जो भी स्पष्ट हो उसके लिए ड्राफ्ट उत्तर दें।",
   "annotations": [
-    { "lines": "2", "label": "When", "note": "Standard 5-field cron — `0 7 * * *` is every day at 07:00." },
-    { "lines": "3", "label": "Pause switch", "note": "Flip to `false` to stop the job without deleting it." },
-    { "lines": "4", "label": "Identity", "note": "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key." },
-    { "lines": "7-12", "label": "The prompt", "note": "The body is just a prompt — the agent runs it at each firing with all its normal tools and workspace context." }
+    { "lines": "2", "label": "कब", "note": "मानक 5-फ़ील्ड क्रोन - `0 7 * * *` हर दिन 07:00 बजे है।" },
+    { "lines": "3", "label": "रोकें स्विच", "note": "Flip to `false` to stop the job without deleting it." },
+    { "lines": "4", "label": "पहचान", "note": "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key." },
+    { "lines": "7-12", "label": "संकेत", "note": "बॉडी सिर्फ एक प्रॉम्प्ट है - एजेंट इसे अपने सभी सामान्य उपकरणों और कार्यक्षेत्र संदर्भ के साथ प्रत्येक फायरिंग पर चलाता है।" }
   ]
 }
 ```

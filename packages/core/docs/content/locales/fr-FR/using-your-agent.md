@@ -1,17 +1,17 @@
 ---
 title: "Utiliser votre agent"
-description: "La boucle quotidienne du travail avec l'agent : il voit ce que vous regardez, vous le dirigez, l'intégrez, passez à UI-light et co-éditez à côté de lui."
+description: "La boucle quotidienne du travail avec l'agent : il voit ce que vous regardez, vous le dirigez, l'intégrez, passez à UI légère et co-éditez à côté de lui."
 ---
 
 # Utiliser votre agent
 
 L'idée déterminante derrière l'agent natif est que l'agent et le UI sont des **partenaires égaux** — voir [What Is Agent-Native?](/docs/what-is-agent-native) pour le pourquoi. Cette section concerne l'autre moitié de cette promesse : ce que l'on ressent en travaillant réellement avec l'agent une fois qu'il est ancré à côté de votre application.
 
-Il existe une ligne directe simple. L'agent **voit** ce que vous regardez, vous le **dirigez** vers ce que vous voulez, vous pouvez l'**intégrer** n'importe où, vous pouvez devenir entièrement **UI-light** lorsque cela vous convient le mieux, et vous pouvez **co-éditer** les mêmes documents en même temps. Chacun d'entre eux est une page de cette section.
+Il existe une ligne directe simple. L'agent **voit** ce que vous regardez, vous le **dirigez** vers ce que vous voulez, vous pouvez l'**intégrer** n'importe où, vous pouvez devenir entièrement **UI légère** lorsque cela vous convient le mieux, et vous pouvez **co-éditer** les mêmes documents en même temps. Chacun d'entre eux est une page de cette section.
 
 ```an-diagram title="La boucle du quotidien" summary="Cinq façons de travailler avec un agent ancré — chacune constitue une page de cette section."
 {
-  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>UI-light</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">Co-edit</span><small class=\"diagram-muted\">live, side by side</small></div></div>",
+  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>UI légère</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">Coéditer</span><small class=\"diagram-muted\">en direct, côte à côte</small></div></div>",
   "css": ".diagram-loop{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-loop .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px;flex:1}.diagram-loop .diagram-arrow{align-self:center;font-size:22px;line-height:1}"
 }
 ```
@@ -49,7 +49,7 @@ L'agent n'est pas une application distincte vers laquelle vous accédez. Il est 
 → [**Drop-in Agent**](/docs/drop-in-agent) : montez les `<AgentPanel>`, `<AgentSidebar>` et `sendToAgentChat()` dans n'importe quelle application React.
 → [**Agent Surfaces**](/docs/agent-surfaces) : choisissez si le flux de travail doit être sans tête, axé d'abord sur le chat, intégré ou une application complète.
 
-## Vous pouvez passer au UI-light {#ui-light}
+## Vous pouvez passer au UI légère {#ui-light}
 
 Toutes les applications n'ont pas besoin d'un tableau de bord complet. Lorsque l'agent _est_ le produit, vous pouvez ignorer la plupart des UI personnalisés : ouvrez l'application, demandez ce que vous voulez et laissez l'agent faire le reste. L'agent dispose toujours de sa surface de gestion (historique, espace de travail, paramètres), mais l'interaction principale est la conversation plutôt que les clics.
 
@@ -67,5 +67,5 @@ Lorsque vous et l'agent travaillez sur le même document, vous ne vous relayez p
 - [**Agent Mentions**](/docs/agent-mentions) — dirigez-le avec les mentions `@`
 - [**Voice Input**](/docs/voice-input) — dirigez-le en parlant
 - [**Drop-in Agent**](/docs/drop-in-agent) : intégrez-le dans n'importe quelle application React
-- [**Pure-Agent Apps**](/docs/pure-agent-apps) — passez à UI-light lorsque l'agent est le produit
+- [**Pure-Agent Apps**](/docs/pure-agent-apps) — passez à UI légère lorsque l'agent est le produit
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — co-éditez ensemble le même document

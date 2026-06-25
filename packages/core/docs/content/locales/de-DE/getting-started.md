@@ -29,7 +29,7 @@ der Agent) ist in beiden Fällen gleich.
 }
 ```
 
-Dies gilt unabhängig davon, ob Sie mit einem Chat UI, einem Headless-Agenten oder einer vollständigen App beginnen.
+Dies gilt unabhängig davon, ob Sie mit einem Chat-Oberfläche, einem Headless-Agenten oder einer vollständigen App beginnen.
 Der UI verändert die Oberfläche; Anweisungen, skills und actions geben dem Agenten seine
 Anleitung und Verhalten.
 
@@ -47,7 +47,7 @@ npx @agent-native/core@latest create my-app
 Oder übergeben Sie ein Flag, um die Eingabeaufforderung zu überspringen:
 
 **Möchten Sie ein UI?** Beginnen Sie mit der Chat-Vorlage. Sie erhalten einen Arbeitsagenten plus ein
-Anpassbarer Chat UI, und jede von Ihnen hinzugefügte Aktion wird automatisch darin angezeigt:
+Anpassbarer Chat-Oberfläche, und jede von Ihnen hinzugefügte Aktion wird automatisch darin angezeigt:
 
 ```bash
 npx @agent-native/core@latest create my-app --template chat
@@ -63,7 +63,7 @@ npx @agent-native/core@latest create my-agent --headless
 Installieren Sie dann aus dem von Ihnen erstellten Ordner:
 
 ```bash
-cd my-agent # or my-app if you chose the Chat template
+cd my-agent # oder my-app, wenn Sie die Chat-Vorlage gewählt haben
 pnpm install
 ```
 
@@ -82,9 +82,9 @@ Versenden Sie mit diesem Beispiel:
   "annotations": [
     { "lines": "5", "label": "Tool-Beschreibung", "note": "Der Agent liest `description`, um zu entscheiden, wann er dies als Tool aufruft." },
     { "lines": "6-8", "label": "Typisierter Vertrag", "note": "Ein zod-`schema` validiert Eingaben von jeder Oberfläche: Agent, UI, HTTP, MCP und A2A." },
-    { "lines": "9", "label": "HTTP verb", "note": "Opt this action into an auto-mounted HTTP endpoint." },
-    { "lines": "10", "label": "Read-only", "note": "`readOnly` marks the action as safe to call without approval and cacheable for queries." },
-    { "lines": "11-13", "label": "One implementation", "note": "The `run` body is the single source of truth that every surface executes." }
+    { "lines": "9", "label": "HTTP-Verb", "note": "Schalte diese Action für einen automatisch eingebundenen HTTP-Endpunkt frei." },
+    { "lines": "10", "label": "Schreibgeschützt", "note": "`readOnly` markiert die Action als ohne Genehmigung sicher aufrufbar und für Abfragen cachebar." },
+    { "lines": "11-13", "label": "Eine Implementierung", "note": "Der `run`-Block ist die einzige Wahrheit, die jede Oberfläche ausführt." }
   ]
 }
 ```
@@ -118,12 +118,12 @@ Browser – er kann bereits jede von Ihnen definierte Aktion aufrufen:
 pnpm dev
 ```
 
-Diese eine Aktion ist jetzt über den Chat UI, CLI, HTTP, MCP, A2A, erreichbar.
+Diese eine Aktion ist jetzt über den Chat-Oberfläche, CLI, HTTP, MCP, A2A, erreichbar.
 geplante Jobs und webhooks. Einmal festlegen, von überall aus anrufen.
 
 ```an-diagram title="Eine Aktion, jede Oberfläche" summary="Eine einzelne defineAction-Datei wird ohne zusätzliche Verkabelung an jeden Verbraucher verteilt."
 {
-  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Scheduled jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
+  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat-Oberfläche</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Geplante Jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
   "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -138,7 +138,7 @@ Ausführungsverlauf und Anmeldeinformationen sind alle in SQL gespeichert. Lokal
 ```an-callout
 {
   "tone": "info",
-  "body": "**Headless is still a real app.** The app-agent loop persists sessions, threads, runs, settings, and credentials in SQL — it is not a stateless prompt. You can add a UI later without touching your actions or state."
+  "body": "**Headless ist immer noch eine echte App.** Die App-Agent-Schleife speichert Sitzungen, Threads, Ausführungen, Einstellungen und Anmeldeinformationen in SQL – es handelt sich nicht um eine zustandslose Eingabeaufforderung. Sie können später eine Benutzeroberfläche hinzufügen, ohne Ihre Aktionen oder Ihren Status zu ändern."
 }
 ```
 
@@ -165,7 +165,7 @@ export default function ChatRoute() {
   `useActionMutation()`.
 
 Siehe [Drop-in Agent](/docs/drop-in-agent) für den vollständigen Komponentensatz und
-[Native Chat UI](/docs/native-chat-ui) zum Rendern von Aktionsergebnissen als Tabellen
+[Native Chat-Oberfläche](/docs/native-chat-ui) zum Rendern von Aktionsergebnissen als Tabellen
 Diagramme und getippte Karten anstelle von reinem Text.
 
 **Kopflos gestartet und später ein UI wollen?** Die Chat-Vorlage _ist_ die UI-Auffahrt –
@@ -178,12 +178,12 @@ Vorlage; Ihr `actions/`-, Agent- und SQL-Status wird unverändert übernommen. S
 
 ```text
 my-app/
-  actions/         # Agent-callable actions
-  app/             # React frontend (UI templates only; omitted when headless)
-  server/          # Nitro API server (routes, plugins)
-  AGENTS.md        # Always-on agent instructions
-  .agents/         # Skills the agent can pull in when relevant
-  data/app.db      # Local SQLite state when DATABASE_URL is unset
+  actions/         # Vom Agenten aufrufbare Actions
+  app/             # React-Frontend (nur UI-Templates; entfällt bei headless)
+  server/          # Nitro-API-Server (Routen, Plugins)
+  AGENTS.md        # Ständig geltende Agentenanweisungen
+  .agents/         # Skills, die der Agent bei Bedarf laden kann
+  data/app.db      # Lokaler SQLite-Status, wenn DATABASE_URL nicht gesetzt ist
 ```
 
 ## Wohin gehen Sie als nächstes?

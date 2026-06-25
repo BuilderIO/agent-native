@@ -11,7 +11,7 @@ Eine App, die alles festhält: Bildschirmaufzeichnungen, Besprechungsnotizen aus
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Engineering clips</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>OKRs review</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Onboarding flow</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Bug repro</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>Agent-readable</span><span>Transcript + frames ready for share links</span><div style='flex:1'></div><button>Teilen</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Transcript search</strong><div class='wf-box'>Matched chapter 03:12 · rollout risks and owner handoff</div><div class='wf-box'>Meeting summary and action items</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Engineering-Clips</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>OKR-Review</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Onboarding-Ablauf</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Bug-Repro</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>Agentenlesbar</span><span>Transkript + Frames bereit für Freigabelinks</span><div style='flex:1'></div><button>Teilen</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Transkriptsuche</strong><div class='wf-box'>Treffer Kapitel 03:12 · Rollout-Risiken und Owner-Übergabe</div><div class='wf-box'>Meeting-Zusammenfassung und Aufgaben</div></div></div>"
 }
 ```
 
@@ -19,7 +19,7 @@ Denken Sie an Loom + Granola + Wispr Flow in einer App – aber der Agent ist ei
 
 ```an-diagram title="Erfassen, transkribieren, wiederverwenden" summary="Drei Eroberungsarten landen in einer Bibliothek; Der Agent transkribiert, betitelt und fasst zusammen, dann ist jedes Transkript durchsuchbar und kann geteilt werden."
 {
-  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">Screen recording</div><div class=\"diagram-node\">Calendar meeting</div><div class=\"diagram-node\">Fn-hold dictation</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>One library<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">title · summary · chapters</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">Search</div><div class=\"diagram-pill\">Teilen</div><div class=\"diagram-pill\">Agent-readable links</div></div></div>",
+  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">Bildschirmaufnahme</div><div class=\"diagram-node\">Kalendermeeting</div><div class=\"diagram-node\">Fn-halten-Diktat</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Eine Bibliothek<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">Titel · Zusammenfassung · Kapitel</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">Suchen</div><div class=\"diagram-pill\">Teilen</div><div class=\"diagram-pill\">Agentenlesbar links</div></div></div>",
   "css": ".diagram-clips{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-clips .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-clips .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-clips .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -91,11 +91,11 @@ gibt nur einen abspielbaren Slack `video`-Block für fertige, öffentliche Clips
 Passwort, Ablauftreffer, Archivmarkierung oder Papierkorbmarkierung. Andere Clips erhalten weiterhin das
 Normale Share-Seitentitel-/Miniaturbild-Metadaten und erfordern das Öffnen von Clips.
 
-```an-api title="Agent context entry point"
+```an-api title="Einstiegspunkt für den Agentenkontext"
 {
   "method": "GET",
   "path": "/api/agent-context.json",
-  "summary": "Compact, agent-readable description of a shared clip",
+  "summary": "Kompakte, für Agenten lesbare Beschreibung eines freigegebenen Clips",
   "description": "Returns clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript and frame APIs. Advertised by the public share page so a text- or image-only agent can understand a recording without ingesting raw video.",
   "auth": "Same public / password / expiry rules as the share page",
   "params": [
@@ -107,11 +107,11 @@ Normale Share-Seitentitel-/Miniaturbild-Metadaten und erfordern das Öffnen von 
 }
 ```
 
-```an-api title="Timestamped transcript"
+```an-api title="Transkript mit Zeitstempel"
 {
   "method": "GET",
   "path": "/api/agent-transcript.json",
-  "summary": "Timestamped transcript segments for a shared clip",
+  "summary": "Transkript mit Zeitstempel segments for a shared clip",
   "params": [
     { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
   ],
@@ -121,11 +121,11 @@ Normale Share-Seitentitel-/Miniaturbild-Metadaten und erfordern das Öffnen von 
 }
 ```
 
-```an-api title="Frame at a timestamp"
+```an-api title="Frame mit Zeitstempel"
 {
   "method": "GET",
   "path": "/api/agent-frame.jpg",
-  "summary": "A JPEG frame extracted from the video at an original-video timestamp",
+  "summary": "Ein JPEG-Frame, der mit einem Originalvideo-Zeitstempel aus dem Video extrahiert wurde",
   "params": [
     { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" },
     { "name": "atMs", "in": "query", "type": "integer", "required": true, "description": "Original-video timestamp in milliseconds" }
@@ -251,7 +251,7 @@ der Fallback, wenn die App nicht installiert ist.
 
 Alle Daten befinden sich in SQL über Drizzle ORM. Schema: `templates/clips/server/db/schema.ts`. Aufzeichnungen, Besprechungen, Diktate, Kalenderkonten und Vokabeln tragen alle den Standard `ownableColumns` und verfügen über eine entsprechende Framework-Freigabentabelle, sodass sie in das Freigabemodell pro Benutzer/pro Organisation passen.
 
-```an-schema title="Clips core data model" summary="recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
+```an-schema title="Clips Kerndatenmodell" summary="recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
 {
   "entities": [
     {
@@ -263,15 +263,15 @@ Alle Daten befinden sich in SQL über Drizzle ORM. Schema: `templates/clips/serv
         { "name": "title", "type": "text" },
         { "name": "video_url", "type": "text", "note": "plus format / size / duration / thumbnails" },
         { "name": "status", "type": "text" },
-        { "name": "edits_json", "type": "text", "note": "Non-destructive edits" },
+        { "name": "edits_json", "type": "text", "note": "Zerstörungsfreie Bearbeitungen" },
         { "name": "chapters_json", "type": "text", "nullable": true },
-        { "name": "password", "type": "text", "nullable": true, "note": "Privacy: password / expiry" }
+        { "name": "password", "type": "text", "nullable": true, "note": "Datenschutz: Passwort / Ablauf" }
       ]
     },
     {
       "id": "recording_transcripts",
       "name": "recording_transcripts",
-      "note": "Split out so the library and transcript views render fast",
+      "note": "Aufteilen, damit die Bibliotheks- und Transkriptansichten schnell gerendert werden",
       "fields": [
         { "name": "recording_id", "type": "text", "fk": "recordings.id" },
         { "name": "segments_json", "type": "text", "note": "{ startMs, endMs, text }" },
@@ -298,9 +298,9 @@ Alle Daten befinden sich in SQL über Drizzle ORM. Schema: `templates/clips/serv
       "note": "Push-to-talk dictation history; ownableColumns",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
-        { "name": "full_text", "type": "text", "note": "Raw" },
+        { "name": "full_text", "type": "text", "note": "Roh" },
         { "name": "cleaned_text", "type": "text", "nullable": true },
-        { "name": "source", "type": "text", "note": "fn-hold, etc." },
+        { "name": "source", "type": "text", "note": "fn-hold usw." },
         { "name": "target_app", "type": "text", "nullable": true }
       ]
     }

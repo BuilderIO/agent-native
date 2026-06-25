@@ -28,7 +28,7 @@ description: "Dispatch를 ID 기관으로 사용하여 ID 페더레이션을 통
 
 ```an-diagram title="ID 페더레이션 흐름" summary="Dispatch은 사람을 인증하고 확인된 이메일이라는 단기간 서명된 주장을 반환합니다. 앱은 이메일로 연결되며 자체 로컬 세션을 시작합니다."
 {
-  "html": "<div class=\"diagram-sso\"><div class=\"diagram-card\" data-rough><strong>Client app</strong><small class=\"diagram-muted\">own user store</small></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill\">authorize</span></div><div class=\"diagram-card\" data-rough><strong>Dispatch</strong><small class=\"diagram-muted\">identity authority</small><span class=\"diagram-pill accent\">authenticates human</span></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill accent\">302 + signed JWT</span></div><div class=\"diagram-card\" data-rough><strong>App callback</strong><small class=\"diagram-muted\">verify signature · scope:identity · exp &le; 2 min</small><span class=\"diagram-pill ok\">JIT-link by email</span><span class=\"diagram-pill ok\">mint local session</span></div></div>",
+  "html": "<div class=\"diagram-sso\"><div class=\"diagram-card\" data-rough><strong>클라이언트 앱</strong><small class=\"diagram-muted\">own user store</small></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill\">authorize</span></div><div class=\"diagram-card\" data-rough><strong>Dispatch</strong><small class=\"diagram-muted\">identity authority</small><span class=\"diagram-pill accent\">authenticates human</span></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill accent\">302 + signed JWT</span></div><div class=\"diagram-card\" data-rough><strong>앱 콜백</strong><small class=\"diagram-muted\">verify signature · scope:identity · exp &le; 2 min</small><span class=\"diagram-pill ok\">이메일 기반 JIT 연결</span><span class=\"diagram-pill ok\">mint local session</span></div></div>",
   "css": ".diagram-sso{display:flex;align-items:stretch;gap:12px;flex-wrap:wrap}.diagram-sso .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px}.diagram-sso .diagram-step{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}.diagram-sso .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -103,7 +103,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 ```an-callout
 {
   "tone": "success",
-  "body": "**Safe to enable, safe to revert.** Identity writes are **additive only** — an existing same-email account is reused untouched, and a new email just inserts a fresh row. There is no schema change and nothing to migrate, so flipping `AGENT_NATIVE_IDENTITY_HUB_URL` on or off is fully reversible at any time, per app."
+  "body": "**활성화해도 안전하고 되돌려도 안전합니다.**신원 쓰기는**추가만 가능합니다**— 기존의 동일한 이메일 계정은 그대로 재사용되며 새 이메일은 새로운 행을 삽입합니다. 스키마 변경이나 마이그레이션할 사항이 없으므로 `AGENT_NATIVE_IDENTITY_HUB_URL` 켜기 또는 끄기를 앱별로 언제든지 완전히 되돌릴 수 있습니다."
 }
 ```
 
@@ -111,7 +111,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 
 ```an-diagram title="JIT-link 결정" summary="연결은 확인된 이메일에 입력되며 추가로만 이루어집니다. 기존 계정은 변경 없이 재사용되고, 새 이메일은 새로운 로컬 사용자를 생성합니다."
 {
-  "html": "<div class=\"diagram-jit\"><div class=\"diagram-node\" data-rough>Verified email<br><small class=\"diagram-muted\">from signed identity JWT</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-branch\"><div class=\"diagram-box\" data-rough>Local user exists?<span class=\"diagram-pill ok\">yes &rarr; reuse unchanged</span><span class=\"diagram-pill accent\">no &rarr; create local user</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Mint normal local session</div></div></div>",
+  "html": "<div class=\"diagram-jit\"><div class=\"diagram-node\" data-rough>확인된 이메일<br><small class=\"diagram-muted\">서명된 identity JWT에서</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-branch\"><div class=\"diagram-box\" data-rough>Local user exists?<span class=\"diagram-pill ok\">yes &rarr; reuse unchanged</span><span class=\"diagram-pill accent\">no &rarr; create local user</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>일반 로컬 세션 발급</div></div></div>",
   "css": ".diagram-jit{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jit .diagram-node{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-jit .diagram-branch{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jit .diagram-box{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-jit .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

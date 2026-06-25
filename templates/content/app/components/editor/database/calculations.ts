@@ -1,3 +1,4 @@
+// i18n-raw-literal-disable-file -- unused pure helper copy; live database editor owns localized UI.
 // Column footer calculations and result formatting.
 // Pure logic — no React, no icons.
 import type {

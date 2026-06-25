@@ -3,6 +3,7 @@ import {
   VisibilityBadge,
   useActionQuery,
   useActionMutation,
+  useT,
 } from "@agent-native/core/client";
 import {
   IconCheckbox,
@@ -104,6 +105,7 @@ interface DesignSystemData {
 }
 
 export default function DesignSystems() {
+  const t = useT();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -122,7 +124,7 @@ export default function DesignSystems() {
   const deleteMutation = useActionMutation("delete-design-system");
   const updateMutation = useActionMutation("update-design-system");
 
-  const designSystems: DesignSystem[] = data?.designSystems ?? [];
+  const designSystems = data?.designSystems ?? [];
   const selectedDesignSystemId = searchParams.get("designSystemId");
   const selectedDesignSystem = useMemo(
     () =>
@@ -256,13 +258,13 @@ export default function DesignSystems() {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-design-systems"],
         });
-        toast.error("Could not delete design system", {
+        toast.error(t("designSystems.deleteError"), {
           description:
-            error instanceof Error ? error.message : "Something went wrong",
+            error instanceof Error ? error.message : t("common.genericError"),
         });
       },
     });
-  }, [deleteId, queryClient, deleteMutation]);
+  }, [deleteId, queryClient, deleteMutation, t]);
 
   const handleUpdateDetails = useCallback(
     (
@@ -294,21 +296,21 @@ export default function DesignSystems() {
 
       updateMutation.mutate({ id, ...updates } as any, {
         onSuccess: () => {
-          toast.success("Design system updated");
+          toast.success(t("designSystems.updateSuccess"));
         },
         onError: (error) => {
           queryClient.setQueryData(
             ["action", "list-design-systems", undefined],
             previous,
           );
-          toast.error("Could not update design system", {
+          toast.error(t("designSystems.updateError"), {
             description:
-              error instanceof Error ? error.message : "Something went wrong",
+              error instanceof Error ? error.message : t("common.genericError"),
           });
         },
       });
     },
-    [queryClient, updateMutation],
+    [queryClient, updateMutation, t],
   );
 
   const handleBulkDelete = useCallback(() => {
@@ -340,12 +342,12 @@ export default function DesignSystems() {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-design-systems"],
         });
-        toast.error("Could not delete selected design systems", {
+        toast.error(t("designSystems.bulkDeleteError"), {
           description:
-            error instanceof Error ? error.message : "Something went wrong",
+            error instanceof Error ? error.message : t("common.genericError"),
         });
       });
-  }, [selectedSystemIds, queryClient, exitSelectionMode, deleteMutation]);
+  }, [selectedSystemIds, queryClient, exitSelectionMode, deleteMutation, t]);
 
   const parseData = (dataStr: string): DesignSystemData | null => {
     try {
@@ -355,7 +357,7 @@ export default function DesignSystems() {
     }
   };
 
-  useSetPageTitle("Design Systems");
+  useSetPageTitle(t("navigation.designSystems"));
 
   useSetHeaderActions(
     <div className="flex items-center gap-2">
@@ -367,7 +369,9 @@ export default function DesignSystems() {
           className="cursor-pointer"
         >
           <IconCheckbox className="w-3.5 h-3.5" />
-          {isSelectionMode ? "Done" : "Select"}
+          {isSelectionMode
+            ? t("designSystems.actions.done")
+            : t("designSystems.actions.select")}
         </Button>
       ) : null}
       <Button
@@ -376,7 +380,7 @@ export default function DesignSystems() {
         className="cursor-pointer"
       >
         <IconPlus className="w-3.5 h-3.5" />
-        New Design System
+        {t("designSystems.actions.new")}
       </Button>
     </div>,
   );
@@ -397,7 +401,7 @@ export default function DesignSystems() {
                     <span className="font-medium text-foreground">
                       {selectedSystemCount}
                     </span>{" "}
-                    selected
+                    {t("designSystems.selectedLabel")}
                   </div>
                   <div className="flex items-center gap-1">
                     <Tooltip>
@@ -413,8 +417,8 @@ export default function DesignSystems() {
                       </TooltipTrigger>
                       <TooltipContent>
                         {allSystemsSelected
-                          ? "Clear all design systems"
-                          : "Select all design systems"}
+                          ? t("designSystems.actions.clearAll")
+                          : t("designSystems.actions.selectAll")}
                       </TooltipContent>
                     </Tooltip>
                     <Tooltip>
@@ -428,7 +432,9 @@ export default function DesignSystems() {
                           <IconX className="w-4 h-4" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Clear selection</TooltipContent>
+                      <TooltipContent>
+                        {t("designSystems.actions.clearSelection")}
+                      </TooltipContent>
                     </Tooltip>
                     <Button
                       variant="destructive"
@@ -438,7 +444,7 @@ export default function DesignSystems() {
                       className="cursor-pointer"
                     >
                       <IconTrash className="w-3.5 h-3.5" />
-                      Delete
+                      {t("designSystems.actions.delete")}
                     </Button>
                   </div>
                 </div>
@@ -456,10 +462,10 @@ export default function DesignSystems() {
                   </div>
                   <div className="p-4">
                     <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
-                      New Design System
+                      {t("designSystems.actions.new")}
                     </h3>
                     <div className="text-xs text-muted-foreground/70 mt-1">
-                      Set up your brand
+                      {t("designSystems.newCardDescription")}
                     </div>
                   </div>
                 </button>
@@ -523,7 +529,7 @@ export default function DesignSystems() {
                             </h3>
                             {ds.isDefault && (
                               <span className="text-[10px] text-[#609FF8] font-medium">
-                                Default
+                                {t("designSystems.defaultBadge")}
                               </span>
                             )}
                           </div>
@@ -555,11 +561,17 @@ export default function DesignSystems() {
                                   toggleSystemSelection(ds.id)
                                 }
                                 onClick={(event) => event.stopPropagation()}
-                                aria-label={`Select ${ds.title}`}
+                                aria-label={t("designSystems.selectAria", {
+                                  title: ds.title,
+                                })}
                                 className="h-5 w-5 border-white/60 bg-black/60 text-white data-[state=checked]:border-[#609FF8] data-[state=checked]:bg-[#609FF8]"
                               />
                             </TooltipTrigger>
-                            <TooltipContent>{`Select ${ds.title}`}</TooltipContent>
+                            <TooltipContent>
+                              {t("designSystems.selectAria", {
+                                title: ds.title,
+                              })}
+                            </TooltipContent>
                           </Tooltip>
                         </div>
                       ) : (
@@ -581,8 +593,8 @@ export default function DesignSystems() {
                               </TooltipTrigger>
                               <TooltipContent>
                                 {ds.isDefault
-                                  ? "Currently default"
-                                  : "Set as default"}
+                                  ? t("designSystems.currentlyDefault")
+                                  : t("designSystems.actions.setDefault")}
                               </TooltipContent>
                             </Tooltip>
                           )}
@@ -598,7 +610,10 @@ export default function DesignSystems() {
                                     variant="ghost"
                                     size="icon"
                                     className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
-                                    aria-label={`More actions for ${ds.title}`}
+                                    aria-label={t(
+                                      "designSystems.moreActionsAria",
+                                      { title: ds.title },
+                                    )}
                                   >
                                     <IconDots className="w-3.5 h-3.5 text-foreground/70" />
                                   </Button>
@@ -609,7 +624,7 @@ export default function DesignSystems() {
                                     className="text-red-400 focus:text-red-400 cursor-pointer"
                                   >
                                     <IconTrash className="w-3.5 h-3.5 me-2" />
-                                    Delete
+                                    {t("designSystems.actions.delete")}
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -639,32 +654,28 @@ export default function DesignSystems() {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {bulkDeleteOpen
-                ? `Delete ${selectedSystemCount} ${
-                    selectedSystemCount === 1
-                      ? "Design System"
-                      : "Design Systems"
-                  }?`
-                : "Delete Design System?"}
+                ? t("designSystems.deleteDialog.bulkTitle", {
+                    count: selectedSystemCount,
+                  })
+                : t("designSystems.deleteDialog.title")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {bulkDeleteOpen
-                ? `This will permanently delete ${
-                    selectedSystemCount === 1
-                      ? "this design system and unlink it from any designs that use it"
-                      : `these ${selectedSystemCount} design systems and unlink them from any designs that use them`
-                  }. This action cannot be undone.`
-                : "This will permanently delete this design system and unlink it from any designs that use it. This action cannot be undone."}
+                ? t("designSystems.deleteDialog.bulkDescription", {
+                    count: selectedSystemCount,
+                  })
+                : t("designSystems.deleteDialog.description")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="cursor-pointer">
-              Cancel
+              {t("designSystems.actions.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={bulkDeleteOpen ? handleBulkDelete : handleDelete}
               className="bg-red-600 hover:bg-red-700 cursor-pointer"
             >
-              Delete
+              {t("designSystems.actions.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -706,6 +717,7 @@ function DesignSystemDetailsSheet({
     },
   ) => void;
 }) {
+  const t = useT();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
@@ -749,8 +761,7 @@ function DesignSystemDetailsSheet({
         <SheetHeader className="pr-8">
           <SheetTitle>{designSystem.title}</SheetTitle>
           <SheetDescription>
-            Review the saved tokens and update the details agents use when they
-            apply this design system.
+            {t("designSystems.details.description")}
           </SheetDescription>
         </SheetHeader>
 
@@ -758,7 +769,9 @@ function DesignSystemDetailsSheet({
           <section className="space-y-3">
             <div className="grid gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="design-system-title">Title</Label>
+                <Label htmlFor="design-system-title">
+                  {t("designSystems.details.titleLabel")}
+                </Label>
                 <Input
                   id="design-system-title"
                   value={title}
@@ -768,7 +781,9 @@ function DesignSystemDetailsSheet({
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="design-system-description">Description</Label>
+                <Label htmlFor="design-system-description">
+                  {t("designSystems.details.descriptionLabel")}
+                </Label>
                 <Textarea
                   id="design-system-description"
                   value={description}
@@ -786,11 +801,10 @@ function DesignSystemDetailsSheet({
           <section className="space-y-3 border-t border-border pt-6">
             <div>
               <h3 className="text-sm font-medium text-foreground">
-                Custom instructions
+                {t("designSystems.details.customInstructionsTitle")}
               </h3>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Durable guidance the agent reuses whenever this system is linked
-                to a design.
+                {t("designSystems.details.customInstructionsDescription")}
               </p>
             </div>
             <Textarea
@@ -798,7 +812,7 @@ function DesignSystemDetailsSheet({
               onChange={(event) => setCustomInstructions(event.target.value)}
               readOnly={!canEdit}
               rows={5}
-              placeholder="No custom instructions saved yet."
+              placeholder={t("designSystems.details.noCustomInstructions")}
               className="bg-accent/50"
             />
           </section>
@@ -811,7 +825,7 @@ function DesignSystemDetailsSheet({
             onClick={() => onUseAsSource(designSystem.id)}
             className="cursor-pointer"
           >
-            Use as starting point
+            {t("designSystems.details.useAsStartingPoint")}
           </Button>
           {canEdit ? (
             <Button
@@ -826,7 +840,9 @@ function DesignSystemDetailsSheet({
               disabled={!trimmedTitle || !hasChanges || isSaving}
               className="cursor-pointer"
             >
-              {isSaving ? "Saving..." : "Save changes"}
+              {isSaving
+                ? t("designSystems.details.saving")
+                : t("designSystems.details.saveChanges")}
             </Button>
           ) : null}
         </SheetFooter>
@@ -842,22 +858,25 @@ function TokenPreview({
   data: DesignSystemData | null;
   assets: Array<{ name?: string; url?: string; variant?: string }>;
 }) {
-  const colors = getColorTokens(data);
-  const typeTokens = getTypographyTokens(data);
-  const detailTokens = getDetailTokens(data, assets);
+  const t = useT();
+  const colors = getColorTokens(data, t);
+  const typeTokens = getTypographyTokens(data, t);
+  const detailTokens = getDetailTokens(data, assets, t);
 
   return (
     <section className="space-y-6 border-t border-border pt-6">
       <div>
-        <h3 className="text-sm font-medium text-foreground">Token preview</h3>
+        <h3 className="text-sm font-medium text-foreground">
+          {t("designSystems.tokenPreview.title")}
+        </h3>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          A snapshot of the colors, type, spacing, and assets currently stored.
+          {t("designSystems.tokenPreview.description")}
         </p>
       </div>
 
       <div className="space-y-3">
         <h4 className="text-xs font-medium uppercase text-muted-foreground">
-          Colors
+          {t("designSystems.tokenPreview.colors")}
         </h4>
         {colors.length > 0 ? (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -883,16 +902,22 @@ function TokenPreview({
           </div>
         ) : (
           <EmptyPreviewLine icon={<IconPalette className="h-4 w-4" />}>
-            No color tokens saved.
+            {t("designSystems.tokenPreview.noColors")}
           </EmptyPreviewLine>
         )}
       </div>
 
       {typeTokens.length > 0 ? (
-        <PreviewList title="Typography" items={typeTokens} />
+        <PreviewList
+          title={t("designSystems.tokenPreview.typography")}
+          items={typeTokens}
+        />
       ) : null}
       {detailTokens.length > 0 ? (
-        <PreviewList title="Details" items={detailTokens} />
+        <PreviewList
+          title={t("designSystems.tokenPreview.details")}
+          items={detailTokens}
+        />
       ) : null}
     </section>
   );
@@ -968,30 +993,65 @@ function parseDesignSystemAssets(
   }
 }
 
-function getColorTokens(data: DesignSystemData | null) {
+type DesignT = ReturnType<typeof useT>;
+
+function getColorTokens(data: DesignSystemData | null, t: DesignT) {
   const colors = data?.colors;
   if (!colors) return [];
   return [
-    { label: "Primary", value: colors.primary },
-    { label: "Secondary", value: colors.secondary },
-    { label: "Accent", value: colors.accent },
-    { label: "Background", value: colors.background },
-    { label: "Surface", value: colors.surface },
-    { label: "Text", value: colors.text },
-    { label: "Muted text", value: colors.textMuted },
+    {
+      label: t("designSystems.tokenPreview.colorLabels.primary"),
+      value: colors.primary,
+    },
+    {
+      label: t("designSystems.tokenPreview.colorLabels.secondary"),
+      value: colors.secondary,
+    },
+    {
+      label: t("designSystems.tokenPreview.colorLabels.accent"),
+      value: colors.accent,
+    },
+    {
+      label: t("designSystems.tokenPreview.colorLabels.background"),
+      value: colors.background,
+    },
+    {
+      label: t("designSystems.tokenPreview.colorLabels.surface"),
+      value: colors.surface,
+    },
+    {
+      label: t("designSystems.tokenPreview.colorLabels.text"),
+      value: colors.text,
+    },
+    {
+      label: t("designSystems.tokenPreview.colorLabels.mutedText"),
+      value: colors.textMuted,
+    },
   ].filter((item): item is { label: string; value: string } =>
     Boolean(item.value),
   );
 }
 
-function getTypographyTokens(data: DesignSystemData | null) {
+function getTypographyTokens(data: DesignSystemData | null, t: DesignT) {
   const typography = data?.typography;
   if (!typography) return [];
   return [
-    { label: "Heading font", value: typography.headingFont },
-    { label: "Body font", value: typography.bodyFont },
-    { label: "Heading weight", value: typography.headingWeight },
-    { label: "Body weight", value: typography.bodyWeight },
+    {
+      label: t("designSystems.tokenPreview.typeLabels.headingFont"),
+      value: typography.headingFont,
+    },
+    {
+      label: t("designSystems.tokenPreview.typeLabels.bodyFont"),
+      value: typography.bodyFont,
+    },
+    {
+      label: t("designSystems.tokenPreview.typeLabels.headingWeight"),
+      value: typography.headingWeight,
+    },
+    {
+      label: t("designSystems.tokenPreview.typeLabels.bodyWeight"),
+      value: typography.bodyWeight,
+    },
   ].filter((item): item is { label: string; value: string } =>
     Boolean(item.value),
   );
@@ -1000,20 +1060,31 @@ function getTypographyTokens(data: DesignSystemData | null) {
 function getDetailTokens(
   data: DesignSystemData | null,
   assets: Array<{ name?: string; url?: string; variant?: string }>,
+  t: DesignT,
 ) {
   const spacing = data?.spacing ?? {};
   const borders = data?.borders ?? {};
   const defaults = data?.defaults ?? {};
   const logos = data?.logos ?? [];
   return [
-    ...objectPreviewItems("Spacing", spacing),
-    ...objectPreviewItems("Borders", borders),
-    ...objectPreviewItems("Defaults", defaults),
+    ...objectPreviewItems(t("designSystems.tokenPreview.spacing"), spacing),
+    ...objectPreviewItems(t("designSystems.tokenPreview.borders"), borders),
+    ...objectPreviewItems(t("designSystems.tokenPreview.defaults"), defaults),
     logos.length > 0
-      ? { label: "Logos", value: `${logos.length} saved` }
+      ? {
+          label: t("designSystems.tokenPreview.logos"),
+          value: t("designSystems.tokenPreview.savedCount", {
+            count: logos.length,
+          }),
+        }
       : null,
     assets.length > 0
-      ? { label: "Assets", value: `${assets.length} saved` }
+      ? {
+          label: t("designSystems.tokenPreview.assets"),
+          value: t("designSystems.tokenPreview.savedCount", {
+            count: assets.length,
+          }),
+        }
       : null,
   ].filter((item): item is { label: string; value: string } => Boolean(item));
 }
@@ -1064,22 +1135,22 @@ function LoadingSkeleton() {
 }
 
 function EmptyState() {
+  const t = useT();
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
         <IconPalette className="w-7 h-7 text-[#609FF8]" />
       </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
-        Create your first design system
+        {t("designSystems.empty.title")}
       </h2>
       <p className="text-sm text-muted-foreground max-w-sm mb-8 leading-relaxed">
-        Maintain consistent branding across all your designs with shared colors,
-        typography, and assets.
+        {t("designSystems.empty.description")}
       </p>
       <Button asChild className="cursor-pointer">
         <Link to="/design-systems/setup">
           <IconPlus className="w-4 h-4" />
-          New Design System
+          {t("designSystems.actions.new")}
         </Link>
       </Button>
     </div>

@@ -1,4 +1,4 @@
-import { useActionMutation } from "@agent-native/core/client";
+import { useActionMutation, useT } from "@agent-native/core/client";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Weight } from "@shared/types";
 import { IconPlus, IconScale } from "@tabler/icons-react";
@@ -42,6 +42,7 @@ export function AddWeightDialog({
   isOpen: controlledOpen,
   currentDate,
 }: AddWeightDialogProps) {
+  const t = useT();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
   const setOpen =
@@ -64,20 +65,20 @@ export function AddWeightDialog({
 
   const createMutation = useActionMutation("log-weight", {
     onSuccess: () => {
-      toast.success("Weight logged");
+      toast.success(t("weight.logged"));
       setOpen(false);
       form.reset();
     },
-    onError: () => toast.error("Failed to log weight"),
+    onError: () => toast.error(t("weight.logFailed")),
   });
 
   const updateMutation = useActionMutation("update-weight", {
     onSuccess: () => {
-      toast.success("Weight updated");
+      toast.success(t("weight.updated"));
       setOpen(false);
       form.reset();
     },
-    onError: () => toast.error("Failed to update weight"),
+    onError: () => toast.error(t("weight.updateFailed")),
   });
 
   const onSubmit = (data: FormData) => {
@@ -123,7 +124,7 @@ export function AddWeightDialog({
       {!isEditing && (
         <DialogTrigger asChild>
           <Button size="sm" className="gap-1.5 h-8 rounded-md shadow-sm">
-            <IconPlus className="h-3.5 w-3.5" /> Log Weight
+            <IconPlus className="h-3.5 w-3.5" /> {t("weight.log")}
           </Button>
         </DialogTrigger>
       )}
@@ -131,23 +132,23 @@ export function AddWeightDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <IconScale className="h-5 w-5" />
-            {isEditing ? "Edit Weight" : "Log Weight"}
+            {isEditing ? t("weight.edit") : t("weight.log")}
           </DialogTitle>
           <DialogDescription className="sr-only">
             {isEditing
-              ? "Update the selected weight entry."
-              : "Log a weight entry with optional notes."}
+              ? t("weight.updateDescription")
+              : t("weight.logDescription")}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="weight">Weight (lbs)</Label>
+            <Label htmlFor="weight">{t("weight.weightLbs")}</Label>
             <Input
               id="weight"
               type="number"
               step="0.1"
               {...form.register("weight")}
-              placeholder="e.g., 165.5"
+              placeholder={t("weight.weightPlaceholder")}
               autoFocus
             />
             {form.formState.errors.weight && (
@@ -157,11 +158,11 @@ export function AddWeightDialog({
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="notes">Notes (optional)</Label>
+            <Label htmlFor="notes">{t("weight.notesOptional")}</Label>
             <Textarea
               id="notes"
               {...form.register("notes")}
-              placeholder="e.g., Morning weigh-in..."
+              placeholder={t("weight.notesPlaceholder")}
               className="min-h-[60px]"
             />
           </div>
@@ -171,10 +172,10 @@ export function AddWeightDialog({
             disabled={createMutation.isPending || updateMutation.isPending}
           >
             {createMutation.isPending || updateMutation.isPending
-              ? "Saving..."
+              ? t("common.saving")
               : isEditing
-                ? "Save Changes"
-                : "Log Weight"}
+                ? t("common.saveChanges")
+                : t("weight.log")}
           </Button>
         </form>
       </DialogContent>

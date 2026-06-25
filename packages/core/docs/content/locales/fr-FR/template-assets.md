@@ -10,7 +10,7 @@ Assets est un espace de travail natif pour les agents permettant de créer et de
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Launch brand</h1><span class='wf-pill accent'>Blog heroes</span><span class='wf-pill'>Product shots</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Create brand media</strong><div class='wf-box'>Three homepage hero options using the approved logo and product references.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>Web export</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>Hero A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Reference set</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Logo safe</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Marque de lancement</h1><span class='wf-pill accent'>Héros de blog</span><span class='wf-pill'>Visuels produit</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Créer des médias de marque</strong><div class='wf-box'>Trois options de hero de page d’accueil utilisant le logo approuvé et les références produit.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>Export web</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>Bloc hero A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Jeu de références</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Logo sûr</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ Lorsque vous ouvrez l'application, la bibliothèque sélectionnée, l'invite, le
 
 ```an-diagram title="Générer, réviser, réutiliser" summary="Les références et les invites alimentent une session de génération et de choix ; Les actifs choisis atterrissent dans une bibliothèque et sont diffusés vers d'autres applications via le sélecteur ou A2A."
 {
-  "html": "<div class=\"diagram-assets\"><div class=\"diagram-col\"><div class=\"diagram-node\">References<br><small class=\"diagram-muted\">logos, product shots, style</small></div><div class=\"diagram-node\">Invite<br><small class=\"diagram-muted\">chat or Generate controls</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Generation session</span><small class=\"diagram-muted\">image &amp; video candidates · audit log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Library</span><small class=\"diagram-muted\">chosen, brand-consistent assets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Picker<br><small class=\"diagram-muted\">iframe / MCP App</small></div><div class=\"diagram-node\">A2A<br><small class=\"diagram-muted\">Slides · Design · Content</small></div></div></div>",
+  "html": "<div class=\"diagram-assets\"><div class=\"diagram-col\"><div class=\"diagram-node\">References<br><small class=\"diagram-muted\">logos, visuels produit, style</small></div><div class=\"diagram-node\">Invite<br><small class=\"diagram-muted\">chat ou commandes Generate</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Session de génération</span><small class=\"diagram-muted\">image &amp; video candidates · audit log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Library</span><small class=\"diagram-muted\">assets choisis et cohérents avec la marque</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Picker<br><small class=\"diagram-muted\">iframe / application MCP</small></div><div class=\"diagram-node\">A2A<br><small class=\"diagram-muted\">Diapositives · Design · Contenu</small></div></div></div>",
   "css": ".diagram-assets{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-assets .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-assets .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-assets .diagram-arrow{font-size:20px;line-height:1}"
 }
 ```
@@ -114,7 +114,7 @@ npx @agent-native/core@latest create my-assets --standalone --template assets
 
 ### Modèle de données
 
-Toutes les données se trouvent dans SQL via Drizzle ORM (les supports binaires se trouvent dans le stockage d'objets ou dans la solution de secours de téléchargement de fichiers local pendant le développement). Schéma : `templates/assets/server/db/schema.ts`. Les bibliothèques proposent le standard `ownableColumns` et une table de partages de framework correspondante, elles s'intègrent donc dans le modèle de partage par utilisateur/par organisation.
+Toutes les données se trouvent dans SQL avec Drizzle ORM (les supports binaires se trouvent dans le stockage d'objets ou dans la solution de secours de téléchargement de fichiers local pendant le développement). Schéma : `templates/assets/server/db/schema.ts`. Les bibliothèques proposent le standard `ownableColumns` et une table de partages de framework correspondante, elles s'intègrent donc dans le modèle de partage par utilisateur/par organisation.
 
 Remarque : les noms de table SQL conservent l'ancien préfixe `image_*` datant de l'époque où l'application s'appelait Images. Ils couvrent également les vidéos et d'autres médias.
 
@@ -130,52 +130,52 @@ Remarque : les noms de table SQL conservent l'ancien préfixe `image_*` datant 
 | `image_assets`                   | L'enregistrement de l'élément : type de média, rôle, statut, titre/description/texte alternatif, invite, modèle, dimensions, type MIME, clés d'objet/vignette et lignée                                                                           |
 | `image_generation_runs`          | Le journal d'audit de génération : invite, invite compilée, modèle, références, statut, erreurs et `source` (`chat` / `ui` / `a2a`) qui l'a déclenché                                                                                             |
 
-```an-schema title="Assets data model" summary="Libraries are the ownable container; collections, folders, and presets organize them. Sessions drive generate-and-choose; assets and runs hold output and the audit log. Table names keep the legacy image_* prefix but cover all media."
+```an-schema title="Modèle de données Assets" summary="Les bibliothèques sont le conteneur possédé ; collections, dossiers et presets les organisent. Les sessions pilotent la génération et le choix ; les assets et les runs conservent la sortie et le journal d’audit. Les noms de table gardent le préfixe historique image_* mais couvrent tous les médias."
 {
   "entities": [
-    { "id": "library", "name": "image_libraries", "note": "Top-level ownable container", "fields": [
+    { "id": "library", "name": "image_libraries", "note": "Conteneur propriétaire de premier niveau", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "custom_instructions", "type": "text", "nullable": true },
       { "name": "style_brief", "type": "text", "nullable": true },
       { "name": "logo_asset_id", "type": "id", "fk": "image_assets.id", "nullable": true },
       { "name": "archived", "type": "boolean" }
     ] },
-    { "id": "library_shares", "name": "image_library_shares", "note": "Framework shares table", "fields": [
+    { "id": "library_shares", "name": "image_library_shares", "note": "Tableau des partages du framework", "fields": [
       { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
       { "name": "role", "type": "text", "note": "viewer / editor / admin" }
     ] },
-    { "id": "collections", "name": "image_collections", "note": "Style/category groupings", "fields": [
+    { "id": "collections", "name": "image_collections", "note": "Groupements Style/category", "fields": [
       { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
       { "name": "style_brief", "type": "text", "nullable": true },
       { "name": "prompt_template", "type": "text", "nullable": true }
     ] },
-    { "id": "folders", "name": "asset_folders", "note": "Nestable folders", "fields": [
+    { "id": "folders", "name": "asset_folders", "note": "Dossiers emboîtables", "fields": [
       { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
       { "name": "parent_id", "type": "id", "fk": "asset_folders.id", "nullable": true }
     ] },
-    { "id": "presets", "name": "image_generation_presets", "note": "Saved generation recipes", "fields": [
+    { "id": "presets", "name": "image_generation_presets", "note": "Recettes de génération enregistrées", "fields": [
       { "name": "media_type", "type": "text" },
       { "name": "prompt_template", "type": "text" },
       { "name": "model", "type": "text" }
     ] },
-    { "id": "sessions", "name": "image_generation_sessions", "note": "Iterative generate-and-choose", "fields": [
+    { "id": "sessions", "name": "image_generation_sessions", "note": "Générer et choisir itérativement", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "status", "type": "text" },
       { "name": "active_asset_id", "type": "id", "fk": "image_assets.id", "nullable": true }
     ] },
-    { "id": "session_items", "name": "image_generation_session_items", "note": "Candidate assets in a session", "fields": [
+    { "id": "session_items", "name": "image_generation_session_items", "note": "Actifs du candidat dans une session", "fields": [
       { "name": "session_id", "type": "id", "fk": "image_generation_sessions.id" },
       { "name": "asset_id", "type": "id", "fk": "image_assets.id" },
       { "name": "role", "type": "text" }
     ] },
-    { "id": "assets", "name": "image_assets", "note": "The asset record", "fields": [
+    { "id": "assets", "name": "image_assets", "note": "Le dossier d'actif", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "media_type", "type": "text", "note": "image / video" },
       { "name": "status", "type": "text" },
       { "name": "prompt", "type": "text", "nullable": true },
       { "name": "object_key", "type": "text", "nullable": true }
     ] },
-    { "id": "runs", "name": "image_generation_runs", "note": "Generation audit log", "fields": [
+    { "id": "runs", "name": "image_generation_runs", "note": "Journal d'audit de génération", "fields": [
       { "name": "model", "type": "text" },
       { "name": "status", "type": "text" },
       { "name": "source", "type": "text", "note": "chat / ui / a2a" }
@@ -253,25 +253,25 @@ La compétence d'application Actifs porte l'ID d'application `assets` et héberg
 `https://assets.agent-native.com/_agent-native/mcp`.
 
 ```bash
-# Easiest hosted install: exported skill instructions plus MCP connector.
+# Installation hébergée la plus simple : instructions de compétences exportées et connecteur MCP.
 npx @agent-native/core@latest skills add assets
 
-# Vercel/open Skills CLI install: exported instructions only, no MCP config.
+# Compétences Vercel/open Installation de CLI : instructions exportées uniquement, pas de configuration MCP.
 npx skills@latest add BuilderIO/agent-native --skill assets
 
-# Hosted install: URL-only MCP connector, no shared secrets in skill files.
+# Installation hébergée : connecteur MCP uniquement par URL, aucun secret partagé dans les fichiers de compétences.
 npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
 
-# Local editable launch.
+# Lancement modifiable local.
 npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
 
-# Marketplace package, including Claude Code marketplace and Vercel Labs skills adapters.
+# Package Marketplace, comprenant le marché Claude Code et les adaptateurs de compétences Vercel Labs.
 npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
 
-# Install a local exported Assets bundle with the open skills CLI.
+# Installez un bundle Assets exporté localement avec les compétences ouvertes CLI.
 npx skills@latest add ./dist/assets-skill --skill assets -a codex -y
 
-# Install from the generated Claude Code marketplace adapter.
+# Installez à partir de l'adaptateur de marketplace Claude Code généré.
 claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace
 claude plugin install agent-native-assets@agent-native-apps
 ```

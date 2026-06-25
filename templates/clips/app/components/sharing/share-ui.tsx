@@ -1,4 +1,8 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconBuilding,
   IconCheck,
@@ -46,23 +50,14 @@ export interface SharesResponse {
 
 export type SharesQuery = ReturnType<typeof useActionQuery<SharesResponse>>;
 
-export const VIS_META: Record<
-  Visibility,
-  { label: string; description: string; Icon: typeof IconLock }
-> = {
+export const VIS_META: Record<Visibility, { Icon: typeof IconLock }> = {
   private: {
-    label: "Private",
-    description: "Only people with access can view",
     Icon: IconLock,
   },
   org: {
-    label: "Organization",
-    description: "Anyone in your organization can view",
     Icon: IconBuilding,
   },
   public: {
-    label: "Public",
-    description: "Anyone with the link can view",
     Icon: IconWorld,
   },
 };
@@ -75,10 +70,6 @@ export const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
 
 export function copyToClipboard(value: string): void {
   navigator.clipboard.writeText(value).catch(() => {});
-}
-
-export function cap(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 // ---------------------------------------------------------------------------
@@ -143,6 +134,7 @@ export function ShareCardHeader({
   ownerEmail?: string | null;
   reserveCloseButton?: boolean;
 }) {
+  const t = useT();
   return (
     <div
       className={cn(
@@ -155,7 +147,7 @@ export function ShareCardHeader({
       </div>
       {ownerEmail ? (
         <div className="mt-0.5 truncate text-xs text-muted-foreground">
-          Owner: {ownerEmail}
+          {t("shareUi.owner", { email: ownerEmail })}
         </div>
       ) : null}
     </div>
@@ -180,15 +172,18 @@ export function GeneralAccessSelect({
   /** Override for the "public" visibility description (e.g. Clips comment hint). */
   publicDescription?: string;
 }) {
+  const t = useT();
   const meta = VIS_META[visibility];
   const description =
     visibility === "public" && publicDescription
       ? publicDescription
-      : meta.description;
+      : t(`shareUi.visibility.${visibility}.description`);
 
   return (
     <div>
-      <div className="mb-2 text-xs font-semibold">General access</div>
+      <div className="mb-2 text-xs font-semibold">
+        {t("shareUi.generalAccess")}
+      </div>
       <div className="flex items-center gap-3">
         <span
           aria-hidden
@@ -208,7 +203,7 @@ export function GeneralAccessSelect({
             <SelectContent>
               {(Object.keys(VIS_META) as Visibility[]).map((k) => (
                 <SelectItem key={k} value={k}>
-                  {VIS_META[k].label}
+                  {t(`shareUi.visibility.${k}.label`)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -233,10 +228,11 @@ export function MakePublicCard({
   isPending: boolean;
   onMakePublic: () => void;
 }) {
+  const t = useT();
   return (
     <div className="rounded-md border border-border bg-muted/40 px-3 py-2.5">
       <p className="text-xs text-muted-foreground">
-        This link will only work for people who already have access.
+        {t("shareUi.restrictedLinkDescription")}
       </p>
       <Button
         type="button"
@@ -245,7 +241,7 @@ export function MakePublicCard({
         onClick={onMakePublic}
         disabled={isPending}
       >
-        {isPending ? "Making public…" : "Make public and copy"}
+        {isPending ? t("shareUi.makingPublic") : t("shareUi.makePublicAndCopy")}
       </Button>
     </div>
   );
@@ -264,6 +260,7 @@ export function CopyField({
   value: string;
   disabled?: boolean;
 }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const copy = () => {
     if (disabled) return;
@@ -287,7 +284,7 @@ export function CopyField({
           variant="outline"
           size="icon"
           onClick={copy}
-          aria-label="Copy"
+          aria-label={t("shareUi.copy")}
           disabled={disabled}
           className="h-9 w-9"
         >
@@ -337,6 +334,7 @@ export function SharePeopleTab({
   canManage: boolean;
   onError?: (err: unknown, action: "invite" | "remove") => void;
 }) {
+  const t = useT();
   const share = useActionMutation("share-resource");
   const unshare = useActionMutation("unshare-resource");
 
@@ -346,7 +344,7 @@ export function SharePeopleTab({
   const hasInviteEmail = email.trim().length > 0;
 
   const data = sharesQuery.data;
-  const shares: Share[] = data?.shares ?? [];
+  const shares = data?.shares ?? [];
 
   const handleAdd = () => {
     const trimmed = email.trim().toLowerCase();
@@ -393,7 +391,7 @@ export function SharePeopleTab({
           <div className="flex items-stretch gap-2">
             <Input
               type="email"
-              placeholder="Add people by email"
+              placeholder={t("shareUi.addPeopleByEmail")}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               onKeyDown={(e) => {
@@ -409,7 +407,7 @@ export function SharePeopleTab({
               <SelectContent>
                 {ROLE_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                    {t(`shareUi.roles.${opt.value}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -421,20 +419,24 @@ export function SharePeopleTab({
                 checked={notifyPeople}
                 onCheckedChange={(checked) => setNotifyPeople(checked === true)}
               />
-              Notify people
+              {t("shareUi.notifyPeople")}
             </label>
           ) : null}
         </div>
       ) : null}
 
       <div>
-        <div className="mb-2 text-xs font-semibold">People with access</div>
+        <div className="mb-2 text-xs font-semibold">
+          {t("shareUi.peopleWithAccess")}
+        </div>
         <ul className="flex max-h-56 flex-col gap-1 overflow-y-auto p-0 m-0">
           {data?.ownerEmail ? (
             <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
               <Avatar label={data.ownerEmail} />
               <span className="flex-1 min-w-0 truncate">{data.ownerEmail}</span>
-              <span className="text-xs text-muted-foreground">Owner</span>
+              <span className="text-xs text-muted-foreground">
+                {t("shareUi.ownerRole")}
+              </span>
             </li>
           ) : null}
           {shares.map((s) => (
@@ -445,14 +447,14 @@ export function SharePeopleTab({
               <Avatar label={s.principalId} org={s.principalType === "org"} />
               <span className="flex-1 min-w-0 truncate">{s.principalId}</span>
               <span className="text-xs text-muted-foreground">
-                {cap(s.role)}
+                {t(`shareUi.roles.${s.role}`)}
               </span>
               {canManage ? (
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  aria-label="Remove"
+                  aria-label={t("shareUi.remove")}
                   onClick={() => handleRemove(s)}
                   className="h-7 w-7"
                 >
@@ -463,7 +465,7 @@ export function SharePeopleTab({
           ))}
           {!shares.length && !data?.ownerEmail ? (
             <li className="px-1 py-1.5 text-sm text-muted-foreground">
-              No one has access yet.
+              {t("shareUi.noAccessYet")}
             </li>
           ) : null}
         </ul>

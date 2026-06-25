@@ -1,4 +1,4 @@
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery, useT } from "@agent-native/core/client";
 import {
   IconEye,
   IconUser,
@@ -37,6 +37,7 @@ interface Insights {
 }
 
 export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
+  const t = useT();
   const q = useActionQuery<Insights>("get-recording-insights", { recordingId });
   const vq = useActionQuery<{ viewers: Insights["topViewers"] }>(
     "list-viewers",
@@ -45,15 +46,19 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
 
   if (q.isLoading) {
     return (
-      <div className="p-4 text-sm text-muted-foreground">Loading insights…</div>
+      <div className="p-4 text-sm text-muted-foreground">
+        {t("recordingInsights.loading")}
+      </div>
     );
   }
   const data = q.data;
-  const viewers: Insights["topViewers"] = vq.data?.viewers ?? [];
+  const viewers = vq.data?.viewers ?? [];
 
   if (!data) {
     return (
-      <div className="p-4 text-sm text-muted-foreground">No data yet.</div>
+      <div className="p-4 text-sm text-muted-foreground">
+        {t("recordingInsights.noData")}
+      </div>
     );
   }
 
@@ -62,29 +67,29 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
       <div className="grid grid-cols-2 gap-3">
         <Stat
           icon={<IconEye className="h-4 w-4" />}
-          label="Views"
+          label={t("recordingInsights.views")}
           value={data.views}
         />
         <Stat
           icon={<IconUser className="h-4 w-4" />}
-          label="Unique viewers"
+          label={t("recordingInsights.uniqueViewers")}
           value={data.uniqueViewers}
         />
         <Stat
           icon={<IconPercentage className="h-4 w-4" />}
-          label="Completion"
+          label={t("recordingInsights.completion")}
           value={`${Math.round(data.completionRate)}%`}
         />
         <Stat
           icon={<IconTarget className="h-4 w-4" />}
-          label="CTA conversion"
+          label={t("recordingInsights.ctaConversion")}
           value={`${Math.round(data.ctaConversionRate)}%`}
         />
       </div>
 
       <div>
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-          Drop-off
+          {t("recordingInsights.dropOff")}
         </div>
         <div className="h-40 rounded-lg border border-border bg-card p-3">
           <ResponsiveContainer width="100%" height="100%">
@@ -102,7 +107,10 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
               />
               <YAxis stroke="#6b7280" fontSize={10} />
               <ReTooltip
-                formatter={(v) => [`${v} viewers`, "Watching"]}
+                formatter={(v) => [
+                  t("recordingInsights.viewersCount", { count: Number(v) }),
+                  t("recordingInsights.watching"),
+                ]}
                 labelFormatter={(b) =>
                   msCompact(((b as number) / 100) * durationMs)
                 }
@@ -121,17 +129,19 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
 
       <div>
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-          Recent viewers
+          {t("recordingInsights.recentViewers")}
         </div>
         {viewers.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No viewers yet.</p>
+          <p className="text-sm text-muted-foreground">
+            {t("recordingInsights.noViewers")}
+          </p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {viewers.slice(0, 12).map((v, i) => (
               <div
                 key={i}
                 className="flex items-center gap-2 rounded-full border border-border bg-card pr-3 pl-0.5 py-0.5"
-                title={v.viewerEmail ?? "Anonymous"}
+                title={v.viewerEmail ?? t("recordingInsights.anonymous")}
               >
                 <Avatar className="h-6 w-6">
                   <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
@@ -140,7 +150,9 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
                 </Avatar>
                 <span className="text-xs">
                   {v.viewerName ||
-                    (v.viewerEmail ? v.viewerEmail.split("@")[0] : "Anon")}
+                    (v.viewerEmail
+                      ? v.viewerEmail.split("@")[0]
+                      : t("recordingInsights.anon"))}
                   <span className="text-muted-foreground ml-1">
                     {Math.round(v.completedPct)}%
                   </span>
@@ -149,7 +161,9 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
             ))}
             {viewers.length > 12 ? (
               <span className="text-xs text-muted-foreground self-center">
-                +{viewers.length - 12} more
+                {t("recordingInsights.moreViewers", {
+                  count: viewers.length - 12,
+                })}
               </span>
             ) : null}
           </div>

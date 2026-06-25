@@ -132,7 +132,7 @@ export default function PlanTemplate() {
                 className="inline-block h-2 w-2 rounded-full"
                 style={{ background: template.color }}
               />
-              Agent-Native {template.name}
+              {t("templateDetail.badge", { name: template.name })}
             </div>
 
             <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
@@ -357,16 +357,18 @@ export default function PlanTemplate() {
                 <path d="M15 9l3 2.5L15 14" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">VS Code Handoffs</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.plan.s061")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Open plan links in a VS Code side panel with the{" "}
+              {t("templateLanding.plan.s062")}{" "}
               <a
                 href="https://marketplace.visualstudio.com/items?itemName=Builder.agent-native"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[var(--fg)] underline underline-offset-2"
               >
-                Agent Native Plans extension
+                {t("templateLanding.plan.s063")}
               </a>
               {t("templateLanding.plan.s030")}
             </p>
@@ -432,16 +434,16 @@ export default function PlanTemplate() {
             </p>
             <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
               {[
-                "Wireframe — sketchy UI mockup with component slots",
-                "Annotated code — source file with per-line notes",
-                "Diagram — flowchart, sequence, or architecture",
-                "Prototype — live Alpine.js sandbox in an iframe",
-                "Decision — settled choices with rationale",
-                "API endpoint — method, path, request/response types",
-                "Data model — schema with field annotations",
-                "File tree — project structure with notes per path",
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-2">
+                "s064",
+                "s065",
+                "s066",
+                "s067",
+                "s068",
+                "s069",
+                "s070",
+                "s071",
+              ].map((key) => (
+                <li key={key} className="flex items-start gap-2">
                   <svg
                     className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                     width="16"
@@ -455,7 +457,7 @@ export default function PlanTemplate() {
                   >
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  {item}
+                  {t(`templateLanding.plan.${key}`)}
                 </li>
               ))}
             </ul>
@@ -463,7 +465,7 @@ export default function PlanTemplate() {
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-6">
             <div className="space-y-3 font-mono text-sm">
               <div className="text-[var(--fg-secondary)]">
-                {"// Example plan block"}
+                {t("templateLanding.plan.s072")}
               </div>
               <div>
                 <span className="text-[var(--docs-accent)]">type:</span>{" "}
@@ -517,7 +519,7 @@ export default function PlanTemplate() {
                   {t("templateLanding.plan.s040")}
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  ChatGPT Canvas / Notion
+                  {t("templateLanding.plan.s073")}
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
                   Agent-Native Plans
@@ -579,7 +581,7 @@ export default function PlanTemplate() {
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   {t("templateLanding.plan.s055")}
                 </td>
-                <td className="px-5 py-3">N/A</td>
+                <td className="px-5 py-3">{t("templateLanding.plan.s074")}</td>
                 <td className="px-5 py-3">{t("templateLanding.plan.s042")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
                   {t("templateLanding.plan.s056")}

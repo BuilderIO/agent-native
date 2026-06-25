@@ -30,7 +30,7 @@ Agent-native 适合那些想要真正的应用程序和 AI 代理使用相同数
 
 ```an-diagram title="附加人工智能与 agent-native" summary="螺栓固定的聊天侧边栏有自己的世界。 agent-native 代理与 UI 共享相同的操作、数据库和状态。"
 {
-  "html": "<div class=\"diagram-vs\"><div class=\"diagram-col\"><span class=\"diagram-pill warn\">Bolted-on AI</span><div class=\"diagram-node\">Chat sidebar</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>separate AI world<br><small class=\"diagram-muted\">can't touch the app</small></div><div class=\"diagram-box diagram-muted\">App UI &amp; data</div></div><div class=\"diagram-divider\" aria-hidden=\"true\"></div><div class=\"diagram-col\"><span class=\"diagram-pill ok\">Agent-native</span><div class=\"diagram-row2\"><div class=\"diagram-node\">UI</div><div class=\"diagram-node\">Agent</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>shared actions, DB &amp; state</div></div></div>",
+  "html": "<div class=\"diagram-vs\"><div class=\"diagram-col\"><span class=\"diagram-pill warn\">外挂式 AI</span><div class=\"diagram-node\">聊天侧边栏</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>独立的 AI 世界<br><small class=\"diagram-muted\">无法操作应用</small></div><div class=\"diagram-box diagram-muted\">App UI &amp; data</div></div><div class=\"diagram-divider\" aria-hidden=\"true\"></div><div class=\"diagram-col\"><span class=\"diagram-pill ok\">Agent-native</span><div class=\"diagram-row2\"><div class=\"diagram-node\">UI</div><div class=\"diagram-node\">Agent</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>shared actions, DB &amp; state</div></div></div>",
   "css": ".diagram-vs{display:flex;align-items:stretch;gap:18px;flex-wrap:wrap}.diagram-vs .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:center;flex:1;min-width:200px}.diagram-vs .diagram-row2{display:flex;gap:8px}.diagram-vs .diagram-arrow{font-size:20px;line-height:1}.diagram-vs .diagram-divider{width:1px;align-self:stretch;background:currentColor;opacity:.15}"
 }
 ```
@@ -124,11 +124,11 @@ Anthropic Claude、OpenAI（GPT-5 系列）、Google Gemini 以及使用 OpenAI 
 
 ### 为什么是 SSE 加轮询而不是 WebSocket？ {#why-polling-not-websockets}
 
-SSE 为同进程写入提供了到浏览器的直接路径，而轻量级版本计数器轮询仍然是后备方案，因为它适用于每个部署环境 - 包括无服务器和边缘，其中持久套接字可能不可用。参见[Key Concepts — Live sync](/docs/key-concepts#polling-sync)。
+SSE 为同进程写入提供了到浏览器的直接路径，而轻量级版本计数器轮询仍然是后备方案，因为它适用于每个部署环境 - 包括无服务器和边缘，其中持久套接字可能不可用。参见[Key Concepts — 实时同步](/docs/key-concepts#polling-sync)。
 
 ```an-diagram title="SSE 首先，轮询后备" summary="同进程即时写流；版本计数器轮询使无服务器、边缘和跨进程写入保持收敛。"
 {
-  "html": "<div class=\"diagram-transport\"><div class=\"diagram-box\" data-rough>DB write</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">SSE<br><small class=\"diagram-muted\">/_agent-native/events &middot; instant</small></div><div class=\"diagram-node\">Poll<br><small class=\"diagram-muted\">/_agent-native/poll &middot; universal fallback</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Browser refetch</div></div>",
+  "html": "<div class=\"diagram-transport\"><div class=\"diagram-box\" data-rough>数据库写入</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">SSE<br><small class=\"diagram-muted\">/_agent-native/events &middot; instant</small></div><div class=\"diagram-node\">轮询<br><small class=\"diagram-muted\">/_agent-native/poll &middot; universal fallback</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>浏览器重新获取</div></div>",
   "css": ".diagram-transport{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-transport .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-transport .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

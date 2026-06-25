@@ -12,7 +12,7 @@ description: "Dispatch는 중앙 받은 편지함, 앱 간 오케스트레이션
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>What should we do next?</strong><div class='wf-box'>Ask Analytics for this week's signups and draft a Slack update.</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>Create app</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>Slack DM needs reply</div><div class='wf-box'>A2A task completed</div><div class='wf-box'>Approval required</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>다음에 무엇을 할까요?</strong><div class='wf-box'>Analytics에 이번 주 가입자를 물어보고 Slack 업데이트 초안을 작성하세요.</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>앱 만들기</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>Slack DM 메시지 답장 필요</div><div class='wf-box'>A2A 작업 완료</div><div class='wf-box'>승인 필요</div></div></div>"
 }
 ```
 
@@ -20,14 +20,14 @@ description: "Dispatch는 중앙 받은 편지함, 앱 간 오케스트레이션
 
 ```an-diagram title="전문화하지 말고 편성하라" summary="모든 채널의 메시지는 하나의 받은 편지함에 보관됩니다. 오케스트레이터는 도메인 작업을 분류하고 A2A을 통해 올바른 전문가 앱에 위임합니다. 비밀, 리소스 및 승인은 중앙에 유지됩니다."
 {
-  "html": "<div class=\"diagram-dispatch\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack · Telegram</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">A2A requests</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Orchestrator</span><small class=\"diagram-muted\">central inbox · triage · route</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Mail agent</div><div class=\"diagram-node\">Analytics agent</div><div class=\"diagram-node\">Brain · Slides &hellip;</div></div></div><div class=\"diagram-shared\"><span class=\"diagram-pill\">Secrets vault</span><span class=\"diagram-pill\">Workspace resources</span><span class=\"diagram-pill warn\">Approvals</span><span class=\"diagram-pill\">Scheduled jobs</span></div>",
+  "html": "<div class=\"diagram-dispatch\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack · Telegram</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">A2A 요청</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Orchestrator</span><small class=\"diagram-muted\">중앙 inbox · 분류 · 라우팅</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Mail 에이전트</div><div class=\"diagram-node\">Analytics 에이전트</div><div class=\"diagram-node\">Brain · Slides &hellip;</div></div></div><div class=\"diagram-shared\"><span class=\"diagram-pill\">비밀 저장소</span><span class=\"diagram-pill\">워크스페이스 리소스</span><span class=\"diagram-pill warn\">Approvals</span><span class=\"diagram-pill\">예약된 작업</span></div>",
   "css": ".diagram-dispatch{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-dispatch .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-dispatch .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-dispatch .diagram-arrow{font-size:20px;line-height:1}.diagram-shared{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}"
 }
 ```
 
 ## 무엇을 하는가 {#what-it-does}
 
-- **중앙 받은 편지함.** Slack DM, 전보 메시지, 이메일 알림, 다른 에이전트의 A2A 요청 등이 모두 한 곳에 있습니다. Dispatch 에이전트는 심사를 거쳐 자체적으로 처리하거나 위임합니다. Slack, 이메일, 텔레그램을 작업 공간에 연결하는 방법은 [Messaging](/docs/messaging)를 참조하세요.
+- **중앙 받은 편지함.** Slack DM 메시지, 전보 메시지, 이메일 알림, 다른 에이전트의 A2A 요청 등이 모두 한 곳에 있습니다. Dispatch 에이전트는 심사를 거쳐 자체적으로 처리하거나 위임합니다. Slack, 이메일, 텔레그램을 작업 공간에 연결하는 방법은 [Messaging](/docs/messaging)를 참조하세요.
 - **전문가가 아닌 오케스트레이터.** Dispatch는 이메일 앱이나 분석 앱이 되려고 _하지_ 않습니다\_. 누군가 "지난주 가입 요약"을 요청하면 Dispatch는 A2A를 통해 분석 에이전트를 호출하고 답변을 반환합니다. 누군가 "Alice에게 답장 초안 작성"을 요청하면 Dispatch는 메일 에이전트에 전화를 겁니다.
 - **제어판 셸.** 채팅, 프로젝트, 실행, 작업 공간 앱, 에이전트 및 자동화는 일회성 대시보드 대신 상태 우선 목록 및 드릴다운을 통해 하나의 운영 셸에 있습니다.
 - **비밀 저장소.** API 키, OAuth 토큰 및 공유 자격 증명을 위한 중앙 저장소입니다. 작업 공간의 앱은 모든 `.env`에서 비밀을 복제하는 대신 Dispatch의 비밀을 확인합니다. 민감한 액세스에 대한 요청 + 승인.
@@ -76,7 +76,7 @@ description: "Dispatch는 중앙 받은 편지함, 앱 간 오케스트레이션
 - **드림 제안 검토.** Dispatch Dreams는 이전 에이전트 실행을 검사하고 작업 공간이 기억해야 하는 것, 오래된 노트를 정리해야 하는 것, 반복되는 레슨이 skills 또는 작업이 되어야 하는 것에 대한 소스 기반 제안을 생성합니다.
 - **아웃바운드 actions가 실행되기 전에 승인하세요.** 돈을 보내거나 고객에게 대량 이메일을 보내거나 공개 Slack 채널에 게시하는 것은 관리자 뒤에서 통제할 수 있습니다.
 - **누가 무엇에 액세스할 수 있는지 확인하세요.** 앱별 부여, 요청 대기열, 누가 언제 어떤 비밀을 사용했는지에 대한 감사 로그.
-- **적절한 전문가에게 메시지를 전달합니다.** 분석에 대한 Slack DM이 분석 에이전트에게 전달됩니다. 이메일 관련 정보 중 하나가 메일 에이전트로 전달됩니다 — 발송 선택.
+- **적절한 전문가에게 메시지를 전달합니다.** 분석에 대한 Slack DM 메시지이 분석 에이전트에게 전달됩니다. 이메일 관련 정보 중 하나가 메일 에이전트로 전달됩니다 — 발송 선택.
 
 ## 아키텍처 개요 {#architecture}
 
@@ -88,10 +88,10 @@ _내부적으로 작동하는 방식(개발자용)._
 - **Slack / 텔레그램 플러그인.** webhooks를 등록하고 수신 메시지를 오케스트레이터 에이전트에 전달하는 서버 플러그인.
 - **작업 공간 MCP 리소스.** 리소스의 `mcp-servers/*.json` 아래에 HTTP MCP 서버 정의를 추가한 다음 skills 및 컨텍스트와 마찬가지로 모든 앱 또는 선택한 앱 부여로 범위를 지정합니다.
 
-```an-schema title="Secrets vault schema" summary="Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
+```an-schema title="비밀 저장소 스키마" summary="Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
 {
   "entities": [
-    { "id": "secrets", "name": "vault_secrets", "note": "Stored credential values", "fields": [
+    { "id": "secrets", "name": "vault_secrets", "note": "저장된 자격 증명 값", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "owner_email", "type": "text" },
       { "name": "org_id", "type": "text", "nullable": true },
@@ -100,14 +100,14 @@ _내부적으로 작동하는 방식(개발자용)._
       { "name": "value", "type": "text", "note": "secret value" },
       { "name": "provider", "type": "text", "nullable": true }
     ] },
-    { "id": "grants", "name": "vault_grants", "note": "Per-app access grant", "fields": [
+    { "id": "grants", "name": "vault_grants", "note": "앱별 액세스 권한 부여", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "secret_id", "type": "text", "fk": "vault_secrets.id" },
       { "name": "app_id", "type": "text" },
       { "name": "granted_by", "type": "text" },
       { "name": "status", "type": "text" }
     ] },
-    { "id": "requests", "name": "vault_requests", "note": "Access request + review", "fields": [
+    { "id": "requests", "name": "vault_requests", "note": "액세스 요청 + 검토", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "credential_key", "type": "text" },
       { "name": "app_id", "type": "text" },
@@ -115,7 +115,7 @@ _내부적으로 작동하는 방식(개발자용)._
       { "name": "status", "type": "text" },
       { "name": "reviewed_by", "type": "text", "nullable": true }
     ] },
-    { "id": "audit", "name": "vault_audit_log", "note": "Who used which secret when", "fields": [
+    { "id": "audit", "name": "vault_audit_log", "note": "누가 언제 어떤 비밀을 사용했는지", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "secret_id", "type": "text", "fk": "vault_secrets.id", "nullable": true },
       { "name": "app_id", "type": "text", "nullable": true },
@@ -171,7 +171,7 @@ pnpm action create-dream-report --allSources true --sourceTimeoutMs 30000 --limi
 
 ```bash
 npx @agent-native/core@latest create my-platform
-# pick "Dispatch" in the multi-select picker, plus whichever domain apps you want
+# 다중 선택 선택기에서 "디스패치"를 선택하고 원하는 도메인 앱을 선택하세요.
 ```
 
 선택기를 사용하는 대신 템플릿 이름을 직접 지정하려는 경우:
@@ -204,7 +204,7 @@ pnpm dev
 
 ## 사용자 정의 {#customize}
 
-Dispatch는 다른 템플릿과 마찬가지로 전체 템플릿입니다. [Templates](/docs/cloneable-saas)를 참조하세요. 에이전트에게 "Datadog에 대한 새 통합 추가" 또는 "채널 X에서 분석 에이전트로 Slack DM 라우팅"을 요청하면 라우팅 구성을 편집하고 웹후크 핸들러를 추가하고 연결합니다.
+Dispatch는 다른 템플릿과 마찬가지로 전체 템플릿입니다. [Templates](/docs/cloneable-saas)를 참조하세요. 에이전트에게 "Datadog에 대한 새 통합 추가" 또는 "채널 X에서 분석 에이전트로 Slack DM 메시지 라우팅"을 요청하면 라우팅 구성을 편집하고 웹후크 핸들러를 추가하고 연결합니다.
 
 작업공간별 관리 화면의 경우 로컬 React 라우터 페이지를 추가하고
 `app/dispatch-extensions.tsx`에 등록하세요. 생성된 작업공간은

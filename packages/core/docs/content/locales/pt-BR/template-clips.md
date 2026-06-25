@@ -11,7 +11,7 @@ Um aplicativo que captura tudo: gravações de tela, notas de reuniões do seu c
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Engineering clips</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>OKRs review</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Onboarding flow</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Bug repro</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>Agent-readable</span><span>Transcript + frames ready for share links</span><div style='flex:1'></div><button>Compartilhar</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Transcript search</strong><div class='wf-box'>Matched chapter 03:12 · rollout risks and owner handoff</div><div class='wf-box'>Meeting summary and action items</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Clips de engenharia</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Revisão de OKRs</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Fluxo de integração</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Reprodução de bug</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>Legível por agentes</span><span>Transcrição + frames prontos para links de compartilhamento</span><div style='flex:1'></div><button>Compartilhar</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Busca em transcrições</strong><div class='wf-box'>Capítulo encontrado 03:12 · riscos de rollout e repasse de proprietário</div><div class='wf-box'>Resumo da reunião e ações</div></div></div>"
 }
 ```
 
@@ -19,7 +19,7 @@ Pense nos moldes de Loom + Granola + Wispr Flow reunidos em um aplicativo - mas 
 
 ```an-diagram title="Capture, transcreva, reutilize" summary="Três tipos de captura pousam em uma biblioteca; o agente transcreve, titula e resume, então cada transcrição pode ser pesquisada e compartilhada."
 {
-  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">Screen recording</div><div class=\"diagram-node\">Calendar meeting</div><div class=\"diagram-node\">Fn-hold dictation</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>One library<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">title · summary · chapters</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">Search</div><div class=\"diagram-pill\">Compartilhar</div><div class=\"diagram-pill\">Agent-readable links</div></div></div>",
+  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">Gravação de tela</div><div class=\"diagram-node\">Reunião de calendário</div><div class=\"diagram-node\">Ditado segurando Fn</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Uma biblioteca<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">título · resumo · capítulos</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">Pesquisar</div><div class=\"diagram-pill\">Compartilhar</div><div class=\"diagram-pill\">Legível por agentes links</div></div></div>",
   "css": ".diagram-clips{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-clips .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-clips .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-clips .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -91,11 +91,11 @@ retorna apenas um bloco Slack `video` reproduzível para clipes públicos pronto
 senha, hit de expiração, marcador de arquivo ou marcador de lixeira. Outros clipes ainda recebem o
 metadados normais de título/miniatura da página de compartilhamento e exigem a abertura de clipes.
 
-```an-api title="Agent context entry point"
+```an-api title="Ponto de entrada do contexto do agente"
 {
   "method": "GET",
   "path": "/api/agent-context.json",
-  "summary": "Compact, agent-readable description of a shared clip",
+  "summary": "Descrição compacta e legível pelo agente de um clipe compartilhado",
   "description": "Returns clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript and frame APIs. Advertised by the public share page so a text- or image-only agent can understand a recording without ingesting raw video.",
   "auth": "Same public / password / expiry rules as the share page",
   "params": [
@@ -107,11 +107,11 @@ metadados normais de título/miniatura da página de compartilhamento e exigem a
 }
 ```
 
-```an-api title="Timestamped transcript"
+```an-api title="Transcrição com carimbo de data/hora"
 {
   "method": "GET",
   "path": "/api/agent-transcript.json",
-  "summary": "Timestamped transcript segments for a shared clip",
+  "summary": "Segmentos de transcrição com carimbo de data/hora para um clipe compartilhado",
   "params": [
     { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
   ],
@@ -121,11 +121,11 @@ metadados normais de título/miniatura da página de compartilhamento e exigem a
 }
 ```
 
-```an-api title="Frame at a timestamp"
+```an-api title="Quadro em um carimbo de data/hora"
 {
   "method": "GET",
   "path": "/api/agent-frame.jpg",
-  "summary": "A JPEG frame extracted from the video at an original-video timestamp",
+  "summary": "Um quadro JPEG extraído do vídeo em um carimbo de data/hora do vídeo original",
   "params": [
     { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" },
     { "name": "atMs", "in": "query", "type": "integer", "required": true, "description": "Original-video timestamp in milliseconds" }
@@ -249,9 +249,9 @@ o substituto quando o aplicativo não está instalado.
 
 ### Modelo de dados
 
-Todos os dados residem em SQL via Drizzle ORM. Esquema: `templates/clips/server/db/schema.ts`. Gravações, reuniões, ditados, contas de calendário e vocabulário carregam o padrão `ownableColumns` e têm uma tabela de compartilhamentos de estrutura correspondente, portanto, eles se enquadram no modelo de compartilhamento por usuário/por organização.
+Todos os dados residem em SQL com Drizzle ORM. Esquema: `templates/clips/server/db/schema.ts`. Gravações, reuniões, ditados, contas de calendário e vocabulário carregam o padrão `ownableColumns` e têm uma tabela de compartilhamentos de estrutura correspondente, portanto, eles se enquadram no modelo de compartilhamento por usuário/por organização.
 
-```an-schema title="Clips core data model" summary="recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
+```an-schema title="Modelo de dados principais de clipes" summary="recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
 {
   "entities": [
     {
@@ -263,15 +263,15 @@ Todos os dados residem em SQL via Drizzle ORM. Esquema: `templates/clips/server/
         { "name": "title", "type": "text" },
         { "name": "video_url", "type": "text", "note": "plus format / size / duration / thumbnails" },
         { "name": "status", "type": "text" },
-        { "name": "edits_json", "type": "text", "note": "Non-destructive edits" },
+        { "name": "edits_json", "type": "text", "note": "Edições não destrutivas" },
         { "name": "chapters_json", "type": "text", "nullable": true },
-        { "name": "password", "type": "text", "nullable": true, "note": "Privacy: password / expiry" }
+        { "name": "password", "type": "text", "nullable": true, "note": "Privacidade: senha/expiração" }
       ]
     },
     {
       "id": "recording_transcripts",
       "name": "recording_transcripts",
-      "note": "Split out so the library and transcript views render fast",
+      "note": "Divida para que as visualizações da biblioteca e da transcrição sejam renderizadas rapidamente",
       "fields": [
         { "name": "recording_id", "type": "text", "fk": "recordings.id" },
         { "name": "segments_json", "type": "text", "note": "{ startMs, endMs, text }" },
@@ -298,9 +298,9 @@ Todos os dados residem em SQL via Drizzle ORM. Esquema: `templates/clips/server/
       "note": "Push-to-talk dictation history; ownableColumns",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
-        { "name": "full_text", "type": "text", "note": "Raw" },
+        { "name": "full_text", "type": "text", "note": "Cru" },
         { "name": "cleaned_text", "type": "text", "nullable": true },
-        { "name": "source", "type": "text", "note": "fn-hold, etc." },
+        { "name": "source", "type": "text", "note": "uma equipe, etc." },
         { "name": "target_app", "type": "text", "nullable": true }
       ]
     }

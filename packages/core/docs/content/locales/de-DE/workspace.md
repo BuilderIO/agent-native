@@ -13,7 +13,7 @@ Der Clou: **Es sind SQL-Zeilen, keine Dateisystemdateien.** Jeder Benutzer erhä
 
 ```an-diagram title="Ein Claude-Code-Arbeitsbereich, aber gespeichert in SQL" summary="Dieselbe Anpassungsebene – Anweisungen, Fähigkeiten, Speicher, Agenten, Jobs, MCP – außer dass jede Datei eine Zeile in einer gemeinsam genutzten, mandantenfähigen Datenbank ist."
 {
-  "html": "<div class=\"ws-map\"><div class=\"diagram-card cc\"><span class=\"diagram-pill warn\">Claude Code / Codex</span><small class=\"diagram-muted\">~/.claude/ on a local disk</small><div class=\"ws-files\"><span class=\"diagram-box\">CLAUDE.md</span><span class=\"diagram-box\">skills/</span><span class=\"diagram-box\">memory</span><span class=\"diagram-box\">mcp.json</span></div><small class=\"diagram-muted\">one codebase per developer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card an\"><span class=\"diagram-pill accent\">Agent-native workspace</span><small class=\"diagram-muted\">rows in one SQL-Datenbank</small><div class=\"ws-rows\"><span class=\"diagram-pill\">AGENTS.md</span><span class=\"diagram-pill\">skills/&hellip;</span><span class=\"diagram-pill\">memory/&hellip;</span><span class=\"diagram-pill\">mcp-servers/&hellip;</span></div><small class=\"diagram-muted\">one codebase, many users, scoped <code>u:&lt;email&gt;:&hellip;</code></small></div></div>",
+  "html": "<div class=\"ws-map\"><div class=\"diagram-card cc\"><span class=\"diagram-pill warn\">Claude Code / Codex</span><small class=\"diagram-muted\">~/.claude/ on a local disk</small><div class=\"ws-files\"><span class=\"diagram-box\">CLAUDE.md</span><span class=\"diagram-box\">skills/</span><span class=\"diagram-box\">memory</span><span class=\"diagram-box\">mcp.json</span></div><small class=\"diagram-muted\">one codebase per developer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card an\"><span class=\"diagram-pill accent\">Agent-native-Arbeitsbereich</span><small class=\"diagram-muted\">rows in one SQL-Datenbank</small><div class=\"ws-rows\"><span class=\"diagram-pill\">AGENTS.md</span><span class=\"diagram-pill\">skills/&hellip;</span><span class=\"diagram-pill\">memory/&hellip;</span><span class=\"diagram-pill\">mcp-servers/&hellip;</span></div><small class=\"diagram-muted\">eine Codebasis, viele Nutzer, scoped <code>u:&lt;email&gt;:&hellip;</code></small></div></div>",
   "css": ".ws-map{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ws-map .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:220px}.ws-map .ws-files,.ws-map .ws-rows{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}.ws-map .diagram-arrow{font-size:24px}"
 }
 ```
@@ -53,7 +53,7 @@ Diese Pfade gelten für alle drei Bereiche – Arbeitsbereich, Organisation/App 
 
 ```an-diagram title="Drei Bereiche, eine effektive Datei" summary="Die Laufzeit löst beim Lesen den gleichen Pfad über Arbeitsbereiche, Apps und persönliche Bereiche hinweg auf – der spezifischste Bereich gewinnt."
 {
-  "html": "<div class=\"ws-stack\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Workspace</span><small class=\"diagram-muted\">company-wide defaults from Dispatch</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Organization / app</span><small class=\"diagram-muted\">team override for one app</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Personal</span><small class=\"diagram-muted\">per-user override &mdash; wins</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Effective <code>context/brand.md</code></div></div>",
+  "html": "<div class=\"ws-stack\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Workspace</span><small class=\"diagram-muted\">unternehmensweite Defaults aus Dispatch</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Organisation / App</span><small class=\"diagram-muted\">team override for one app</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Personal</span><small class=\"diagram-muted\">per-user override &mdash; wins</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Effective <code>context/brand.md</code></div></div>",
   "css": ".ws-stack{display:flex;flex-direction:column;align-items:flex-start;gap:8px}.ws-stack .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px;min-width:280px}.ws-stack .diagram-arrow{font-size:20px;align-self:center}.ws-stack code{font-size:.85em}.ws-stack .diagram-box{align-self:center;margin-top:4px}"
 }
 ```
@@ -74,7 +74,7 @@ Diese Pfade gelten für alle drei Bereiche – Arbeitsbereich, Organisation/App 
 3. Speichern, zum **Chat** wechseln, alles fragen – der Agent folgt sofort der neuen Regel.
 
 ```an-callout
-{ "tone": "info", "body": "No restart, no redeploy. `AGENTS.md` is read at the start of every turn, so an edit you save now changes the agent's behavior on the very next message." }
+{ "tone": "info", "body": "Kein Neustart, keine erneute Bereitstellung. `AGENTS.md` wird zu Beginn jeder Runde gelesen, sodass eine von Ihnen gespeicherte Änderung jetzt das Verhalten des Agenten bei der nächsten Nachricht ändert." }
 ```
 
 **Nächste Schritte, wann immer Sie möchten:**
@@ -96,10 +96,10 @@ Der Pfad bestimmt, wie der Agent eine Ressource nutzt (siehe Tabelle in [Overvie
 Ein nützliches Starterpaket für einen neuen Arbeitsbereich:
 
 ```text
-context/company.md              # what the company does, ICP, products, links
-context/brand.md                # voice, visual identity, spelling, forbidden usage
-context/messaging.md            # positioning, value props, proof points, objections
-instructions/guardrails.md      # compliance, escalation, and approval rules
+context/company.md              # was das Unternehmen macht, ICP, Produkte, Links
+context/brand.md                # Stimme, visuelle Identität, Rechtschreibung, verbotene Verwendung
+context/messaging.md            # Positionierung, Wertvorstellungen, Beweispunkte, Einwände
+instructions/guardrails.md      # Compliance-, Eskalations- und Genehmigungsregeln
 skills/company-voice/SKILL.md   # on-demand guidance for customer-facing writing
 agents/<slug>.md                # reusable custom agent profiles
 ```
@@ -119,7 +119,7 @@ Halten Sie `context/`-Dateien kurz und sachlich – ein paar Punkte, die der Age
 ```text
 <!-- context/brand.md -->
 
-# Brand
+# Marke
 
 - Voice: direct, warm, concrete
 - Use: "workspace", "agent", "team"
@@ -183,18 +183,18 @@ Benutzer können diese Speicherdateien direkt auf der Registerkarte „Arbeitsbe
 
 Jede dieser Oberflächen – `AGENTS.md`, skills, Speicher, benutzerdefinierte Agenten, MCP-Server – hat die gleiche zugrunde liegende Ressourcenform: ein `path` + `scope` + `content`, die auf die gleiche Weise angesprochen und aufgelöst wird.
 
-```an-schema title="The workspace resource model" summary="One resource shape backs every workspace file. The runtime keys it by path and scope and resolves the effective value on read."
+```an-schema title="Das Workspace-Ressourcenmodell" summary="Eine Ressourcenform unterstützt jede Arbeitsbereichsdatei. Die Laufzeit verschlüsselt es nach Pfad und Umfang und löst den effektiven Wert beim Lesen auf."
 {
   "entities": [
     {
       "id": "resource",
       "name": "workspace resource",
-      "note": "A single file in a user's workspace — instructions, skill, memory, agent, MCP config, or job.",
+      "note": "Eine einzelne Datei im Arbeitsbereich eines Benutzers – Anweisungen, Skill, Speicher, Agent, MCP Konfiguration oder Job.",
       "fields": [
         { "name": "path", "type": "string", "note": "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md" },
-        { "name": "scope", "type": "workspace | shared | personal", "note": "Which level this row lives at" },
+        { "name": "scope", "type": "workspace | shared | personal", "note": "Auf welcher Ebene befindet sich diese Reihe?" },
         { "name": "owner", "type": "string", "nullable": true, "note": "u:<email> for personal scope" },
-        { "name": "content", "type": "text", "note": "Markdown / JSON / YAML body" }
+        { "name": "content", "type": "text", "note": "Markdown / JSON / YAML Körper" }
       ]
     }
   ]
@@ -221,12 +221,12 @@ Benutzerdefinierte Agenten verwenden YAML-Frontmatter und Markdown-Anweisungen:
 {
   "filename": "agents/design.md",
   "language": "markdown",
-  "code": "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# Role\n\nYou are a focused design agent.\n\n## Responsibilities\n\n- Review layouts and interaction flows\n- Suggest stronger visual direction\n- Be concise and opinionated",
+  "code": "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# Rolle\n\nYou are a focused design agent.\n\n## Verantwortlichkeiten\n\n- Layouts und Interaktionsabläufe überprüfen\n- Stärkere visuelle Ausrichtung vorschlagen\n- Prägnant und eigensinnig sein",
   "annotations": [
-    { "lines": "2", "label": "@mention handle", "note": "`name` is what appears in the `@`-dropdown and what the main agent delegates to." },
-    { "lines": "3-4", "label": "When to delegate", "note": "The `description` is what the orchestrator reads to decide this profile fits a task." },
-    { "lines": "5", "label": "Model", "note": "`inherit` reuses the main agent's model. Override only when the profile clearly needs a different one." },
-    { "lines": "6", "note": "`tools: inherit` for now — the field is reserved for future per-agent tool policies." }
+    { "lines": "2", "label": "@mention handle", "note": "`name` ist das, was im `@`-Dropdown-Menü angezeigt wird und an das der Hauptagent delegiert." },
+    { "lines": "3-4", "label": "Wann delegieren?", "note": "`description` ist das, was der Orchestrator liest, um zu entscheiden, dass dieses Profil zu einer Aufgabe passt." },
+    { "lines": "5", "label": "Modell", "note": "`inherit` verwendet das Modell des Hauptagenten wieder. Überschreiben Sie es nur, wenn das Profil eindeutig ein anderes Modell benötigt." },
+    { "lines": "6", "note": "`tools: inherit` vorerst – das Feld ist für zukünftige Tool-Richtlinien pro Agent reserviert." }
   ]
 }
 ```
@@ -303,21 +303,21 @@ REST Endpunkte automatisch gemountet:
 Der Agent verwendet diese integrierten actions. Sie können sie auch von Ihrem eigenen actions:
 
 ```bash
-# List all resources
+# Listen Sie alle Ressourcen auf
 pnpm action resource-list --scope all
 
-# Read a resource
+# Lesen Sie eine Ressource
 pnpm action resource-read --path "skills/my-skill/SKILL.md"
 
-# Read inherited workspace context managed by Dispatch
+# Liest den von Dispatch verwalteten geerbten Arbeitsbereichskontext
 pnpm action resource-read --scope workspace --path "context/brand.md"
 
 # Show workspace -> organization/app -> personal precedence for a path
 pnpm action resource-effective --path "context/brand.md"
 
-# Write a resource
-pnpm action resource-write --path "notes/meeting.md" --content "# Meeting Notes..."
+# Schreiben Sie eine Ressource
+pnpm action resource-write --path "notes/meeting.md" --content "# Besprechungsnotizen ...“
 
-# Delete a resource
+# Löschen Sie eine Ressource
 pnpm action resource-delete --path "notes/old.md"
 ```

@@ -89,13 +89,13 @@ export const tasks = table("tasks", {
 
 يحدد الجدول `tasks` أعلاه نفس الأعمدة في كل واجهة خلفية:
 
-```an-schema title="The tasks table" summary="Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
+```an-schema title="جدول المهام" summary="يُعرّف مرة واحدة باستخدام مساعدات framework؛ ويُختار dialect في وقت التشغيل من DATABASE_URL."
 {
   "entities": [
     {
       "id": "tasks",
       "name": "tasks",
-      "note": "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
+      "note": "جدول نطاق العمل. أضف owner_email (أو ...ownableColumns()) كي يقيّد scoping على مستوى SQL الصفوف بالمستخدم authenticated.",
       "fields": [
         { "name": "id", "type": "text", "pk": true, "nullable": false },
         { "name": "title", "type": "text", "nullable": false },
@@ -112,7 +112,7 @@ export const tasks = table("tasks", {
 
 لا تقم مطلقًا بالاستيراد من `drizzle-orm/sqlite-core` أو `drizzle-orm/pg-core` مباشرةً. استخدم دائمًا `@agent-native/core/db/schema`.
 
-يجب أن تتضمن الجداول التي تخزن البيانات التي تواجه المستخدم عمود `owner_email` حتى يتمكن نطاق مستوى SQL الخاص بإطار العمل من تصفية الصفوف للمستخدم المصادق عليه - راجع [Security](/docs/security#data-scoping). يجب أن تنشر الجداول التي تدعم أيضًا المشاركة مع مستخدمين أو مؤسسات أخرى `...ownableColumns()` بدلاً من ذلك، مما يضيف `owner_email`، و`org_id`، و`visibility` في مكالمة واحدة - راجع [Sharing](/docs/sharing#building).
+يجب أن تتضمن الجداول التي تخزن البيانات التي تواجه المستخدم عمود `owner_email` حتى يتمكن نطاق مستوى SQL الخاص بإطار العمل من تصفية الصفوف للمستخدم المصادق عليه - راجع [Security](/docs/security#data-scoping). يجب أن تنشر الجداول التي تدعم أيضًا المشاركة مع مستخدمين أو مؤسسات أخرى `...ownableColumns()` بدلاً من ذلك، مما يضيف `owner_email`، و`org_id`, و`visibility` في مكالمة واحدة - راجع [Sharing](/docs/sharing#building).
 
 للقراءة والكتابة، استخدم منشئ الاستعلامات والمشغلات المحمولة Drizzle من `drizzle-orm`:
 
@@ -134,7 +134,7 @@ await db.update(tasks).set({ done: true }).where(eq(tasks.id, taskId));
 
 ## فتحات الهروب SQL الخام {#raw-sql}
 
-Raw SQL ليس رمز التطبيق الافتراضي API. استخدمه فقط لعمليات الترحيل الإضافية، أو فحوصات السلامة، أو الاستعلامات المتقدمة التي تمت مراجعتها بعناية والتي لا يمكن لـ Drizzle التعبير عنها، أو الصيانة لمرة واحدة. اجعلها ذات معلمات وحيادية اللهجة. بالنسبة للطوابع الزمنية في مخططات Drizzle، تفضل `.default(now())`؛ بالنسبة للترحيل SQL، استخدم `runMigrations()` بحيث تظل عمليات إعادة كتابة التوافق المدعومة بإطار العمل وتبقى البيانات المرتبطة باللهجات مركزية.
+Raw SQL ليس رمز التطبيق الافتراضي API. استخدمه فقط لعمليات الترحيل الإضافية، أو فحوصات السلامة، أو الاستعلامات المتقدمة التي تمت مراجعتها بعناية والتي لا يمكن لـ Drizzle التعبير عنها، أو الصيانة لمرة واحدة. اجعلها ذات معلمات وحيادية اللهجة. بالنسبة للطوابع الزمنية في مخططات Drizzle، تفضل `.default(now())`؛ بالنسبة للترحيل SQL, استخدم `runMigrations()` بحيث تظل عمليات إعادة كتابة التوافق المدعومة بإطار العمل وتبقى البيانات المرتبطة باللهجات مركزية.
 
 بالنسبة للحالات التي تحتاج فيها حقًا إلى SQL خام خارج استعلامات Drizzle:
 
@@ -168,9 +168,9 @@ Raw SQL ليس رمز التطبيق الافتراضي API. استخدمه فق
   "language": "ts",
   "code": "import { runMigrations } from \"@agent-native/core/db\";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: \"my_app_migrations\" },\n);",
   "annotations": [
-    { "lines": "6-7", "label": "Additive only", "note": "`ADD COLUMN IF NOT EXISTS` is safe to re-run and never drops data. Renames look like drop+create to Drizzle, so add-then-migrate instead." },
-    { "lines": "13-16", "label": "Dialect gating", "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features." },
-    { "lines": "19", "label": "Per-app version table", "note": "Each app tracks its own applied versions so migrations are idempotent across restarts and instances." }
+    { "lines": "6-7", "label": "مادة مضافة فقط", "note": "`ADD COLUMN IF NOT EXISTS` آمن لإعادة التشغيل ولا يسقط البيانات أبدًا. تبدو عمليات إعادة التسمية على شكل إسقاط + إنشاء إلى Drizzle، لذا قم بالإضافة ثم الترحيل بدلاً من ذلك." },
+    { "lines": "13-16", "label": "بوابة اللهجة", "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features." },
+    { "lines": "19", "label": "جدول الإصدارات لكل تطبيق", "note": "يتتبع كل تطبيق الإصدارات المطبقة الخاصة به بحيث تكون عمليات الترحيل غير فعالة عبر عمليات إعادة التشغيل والمثيلات." }
   ]
 }
 ```

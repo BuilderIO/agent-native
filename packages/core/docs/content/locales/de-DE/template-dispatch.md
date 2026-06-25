@@ -12,7 +12,7 @@ Dispatch ist die **Arbeitsbereich-Steuerungsebene**. Wo andere Vorlagen Domänen
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>What should we do next?</strong><div class='wf-box'>Ask Analytics for this week's signups and draft a Slack update.</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>Create app</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>Slack DM needs reply</div><div class='wf-box'>A2A task completed</div><div class='wf-box'>Approval required</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Was sollen wir als Nächstes tun?</strong><div class='wf-box'>Frag Analytics nach den Anmeldungen dieser Woche und entwirf ein Slack-Update.</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>App erstellen</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>Slack-DM needs reply</div><div class='wf-box'>A2A-Aufgabe abgeschlossen</div><div class='wf-box'>Genehmigung erforderlich</div></div></div>"
 }
 ```
 
@@ -20,14 +20,14 @@ Wenn Sie einen [multi-app workspace](/docs/multi-app-workspace) mit vielen Apps 
 
 ```an-diagram title="Orchestrieren, nicht spezialisieren" summary="Nachrichten von jedem Kanal landen in einem Posteingang; Der Orchestrator selektiert und delegiert die Domänenarbeit über A2A an die richtige Spezial-App – Geheimnisse, Ressourcen und Genehmigungen bleiben im Mittelpunkt."
 {
-  "html": "<div class=\"diagram-dispatch\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack · Telegram</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">A2A requests</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Orchestrator</span><small class=\"diagram-muted\">central inbox · triage · route</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Mail agent</div><div class=\"diagram-node\">Analytics agent</div><div class=\"diagram-node\">Brain · Slides &hellip;</div></div></div><div class=\"diagram-shared\"><span class=\"diagram-pill\">Secrets vault</span><span class=\"diagram-pill\">Workspace resources</span><span class=\"diagram-pill warn\">Approvals</span><span class=\"diagram-pill\">Scheduled jobs</span></div>",
+  "html": "<div class=\"diagram-dispatch\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack · Telegram</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">A2A-Anfragen</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Orchestrator</span><small class=\"diagram-muted\">zentraler Eingang · Triage · Routing</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Mail-Agent</div><div class=\"diagram-node\">Analytics-Agent</div><div class=\"diagram-node\">Brain · Slides &hellip;</div></div></div><div class=\"diagram-shared\"><span class=\"diagram-pill\">Secret-Tresor</span><span class=\"diagram-pill\">Workspace-Ressourcen</span><span class=\"diagram-pill warn\">Approvals</span><span class=\"diagram-pill\">Geplante Jobs</span></div>",
   "css": ".diagram-dispatch{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-dispatch .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-dispatch .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-dispatch .diagram-arrow{font-size:20px;line-height:1}.diagram-shared{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}"
 }
 ```
 
 ## Was es tut {#what-it-does}
 
-- **Zentraler Posteingang.** Slack DMs, Telegram-Nachrichten, E-Mail-Benachrichtigungen, A2A Anfragen von anderen Agenten – alles landet an einem Ort. Der Dispatch-Agent führt eine Triage durch und erledigt sie entweder selbst oder delegiert sie. Unter [Messaging](/docs/messaging) erfahren Sie, wie Sie Slack, E-Mail und Telegram in Ihren Arbeitsbereich integrieren.
+- **Zentraler Posteingang.** Slack-DMs, Telegram-Nachrichten, E-Mail-Benachrichtigungen, A2A Anfragen von anderen Agenten – alles landet an einem Ort. Der Dispatch-Agent führt eine Triage durch und erledigt sie entweder selbst oder delegiert sie. Unter [Messaging](/docs/messaging) erfahren Sie, wie Sie Slack, E-Mail und Telegram in Ihren Arbeitsbereich integrieren.
 - **Orchestrator, kein Spezialist.** Dispatch versucht _nicht_, die E-Mail-App oder die Analyse-App zu sein. Wenn jemand fragt: „Anmeldungen der letzten Woche zusammenfassen“, ruft Dispatch den Analyseagenten über A2A an und gibt die Antwort zurück. Wenn jemand fragt: „Entwerfen Sie eine Antwort an Alice“, ruft Dispatch den E-Mail-Agenten an.
 - **Steuerungsebenen-Shell.** Chats, Projekte, Ausführungen, Workspace-Apps, Agenten und Automatisierungen leben in einer einzigen operativen Shell, mit Status-First-Listen und Drilldowns anstelle von einmaligen Dashboards.
 - **Secrets Vault.** Ein zentraler Speicher für API-Schlüssel, OAuth-Tokens und gemeinsame Anmeldeinformationen. Apps im Arbeitsbereich lösen Geheimnisse aus Dispatch auf, anstatt sie in jedem `.env` zu duplizieren. Anfragen + Genehmigungen für vertraulichen Zugriff.
@@ -76,7 +76,7 @@ Tag für Tag ist Dispatch der Ort, an dem Administratoren und Betriebsmitarbeite
 - **Traumvorschläge überprüfen.** Dispatch Dreams prüft frühere Agentenläufe und erstellt quellengestützte Vorschläge dafür, was sich der Arbeitsbereich merken sollte, welche veralteten Notizen bereinigt werden sollten und welche wiederholten Lektionen zu skills oder Jobs werden sollten.
 - **Genehmigen Sie ausgehende actions, bevor sie ausgelöst werden.** Das Senden von Geld, das Versenden von Massen-E-Mails an Kunden oder das Posten in einem öffentlichen Slack-Kanal kann hinter einem Administrator-OK geschützt werden.
 - **Sehen Sie, wer Zugriff auf was hat.** Gewährungen pro App, Anforderungswarteschlange und ein Prüfprotokoll darüber, wer wann welches Geheimnis verwendet hat.
-- **Nachrichten an den richtigen Spezialisten weiterleiten.** Eine Slack DM über Analysen geht an den Analyseagenten; Eine über E-Mail geht an den Postagenten – Versandauswahl.
+- **Nachrichten an den richtigen Spezialisten weiterleiten.** Eine Slack-DM über Analysen geht an den Analyseagenten; Eine über E-Mail geht an den Postagenten – Versandauswahl.
 
 ## Architektur auf einen Blick {#architecture}
 
@@ -88,10 +88,10 @@ _Wie es unter der Haube funktioniert (für Entwickler)._
 - **Slack / Telegram-Plugins.** Server-Plugins, die webhooks registrieren und eingehende Nachrichten an den Orchestrator-Agenten weiterleiten.
 - **Workspace MCP-Ressourcen.** Fügen Sie HTTP MCP-Serverdefinitionen unter `mcp-servers/*.json` in „Ressourcen“ hinzu und beschränken Sie sie dann auf „Alle Apps“ oder „Ausgewählte App-Zuweisungen“, genau wie „skills“ und „Kontext“.
 
-```an-schema title="Secrets vault schema" summary="Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
+```an-schema title="Secrets-Tresorschema" summary="Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
 {
   "entities": [
-    { "id": "secrets", "name": "vault_secrets", "note": "Stored credential values", "fields": [
+    { "id": "secrets", "name": "vault_secrets", "note": "Gespeicherte Anmeldedatenwerte", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "owner_email", "type": "text" },
       { "name": "org_id", "type": "text", "nullable": true },
@@ -100,14 +100,14 @@ _Wie es unter der Haube funktioniert (für Entwickler)._
       { "name": "value", "type": "text", "note": "secret value" },
       { "name": "provider", "type": "text", "nullable": true }
     ] },
-    { "id": "grants", "name": "vault_grants", "note": "Per-app access grant", "fields": [
+    { "id": "grants", "name": "vault_grants", "note": "Zugriffsgewährung pro App", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "secret_id", "type": "text", "fk": "vault_secrets.id" },
       { "name": "app_id", "type": "text" },
       { "name": "granted_by", "type": "text" },
       { "name": "status", "type": "text" }
     ] },
-    { "id": "requests", "name": "vault_requests", "note": "Access request + review", "fields": [
+    { "id": "requests", "name": "vault_requests", "note": "Zugriffsanfrage + Überprüfung", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "credential_key", "type": "text" },
       { "name": "app_id", "type": "text" },
@@ -115,7 +115,7 @@ _Wie es unter der Haube funktioniert (für Entwickler)._
       { "name": "status", "type": "text" },
       { "name": "reviewed_by", "type": "text", "nullable": true }
     ] },
-    { "id": "audit", "name": "vault_audit_log", "note": "Who used which secret when", "fields": [
+    { "id": "audit", "name": "vault_audit_log", "note": "Wer hat welches Geheimnis wann genutzt?", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "secret_id", "type": "text", "fk": "vault_secrets.id", "nullable": true },
       { "name": "app_id", "type": "text", "nullable": true },
@@ -171,7 +171,7 @@ pnpm action create-dream-report --allSources true --sourceTimeoutMs 30000 --limi
 
 ```bash
 npx @agent-native/core@latest create my-platform
-# pick "Dispatch" in the multi-select picker, plus whichever domain apps you want
+# Wählen Sie „Dispatch“ in der Mehrfachauswahlauswahl sowie die gewünschten Domain-Apps aus
 ```
 
 Wenn Sie die Vorlage lieber direkt benennen möchten, anstatt die Auswahl zu verwenden:
@@ -196,11 +196,11 @@ pnpm dev
 
 Öffnen Sie den vom Entwicklungsserver gedruckten Dispatch URL. Die lokale Entwicklung verwendet denselben Better Auth-Anmeldeablauf wie die Produktion. Erstellen Sie ein lokales Konto mit E-Mail + Passwort; Die E-Mail-Verifizierung wird in der Entwicklung übersprungen und das Passwort wird nur in Ihrer lokalen App-Datenbank gespeichert. Im Standardgerüst wird keine Authentifizierungsumgehung unterstützt, da der Agent, die Arbeitsbereichsressourcen, der Tresor und das Freigabemodell alle auf einer echten Benutzersitzung basieren.
 
-Sie können nach der Anmeldung durch den Dispatch UI klicken. Um den Chat-Composer zu verwenden oder Agentenaufgaben auszuführen, verbinden Sie zunächst einen LLM-Anbieter:
+Sie können nach der Anmeldung durch den Dispatch UI klicken. Um den Chat-Verfassenr zu verwenden oder Agentenaufgaben auszuführen, verbinden Sie zunächst einen LLM-Anbieter:
 
 1. Öffnen Sie **Einstellungen**.
 2. In **LLM** verbinden Sie entweder Builder.io oder fügen Sie Ihren eigenen Anbieterschlüssel hinzu, z. B. `ANTHROPIC_API_KEY`.
-3. Kehren Sie zur **Übersicht** zurück und probieren Sie den Composer aus.
+3. Kehren Sie zur **Übersicht** zurück und probieren Sie den Verfassenr aus.
 
 ## Anpassen {#customize}
 

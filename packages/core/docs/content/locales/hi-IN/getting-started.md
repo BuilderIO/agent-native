@@ -63,7 +63,7 @@ npx @agent-native/core@latest create my-agent --headless
 फिर आपके द्वारा बनाए गए फ़ोल्डर से इंस्टॉल करें:
 
 ```bash
-cd my-agent # or my-app if you chose the Chat template
+cd my-agent # या my-app यदि आपने चैट टेम्पलेट चुना है
 pnpm install
 ```
 
@@ -80,11 +80,11 @@ pnpm install
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Local agent से hello कहें।\",\n  schema: z.object({\n    name: z.string().default(\"world\"),\n  }),\n  http: { method: \"GET\" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});",
   "annotations": [
-    { "lines": "5", "label": "Tool description", "note": "Agent `description` पढ़कर तय करता है कि इसे tool के रूप में कब call करना है।" },
+    { "lines": "5", "label": "टूल विवरण", "note": "Agent `description` पढ़कर तय करता है कि इसे tool के रूप में कब call करना है।" },
     { "lines": "6-8", "label": "टाइप किया हुआ अनुबंध", "note": "एक zod `schema` हर surface से input validate करता है: agent, UI, HTTP, MCP और A2A।" },
-    { "lines": "9", "label": "HTTP verb", "note": "Opt this action into an auto-mounted HTTP endpoint." },
-    { "lines": "10", "label": "Read-only", "note": "`readOnly` marks the action as safe to call without approval and cacheable for queries." },
-    { "lines": "11-13", "label": "One implementation", "note": "The `run` body is the single source of truth that every surface executes." }
+    { "lines": "9", "label": "HTTP क्रिया", "note": "इस action को अपने-आप mount होने वाले HTTP endpoint में शामिल करें।" },
+    { "lines": "10", "label": "केवल पढ़ने योग्य", "note": "`readOnly` action को बिना approval सुरक्षित रूप से call करने योग्य और queries के लिए cacheable बताता है।" },
+    { "lines": "11-13", "label": "एक implementation", "note": "`run` body वही single source of truth है जिसे हर surface चलाता है।" }
   ]
 }
 ```
@@ -123,7 +123,7 @@ pnpm dev
 
 ```an-diagram title="एक क्रिया, हर सतह" summary="एक defineAction फ़ाइल प्रत्येक उपभोक्ता को बिना किसी अतिरिक्त वायरिंग के प्रदान करती है।"
 {
-  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Scheduled jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
+  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">चैट UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">शेड्यूल किए गए जॉब</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
   "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -138,7 +138,7 @@ pnpm dev
 ```an-callout
 {
   "tone": "info",
-  "body": "**Headless is still a real app.** The app-agent loop persists sessions, threads, runs, settings, and credentials in SQL — it is not a stateless prompt. You can add a UI later without touching your actions or state."
+  "body": "**हेडलेस अभी भी एक वास्तविक ऐप है।** ऐप-एजेंट लूप SQL में सत्र, थ्रेड, रन, सेटिंग्स और क्रेडेंशियल्स को बनाए रखता है - यह एक स्टेटलेस प्रॉम्प्ट नहीं है। आप बाद में अपने कार्यों या स्थिति को छुए बिना UI जोड़ सकते हैं।"
 }
 ```
 
@@ -165,7 +165,7 @@ export default function ChatRoute() {
   `useActionMutation()`.
 
 पूर्ण घटक सेट के लिए [Drop-in Agent](/docs/drop-in-agent) देखें, और
-[Native Chat UI](/docs/native-chat-ui) क्रिया परिणामों को तालिकाओं के रूप में प्रस्तुत करने के लिए,
+[Native चैट UI](/docs/native-chat-ui) क्रिया परिणामों को तालिकाओं के रूप में प्रस्तुत करने के लिए,
 चार्ट, और सादे पाठ के बजाय टाइप किए गए कार्ड।
 
 **बिना सोचे-समझे शुरू कर दिया और बाद में UI चाहिए?** चैट टेम्पलेट UI ऑन-रैंप है -
@@ -178,12 +178,12 @@ export default function ChatRoute() {
 
 ```text
 my-app/
-  actions/         # Agent-callable actions
-  app/             # React frontend (UI templates only; omitted when headless)
-  server/          # Nitro API server (routes, plugins)
-  AGENTS.md        # Always-on agent instructions
-  .agents/         # Skills the agent can pull in when relevant
-  data/app.db      # Local SQLite state when DATABASE_URL is unset
+  actions/         # Agent द्वारा call की जा सकने वाली actions
+  app/             # React फ्रंटएंड (केवल UI templates; headless में हटाया जाता है)
+  server/          # Nitro API सर्वर (routes, plugins)
+  AGENTS.md        # हमेशा लागू रहने वाले agent instructions
+  .agents/         # ज़रूरत पड़ने पर agent द्वारा लाए जा सकने वाले skills
+  data/app.db      # DATABASE_URL न होने पर local SQLite state
 ```
 
 ## आगे कहां जाना है

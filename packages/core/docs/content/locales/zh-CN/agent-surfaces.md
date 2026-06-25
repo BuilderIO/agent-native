@@ -27,7 +27,7 @@ Agent-Native 是故意可组合的。不用太多就可以使用代理UI，
 
 ```an-diagram title="表面光谱" summary="一个操作界面，四种产品形状——每一种都增加了 UI，而不改变下面的操作。"
 {
-  "html": "<div class=\"diagram-spectrum\"><div class=\"diagram-card\"><strong>Headless</strong><small class=\"diagram-muted\">actions, jobs, scripts, other agents</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Rich chat</strong><small class=\"diagram-muted\">composer, transcript, tool cards</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embedded sidecar</strong><small class=\"diagram-muted\">agent beside an existing app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">most UI</span><strong>Full application</strong><small class=\"diagram-muted\">durable screens, data, collaboration</small></div></div><div class=\"diagram-base\" data-rough><span class=\"diagram-muted\">same actions · same SQL · same agent loop</span></div>",
+  "html": "<div class=\"diagram-spectrum\"><div class=\"diagram-card\"><strong>Headless</strong><small class=\"diagram-muted\">actions、任务、脚本、其他代理</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>丰富聊天</strong><small class=\"diagram-muted\">输入框、转录、工具卡片</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>嵌入式 sidecar</strong><small class=\"diagram-muted\">agent beside an existing app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">大部分 UI</span><strong>完整应用</strong><small class=\"diagram-muted\">持久屏幕、数据、协作</small></div></div><div class=\"diagram-base\" data-rough><span class=\"diagram-muted\">相同 actions · 相同 SQL · 相同代理循环</span></div>",
   "css": ".diagram-spectrum{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-spectrum .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px;flex:1}.diagram-spectrum .diagram-arrow{align-self:center;font-size:22px;line-height:1}.diagram-base{margin-top:12px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -110,11 +110,11 @@ export default defineAction({
 - **UI** — 通过 `useActionQuery`、`useActionMutation` 或 `callAction`
 - **代理工具** - 来自内置聊天循环
 
-```an-api title="Calling an action over HTTP"
+```an-api title="通过 HTTP 调用操作"
 {
   "method": "POST",
   "path": "/_agent-native/actions/summarize-week",
-  "summary": "Invoke any action by name over HTTP",
+  "summary": "通过 HTTP 按名称调用任何操作",
   "description": "Every `defineAction` is auto-mounted at `/_agent-native/actions/<name>`. The JSON body is validated against the action's zod schema before `run` executes.",
   "request": {
     "contentType": "application/json",
@@ -268,7 +268,7 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 Actions 可以返回显式的本机小部件结果，因此聊天输出不仅仅是
 文本。表格、图表和键入的产品卡呈现为第一方 React
-聊天中的组件，没有 iframe。参见[Native Chat UI](/docs/native-chat-ui)。
+聊天中的组件，没有 iframe。参见[Native 聊天界面](/docs/native-chat-ui)。
 
 ## 与您的代理进行丰富的聊天 {#byo-agent}
 
@@ -300,7 +300,7 @@ Agent SDK、Vercel AI SDK 和 AG-UI，以及上面的标准化 HTTP 运行时
 编码代理（Gemini CLI，Claude代码，...）通过
 [harness layer](/docs/harness-agents#acp)，这里不作为聊天运行时。
 
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+[Native 聊天界面 — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
 是事件形状、运行时助手和 `chatUI` 的规范主页
 工具结果元数据。将外部代理连接到聊天中时从这里开始。
 
@@ -347,7 +347,7 @@ export function AppShell({ children }) {
 
 ```an-diagram title="Sidecar 如何桥接到主机应用程序" summary="该插件在服务器端挂载 Agent-Native 路由； React sidecar 流输入页面上下文并输出主机命令。"
 {
-  "html": "<div class=\"diagram-sidecar\"><div class=\"diagram-panel\"><strong>Host app</strong><small class=\"diagram-muted\">your existing SaaS</small><div class=\"diagram-node\">getContext()<br><small class=\"diagram-muted\">route · selection</small></div><div class=\"diagram-node\">onNavigate / onRefresh<br><small class=\"diagram-muted\">host commands</small></div></div><div class=\"diagram-col-arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div></div><div class=\"diagram-panel accent-panel\"><span class=\"diagram-pill accent\">AgentNativeEmbedded</span><small class=\"diagram-muted\">agent + workspace</small><div class=\"diagram-box\" data-rough>Agent-Native routes<br><small class=\"diagram-muted\">mounted by the server plugin</small></div></div></div>",
+  "html": "<div class=\"diagram-sidecar\"><div class=\"diagram-panel\"><strong>宿主应用</strong><small class=\"diagram-muted\">你现有的 SaaS</small><div class=\"diagram-node\">getContext()<br><small class=\"diagram-muted\">路由 · 选择</small></div><div class=\"diagram-node\">onNavigate / onRefresh<br><small class=\"diagram-muted\">宿主命令</small></div></div><div class=\"diagram-col-arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div></div><div class=\"diagram-panel accent-panel\"><span class=\"diagram-pill accent\">AgentNativeEmbedded</span><small class=\"diagram-muted\">agent + workspace</small><div class=\"diagram-box\" data-rough>Agent-Native 路由<br><small class=\"diagram-muted\">mounted by the server plugin</small></div></div></div>",
   "css": ".diagram-sidecar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sidecar .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:200px}.diagram-sidecar .diagram-col-arrows{display:flex;flex-direction:column;gap:6px}.diagram-sidecar .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -389,7 +389,7 @@ iframe/picker 模式，以及较低级别的桥 APIs。
 ## 相关文档 {#related-docs}
 
 - [Actions](/docs/actions) — 定义一次无头操作。
-- [Native Chat UI](/docs/native-chat-ui) — 在聊天中呈现键入的操作结果。
+- [Native 聊天界面](/docs/native-chat-ui) — 在聊天中呈现键入的操作结果。
 - [Drop-in Agent](/docs/drop-in-agent) — 安装聊天、侧边栏或面板表面。
 - [Component API](/docs/components) — 较低级别的 React 聊天/作曲片段。
 - [Embedding SDK](/docs/embedding-sdk) — 将 Agent-Native 添加到现有应用。

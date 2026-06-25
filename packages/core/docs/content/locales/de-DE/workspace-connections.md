@@ -18,7 +18,7 @@ Workspace-Verbindungen sind das Grundgerüst für wiederverwendbare Integrations
 
 ```an-diagram title="Einmal verbinden, Apps gewähren, Anmeldeinformationen wiederverwenden" summary="Eine Verbindung enthält Anbietermetadaten (niemals Geheimnisse) und CredentialRefs, die auf den Tresor verweisen. Per App-Zuschüsse wird es freigeschaltet. Apps lesen einen einzelnen Bereitschaftsstatus."
 {
-  "html": "<div class=\"diagram-conn\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Connection</span><div class=\"diagram-box\" data-rough>named provider account<br><small class=\"diagram-muted\">provider, label, status, scopes, config &middot; never stores secret values</small></div><div class=\"diagram-muted\">credentialRef &rarr; pointer to a vault secret</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill\">Grant</span><div class=\"diagram-box\" data-rough>per-app permission<br><small class=\"diagram-muted\">no grant = no credential access</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Readiness</span><small class=\"diagram-muted\">what the app sees</small><div class=\"sev-row\"><span class=\"diagram-pill ok\">connected</span><span class=\"diagram-pill warn\">needs_grant</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">needs_credentials</span><span class=\"diagram-pill warn\">needs_attention</span></div><div class=\"sev-row\"><span class=\"diagram-pill\">not_configured</span></div></div></div>",
+  "html": "<div class=\"diagram-conn\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Connection</span><div class=\"diagram-box\" data-rough>named provider account<br><small class=\"diagram-muted\">provider, label, Status, Scopes, Konfiguration &middot; never stores secret values</small></div><div class=\"diagram-muted\">credentialRef &rarr; pointer to a vault secret</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill\">Grant</span><div class=\"diagram-box\" data-rough>per-app permission<br><small class=\"diagram-muted\">no grant = no credential access</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Readiness</span><small class=\"diagram-muted\">what the app sees</small><div class=\"sev-row\"><span class=\"diagram-pill ok\">connected</span><span class=\"diagram-pill warn\">needs_grant</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">needs_credentials</span><span class=\"diagram-pill warn\">needs_attention</span></div><div class=\"sev-row\"><span class=\"diagram-pill\">not_configured</span></div></div></div>",
   "css": ".diagram-conn{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-conn .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-conn .diagram-arrow{font-size:22px;line-height:1}.diagram-conn .sev-row{display:flex;gap:8px;flex-wrap:wrap}"
 }
 ```
@@ -58,32 +58,32 @@ await upsertWorkspaceConnectionGrant({
 });
 ```
 
-```an-schema title="The connection model" summary="A connection records safe provider metadata and credentialRefs (pointers, not secrets). Each grant unlocks one app — one connection, many grants."
+```an-schema title="Das Verbindungsmodell" summary="A connection records safe provider metadata and credentialRefs (pointers, not secrets). Each grant unlocks one app — one connection, many grants."
 {
   "entities": [
     {
       "id": "conn",
       "name": "workspace_connections",
-      "note": "Named provider account. Never stores secret values.",
+      "note": "Benanntes Anbieterkonto. Speichert niemals geheime Werte.",
       "fields": [
         { "name": "id", "type": "string", "pk": true, "note": "e.g. acme-slack" },
-        { "name": "provider", "type": "string", "note": "stable provider id, e.g. slack" },
+        { "name": "provider", "type": "string", "note": "stabile Anbieter-ID, z.B. locker" },
         { "name": "label", "type": "string" },
         { "name": "accountId", "type": "string", "nullable": true },
         { "name": "accountLabel", "type": "string", "nullable": true },
         { "name": "status", "type": "string", "note": "e.g. connected" },
         { "name": "scopes", "type": "string[]", "nullable": true },
-        { "name": "config", "type": "json", "nullable": true, "note": "safe, non-secret config" },
+        { "name": "config", "type": "json", "nullable": true, "note": "sichere, nicht geheime Konfiguration" },
         { "name": "credentialRefs", "type": "json", "nullable": true, "note": "pointers to vault keys, e.g. { key, scope }" }
       ]
     },
     {
       "id": "grant",
       "name": "workspace_connection_grants",
-      "note": "Per-app permission to use a connection.",
+      "note": "Berechtigung pro App, eine Verbindung zu verwenden.",
       "fields": [
         { "name": "connectionId", "type": "string", "fk": "conn.id" },
-        { "name": "appId", "type": "string", "note": "e.g. brain, analytics" }
+        { "name": "appId", "type": "string", "note": "z.B. Gehirn, Analytik" }
       ]
     }
   ],
@@ -208,7 +208,7 @@ Metadaten des Workspace-Verbindungsanbieters antworten: „Welcher Anbieter ist 
 
 ```an-diagram title="Verbindungsspeicher vs. Tresor" summary="Der Tresor ist Eigentümer des geheimen Werts. Die Verbindung besitzt Provider-Metadaten sowie CredentialRefs (Zeiger). Zur Ausführungszeit löst die App den Verweis über eine gewährte Verbindung auf und liest den Wert aus dem Tresor."
 {
-  "html": "<div class=\"diagram-vault\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Connection store</span><div class=\"diagram-box\" data-rough>provider account + metadata<br><small class=\"diagram-muted\">status, scopes, config</small></div><div class=\"diagram-box\" data-rough>credentialRef<br><small class=\"diagram-muted\">{ key: SLACK_BOT_TOKEN, scope: org }</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">App action</span><small class=\"diagram-muted\">resolves at execution time through a granted ref</small><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Vault</span><div class=\"diagram-box\" data-rough>secret value<br><small class=\"diagram-muted\">never returned to the agent or UI</small></div></div></div>",
+  "html": "<div class=\"diagram-vault\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Verbindungsspeicher</span><div class=\"diagram-box\" data-rough>provider account + metadata<br><small class=\"diagram-muted\">Status, Scopes, Konfiguration</small></div><div class=\"diagram-box\" data-rough>credentialRef<br><small class=\"diagram-muted\">{ key: SLACK_BOT_TOKEN, scope: org }</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">App-Action</span><small class=\"diagram-muted\">resolves at execution time through a granted ref</small><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Vault</span><div class=\"diagram-box\" data-rough>secret value<br><small class=\"diagram-muted\">nie an Agent oder UI zurückgegeben</small></div></div></div>",
   "css": ".diagram-vault{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-vault .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-vault .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-vault .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -220,7 +220,7 @@ Beides zusammen verwenden:
 3. Jede App liest Anbietermetadaten aus dem Katalog und Verbindungs-/Gewährungszusammenfassungen aus dem freigegebenen Speicher.
 4. Die App UI zeigt Bereitschaft an: verbunden, gewährt, aber fehlerhaft, benötigt Genehmigung, fehlende Anmeldeinformationen oder nur Metadaten.
 5. App-spezifisch SQL speichert nur app-spezifische Quell-IDs, Cursor, Filter, Synchronisierungsfenster, Metrikdefinitionen, Überprüfungsregeln und Benutzerauswahlen.
-6. App actions löst Anmeldeinformationen zur Ausführungszeit über gewährte Verbindungsreferenzen und den Tresor auf und gibt niemals geheime Werte zurück.
+6. App-Actions löst Anmeldeinformationen zur Ausführungszeit über gewährte Verbindungsreferenzen und den Tresor auf und gibt niemals geheime Werte zurück.
 
 ### Laufzeit des Anbieterlesers
 

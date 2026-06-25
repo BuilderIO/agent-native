@@ -14,7 +14,7 @@ description: "MDX용 오픈 소스 Obsidian: 로컬 Markdown/MDX 파일을 편�
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Q3 Roadmap</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>Engineering wiki</span><span class='wf-pill'>Reading list</span><span class='wf-pill'>Weekly sync</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Roadmap</h1><div style='flex:1'></div><button>공유</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>Launch goals</h2><p style='margin:0'>Ship the onboarding flow, reduce setup time, and document owner handoffs.</p><div class='wf-box'>At a glance · owner, window, status</div><div class='wf-box'>Top objectives</div><div class='wf-box'>Workstreams table</div></div></main></div>"
+  "html": "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>3분기 로드맵</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>엔지니어링 wiki</span><span class='wf-pill'>읽기 목록</span><span class='wf-pill'>주간 동기화</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>3분기 로드맵</h1><div style='flex:1'></div><button>공유</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>출시 목표</h2><p style='margin:0'>온보딩 흐름을 출시하고 설정 시간을 줄이며 담당자 인계를 문서화합니다.</p><div class='wf-box'>한눈에 보기 · 담당자, 기간, 상태</div><div class='wf-box'>주요 목표</div><div class='wf-box'>워크스트림 표</div></div></main></div>"
 }
 ```
 
@@ -22,7 +22,7 @@ description: "MDX용 오픈 소스 Obsidian: 로컬 Markdown/MDX 파일을 편�
 
 ```an-diagram title="하나의 문서, 많은 편집자" summary="귀하와 에이전트는 모두 동일한 Yjs 파이프라인을 통해 작성합니다. SQL은 표준 저장소입니다. 로컬 파일과 Notion은 선택적 동기화 표면입니다."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">You type<br><small class=\"diagram-muted\">slash menu, toolbar</small></div><div class=\"diagram-node\">Agent edits<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">live, conflict-free merge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">canonical SQL store</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Local .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Notion pages<br><small class=\"diagram-muted\">pull · push</small></div></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">입력합니다<br><small class=\"diagram-muted\">slash 메뉴, 툴바</small></div><div class=\"diagram-node\">에이전트 편집<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">실시간, 충돌 없는 병합</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">정식 SQL 저장소</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">로컬 .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Notion 페이지<br><small class=\"diagram-muted\">pull · push</small></div></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -257,7 +257,7 @@ export const ImpactCounterInputs = {
 - **`document_property_values`** — 문서별 속성 값(`property_id` → `value_json`).
 - **`document_shares`** — `createSharesTable`를 통해 생성된 사용자별 및 조직별 보조금.
 
-```an-schema title="Content data model" summary="Nine tables in server/db/schema.ts. documents is the page tree; the rest hang off it for versions, comments, Notion sync, inline databases, and sharing."
+```an-schema title="콘텐츠 데이터 모델" summary="Nine tables in server/db/schema.ts. documents is the page tree; the rest hang off it for versions, comments, Notion sync, inline databases, and sharing."
 {
   "entities": [
     {
@@ -272,7 +272,7 @@ export const ImpactCounterInputs = {
         { "name": "icon", "type": "string", "nullable": true },
         { "name": "position", "type": "int", "note": "sibling ordering" },
         { "name": "is_favorite", "type": "bool" },
-        { "name": "visibility", "type": "enum", "note": "private | org | public" },
+        { "name": "visibility", "type": "enum", "note": "비공개 | 조직 | 공공의" },
         { "name": "owner_email", "type": "string" },
         { "name": "org_id", "type": "id", "nullable": true }
       ]
@@ -280,7 +280,7 @@ export const ImpactCounterInputs = {
     {
       "id": "document_versions",
       "name": "document_versions",
-      "note": "Full title/content snapshots for version history",
+      "note": "버전 기록을 위한 전체 title/content 스냅샷",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -291,7 +291,7 @@ export const ImpactCounterInputs = {
     {
       "id": "document_comments",
       "name": "document_comments",
-      "note": "Threaded comments with quoted-text anchors",
+      "note": "인용문 앵커가 포함된 스레드 댓글",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -299,13 +299,13 @@ export const ImpactCounterInputs = {
         { "name": "parent_id", "type": "id", "fk": "document_comments.id", "nullable": true },
         { "name": "quoted_text", "type": "string", "nullable": true },
         { "name": "resolved", "type": "bool" },
-        { "name": "notion_comment_id", "type": "string", "nullable": true, "note": "bidirectional Notion sync" }
+        { "name": "notion_comment_id", "type": "string", "nullable": true, "note": "양방향 Notion 동기화" }
       ]
     },
     {
       "id": "document_sync_links",
       "name": "document_sync_links",
-      "note": "One row per Notion-linked document",
+      "note": "Notion 연결 문서당 한 행",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -317,7 +317,7 @@ export const ImpactCounterInputs = {
     {
       "id": "content_databases",
       "name": "content_databases",
-      "note": "Inline database objects attached to a document",
+      "note": "문서에 첨부된 인라인 데이터베이스 개체",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -338,7 +338,7 @@ export const ImpactCounterInputs = {
     {
       "id": "document_property_definitions",
       "name": "document_property_definitions",
-      "note": "Column definitions for inline databases",
+      "note": "인라인 데이터베이스에 대한 열 정의",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "name", "type": "string" },
@@ -350,7 +350,7 @@ export const ImpactCounterInputs = {
     {
       "id": "document_property_values",
       "name": "document_property_values",
-      "note": "Per-document property values",
+      "note": "문서별 속성 값",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -366,7 +366,7 @@ export const ImpactCounterInputs = {
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
         { "name": "principal", "type": "string" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+        { "name": "role", "type": "enum", "note": "뷰어 | 편집자 | 관리자" }
       ]
     }
   ],
@@ -374,7 +374,7 @@ export const ImpactCounterInputs = {
     { "from": "documents", "to": "documents", "kind": "1-n", "label": "has children" },
     { "from": "documents", "to": "document_versions", "kind": "1-n", "label": "has snapshots" },
     { "from": "documents", "to": "document_comments", "kind": "1-n", "label": "has comments" },
-    { "from": "documents", "to": "document_sync_links", "kind": "1-1", "label": "links to Notion" },
+    { "from": "documents", "to": "document_sync_links", "kind": "1-1", "label": "노션에 대한 링크" },
     { "from": "documents", "to": "content_databases", "kind": "1-n", "label": "hosts databases" },
     { "from": "content_databases", "to": "content_database_items", "kind": "1-n", "label": "has rows" },
     { "from": "document_property_definitions", "to": "document_property_values", "kind": "1-n", "label": "has values" },

@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client";
+import { callAction, useT } from "@agent-native/core/client";
 import {
   IconSearch,
   IconX,
@@ -56,6 +56,7 @@ export function AddCalendarDialog({
   onOpenChange,
   defaultTab = "people",
 }: AddCalendarDialogProps) {
+  const t = useT();
   const [activeTab, setActiveTab] = useState<"people" | "url">(defaultTab);
 
   // Sync default tab when dialog opens
@@ -67,7 +68,9 @@ export function AddCalendarDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[440px] gap-0 p-0 top-[8%] translate-y-0">
         <DialogHeader className="px-4 pt-4 pb-0">
-          <DialogTitle className="text-base">Add Calendar</DialogTitle>
+          <DialogTitle className="text-base">
+            {t("eventForm.addCalendar")}
+          </DialogTitle>
         </DialogHeader>
 
         <Tabs
@@ -77,10 +80,10 @@ export function AddCalendarDialog({
         >
           <TabsList className="mx-4 w-[calc(100%-2rem)]">
             <TabsTrigger value="people" className="flex-1">
-              People
+              {t("eventForm.people")}
             </TabsTrigger>
             <TabsTrigger value="url" className="flex-1">
-              From URL
+              {t("eventForm.fromUrl")}
             </TabsTrigger>
           </TabsList>
 
@@ -100,6 +103,7 @@ export function AddCalendarDialog({
 // ─── People tab ──────────────────────────────────────────────────────────────
 
 function PeopleTab({ onClose: _ }: { onClose: () => void }) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [scopeRequired, setScopeRequired] = useState(false);
@@ -209,7 +213,7 @@ function PeopleTab({ onClose: _ }: { onClose: () => void }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Search by name or type an email..."
+          placeholder={t("eventForm.searchPeoplePlaceholder")}
           className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           autoFocus
         />
@@ -256,7 +260,9 @@ function PeopleTab({ onClose: _ }: { onClose: () => void }) {
                   </div>
                 </div>
                 {alreadyAdded && (
-                  <span className="text-xs text-muted-foreground">Added</span>
+                  <span className="text-xs text-muted-foreground">
+                    {t("eventForm.added")}
+                  </span>
                 )}
               </button>
             );
@@ -266,7 +272,7 @@ function PeopleTab({ onClose: _ }: { onClose: () => void }) {
 
       {scopeRequired && (
         <div className="px-4 py-2 text-xs text-muted-foreground">
-          Directory search is limited. Type a full email and press Enter to add.
+          {t("eventForm.directorySearchLimited")}
         </div>
       )}
 
@@ -275,11 +281,11 @@ function PeopleTab({ onClose: _ }: { onClose: () => void }) {
         !searching &&
         EMAIL_REGEX.test(query.trim()) && (
           <div className="border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
-            Press{" "}
+            {t("eventForm.press")}{" "}
             <kbd className="rounded border border-border bg-muted px-1 font-mono">
               Enter
             </kbd>{" "}
-            to add{" "}
+            {t("eventForm.toAdd")}{" "}
             <span className="font-medium text-foreground">{query.trim()}</span>
           </div>
         )}
@@ -287,7 +293,7 @@ function PeopleTab({ onClose: _ }: { onClose: () => void }) {
       {overlayPeople.length > 0 && (
         <div className="border-t border-border px-4 py-3">
           <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            Showing calendars
+            {t("eventForm.showingCalendars")}
           </p>
           <div className="space-y-1.5">
             {overlayPeople.map((person) => (
@@ -320,6 +326,7 @@ function PeopleTab({ onClose: _ }: { onClose: () => void }) {
 // ─── URL / ICS tab ───────────────────────────────────────────────────────────
 
 function UrlTab({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const [url, setUrl] = useState("");
   const addCalendar = useAddExternalCalendar();
   const removeCalendar = useRemoveExternalCalendar();
@@ -335,11 +342,11 @@ function UrlTab({ onClose }: { onClose: () => void }) {
       { url: url.trim() },
       {
         onSuccess: (cal) => {
-          toast.success(`"${cal.name}" added`);
+          toast.success(t("eventForm.calendarFeedAdded", { name: cal.name }));
           setUrl("");
           onClose();
         },
-        onError: () => toast.error("Failed to add calendar"),
+        onError: () => toast.error(t("eventForm.addCalendarFailed")),
       },
     );
   }
@@ -363,8 +370,7 @@ function UrlTab({ onClose }: { onClose: () => void }) {
             />
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Paste a shareable calendar link from Google Calendar, iCloud,
-            Outlook, etc.
+            {t("eventForm.pasteShareableCalendarLink")}
           </p>
         </div>
         <Button
@@ -378,14 +384,14 @@ function UrlTab({ onClose }: { onClose: () => void }) {
           ) : (
             <IconCalendarPlus className="mr-1.5 h-4 w-4" />
           )}
-          Add Calendar
+          {t("eventForm.addCalendar")}
         </Button>
       </form>
 
       {calendars.length > 0 && (
         <div className="mt-4 border-t border-border pt-3">
           <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            Subscribed feeds
+            {t("eventForm.subscribedFeeds")}
           </p>
           <div className="space-y-1.5">
             {calendars.map((cal) => (

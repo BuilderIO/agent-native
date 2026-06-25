@@ -2,6 +2,7 @@ import {
   agentNativePath,
   useActionMutation,
   useActionQuery,
+  useT,
 } from "@agent-native/core/client";
 import {
   IconPuzzle,
@@ -62,10 +63,11 @@ export function StitchManager({
   onOpenChange,
   seedRecordingId,
 }: StitchManagerProps) {
+  const t = useT();
   const [queue, setQueue] = useState<RecordingLite[]>([]);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [title, setTitle] = useState("Stitched recording");
+  const [title, setTitle] = useState(t("stitchManager.defaultTitle"));
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
   const listQuery = useActionQuery("list-recordings", {});
@@ -116,11 +118,11 @@ export function StitchManager({
 
   const handleCombine = async () => {
     if (queue.length < 2) {
-      toast.error("Pick at least 2 recordings to stitch together");
+      toast.error(t("stitchManager.pickAtLeastTwo"));
       return;
     }
     if (queue.some((r) => !r.videoUrl)) {
-      toast.error("One or more recordings don't have a ready video URL yet");
+      toast.error(t("stitchManager.videoUrlMissing"));
       return;
     }
     setBusy(true);
@@ -142,9 +144,7 @@ export function StitchManager({
       );
       const videoUrl = upload?.url ?? null;
       if (!videoUrl) {
-        throw new Error(
-          "Connect Builder.io or S3-compatible storage before stitching recordings.",
-        );
+        throw new Error(t("stitchManager.connectStorage"));
       }
 
       // 3) Create the stitched recording row.
@@ -155,12 +155,12 @@ export function StitchManager({
         videoUrl,
         durationMs: totalDuration,
       });
-      toast.success(`Stitched recording created`);
+      toast.success(t("stitchManager.created"));
       onOpenChange(false);
       return result;
     } catch (err: any) {
       console.error(err);
-      toast.error(err?.message ?? "Failed to stitch recordings");
+      toast.error(err?.message ?? t("stitchManager.failed"));
     } finally {
       setBusy(false);
       setProgress(0);
@@ -173,19 +173,19 @@ export function StitchManager({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <IconPuzzle className="w-4 h-4 text-primary" />
-            Stitch recordings
+            {t("stitchManager.title")}
           </DialogTitle>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-3 min-h-[320px]">
           <div className="flex flex-col border rounded-md">
             <div className="px-3 py-2 text-xs font-medium border-b">
-              Library
+              {t("navigation.library")}
             </div>
             <ScrollArea className="flex-1">
               {available.length === 0 ? (
                 <div className="p-3 text-xs text-muted-foreground">
-                  No other recordings available.
+                  {t("stitchManager.noOtherRecordings")}
                 </div>
               ) : (
                 available.map((r) => (
@@ -216,7 +216,7 @@ export function StitchManager({
 
           <div className="flex flex-col border rounded-md">
             <div className="px-3 py-2 text-xs font-medium border-b flex items-center justify-between">
-              <span>Combine order</span>
+              <span>{t("stitchManager.combineOrder")}</span>
               <span className="text-muted-foreground">
                 {queue.length} ·{" "}
                 {formatMs(queue.reduce((s, r) => s + r.durationMs, 0))}
@@ -225,8 +225,7 @@ export function StitchManager({
             <ScrollArea className="flex-1">
               {queue.length === 0 ? (
                 <div className="p-3 text-xs text-muted-foreground">
-                  Click recordings on the left to add them here. Drag to
-                  reorder.
+                  {t("stitchManager.emptyQueue")}
                 </div>
               ) : (
                 queue.map((r, i) => (
@@ -265,7 +264,9 @@ export function StitchManager({
         </div>
 
         <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground">Title</label>
+          <label className="text-xs text-muted-foreground">
+            {t("stitchManager.titleLabel")}
+          </label>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -276,14 +277,15 @@ export function StitchManager({
         {busy && (
           <div className="text-xs text-muted-foreground flex items-center gap-2">
             <IconLoader2 className="w-4 h-4 animate-spin" />
-            Combining with ffmpeg.wasm — {Math.round(progress * 100)}%. Large
-            stitches may take a minute.
+            {t("stitchManager.combining", {
+              progress: Math.round(progress * 100),
+            })}
           </div>
         )}
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={handleCombine} disabled={busy || queue.length < 2}>
             {busy ? (
@@ -291,7 +293,7 @@ export function StitchManager({
             ) : (
               <IconPuzzle className="w-4 h-4 mr-1" />
             )}
-            Combine
+            {t("stitchManager.combine")}
           </Button>
         </DialogFooter>
       </DialogContent>

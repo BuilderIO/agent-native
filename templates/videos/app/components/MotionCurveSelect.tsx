@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+
 import {
   Tooltip,
   TooltipContent,
@@ -26,24 +28,25 @@ export const MotionCurveSelect: React.FC<MotionCurveSelectProps> = ({
   value,
   onChange,
   accentColor = "blue-400",
-  label = "Motion Curve (arriving)",
+  label,
 }) => {
+  const t = useT();
+  const displayLabel = label ?? t("editor.currentElement.motionCurve");
+
   return (
     <div className="space-y-1.5 pt-2 border-t border-border/40">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Label className="text-xs text-muted-foreground">{displayLabel}</Label>
       <Select value={value} onValueChange={(val) => onChange(val as EasingKey)}>
         <Tooltip>
           <TooltipTrigger asChild>
             <SelectTrigger
               className={`w-full h-auto text-xs bg-secondary border border-border rounded-lg pl-2.5 py-1.5 text-foreground focus:outline-none focus:ring-2 focus:ring-${accentColor}/40`}
-              aria-label="Controls how the animation moves to this keyframe"
+              aria-label={t("raw.motion.controlsKeyframe")}
             >
               <SelectValue />
             </SelectTrigger>
           </TooltipTrigger>
-          <TooltipContent>
-            Controls how the animation moves to this keyframe
-          </TooltipContent>
+          <TooltipContent>{t("raw.motion.controlsKeyframe")}</TooltipContent>
         </Tooltip>
         <SelectContent>
           {EASING_OPTIONS.map((opt) => (

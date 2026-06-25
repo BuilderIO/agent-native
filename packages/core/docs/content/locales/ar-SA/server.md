@@ -111,24 +111,24 @@ export default defineAction({
   "annotations": [
     {
       "lines": "7-10",
-      "label": "Custom routes have no auto-context",
-      "note": "Unlike actions, a file route must load the session itself and fail closed when there is no authenticated user."
+      "label": "لا تحتوي المسارات المخصصة على سياق تلقائي",
+      "note": "على عكس الإجراءات، يجب أن يقوم مسار الملف بتحميل الجلسة نفسها ويفشل في الإغلاق في حالة عدم وجود مستخدم تمت مصادقته."
     },
     {
       "lines": "12-13",
-      "label": "Establish request context",
-      "note": "`runWithRequestContext` makes the user/org available to scoping helpers for the duration of the work."
+      "label": "إنشاء سياق الطلب",
+      "note": "`runWithRequestContext` يجعل user/org متاحًا لمساعدي تحديد النطاق طوال مدة العمل."
     },
     {
       "lines": "18-19",
-      "label": "Scope ownable reads",
+      "label": "نطاق القراءات القابلة للامتلاك",
       "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
     }
   ]
 }
 ```
 
-يتم إنشاء `getDb` لكل تطبيق عبر `createGetDb(schema)` في `server/db/index.ts`، لذلك تقوم المسارات المخصصة باستيراده من القالب (`../../db/index.js`)، وليس من `@agent-native/core/db`؛ انظر [Database — Where the DB Client Lives](/docs/database#db-client). لا تقم بتشغيل `db.select().from(ownableTable)` غير النطاق في المسارات المخصصة.
+يتم إنشاء `getDb` لكل تطبيق عبر `createGetDb(schema)` في `server/db/index.ts`، لذلك تقوم المسارات المخصصة باستيراده من القالب (`../../db/index.js`), وليس من `@agent-native/core/db`؛ انظر [Database — Where the DB Client Lives](/docs/database#db-client). لا تقم بتشغيل `db.select().from(ownableTable)` غير النطاق في المسارات المخصصة.
 
 ## مكونات الخادم الإضافية {#server-plugins}
 
@@ -190,11 +190,11 @@ export default runMigrations(
 }
 ```
 
-```an-api title="The poll endpoint" method="GET" path="/_agent-native/poll"
+```an-api title="نقطة نهاية الاستقصاء" method="GET" path="/_agent-native/poll"
 {
   "method": "GET",
   "path": "/_agent-native/poll",
-  "summary": "Return the current per-source database sync versions so the client can detect changes.",
+  "summary": "قم بإرجاع إصدارات مزامنة قاعدة البيانات الحالية لكل مصدر حتى يتمكن العميل من اكتشاف التغييرات.",
   "description": "`useDbSync()` calls this on an interval (and falls back to it when SSE is unavailable). When a returned version is higher than the client's last-seen value, the matching React Query caches are invalidated and refetch.",
   "auth": "Session cookie (request-scoped identity)",
   "responses": [
@@ -215,7 +215,7 @@ export default runMigrations(
 
 ```an-diagram title="نمط قائمة انتظار التكامل" summary="يُرجع معالج webhook بالمللي ثانية؛ يؤدي التنفيذ الموقع المنفصل إلى تشغيل عمل الوكيل البطيء."
 {
-  "html": "<div class=\"diagram-webhook\"><div class=\"diagram-box\" data-rough>Inbound webhook<br><small class=\"diagram-muted\">Slack · Stripe · email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Handler</strong><div class=\"diagram-step\"><span class=\"diagram-pill\">1</span><small class=\"diagram-muted\">verify signature</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><small class=\"diagram-muted\">insert work into SQL</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">3</span><small class=\"diagram-muted\">self-fire processor</small></div><div class=\"diagram-step\"><span class=\"diagram-pill ok\">4</span><small class=\"diagram-muted\">return 200 now</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Signed processor<br><small class=\"diagram-muted\">runs agent loop, posts result</small></div></div>",
+  "html": "<div class=\"diagram-webhook\"><div class=\"diagram-box\" data-rough>Webhook وارد<br><small class=\"diagram-muted\">Slack · Stripe · email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Handler</strong><div class=\"diagram-step\"><span class=\"diagram-pill\">1</span><small class=\"diagram-muted\">verify signature</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><small class=\"diagram-muted\">إدراج العمل في SQL</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">3</span><small class=\"diagram-muted\">self-fire processor</small></div><div class=\"diagram-step\"><span class=\"diagram-pill ok\">4</span><small class=\"diagram-muted\">return 200 now</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Signed processor<br><small class=\"diagram-muted\">يشغل حلقة الوكيل وينشر النتيجة</small></div></div>",
   "css": ".diagram-webhook{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-webhook .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-webhook .diagram-step{display:flex;align-items:center;gap:8px}.diagram-webhook .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

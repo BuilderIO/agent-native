@@ -215,7 +215,7 @@ interpretiert es.
 
 ```an-diagram title="Fortsetzen über Runden, Prozesse und Bereitstellungen hinweg" summary="Bei jeder Runde wird ein undurchsichtiger „resumeState“ in SQL abgetrennt; In der nächsten Runde wird es wieder in createSession eingespeist, anstatt den Chatverlauf erneut abzuspielen."
 {
-  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Turn N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opaque · SQL harness session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Turn N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
+  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Runde N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opak · SQL-Harness-Sitzung</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Runde N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
   "css": ".diagram-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-resume .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -267,7 +267,7 @@ Eine Harness-Sitzung streamt `AgentHarnessEvent`-Werte, die Agent-Native
 `mcpApp`-Nutzlast für native Widgets), `approval-request`, `file-change`,
 `compaction`, `usage`, `error` und `done`. Denn Werkzeugergebnisse fließen durch das
 gleiche Übersetzung, aktionsdeklarierte native Widgets werden weiterhin gerendert – siehe
-[Native Chat UI](/docs/native-chat-ui).
+[Native Chat-Oberfläche](/docs/native-chat-ui).
 
 ## Hintergrundläufe und UI {#background-runs}
 
@@ -341,7 +341,7 @@ Eine Implementierung dieses Vertrags, nicht die öffentliche Abstraktion.
 
 ## Verwandte Dokumente {#related-docs}
 
-- [Native Chat UI](/docs/native-chat-ui) – Stellen Sie Ihren eigenen Agenten hinter den Chat UI mit `AgentChatRuntime`.
+- [Native Chat-Oberfläche](/docs/native-chat-ui) – Stellen Sie Ihren eigenen Agenten hinter den Chat-Oberfläche mit `AgentChatRuntime`.
 - [Agent Surfaces](/docs/agent-surfaces) – wählen Sie Headless, Chat, Sidecar oder Voll-App.
 - [Agent-Native Code UI](/docs/code-agents-ui) – die wiederverwendbare Codierungsarbeitsbereichsoberfläche.
 - [Custom Agents & Teams](/docs/agent-teams) – Hintergrundausführungen und Subagentendelegierung.

@@ -4,6 +4,7 @@ import {
   useActionMutation,
   useActionQuery,
   useSession,
+  useT,
 } from "@agent-native/core/client";
 import {
   IconAd,
@@ -60,6 +61,7 @@ function isAuthUnavailableError(error: unknown): boolean {
 }
 
 export default function Templates() {
+  const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const createMutation = useActionMutation("create-design");
@@ -84,7 +86,7 @@ export default function Templates() {
     );
   }, [defaultDesignSystem]);
 
-  useSetPageTitle("Templates");
+  useSetPageTitle(t("navigation.templates"));
 
   const handleUseTemplate = async (template: DesignTemplate) => {
     if (sessionLoading) return;
@@ -98,17 +100,22 @@ export default function Templates() {
     let format: unknown = null;
     try {
       format = await askUserQuestion({
-        question: `What format should this ${template.title.toLowerCase()} target?`,
-        header: "Format",
+        question: t("templatesPage.formatQuestion", {
+          title: template.title.toLowerCase(),
+        }),
+        header: t("templatesPage.formatHeader"),
         options: [
           {
-            label: "Desktop",
+            label: t("templatesPage.desktop"),
             value: "desktop, 1280px wide",
             recommended: true,
           },
-          { label: "Mobile", value: "mobile, 390px wide" },
-          { label: "Tablet", value: "tablet, 1024px wide" },
-          { label: "Social square", value: "social square, 1080×1080" },
+          { label: t("templatesPage.mobile"), value: "mobile, 390px wide" },
+          { label: t("templatesPage.tablet"), value: "tablet, 1024px wide" },
+          {
+            label: t("templatesPage.socialSquare"),
+            value: "social square, 1080×1080",
+          },
         ],
         allowFreeText: false,
       });
@@ -199,16 +206,15 @@ export default function Templates() {
         <div className="mb-8 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-base font-semibold text-foreground">
-              Marketing templates
+              {t("templatesPage.title")}
             </h2>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Sized, editable starter designs for launches, ads, decks, events,
-              and PDF handouts.
+              {t("templatesPage.description")}
             </p>
           </div>
           {defaultDesignSystem ? (
             <div className="rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
-              Brand: {defaultDesignSystem.title}
+              {t("templatesPage.brand", { title: defaultDesignSystem.title })}
             </div>
           ) : null}
         </div>
@@ -247,7 +253,7 @@ export default function Templates() {
                     onClick={() => handleUseTemplate(template)}
                     className="w-full cursor-pointer"
                   >
-                    Use template
+                    {t("templatesPage.useTemplate")}
                     <IconArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" />
                   </Button>
                 </div>

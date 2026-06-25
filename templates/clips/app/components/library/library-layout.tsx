@@ -585,7 +585,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                       <IconX className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>I already have it</TooltipContent>
+                  <TooltipContent>
+                    {t("clipsFinalRaw.alreadyHaveIt")}
+                  </TooltipContent>
                 </Tooltip>
               </div>
             )}

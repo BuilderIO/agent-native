@@ -22,7 +22,7 @@ description: "本地开发框架、嵌入式代理面板和云框架 - AI 代理
 
 ```an-diagram title="三帧，一个运行时间" summary="您的应用程序和代理面板在每一帧中都是相同的；只有它们周围的包装发生变化。"
 {
-  "html": "<div class=\"diagram-frames\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Embedded panel</span><small class=\"diagram-muted\">ships in every app · dev + prod</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Local dev frame</span><small class=\"diagram-muted\">app in an iframe + panel + CLI terminal</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Builder.io cloud frame</span><small class=\"diagram-muted\">hosted: collaboration · visual edit · parallel runs</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Same runtime<br><small class=\"diagram-muted\">your app · actions · application state</small></div></div>",
+  "html": "<div class=\"diagram-frames\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">嵌入面板</span><small class=\"diagram-muted\">随每个应用提供 · 开发 + 生产</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">本地开发框架</span><small class=\"diagram-muted\">iframe 中的应用 + 面板 + CLI 终端</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Builder.io 云框架</span><small class=\"diagram-muted\">托管：协作 · 可视编辑 · 并行运行</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>同一 runtime<br><small class=\"diagram-muted\">你的应用 · 操作 · 应用状态</small></div></div>",
   "css": ".diagram-frames{display:flex;flex-direction:column;gap:10px;align-items:stretch}.diagram-frames .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.diagram-frames .diagram-arrow{font-size:22px;line-height:1;align-self:center}"
 }
 ```
@@ -36,7 +36,7 @@ description: "本地开发框架、嵌入式代理面板和云框架 - AI 代理
 - 从 `@agent-native/core/client` 导出为 `AgentPanel`，带有
   仅限生产的变体 `ProductionAgentPanel`。
 - 提供完整的聊天/CLI/工作空间界面，因此座席输入保持开启
-  框架中其他地方使用的共享 Composer 堆栈。
+  框架中其他地方使用的共享 撰写r 堆栈。
 - 每回合都会读取 `application_state.navigation`，因此它已经知道是哪个
   查看您所在的位置以及选择的内容 - 您无需重新解释“此”。
 

@@ -27,7 +27,7 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 
 ```an-diagram title="フレームワークの外ではなく、レイヤーをドロップダウンします" summary="各レイヤーは同じランタイム (アクション、スレッド状態、SQL-backed 同期) を維持しながら、クロムをより詳細に制御できます。"
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Whole sidebar around your app. The 80% case.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">The panel or a chat page in your own layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Composer and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Same runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">アプリ全体を囲むサイドバー。80%のケース。</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">独自レイアウト内のパネルまたはチャットページ。</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">作成r and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>同じruntime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -58,7 +58,7 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 Agent-Native が作曲家、トランスクリプト、ツール カード、およびツール カードを保持している間の会話
 ネイティブ ウィジェット レンダリング。上記のコネクタは API サーフェスです。ランタイム
 契約とイベントの形式は
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+[Native チャット UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
 ヘッドレス エージェント、リッチ チャット、埋め込みサイドカーのいずれかを選択する場合
 完全なアプリの形状については、[Agent Surfaces](/docs/agent-surfaces) を参照してください。
 
@@ -96,7 +96,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 持ち込みエージェント エンドポイントの場合は、次のいずれかを使用して `AgentChatRuntime` を構築します。
 上のコネクタを接続し、それを `<AssistantChat runtime={...} />` に渡します。参照
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+[Native チャット UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
 コネクタの使用状況、正規化されたイベント ストリーム、およびいつ到達するかについて
 `createHttpAgentChatRuntime()` とプロトコル固有のコネクタ。
 
@@ -151,7 +151,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 プレーンな JSON ではなく、内部チャット。組み込みの再利用可能な出力には、
 `DataTableWidget`、`DataChartWidget`、および `DataWidgetResult`;それらはエクスポートされます
 `@agent-native/core/client/chat` およびルート クライアント エントリから。参照
-アクション結果コントラクトの場合は [Native Chat UI](/docs/native-chat-ui)。
+アクション結果コントラクトの場合は [Native チャット UI](/docs/native-chat-ui)。
 
 | API                              | 次の場合に使用します                                                                             |
 | -------------------------------- | ------------------------------------------------------------------------------------------------ |
@@ -180,7 +180,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 ```an-diagram title="プレゼンス: 人間とエージェントは 1 つの認識層を共有します" summary="useCollaborativeDoc は認識インスタンスを所有します。クライアントフックはカーソルと選択範囲をパブリッシュします。サーバー ヘルパーを使用すると、エージェントのアクションをライブ参加者として表示できます。"
 {
-  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">Agent action<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">render everyone, agent included</small></div></div>",
+  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">エージェントアクション<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">エージェントを含む全員をレンダー</small></div></div>",
   "css": ".diagram-presence{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-presence .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-presence .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-presence .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

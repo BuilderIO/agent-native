@@ -10,7 +10,7 @@ description: "평이한 영어로 분석 질문을 하고 차트와 대시보드
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native Templates</h1><p class='wf-muted' style='margin:0'>Adoption and engagement across the last 12 weeks.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>Weekly active users</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>New signups</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>Revenue MRR</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Weekly active users</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Revenue over time</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>Signups by source</strong><br/><small class='wf-muted'>Lower chart begins below the main charts.</small></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native 템플릿</h1><p class='wf-muted' style='margin:0'>지난 12주간의 도입과 참여도.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>주간 활성 사용자</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>신규 가입</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>MRR 매출</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>주간 활성 사용자</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>시간에 따른 매출</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>소스별 가입</strong><br/><small class='wf-muted'>아래 차트는 기본 차트 아래에서 시작됩니다.</small></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ description: "평이한 영어로 분석 질문을 하고 차트와 대시보드
 
 ```an-diagram title="차트에 대한 질문" summary="에이전트는 데이터 사전을 참조하고 SQL을 작성하고 웨어하우스에 대해 유효성을 확인한 다음 차트를 렌더링하거나 패널을 저장합니다."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">Plain-English<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Writes SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Dry-run validate</div><small class=\"diagram-muted\">BigQuery / source</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Chart, table, or<br>saved panel</div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">쉬운 설명<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL 쓰기</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Dry-run 검증</div><small class=\"diagram-muted\">BigQuery / 소스</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">차트, 표 또는<br>saved panel</div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -162,23 +162,23 @@ GCP 콘솔 → APIs & 서비스 → 자격 증명 → OAuth 클라이언트 ID, 
 
 핵심 테이블(`templates/analytics/server/db/schema.ts` 참조):
 
-```an-schema title="Analytics data model" summary="Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
+```an-schema title="분석 데이터 모델" summary="Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
 {
   "entities": [
     {
       "id": "dashboards",
       "name": "dashboards",
-      "note": "Explorer and SQL dashboards",
+      "note": "탐색기 및 SQL 대시보드",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "kind", "type": "text", "note": "\"explorer\" or \"sql\"" },
-        { "name": "config", "type": "text", "note": "JSON matching SqlDashboardConfig" }
+        { "name": "config", "type": "text", "note": "JSON 일치 SqlDashboardConfig" }
       ]
     },
     {
       "id": "dashboard_views",
       "name": "dashboard_views",
-      "note": "Saved filter presets per dashboard",
+      "note": "대시보드당 저장된 필터 사전 설정",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "dashboard_id", "type": "text", "fk": "dashboards.id" }
@@ -187,12 +187,12 @@ GCP 콘솔 → APIs & 서비스 → 자격 증명 → OAuth 클라이언트 ID, 
     {
       "id": "analyses",
       "name": "analyses",
-      "note": "Re-runnable ad-hoc investigations",
+      "note": "재실행 가능한 임시 조사",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "question", "type": "text" },
-        { "name": "instructions", "type": "text", "note": "Re-run steps" },
-        { "name": "dataSources", "type": "text", "note": "Sources touched" },
+        { "name": "instructions", "type": "text", "note": "단계 다시 실행" },
+        { "name": "dataSources", "type": "text", "note": "터치한 소스" },
         { "name": "resultMarkdown", "type": "text" },
         { "name": "resultData", "type": "text", "nullable": true }
       ]
@@ -200,7 +200,7 @@ GCP 콘솔 → APIs & 서비스 → 자격 증명 → OAuth 클라이언트 ID, 
     {
       "id": "bigquery_cache",
       "name": "bigquery_cache",
-      "note": "Result cache keyed by SQL hash",
+      "note": "SQL 해시로 키가 지정된 결과 캐시",
       "fields": [
         { "name": "sql_hash", "type": "text", "pk": true },
         { "name": "bytes_processed", "type": "integer" }

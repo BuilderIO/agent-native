@@ -10,6 +10,7 @@ import {
   callAction,
   useChangeVersions,
   useActionMutation,
+  useT,
   type CollabUser,
 } from "@agent-native/core/client";
 import {
@@ -282,6 +283,7 @@ async function saveDashboard(
 }
 
 export default function SqlDashboardPage() {
+  const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const { id: routeId } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
@@ -606,7 +608,7 @@ export default function SqlDashboardPage() {
     (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
       if (!canEdit) {
-        toast.error("You have view-only access to this dashboard.");
+        toast.error(t("sqlDashboard.viewOnly"));
         return;
       }
       setDashboard(updated);
@@ -629,12 +631,14 @@ export default function SqlDashboardPage() {
         .catch((err) => {
           toast.error(
             err instanceof Error
-              ? `Couldn't save dashboard: ${err.message}`
-              : "Couldn't save dashboard",
+              ? t("sqlDashboard.saveFailedWithMessage", {
+                  message: err.message,
+                })
+              : t("sqlDashboard.saveFailed"),
           );
         });
     },
-    [dashboardId, canEdit, queryClient, pushToCollab],
+    [dashboardId, canEdit, queryClient, pushToCollab, t],
   );
 
   /**
@@ -645,7 +649,7 @@ export default function SqlDashboardPage() {
     async (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
       if (!canEdit) {
-        throw new Error("You have view-only access to this dashboard.");
+        throw new Error(t("sqlDashboard.viewOnly"));
       }
       await saveDashboard(dashboardId, updated);
       setDashboard(updated);
@@ -659,7 +663,7 @@ export default function SqlDashboardPage() {
         queryKey: ["data", "sql-dashboard", dashboardId],
       });
     },
-    [dashboardId, canEdit, queryClient, pushToCollab],
+    [dashboardId, canEdit, queryClient, pushToCollab, t],
   );
 
   const removePanel = useCallback(
@@ -1003,7 +1007,7 @@ export default function SqlDashboardPage() {
           >
             <Button size="sm" variant="outline">
               <IconPlus className="h-4 w-4 mr-1" />
-              Add panel
+              {t("sqlDashboard.addPanel")}
             </Button>
           </AddPanelPopover>
         ) : null}
@@ -1015,13 +1019,13 @@ export default function SqlDashboardPage() {
                   size="sm"
                   variant="ghost"
                   className="text-muted-foreground hover:text-foreground"
-                  aria-label="Dashboard details and actions"
+                  aria-label={t("sqlDashboard.dashboardActions")}
                 >
                   <IconDots className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>Details</TooltipContent>
+            <TooltipContent>{t("sqlDashboard.details")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel className="font-normal">
@@ -1029,11 +1033,15 @@ export default function SqlDashboardPage() {
                 {dashboardUpdatedAt && (
                   <span className="flex items-center gap-1.5">
                     <IconClock className="h-3 w-3" />
-                    Updated{" "}
-                    {new Date(dashboardUpdatedAt).toLocaleDateString("en-US", {
-                      year: "numeric",
-                      month: "short",
-                      day: "numeric",
+                    {t("sqlDashboard.updated", {
+                      date: new Date(dashboardUpdatedAt).toLocaleDateString(
+                        "en-US",
+                        {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        },
+                      ),
                     })}
                   </span>
                 )}
@@ -1063,16 +1071,16 @@ export default function SqlDashboardPage() {
                       }`}
                     />
                     {dashboardVisibility === "public"
-                      ? "Public"
+                      ? t("sqlDashboard.public")
                       : dashboardVisibility === "org"
-                        ? "Shared with org"
-                        : "Private"}
+                        ? t("sqlDashboard.sharedWithOrg")
+                        : t("sqlDashboard.private")}
                   </span>
                 ) : null}
                 {hiddenAt && (
                   <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
                     <IconEyeOff className="h-3 w-3" />
-                    Hidden
+                    {t("sqlDashboard.hidden")}
                   </span>
                 )}
               </div>
@@ -1088,7 +1096,7 @@ export default function SqlDashboardPage() {
                 }}
               >
                 <IconArchive className="mr-2 h-3.5 w-3.5" />
-                Archive
+                {t("sidebar.archive")}
               </DropdownMenuItem>
             ) : null}
             {canEdit && !archivedAt && canManage ? (
@@ -1103,7 +1111,7 @@ export default function SqlDashboardPage() {
                 className="text-destructive focus:text-destructive"
               >
                 <IconTrash className="mr-2 h-3.5 w-3.5" />
-                Delete permanently
+                {t("sqlDashboard.deletePermanently")}
               </DropdownMenuItem>
             ) : null}
           </DropdownMenuContent>
@@ -1115,20 +1123,22 @@ export default function SqlDashboardPage() {
           >
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  {t("sqlDashboard.deletePermanentlyTitle")}
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  This permanently deletes &ldquo;{dashboard?.name}&rdquo; and
-                  cannot be undone. To keep it recoverable, choose Archive
-                  instead.
+                  {t("sqlDashboard.deletePermanentlyDescription", {
+                    name: dashboard?.name ?? "",
+                  })}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={handleDelete}
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 >
-                  Delete permanently
+                  {t("sqlDashboard.deletePermanently")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -1141,7 +1151,7 @@ export default function SqlDashboardPage() {
   if (!dashboardId) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
-        No dashboard selected
+        {t("sqlDashboard.noDashboardSelected")}
       </div>
     );
   }
@@ -1158,8 +1168,7 @@ export default function SqlDashboardPage() {
         <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
           <IconEyeOff className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
           <span className="min-w-0 flex-1">
-            This dashboard is hidden from regular lists. It remains searchable
-            and openable by direct link.
+            {t("sqlDashboard.hiddenDescription")}
           </span>
           <Button
             size="sm"
@@ -1169,19 +1178,16 @@ export default function SqlDashboardPage() {
             className="shrink-0 border-amber-300 bg-amber-100 text-amber-950 hover:bg-amber-200 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-100 dark:hover:bg-amber-900/70"
           >
             <IconEye className="mr-1.5 h-3.5 w-3.5" />
-            Unhide
+            {t("sidebar.unhide")}
           </Button>
         </div>
       ) : null}
       {showDemoIntro ? (
         <Alert className="border-cyan-400/50 bg-cyan-400/10 pr-12 text-cyan-950 shadow-sm shadow-cyan-500/10 dark:bg-cyan-400/10 dark:text-cyan-50 [&>svg]:text-cyan-600 dark:[&>svg]:text-cyan-300">
           <IconInfoCircle className="h-4 w-4" />
-          <AlertTitle>You&apos;re viewing a live demo</AlertTitle>
+          <AlertTitle>{t("sqlDashboard.demoIntroTitle")}</AlertTitle>
           <AlertDescription className="text-cyan-900/80 dark:text-cyan-100/80">
-            This dashboard uses the built-in demo Prometheus endpoint, not your
-            connected sources or provider slots. Start with app metrics here,
-            switch to Node for system metrics, and archive or delete it from the
-            dashboard menu whenever you&apos;re done.
+            {t("sqlDashboard.demoIntroDescription")}
           </AlertDescription>
           <Button
             type="button"
@@ -1189,7 +1195,7 @@ export default function SqlDashboardPage() {
             size="icon"
             className="absolute right-2 top-2 h-8 w-8 text-cyan-900 hover:bg-cyan-400/20 hover:text-cyan-950 dark:text-cyan-100 dark:hover:text-cyan-50"
             onClick={dismissDemoIntro}
-            aria-label="Dismiss demo intro"
+            aria-label={t("sqlDashboard.dismissDemoIntro")}
           >
             <IconX className="h-4 w-4" />
           </Button>
@@ -1209,7 +1215,7 @@ export default function SqlDashboardPage() {
           }}
           rows={2}
           autoFocus
-          placeholder="Add a description"
+          placeholder={t("sqlDashboard.addDescriptionPlaceholder")}
           className="text-sm resize-y"
         />
       ) : dashboard.description ? (
@@ -1239,7 +1245,7 @@ export default function SqlDashboardPage() {
           }}
         >
           <IconPencil className="h-3 w-3" />
-          Add description
+          {t("sqlDashboard.addDescription")}
         </button>
       ) : null}
 
@@ -1295,7 +1301,7 @@ export default function SqlDashboardPage() {
       {dashboard.panels.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center h-64 text-muted-foreground text-sm gap-3">
-            <p>This dashboard has no panels yet.</p>
+            <p>{t("sqlDashboard.noPanels")}</p>
             {canEdit ? (
               <AddPanelPopover
                 onSave={handleSavePanel}
@@ -1305,7 +1311,7 @@ export default function SqlDashboardPage() {
               >
                 <Button size="sm" variant="outline">
                   <IconPlus className="h-4 w-4 mr-1" />
-                  Add your first panel
+                  {t("sqlDashboard.addFirstPanel")}
                 </Button>
               </AddPanelPopover>
             ) : null}

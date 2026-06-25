@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, useT } from "@agent-native/core/client";
 import {
   IconX,
   IconCheck,
@@ -20,69 +20,44 @@ interface CloudUpgradeProps {
 interface Provider {
   id: string;
   name: string;
-  description: string;
+  descriptionKey: string;
   urlPrefix: string;
   needsAuthToken: boolean;
-  steps: string[];
+  stepKeys: string[];
 }
 
 const PROVIDERS: Provider[] = [
   {
     id: "turso",
     name: "Turso",
-    description: "SQLite at the edge",
+    descriptionKey: "cloudUpgrade.providers.turso.description",
     urlPrefix: "libsql://",
     needsAuthToken: true,
-    steps: [
-      "Install CLI: curl -sSfL https://get.tur.so/install.sh | bash",
-      "Sign up / login: turso auth login (opens browser)",
-      "Create a database: turso db create my-app",
-      "Copy the URL: turso db show my-app --url → starts with libsql://",
-      "Create an auth token: turso db tokens create my-app → paste below",
-    ],
+    stepKeys: ["step1", "step2", "step3", "step4", "step5"],
   },
   {
     id: "neon",
     name: "Neon",
-    description: "Serverless Postgres",
+    descriptionKey: "cloudUpgrade.providers.neon.description",
     urlPrefix: "postgres://",
     needsAuthToken: false,
-    steps: [
-      "Go to console.neon.tech and sign up or log in",
-      'Click "New Project" → pick a name and region → click Create',
-      "On the project dashboard, find the Connection Details panel",
-      'Select "Connection string" tab → copy the postgres://... URL',
-      "Paste the full connection string (includes password) below",
-    ],
+    stepKeys: ["step1", "step2", "step3", "step4", "step5"],
   },
   {
     id: "supabase",
     name: "Supabase",
-    description: "Open source Firebase alternative",
+    descriptionKey: "cloudUpgrade.providers.supabase.description",
     urlPrefix: "postgres://",
     needsAuthToken: false,
-    steps: [
-      "Go to supabase.com/dashboard and sign up or log in",
-      'Click "New Project" → set a name and database password → click Create',
-      "Wait for the project to finish provisioning (~30 seconds)",
-      "Go to Project Settings → Database → Connection string",
-      'Select "URI" tab → copy the postgres://... string (replace [YOUR-PASSWORD] with your DB password)',
-    ],
+    stepKeys: ["step1", "step2", "step3", "step4", "step5"],
   },
   {
     id: "d1",
-    name: "Cloudflare D1",
-    description: "SQLite on Cloudflare's edge",
+    name: "Cloudflare D1", // i18n-ignore stable provider name
+    descriptionKey: "cloudUpgrade.providers.d1.description",
     urlPrefix: "d1://",
     needsAuthToken: true,
-    steps: [
-      "Go to dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-      'Click "Create" → name your database → click Create',
-      "Copy the Database ID from the database overview page",
-      "For the auth token: go to My Profile → API Tokens → Create Token",
-      'Select "Edit Cloudflare Workers" template → Create Token → copy it',
-      "Paste as: d1://<database-id> with the API token below",
-    ],
+    stepKeys: ["step1", "step2", "step3", "step4", "step5", "step6"],
   },
 ];
 
@@ -91,6 +66,7 @@ export function CloudUpgrade({
   description = "To share content publicly, connect a cloud database.",
   onClose,
 }: CloudUpgradeProps) {
+  const t = useT();
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [dbUrl, setDbUrl] = useState("");
   const [authToken, setAuthToken] = useState("");
@@ -107,7 +83,7 @@ export function CloudUpgrade({
     connectingRef.current = true;
 
     if (!dbUrl.trim()) {
-      setErrorMsg("Database URL is required");
+      setErrorMsg(t("cloudUpgrade.databaseUrlRequired"));
       setStatus("error");
       connectingRef.current = false;
       return;
@@ -132,7 +108,7 @@ export function CloudUpgrade({
 
       if (!saveRes.ok) {
         const data = await saveRes.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save credentials");
+        throw new Error(data.error || t("googleConnect.failedSaveCredentials"));
       }
 
       // Poll db-health until it returns ok
@@ -163,12 +139,14 @@ export function CloudUpgrade({
         window.location.reload();
       }, 1500);
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : "Connection failed");
+      setErrorMsg(
+        e instanceof Error ? e.message : t("cloudUpgrade.connectionFailed"),
+      );
       setStatus("error");
     } finally {
       connectingRef.current = false;
     }
-  }, [dbUrl, authToken]);
+  }, [dbUrl, authToken, t]);
 
   const isConnecting = status === "saving" || status === "polling";
 
@@ -218,7 +196,7 @@ export function CloudUpgrade({
               {p.name}
             </span>
             <span className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-              {p.description}
+              {t(p.descriptionKey)}
             </span>
           </button>
         ))}
@@ -228,16 +206,18 @@ export function CloudUpgrade({
       {provider && (
         <div className="mb-5 rounded-lg border border-zinc-100 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Setup steps
+            {t("cloudUpgrade.setupSteps")}
           </p>
           <ol className="space-y-1">
-            {provider.steps.map((step, i) => (
+            {provider.stepKeys.map((stepKey, i) => (
               <li
                 key={i}
                 className="flex items-start gap-2 text-xs text-zinc-600 dark:text-zinc-300"
               >
                 <IconChevronRight className="mt-0.5 h-3 w-3 shrink-0 text-zinc-400" />
-                <span className="font-mono">{step}</span>
+                <span className="font-mono">
+                  {t(`cloudUpgrade.providers.${provider.id}.steps.${stepKey}`)}
+                </span>
               </li>
             ))}
           </ol>
@@ -269,12 +249,14 @@ export function CloudUpgrade({
             <label className="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">
               DATABASE_AUTH_TOKEN
               {provider && !provider.needsAuthToken && (
-                <span className="ml-1 text-zinc-400">(optional)</span>
+                <span className="ml-1 text-zinc-400">
+                  {t("bookingLinks.optional")}
+                </span>
               )}
             </label>
             <input
               type="password"
-              placeholder="Auth token"
+              placeholder={t("cloudUpgrade.authToken")}
               value={authToken}
               onChange={(e) => setAuthToken(e.target.value)}
               disabled={isConnecting}
@@ -295,7 +277,7 @@ export function CloudUpgrade({
       {status === "success" && (
         <div className="mt-3 flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
           <IconCheck className="h-3.5 w-3.5" />
-          <span>Connected successfully. Reloading...</span>
+          <span>{t("cloudUpgrade.connectedReloading")}</span>
         </div>
       )}
 
@@ -310,14 +292,14 @@ export function CloudUpgrade({
             <IconLoader2 className="h-4 w-4 animate-spin" />
             <span>
               {status === "saving"
-                ? "Saving credentials..."
-                : "Testing connection..."}
+                ? t("cloudUpgrade.savingCredentials")
+                : t("cloudUpgrade.testingConnection")}
             </span>
           </>
         ) : (
           <>
             <IconDatabase className="h-4 w-4" />
-            <span>Test & Connect</span>
+            <span>{t("cloudUpgrade.testAndConnect")}</span>
           </>
         )}
       </button>

@@ -22,9 +22,17 @@ import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 const IMAGE_MODEL_STATE_KEY = "imageGenerationModel";
 const DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image";
 const IMAGE_MODEL_OPTIONS = [
-  { value: "gemini-3-pro-image", label: "Gemini 3 Pro · best quality" },
-  { value: "gemini-3.1-flash-image", label: "Gemini 3.1 Flash · fast" },
-  { value: "gemini-2.5-flash-image", label: "Gemini 2.5 Flash" },
+  {
+    value: "gemini-3-pro-image",
+    modelName: "Gemini 3 Pro",
+    descriptorKey: "create.modelBestQuality",
+  },
+  {
+    value: "gemini-3.1-flash-image",
+    modelName: "Gemini 3.1 Flash",
+    descriptorKey: "create.modelFast",
+  },
+  { value: "gemini-2.5-flash-image", modelName: "Gemini 2.5 Flash" },
 ] as const;
 
 // Empty-state starters. Clicking one prefills the composer (without sending) so
@@ -133,7 +141,10 @@ export default function CreatePage() {
           value: imageModel,
           options: IMAGE_MODEL_OPTIONS.map((option) => ({
             value: option.value,
-            label: option.label,
+            label:
+              "descriptorKey" in option && option.descriptorKey
+                ? `${option.modelName} · ${t(option.descriptorKey)}`
+                : option.modelName,
           })),
           onChange: handleImageModelChange,
           label: t("create.imageModel"),

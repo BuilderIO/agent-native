@@ -21,7 +21,7 @@ eingebetteter Sidecar oder als vollständiger App-Bildschirm, siehe [Agent Surfa
 
 ```an-diagram title="Eine Definition, sieben Verbraucher" summary="Ein einzelner defineAction() verteilt sich auf jede Oberfläche – Agent, UI, HTTP, MCP, A2A und CLI – mit einem validierten Schema und einem run()-Körper."
 {
-  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agent tool<br><small class=\"diagram-muted\">JSON Schema in context</small></div><div class=\"diagram-node\">React hooks<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">imperative client</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP tool<br><small class=\"diagram-muted\">external hosts</small></div><div class=\"diagram-node\">A2A tool<br><small class=\"diagram-muted\">other agent-native apps</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
+  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), einmal definiert</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agentenwerkzeug<br><small class=\"diagram-muted\">JSON Schema im Kontext</small></div><div class=\"diagram-node\">React-Hooks<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">imperativer Client</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP-Werkzeug<br><small class=\"diagram-muted\">externe Hosts</small></div><div class=\"diagram-node\">A2A-Tool<br><small class=\"diagram-muted\">andere agent-native Apps</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
   "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
 }
 ```
@@ -73,7 +73,7 @@ Führen Sie dann die App-Agent-Schleife für den Ordner aus:
 pnpm agent "Call hello for Steve and explain the result"
 ```
 
-Das ist die gleiche App-Agent-Schleife wie Ihre geplanten Jobs, Chat UI, externer MCP
+Das ist die gleiche App-Agent-Schleife wie Ihre geplanten Jobs, Chat-Oberfläche, externer MCP
 Tools und zukünftige Bildschirme werden verwendet. Chat- und Domänenvorlagen dienen zum Hinzufügen von UI
 um actions, keine erforderliche Voraussetzung für die Aktion selbst.
 
@@ -170,7 +170,7 @@ Für eine `GET`-Aktion wird `leadId` als Abfrageparameter übergeben: `/_agent-n
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** – Standard `POST`. `GET` actions werden automatisch als `readOnly` markiert, sodass erfolgreiche Anrufe keine UI-Umfrageaktualisierung auslösen.
 - **`http: { path: "..." }`** – überschreibt den gemounteten URL unter `/_agent-native/actions/`. Standardmäßig wird der Dateiname verwendet. **Pfadüberschreibungen ändern den URL nur für direkte HTTP-Aufrufer** – `useActionQuery`, `useActionMutation` und `callAction` rufen unabhängig von dieser Überschreibung immer `/_agent-native/actions/<name>` auf, sodass das Überschreiben des Pfads diese Hooks zu 404 macht. Verwenden Sie Pfadüberschreibungen nur für externe HTTP-Aufrufer. Beachten Sie auch, dass `:param`-Routensegmente im Override-Pfad **nicht** in `run()`-Argumente geparst werden – nur Abfragezeichenfolgenparameter und JSON-Textfelder.
 - **`http: false`** – Deaktivieren Sie den HTTP-Endpunkt vollständig. Nur Agent + CLI.
-- **`readOnly: true`** – Überspringen Sie die Poll-Aktualisierung explizit, auch für POST actions, die nicht mutieren.
+- **`readOnly: true`** – Überspringen Sie die Polling-Aktualisierung explizit, auch für POST actions, die nicht mutieren.
 - **`parallelSafe: true`** – ermöglicht die gleichzeitige Ausführung einer Mutationsaktion mit anderen Werkzeugaufrufen für die gleiche Drehung. Legen Sie dies nur fest, wenn die Aktion intern nebenläufigkeitssicher und reihenfolgeunabhängig ist. mutierende actions-Serialisierung standardmäßig.
 
 ### Halten Sie die Aktionsfläche klein {#small-surface}
@@ -324,7 +324,7 @@ export default defineAction({
 });
 ```
 
-`needsApproval` akzeptiert auch ein Prädikat `(args, ctx) => boolean | Promise<boolean>` zum bedingten Gaten (z. B. nur externe Empfänger, nur oberhalb eines Schwellenwerts); es **schlägt nicht geschlossen**, sodass ein Wurf als „Genehmigung erforderlich“ gilt. Wenn das Tor wahr und nicht genehmigt ist, stoppt die Schleife die Runde und der Nebeneffekt wird erst ausgelöst, wenn ein Mensch im Chat UI zustimmt.
+`needsApproval` akzeptiert auch ein Prädikat `(args, ctx) => boolean | Promise<boolean>` zum bedingten Gaten (z. B. nur externe Empfänger, nur oberhalb eines Schwellenwerts); es **schlägt nicht geschlossen**, sodass ein Wurf als „Genehmigung erforderlich“ gilt. Wenn das Tor wahr und nicht genehmigt ist, stoppt die Schleife die Runde und der Nebeneffekt wird erst ausgelöst, wenn ein Mensch im Chat-Oberfläche zustimmt.
 
 > [!WARNING]
 > Halten Sie Genehmigungen selten. Jede Gated-Aktion stellt einen harten Stopp in der Agentenschleife dar. Die Standardeinstellung ist **off** und sollte bei fast jeder Aktion ausgeschaltet sein. Siehe [Human-in-the-Loop Approvals](/docs/human-approval) für das Prädikat API, das `approval_required`-Ereignis und den vollständigen Ablauf.
@@ -434,7 +434,7 @@ export default defineAction({
 
 Die integrierten Diskriminanten sind `"data-table"`, `"data-chart"` und
 `"data-insights"`, mit serversicheren Buildern und Schemas in
-`@agent-native/core/data-widgets`. Siehe [Native Chat UI](/docs/native-chat-ui)
+`@agent-native/core/data-widgets`. Siehe [Native Chat-Oberfläche](/docs/native-chat-ui)
 für den vollständigen Ergebnisvertrag und die BYO-Laufzeitanleitung, oder
 [Agent Surfaces](/docs/agent-surfaces) dafür, wie die gleiche Aktion beibehalten werden kann
 kopflos, im Chat rendern oder in einen Vollbildmodus verwandeln.

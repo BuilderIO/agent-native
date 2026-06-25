@@ -113,7 +113,7 @@ await deleteRun("run-id", "steve@builder.io");
 | `GET`    | `/_agent-native/runs/:id`         |
 | `DELETE` | `/_agent-native/runs/:id`         |
 
-```an-api title="List active runs" method="GET" path="/_agent-native/runs"
+```an-api title="قائمة عمليات التشغيل النشطة" method="GET" path="/_agent-native/runs"
 {
   "method": "GET",
   "path": "/_agent-native/runs",
@@ -182,13 +182,13 @@ event: run.progress.updated
 condition: "status is failed"
 mode: agentic
 ---
-Notify me that run {{runId}} has failed.
+إشعار me that run {{runId}} has failed.
 ```
 
 ## كيفية العمل {#internals}
 
 - **نطاق المالك** — يحتوي كل صف على عمود `owner`؛ يتم تصفية كل استعلام عليه. يرى المستخدمون عمليات التشغيل الخاصة بهم فقط.
-- **تكامل الاستقصاء** — تستدعي كل طفرة `recordChange()`، لذا يتم إبطال صحة القوالب التي تستخدم [`useDbSync`](/docs/client) تلقائيًا دون أي أسلاك إضافية.
+- **تكامل الاستقصاء** — تستدعي كل طفرة `recordChange()`, لذا يتم إبطال صحة القوالب التي تستخدم [`useDbSync`](/docs/client) تلقائيًا دون أي أسلاك إضافية.
 - **اسم الجدول** — يحتوي إطار العمل أيضًا على جدول `agent_runs` لتتبع دورة حياة دورة حياة الوكيل الداخلي للدردشة. يستخدم التقدم البدائي `progress_runs` للفصل بين الاهتمامين.
 - **تثبيت النسبة المئوية** — يتم تثبيت القيم على `[0, 100]` وتقريبها إلى عدد صحيح عند الكتابة.
 

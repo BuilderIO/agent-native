@@ -79,7 +79,7 @@ description: "عمليات التشغيل التلقائي المجدولة وا
 | `event`       | سلسلة                            | _(اختياري)_  | اسم الحدث المطلوب الاشتراك فيه (مشغّلات الحدث فقط)                                                                                                                  |
 | `condition`   | سلسلة                            | _(اختياري)_  | تم تقييم حالة اللغة الطبيعية قبل الإرسال                                                                                                                            |
 | `mode`        | `"agentic"` \| `"deterministic"` | `"agentic"`  | حلقة الوكيل الكاملة. (`"deterministic"` محجوز ولكن لم يتم تنفيذه بعد — يتم تخطي عمليات الأتمتة التي تقوم بتعيينه. استخدم `"agentic"` لجميع عمليات الأتمتة الحالية.) |
-| `domain`      | سلسلة                            | _(اختياري)_  | علامة التجميع (البريد، التقويم، المقاطع، إلخ.)                                                                                                                      |
+| `domain`      | سلسلة                            | _(اختياري)_  | علامة التجميع (البريد، التقويم، المقاطع, إلخ.)                                                                                                                      |
 
 بالنسبة لمشغل الحدث، `schedule` هو `""` (فارغ)؛ بالنسبة لمشغل الجدول الزمني فإنه يحمل تعبير cron. يكتب المرسل أيضًا نفس حقول `lastRun` / `lastStatus` / `lastError` المُدارة التي يكتبها المجدول، بالإضافة إلى حالة `"skipped"` عندما يتم تقييم الشرط إلى خطأ.
 
@@ -210,11 +210,11 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 | `/_agent-native/secrets/adhoc`         | POST    | إنشاء أو تحديث مفتاح مخصص                          |
 | `/_agent-native/secrets/adhoc/:name`   | DELETE  | حذف مفتاح مخصص                                     |
 
-```an-api title="Fire a test event"
+```an-api title="إطلاق حدث اختباري"
 {
   "method": "POST",
   "path": "/_agent-native/automations/fire-test",
-  "summary": "Emit a test.event.fired event to validate event-triggered automations",
+  "summary": "قم بإصدار حدث test.event.fired للتحقق من صحة العمليات التلقائية التي يتم تشغيلها بواسطة الحدث",
   "description": "Confirm an automation's wiring and condition without waiting for a real provider event. Equivalent to the `manage-automations` action `fire-test`.",
   "responses": [
     { "status": "200", "description": "Event emitted; matching automations are dispatched through the normal condition + ownership path." }

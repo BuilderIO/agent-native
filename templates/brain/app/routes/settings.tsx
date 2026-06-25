@@ -49,52 +49,35 @@ import {
 
 import changelog from "../../CHANGELOG.md?raw";
 
-const toneOptions = [
-  {
-    value: "direct",
-    label: "Direct",
-    description: "Concise, concrete, and decision-oriented.",
-  },
-  {
-    value: "friendly",
-    label: "Friendly",
-    description: "Warm and plainspoken without losing precision.",
-  },
-  {
-    value: "formal",
-    label: "Formal",
-    description: "Careful, policy-ready, and executive-facing.",
-  },
-  {
-    value: "technical",
-    label: "Technical",
-    description: "Detailed, source-heavy, and implementation-aware.",
-  },
-] as const;
+const toneValues = ["direct", "friendly", "formal", "technical"] as const;
+const sourcePolicyValues = ["strict", "balanced", "exploratory"] as const;
 
-const sourcePolicyOptions = [
-  {
-    value: "strict",
-    label: "Strict",
-    description: "Answer from approved knowledge and citations only.",
-  },
-  {
-    value: "balanced",
-    label: "Balanced",
-    description: "Prefer approved knowledge, then identify source gaps.",
-  },
-  {
-    value: "exploratory",
-    label: "Exploratory",
-    description: "Use weaker signals but label uncertainty clearly.",
-  },
-] as const;
+type ToneValue = (typeof toneValues)[number];
+type SourcePolicyValue = (typeof sourcePolicyValues)[number];
 
-type ToneValue = (typeof toneOptions)[number]["value"];
-type SourcePolicyValue = (typeof sourcePolicyOptions)[number]["value"];
+function toneOptions(t: ReturnType<typeof useT>) {
+  return toneValues.map((value) => ({
+    value,
+    label: t(`settings.tone.${value}.label`),
+    description: t(`settings.tone.${value}.description`),
+  }));
+}
+
+function sourcePolicyOptions(t: ReturnType<typeof useT>) {
+  return sourcePolicyValues.map((value) => ({
+    value,
+    label: t(`settings.sourcePolicy.${value}.label`),
+    description: t(`settings.sourcePolicy.${value}.description`),
+  }));
+}
 
 export default function SettingsRoute() {
   const t = useT();
+  const localizedToneOptions = useMemo(() => toneOptions(t), [t]);
+  const localizedSourcePolicyOptions = useMemo(
+    () => sourcePolicyOptions(t),
+    [t],
+  );
   const settingsQuery = useActionQuery<SettingsResponse>(
     "get-brain-settings" as any,
     {} as any,
@@ -119,11 +102,13 @@ export default function SettingsRoute() {
   );
 
   const toneDescription =
-    toneOptions.find((option) => option.value === settings.assistantTone)
-      ?.description ?? toneOptions[0].description;
+    localizedToneOptions.find(
+      (option) => option.value === settings.assistantTone,
+    )?.description ?? localizedToneOptions[0].description;
   const sourcePolicyDescription =
-    sourcePolicyOptions.find((option) => option.value === settings.sourcePolicy)
-      ?.description ?? sourcePolicyOptions[1].description;
+    localizedSourcePolicyOptions.find(
+      (option) => option.value === settings.sourcePolicy,
+    )?.description ?? localizedSourcePolicyOptions[1].description;
 
   function update<K extends keyof BrainSettings>(
     key: K,
@@ -163,24 +148,23 @@ export default function SettingsRoute() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <IconBuilding className="size-4 text-primary" />
-                Identity
+                {t("settings.identityTitle")}
               </CardTitle>
               <CardDescription>
-                The names Brain uses when it describes itself and the workspace
-                it is protecting.
+                {t("settings.identityDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-5 md:grid-cols-2">
               <TextField
                 id="company-name"
-                label="Company name"
+                label={t("settings.companyName")}
                 value={settings.companyName ?? ""}
                 placeholder="Acme"
                 onChange={(value) => update("companyName", value)}
               />
               <TextField
                 id="assistant-name"
-                label="Assistant name"
+                label={t("settings.assistantName")}
                 value={settings.assistantName ?? ""}
                 placeholder="Brain"
                 onChange={(value) => update("assistantName", value)}
@@ -192,29 +176,28 @@ export default function SettingsRoute() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <IconMessageCircle className="size-4 text-primary" />
-                Assistant Behavior
+                {t("settings.assistantBehaviorTitle")}
               </CardTitle>
               <CardDescription>
-                The default voice and source posture for answers and distilled
-                knowledge proposals.
+                {t("settings.assistantBehaviorDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-6">
               <div className="grid gap-5 md:grid-cols-2">
                 <SelectField
                   id="assistant-tone"
-                  label="Tone"
+                  label={t("settings.toneLabel")}
                   value={(settings.assistantTone ?? "direct") as ToneValue}
-                  options={toneOptions}
+                  options={localizedToneOptions}
                   onChange={(value) => update("assistantTone", value)}
                 />
                 <SelectField
                   id="source-policy"
-                  label="Source policy"
+                  label={t("settings.sourcePolicyLabel")}
                   value={
                     (settings.sourcePolicy ?? "balanced") as SourcePolicyValue
                   }
-                  options={sourcePolicyOptions}
+                  options={localizedSourcePolicyOptions}
                   onChange={(value) => update("sourcePolicy", value)}
                 />
               </div>
@@ -229,7 +212,7 @@ export default function SettingsRoute() {
               <Separator />
               <div className="grid gap-2">
                 <Label htmlFor="distillation-instructions">
-                  Core instructions
+                  {t("settings.coreInstructions")}
                 </Label>
                 <Textarea
                   id="distillation-instructions"
@@ -240,8 +223,7 @@ export default function SettingsRoute() {
                   className="min-h-36 resize-y leading-6"
                 />
                 <p className="text-xs leading-5 text-muted-foreground">
-                  Guidance for turning raw captures into durable institutional
-                  knowledge.
+                  {t("settings.coreInstructionsDescription")}
                 </p>
               </div>
             </CardContent>
@@ -251,16 +233,18 @@ export default function SettingsRoute() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <IconAdjustments className="size-4 text-primary" />
-                Publishing And Review
+                {t("settings.publishingReviewTitle")}
               </CardTitle>
               <CardDescription>
-                Defaults for visibility, approval, and connector cadence.
+                {t("settings.publishingReviewDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-6">
               <div className="grid gap-5 md:grid-cols-2">
                 <div className="grid gap-2">
-                  <Label htmlFor="publish-tier">Default publish tier</Label>
+                  <Label htmlFor="publish-tier">
+                    {t("settings.defaultPublishTier")}
+                  </Label>
                   <Select
                     value={settings.defaultPublishTier}
                     onValueChange={(value) =>
@@ -275,24 +259,31 @@ export default function SettingsRoute() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        <SelectItem value="private">Private</SelectItem>
-                        <SelectItem value="team">Team</SelectItem>
-                        <SelectItem value="company">Company</SelectItem>
+                        <SelectItem value="private">
+                          {t("settings.publishTier.private")}
+                        </SelectItem>
+                        <SelectItem value="team">
+                          {t("settings.publishTier.team")}
+                        </SelectItem>
+                        <SelectItem value="company">
+                          {t("settings.publishTier.company")}
+                        </SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Sets the default visibility for newly distilled knowledge.
+                    {t("settings.defaultPublishTierDescription")}
                   </p>
                 </div>
 
                 <NumberField
                   id="connector-poll-minutes"
-                  label="Connector poll interval"
+                  label={t("settings.connectorPollInterval")}
                   value={settings.connectorPollMinutes ?? 60}
                   min={5}
                   max={1440}
                   suffix="min"
+                  t={t}
                   onChange={(value) => update("connectorPollMinutes", value)}
                 />
               </div>
@@ -301,16 +292,16 @@ export default function SettingsRoute() {
 
               <div className="grid gap-4">
                 <SettingSwitch
-                  label="Require approval for company knowledge"
-                  description="Queue company-wide knowledge candidates for human review before publishing."
+                  label={t("settings.requireApproval")}
+                  description={t("settings.requireApprovalDescription")}
                   checked={Boolean(settings.requireApprovalForCompanyKnowledge)}
                   onChange={(checked) =>
                     update("requireApprovalForCompanyKnowledge", checked)
                   }
                 />
                 <SettingSwitch
-                  label="Auto-archive resolved review items"
-                  description="Remove approved or rejected queue items from the active review lane."
+                  label={t("settings.autoArchiveResolved")}
+                  description={t("settings.autoArchiveResolvedDescription")}
                   checked={Boolean(settings.autoArchiveResolved)}
                   onChange={(checked) => update("autoArchiveResolved", checked)}
                 />
@@ -322,17 +313,16 @@ export default function SettingsRoute() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <IconShieldCheck className="size-4 text-primary" />
-                Safety And Evidence
+                {t("settings.safetyEvidenceTitle")}
               </CardTitle>
               <CardDescription>
-                Redaction and citation rules for answers that leave the review
-                queue.
+                {t("settings.safetyEvidenceDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4">
               <SettingSwitch
-                label="Sanitize transcript captures before storage"
-                description="Filter Granola, Clips, webhook, and manual transcript imports down to company-relevant content before saving."
+                label={t("settings.sanitizeCaptures")}
+                description={t("settings.sanitizeCapturesDescription")}
                 checked={settings.captureSanitizationEnabled !== false}
                 onChange={(checked) =>
                   update("captureSanitizationEnabled", checked)
@@ -342,23 +332,23 @@ export default function SettingsRoute() {
                 <div className="grid gap-4 rounded-md border border-border p-4">
                   <div className="grid gap-2">
                     <Label htmlFor="capture-sanitization-model">
-                      Sanitization model
+                      {t("settings.sanitizationModel")}
                     </Label>
                     <Input
                       id="capture-sanitization-model"
                       value={settings.captureSanitizationModel ?? ""}
-                      placeholder="Default agent model or a cheaper flash model"
+                      placeholder={t("settings.sanitizationModelPlaceholder")}
                       onChange={(event) =>
                         update("captureSanitizationModel", event.target.value)
                       }
                     />
                     <p className="text-xs leading-5 text-muted-foreground">
-                      Optional override for the pre-save filtering pass.
+                      {t("settings.sanitizationModelDescription")}
                     </p>
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="capture-sanitization-instructions">
-                      Sanitization instructions
+                      {t("settings.sanitizationInstructions")}
                     </Label>
                     <Textarea
                       id="capture-sanitization-instructions"
@@ -375,20 +365,20 @@ export default function SettingsRoute() {
                 </div>
               ) : null}
               <SettingSwitch
-                label="Auto-redact emails"
-                description="Remove email addresses from distilled knowledge unless they are essential evidence."
+                label={t("settings.autoRedactEmails")}
+                description={t("settings.autoRedactEmailsDescription")}
                 checked={Boolean(settings.autoRedactEmails)}
                 onChange={(checked) => update("autoRedactEmails", checked)}
               />
               <SettingSwitch
-                label="Require citations"
-                description="Ask Brain must cite approved source rows for factual answers."
+                label={t("settings.requireCitations")}
+                description={t("settings.requireCitationsDescription")}
                 checked={Boolean(settings.requireCitations)}
                 onChange={(checked) => update("requireCitations", checked)}
               />
               <SettingSwitch
-                label="Notify on source errors"
-                description="Surface degraded or failing connectors in the review flow."
+                label={t("settings.notifySourceErrors")}
+                description={t("settings.notifySourceErrorsDescription")}
                 checked={Boolean(settings.notifyOnSourceErrors)}
                 onChange={(checked) => update("notifyOnSourceErrors", checked)}
               />
@@ -442,43 +432,53 @@ export default function SettingsRoute() {
             </CardHeader>
             <CardContent className="grid gap-3 text-sm">
               <PolicyRow
-                label="Assistant"
+                label={t("settings.policy.assistant")}
                 value={settings.assistantName || "Brain"}
               />
               <PolicyRow
-                label="Company"
-                value={settings.companyName || "Not set"}
+                label={t("settings.policy.company")}
+                value={settings.companyName || t("settings.notSet")}
               />
               <PolicyRow
-                label="Tone"
-                value={settings.assistantTone ?? "direct"}
+                label={t("settings.policy.tone")}
+                value={t(
+                  `settings.tone.${settings.assistantTone ?? "direct"}.label`,
+                )}
               />
               <PolicyRow
-                label="Sources"
-                value={settings.sourcePolicy ?? "balanced"}
+                label={t("settings.policy.sources")}
+                value={t(
+                  `settings.sourcePolicy.${settings.sourcePolicy ?? "balanced"}.label`,
+                )}
               />
               <PolicyRow
-                label="Publish tier"
-                value={settings.defaultPublishTier ?? "team"}
+                label={t("settings.policy.publishTier")}
+                value={t(
+                  `settings.publishTier.${settings.defaultPublishTier ?? "team"}`,
+                )}
               />
               <PolicyRow
-                label="Approval"
+                label={t("settings.policy.approval")}
                 value={
                   settings.requireApprovalForCompanyKnowledge
-                    ? "required"
-                    : "not required"
+                    ? t("settings.required")
+                    : t("settings.notRequired")
                 }
               />
               <PolicyRow
-                label="Redaction"
-                value={settings.autoRedactEmails ? "enabled" : "disabled"}
+                label={t("settings.policy.redaction")}
+                value={
+                  settings.autoRedactEmails
+                    ? t("settings.enabled")
+                    : t("settings.disabled")
+                }
               />
               <PolicyRow
-                label="Pre-save filter"
+                label={t("settings.policy.preSaveFilter")}
                 value={
                   settings.captureSanitizationEnabled === false
-                    ? "disabled"
-                    : "enabled"
+                    ? t("settings.disabled")
+                    : t("settings.enabled")
                 }
               />
             </CardContent>
@@ -488,32 +488,30 @@ export default function SettingsRoute() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <IconGauge className="size-4 text-primary" />
-                Auto-publish Gate
+                {t("settings.autoPublishGateTitle")}
               </CardTitle>
               <CardDescription>
-                Runtime policy for company-tier knowledge.
+                {t("settings.autoPublishGateDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 text-sm">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">
-                  Confidence threshold
+                  {t("settings.confidenceThreshold")}
                 </span>
                 <Badge variant="secondary">90%+</Badge>
               </div>
               <Progress value={90} className="h-2" />
               <p className="text-xs leading-5 text-muted-foreground">
-                High-confidence company knowledge can publish automatically when
-                it is new, unredacted, and does not require an explicit
-                proposal.
+                {t("settings.autoPublishGateDetail")}
               </p>
             </CardContent>
           </Card>
 
           {settingsQuery.isError || saveSettings.isError ? (
             <EmptyActionState
-              title="Settings actions are not available yet"
-              detail="This page is wired to get-brain-settings and update-brain-settings and is using defaults for now."
+              title={t("settings.actionsUnavailableTitle")}
+              detail={t("settings.actionsUnavailableDetail")}
             />
           ) : null}
         </aside>
@@ -589,6 +587,7 @@ function NumberField({
   min,
   max,
   suffix,
+  t,
   onChange,
 }: {
   id: string;
@@ -597,6 +596,7 @@ function NumberField({
   min: number;
   max: number;
   suffix: string;
+  t: ReturnType<typeof useT>;
   onChange: (value: number) => void;
 }) {
   return (
@@ -617,7 +617,7 @@ function NumberField({
         </div>
       </div>
       <p className="text-xs leading-5 text-muted-foreground">
-        Must be between {min} and {max} minutes.
+        {t("settings.numberFieldRange", { min, max })}
       </p>
     </div>
   );
@@ -655,9 +655,7 @@ function PolicyRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="min-w-0 text-muted-foreground">{label}</span>
-      <span className="max-w-40 truncate text-end font-medium capitalize">
-        {value.replace(/_/g, " ")}
-      </span>
+      <span className="max-w-40 truncate text-end font-medium">{value}</span>
     </div>
   );
 }

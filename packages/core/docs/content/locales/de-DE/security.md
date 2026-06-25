@@ -11,14 +11,14 @@ Agent-native Apps sind standardmäßig sicher konzipiert. Das Framework bietet a
 
 ```an-diagram title="Verteidigung in Schichten" summary="Das Framework besitzt den größten Teil der Bedrohungsoberfläche. Sie besitzen zwei Dinge – das Markieren von Tabellen zur Festlegung des Gültigkeitsbereichs und die Validierung externer Eingaben."
 {
-  "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">Framework owns</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">You own</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
+  "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">Framework besitzt</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">Du behältst die Kontrolle</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
   "css": ".sec-layers{display:flex;flex-direction:column;gap:12px}.sec-layers .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
 }
 ```
 
 Wenn Sie auf den Standardmustern aufbauen, verwaltet das Framework bereits den größten Teil der Bedrohungsoberfläche für Sie:
 
-- **Datenisolation** – Agent SQL wird neu geschrieben, sodass er nur die Zeilen des aktuellen Benutzers (und der aktiven Organisation) sehen kann. Siehe [Data Scoping](#data-scoping).
+- **Datenisolation** – Agenten-SQL wird neu geschrieben, sodass er nur die Zeilen des aktuellen Benutzers (und der aktiven Organisation) sehen kann. Siehe [Data Scoping](#data-scoping).
 - **SQL-Einspritzung** – `db-query`/`db-exec` und Drizzle werden immer parametriert. Siehe [SQL Injection Prevention](#sql-injection).
 - **XSS** – React wird automatisch maskiert, TipTap und `react-markdown` werden desinfiziert. Siehe [XSS Prevention](#xss).
 - **Auth & CSRF** – jeder `defineAction` ist authentifiziert; Cookies sind `httpOnly` + `SameSite=lax`. Siehe [Authentication](#auth).
@@ -86,7 +86,7 @@ await exec(`INSERT INTO notes (title) VALUES ('${title}')`);
 ```an-callout
 {
   "tone": "risk",
-  "body": "Never build SQL by string concatenation or template literals. Pass user input as `args` to `exec` / `db-query`, or use Drizzle — both always parameterize. The `pnpm guards` checks catch unscoped and concatenated queries at CI time."
+  "body": "Erstellen Sie SQL niemals durch Zeichenfolgenverkettung oder Vorlagenliterale. Übergeben Sie die Benutzereingabe als `args` an `exec` / `db-query` oder verwenden Sie Drizzle – beide parametrisieren immer. Die `pnpm guards`-Prüfungen erfassen Abfragen ohne Bereichseinschränkung und verkettete Abfragen zum CI-Zeitpunkt."
 }
 ```
 
@@ -123,9 +123,9 @@ Scoping fließt von der authentifizierten Sitzung bis hinunter zu SQL, den der A
 session.orgId → AGENT_ORG_ID → SQL row scoping
 ```
 
-```an-diagram title="Die Scoping-Pipeline" summary="Agent SQL berührt Basistabellen nie direkt – er liest eine temporäre Ansicht, die auf die aktuelle Identität beschränkt ist, sodass ein bloßer Tabellenname nur eigene Zeilen zurückgeben kann."
+```an-diagram title="Die Scoping-Pipeline" summary="Agenten-SQL berührt Basistabellen nie direkt – er liest eine temporäre Ansicht, die auf die aktuelle Identität beschränkt ist, sodass ein bloßer Tabellenname nur eigene Zeilen zurückgeben kann."
 {
-  "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">Signed-in session<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">Agent SQL<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
+  "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">Angemeldete Sitzung<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">Agenten-SQL<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
   "css": ".scope-pipe{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.scope-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.scope-pipe .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -189,7 +189,7 @@ export const projects = table("projects", {
 });
 ```
 
-```an-schema title="What ownableColumns() adds" summary="The three columns that make a table tenant-aware and shareable."
+```an-schema title="What ownableColumns() adds" summary="Die drei Spalten, die eine Tabelle mandantenfähig und gemeinsam nutzbar machen."
 {
   "entities": [
     {
@@ -198,8 +198,8 @@ export const projects = table("projects", {
       "note": "Any table that spreads ...ownableColumns()",
       "fields": [
         { "name": "owner_email", "type": "text", "nullable": false, "note": "Creator. Auto-filled by write actions; auto-injected on INSERT." },
-        { "name": "org_id", "type": "text", "nullable": true, "note": "Owner's active org at creation. Drives org-visibility checks." },
-        { "name": "visibility", "type": "enum", "nullable": false, "note": "private | org | public — coarse default, defaults to private." }
+        { "name": "org_id", "type": "text", "nullable": true, "note": "Aktive Organisation des Eigentümers bei der Erstellung. Fördert Sichtbarkeitsprüfungen der Organisation." },
+        { "name": "visibility", "type": "enum", "nullable": false, "note": "privat | org | public – grobe Standardeinstellung, standardmäßig privat." }
       ]
     }
   ]
@@ -219,8 +219,8 @@ Mit `ownableColumns()` erstellte Tabellen erfordern diese bereichsbezogenen Lese
 ### Validierung
 
 ```bash
-pnpm action db-check-scoping           # Check all tables have owner_email
-pnpm action db-check-scoping --require-org  # Also require org_id
+pnpm action db-check-scoping           # Überprüfen Sie, ob alle Tabellen eine Eigentümer-E-Mail-Adresse haben
+pnpm action db-check-scoping --require-org  # Erfordert außerdem org_id
 ```
 
 ## Geheimnisverwaltung {#secrets}

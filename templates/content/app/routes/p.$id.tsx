@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, useT } from "@agent-native/core/client";
 import {
   getConfiguredAppBasePath,
   getRequestUserEmail,
@@ -185,6 +185,7 @@ function PrivateDocumentNotice({
   id?: string;
   basePath?: string;
 }) {
+  const t = useT();
   useEffect(() => {
     if (!id) return;
     // The SSR loader can't see the viewer's session (SSR is impersonal so the
@@ -203,11 +204,10 @@ function PrivateDocumentNotice({
           <IconLock size={22} />
         </div>
         <h1 className="text-2xl font-semibold tracking-normal">
-          This document is private
+          {t("publicDocument.privateTitle")}
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          Ask the owner to share it with your account or workspace before
-          opening this link.
+          {t("publicDocument.privateDescription")}
         </p>
       </section>
     </main>
@@ -215,6 +215,7 @@ function PrivateDocumentNotice({
 }
 
 export default function PublicDocumentPage() {
+  const t = useT();
   const data = useLoaderData<typeof loader>();
   const document = data.document;
 
@@ -237,12 +238,14 @@ export default function PublicDocumentPage() {
           className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground shadow-sm hover:bg-accent"
         >
           <IconMessageCircle size={16} />
-          Chat
+          {t("publicDocument.chat")}
         </button>
       </div>
       <article className="mx-auto max-w-3xl px-6 pb-16 pt-8 sm:px-8 lg:pb-24">
         <p className="text-sm text-muted-foreground">
-          Updated {formatUpdatedAt(document.updatedAt)}
+          {t("publicDocument.updated", {
+            date: formatUpdatedAt(document.updatedAt),
+          })}
         </p>
         <h1 className="mt-3 break-words text-4xl font-semibold tracking-normal text-foreground sm:text-5xl">
           {document.title}

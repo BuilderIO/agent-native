@@ -9,6 +9,7 @@ import {
   RunId,
   SharedRichEditor,
   generateTabId,
+  useT,
   useCollaborativeDoc,
   type DragHandleDropContext,
   type DragHandleOptions,
@@ -775,6 +776,7 @@ export function PlanDocumentEditor({
   /** Forwarded to question-form and legacy visual-questions blocks. */
   onVisualQuestionsSubmit?: (summary: string) => void;
 }) {
+  const t = useT();
   const registryValue = useOptionalBlockRegistry();
   const registry = registryValue?.registry ?? null;
 
@@ -1066,9 +1068,9 @@ export function PlanDocumentEditor({
   const slashItems = useMemo(
     () =>
       registry
-        ? buildPlanSlashCommands(registry, { notionCompatibleOnly })
+        ? buildPlanSlashCommands(registry, { notionCompatibleOnly, t })
         : undefined,
-    [registry, notionCompatibleOnly],
+    [registry, notionCompatibleOnly, t],
   );
 
   // The reconcile value space is the AUTHORITATIVE blocks JSON — sourced from the
@@ -1432,6 +1434,7 @@ export function NestedPlanBlocksEditor({
   regionLabel?: string;
   compactVisuals?: boolean;
 }) {
+  const t = useT();
   const registryValue = useOptionalBlockRegistry();
   const registry = registryValue?.registry ?? null;
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -1499,9 +1502,9 @@ export function NestedPlanBlocksEditor({
   const slashItems = useMemo(
     () =>
       registry
-        ? buildPlanSlashCommands(registry, { notionCompatibleOnly })
+        ? buildPlanSlashCommands(registry, { notionCompatibleOnly, t })
         : undefined,
-    [registry, notionCompatibleOnly],
+    [registry, notionCompatibleOnly, t],
   );
 
   const value = useMemo(() => JSON.stringify(sourceBlocks), [sourceBlocks]);

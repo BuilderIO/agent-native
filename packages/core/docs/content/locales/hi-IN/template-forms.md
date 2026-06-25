@@ -10,7 +10,7 @@ description: "एजेंट-नेटिव फॉर्म बिल्डर
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>बीटा साइनअप</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>साझा करें</button><button class='primary'>अप्रकाशित करें</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>संपादित करें</span><span class='wf-pill'>परिणाम 187</span><span class='wf-pill'>सेटिंग्स</span><span class='wf-pill'>इंटीग्रेशन</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>बीटा साइनअप</h2><p class='wf-muted' style='margin:0'>Reserve a spot in the upcoming private beta cohort.</p><div class='wf-card'><strong>पूरा नाम</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>कार्य ईमेल</strong><input value='you@company.com'/></div><div class='wf-card'><strong>आपकी भूमिका</strong><input value='Select...'/></div><div class='wf-card'><strong>टीम का आकार</strong><input value='Select...'/></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>बीटा साइनअप</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>साझा करें</button><button class='primary'>अप्रकाशित करें</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>संपादित करें</span><span class='wf-pill'>परिणाम 187</span><span class='wf-pill'>सेटिंग्स</span><span class='wf-pill'>इंटीग्रेशन</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>बीटा साइनअप</h2><p class='wf-muted' style='margin:0'>आने वाले private beta cohort में जगह आरक्षित करें।</p><div class='wf-card'><strong>पूरा नाम</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>कार्य ईमेल</strong><input value='you@company.com'/></div><div class='wf-card'><strong>आपकी भूमिका</strong><input value='Select...'/></div><div class='wf-card'><strong>टीम का आकार</strong><input value='Select...'/></div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ description: "एजेंट-नेटिव फॉर्म बिल्डर
 
 ```an-diagram title="निर्माण करें, प्रकाशित करें, संग्रह करें" summary="एजेंट और विज़ुअल एडिटर एक SQL-backed फॉर्म परिभाषा को संपादित करते हैं। सार्वजनिक भरण पृष्ठ अप्रमाणित है, और सबमिशन सर्वर-साइड को आपके गंतव्य तक ले जाता है।"
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Agent prompt<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">Visual editor<br><small class=\"diagram-muted\">labels, validation, order</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">fields JSON, settings JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL via Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Public fill page<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / Sheets</small></div></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">एजेंट प्रॉम्प्ट<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">विजुअल एडिटर<br><small class=\"diagram-muted\">लेबल, वैलिडेशन, क्रम</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">fields JSON और settings JSON सेटिंग्स</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">Drizzle के ज़रिए SQL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">सार्वजनिक भरने वाला पेज<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">Slack / webhook / Sheets जोड़ें</small></div></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -94,7 +94,7 @@ npx @agent-native/core@latest create my-platform
 
 `fields` और `settings` JSON आकृतियों को `templates/forms/shared/types.ts` (`FormField`, `FormSettings`) में परिभाषित किया गया है। किसी भी डेटा को `toPublicFormSettings` के माध्यम से सार्वजनिक भरण पृष्ठ तक पहुंचने से पहले मालिक-निजी सेटिंग्स जैसे एकीकरण वेबहुक URLs और अनुमत मूल हटा दिए जाते हैं।
 
-```an-schema title="Forms data model" summary="Three tables. Fields and integrations are JSON columns on forms, so the agent's edits are surgical patches rather than cross-table row changes."
+```an-schema title="डेटा मॉडल बनाता है" summary="तीन टेबल। फ़ील्ड और एकीकरण प्रपत्रों पर JSON कॉलम हैं, इसलिए एजेंट के संपादन क्रॉस-टेबल पंक्ति परिवर्तनों के बजाय सर्जिकल पैच हैं।"
 {
   "entities": [
     {
@@ -106,9 +106,9 @@ npx @agent-native/core@latest create my-platform
         { "name": "title", "type": "string" },
         { "name": "description", "type": "string", "nullable": true },
         { "name": "slug", "type": "string", "note": "unique; public URL" },
-        { "name": "fields", "type": "json", "note": "FormField[] — all field types" },
-        { "name": "settings", "type": "json", "note": "FormSettings — integrations, etc." },
-        { "name": "status", "type": "enum", "note": "draft | published | closed" },
+        { "name": "fields", "type": "json", "note": "फॉर्मफ़ील्ड[] - सभी फ़ील्ड प्रकार" },
+        { "name": "settings", "type": "json", "note": "फॉर्मसेटिंग्स - एकीकरण, आदि।" },
+        { "name": "status", "type": "enum", "note": "ड्राफ्ट | प्रकाशित | बंद" },
         { "name": "deleted_at", "type": "datetime", "nullable": true, "note": "soft delete" },
         { "name": "owner_email", "type": "string" },
         { "name": "org_id", "type": "id", "nullable": true }
@@ -117,7 +117,7 @@ npx @agent-native/core@latest create my-platform
     {
       "id": "responses",
       "name": "responses",
-      "note": "One submission per row",
+      "note": "प्रति पंक्ति एक सबमिशन",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "form_id", "type": "id", "fk": "forms.id" },
@@ -130,12 +130,12 @@ npx @agent-native/core@latest create my-platform
     {
       "id": "form_shares",
       "name": "form_shares",
-      "note": "Framework shares table — principals to roles per form",
+      "note": "फ्रेमवर्क शेयर तालिका - प्रति फॉर्म भूमिकाओं के सिद्धांत",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "form_id", "type": "id", "fk": "forms.id" },
         { "name": "principal", "type": "string", "note": "user or org" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+        { "name": "role", "type": "enum", "note": "दर्शक | संपादक | व्यवस्थापक" }
       ]
     }
   ],

@@ -236,7 +236,7 @@ function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
       threadId === activeThreadId || threadId === persistedActiveThreadId();
     const archived = await archiveThread(threadId);
     if (!archived) {
-      toast.error("Could not archive chat.");
+      toast.error(t("raw.sidebar.archiveChatFailed"));
       return;
     }
     if (wasActive) {
@@ -266,7 +266,7 @@ function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
     setRenameDraft("");
     if (title) {
       const renamed = await renameThread(threadId, title);
-      if (!renamed) toast.error("Could not rename chat.");
+      if (!renamed) toast.error(t("raw.sidebar.renameChatFailed"));
     }
     committingRenameRef.current = false;
   }

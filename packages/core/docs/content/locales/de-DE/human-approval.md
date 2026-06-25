@@ -20,8 +20,8 @@ Legen Sie `needsApproval` auf einen `defineAction`. Es akzeptiert einen boolesch
   "language": "ts",
   "code": "export default defineAction({\n  description: \"Send an email via Gmail.\",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});",
   "annotations": [
-    { "lines": "10", "label": "The whole gate", "note": "One flag. With it truthy and the call unapproved, the loop stops before `run` — the model never reaches the side effect on its own." },
-    { "lines": "11-13", "label": "run() is untouched", "note": "The handler stays the same. Approval is enforced by the loop around it, not by anything inside `run`." }
+    { "lines": "10", "label": "Das ganze Tor", "note": "Eine Flagge. Wenn es wahr ist und der Aufruf nicht genehmigt ist, stoppt die Schleife vor `run` – das Modell erreicht den Nebeneffekt nie von selbst." },
+    { "lines": "11-13", "label": "run() is untouched", "note": "Der Handler bleibt derselbe. Die Genehmigung wird durch die Schleife erzwungen, die sie umgibt, nicht durch irgendetwas in `run`." }
   ]
 }
 ```
@@ -61,7 +61,7 @@ Das angehaltene Werkzeug gibt ein Ergebnis zurück, das dem Modell mitteilt, das
 
 ## Wie der Mensch zustimmt {#approve}
 
-Auf `approval_required` rendert der Chat UI ein **Genehmigen/Verweigern**-Angebot für den angehaltenen Tool-Aufruf. Dies wird in `AssistantChat` automatisch verkabelt – Sie erstellen es nicht pro Vorlage.
+Auf `approval_required` rendert der Chat-Oberfläche ein **Genehmigen/Verweigern**-Angebot für den angehaltenen Tool-Aufruf. Dies wird in `AssistantChat` automatisch verkabelt – Sie erstellen es nicht pro Vorlage.
 
 - **Approve** gibt den Turn erneut aus (eine gewöhnliche Fortsetzungsnachricht) und trägt den Schlüssel des Anrufs in `approvedToolCalls: [approvalKey]`. Bei der erneuten Ausgabe erkennt das Tor den Schlüssel im genehmigten Satz und lässt diesen bestimmten Anruf normal laufen.
 - **Deny** lehnt das Angebot lokal ab; Es wird nichts erneut ausgegeben, daher wird die Aktion nie ausgeführt.
@@ -72,7 +72,7 @@ Auf `approval_required` rendert der Chat UI ein **Genehmigen/Verweigern**-Angebo
 
 ```an-diagram title="Die Genehmigungsunterbrechung" summary="Ein Gated-Aufruf unterbricht die Runde, bevor run() ausgelöst wird. Die Genehmigung erteilt demjenigen, der den Schlüssel des Anrufs trägt, erneut eine Genehmigung. Erst dann tritt die Nebenwirkung ein."
 {
-  "html": "<div class=\"diagram-approve\"><div class=\"diagram-box\" data-rough>Agent calls send-email</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel warn\" data-rough><strong>Gate truthy, call not yet approved</strong><small class=\"diagram-muted\">loop emits tool_start + approval_required { tool, input, approvalKey }</small><span class=\"diagram-pill warn\">turn pauses &mdash; run() did NOT execute</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Human clicks Approve in chat<br><small class=\"diagram-muted\">client re-issues the turn with approvedToolCalls: [approvalKey]</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel ok\" data-rough><span class=\"diagram-pill ok\">Gate sees the key &rarr; run() executes &rarr; email sends</span></div></div>",
+  "html": "<div class=\"diagram-approve\"><div class=\"diagram-box\" data-rough>Agent ruft send-email auf</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel warn\" data-rough><strong>Gate ist truthy, Aufruf noch nicht genehmigt</strong><small class=\"diagram-muted\">loop emits tool_start + approval_required { tool, input, approvalKey }</small><span class=\"diagram-pill warn\">turn pauses &mdash; run() did NOT execute</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Mensch klickt im Chat auf Genehmigen<br><small class=\"diagram-muted\">Client sendet den Turn erneut mit approvedToolCalls: [approvalKey]</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel ok\" data-rough><span class=\"diagram-pill ok\">Gate sees the key &rarr; run() executes &rarr; email sends</span></div></div>",
   "css": ".diagram-approve{display:flex;flex-direction:column;align-items:center;gap:8px}.diagram-approve .diagram-panel{display:flex;flex-direction:column;gap:6px;align-items:center;padding:12px 16px;text-align:center}.diagram-approve .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

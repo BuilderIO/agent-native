@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconX, IconGripHorizontal } from "@tabler/icons-react";
 import { useState, useRef, useCallback } from "react";
 
@@ -16,7 +17,7 @@ import { cn } from "@/lib/utils";
 export const DEFAULT_COMPOSITION_TWEAKS: TweakDefinition[] = [
   {
     id: "accentColor",
-    label: "Accent color",
+    label: "accentColor",
     type: "color-swatches",
     options: [
       { value: "#00E5FF", label: "Cyan", color: "#00E5FF" },
@@ -44,7 +45,7 @@ export const DEFAULT_COMPOSITION_TWEAKS: TweakDefinition[] = [
   },
   {
     id: "fps",
-    label: "Frame rate",
+    label: "fps",
     type: "segment",
     options: [
       { value: "24", label: "24" },
@@ -55,7 +56,7 @@ export const DEFAULT_COMPOSITION_TWEAKS: TweakDefinition[] = [
   },
   {
     id: "easing",
-    label: "Default easing",
+    label: "easing",
     type: "segment",
     options: [
       { value: "linear", label: "Linear" },
@@ -66,7 +67,7 @@ export const DEFAULT_COMPOSITION_TWEAKS: TweakDefinition[] = [
   },
   {
     id: "animationSpeed",
-    label: "Animation speed",
+    label: "animationSpeed",
     type: "slider",
     defaultValue: 50,
     min: 0,
@@ -75,7 +76,7 @@ export const DEFAULT_COMPOSITION_TWEAKS: TweakDefinition[] = [
   },
   {
     id: "motionBlur",
-    label: "Motion blur",
+    label: "motionBlur",
     type: "toggle",
     defaultValue: false,
   },
@@ -98,6 +99,7 @@ export function TweaksPanel({
   visible,
   onClose,
 }: TweaksPanelProps) {
+  const t = useT();
   const [collapsed, setCollapsed] = useState(false);
   const [position, setPosition] = useState({ x: 16, y: 16 });
   const dragging = useRef(false);
@@ -150,11 +152,11 @@ export function TweaksPanel({
             onClick={() => setCollapsed((c) => !c)}
             className="cursor-pointer text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-muted-foreground"
           >
-            Tweaks
+            {t("editor.tweaks.title")}
           </button>
         </div>
         <button
-          aria-label="Close tweaks panel"
+          aria-label={t("editor.tweaks.closePanel")}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
@@ -194,10 +196,13 @@ function TweakControl({
   value: string | number | boolean;
   onChange: (v: string | number | boolean) => void;
 }) {
+  const t = useT();
+  const labelKey = `editor.tweaks.controls.${tweak.id}` as const;
+
   return (
     <div>
       <div className="mb-1.5 text-[11px] text-muted-foreground">
-        {tweak.label}
+        {t(labelKey, { defaultValue: tweak.label })}
       </div>
 
       {tweak.type === "color-swatches" && (
@@ -216,7 +221,11 @@ function TweakControl({
                   style={{ backgroundColor: opt.color || opt.value }}
                 />
               </TooltipTrigger>
-              <TooltipContent>{opt.label}</TooltipContent>
+              <TooltipContent>
+                {t(`editor.tweaks.options.${opt.label}`, {
+                  defaultValue: opt.label,
+                })}
+              </TooltipContent>
             </Tooltip>
           ))}
         </div>
