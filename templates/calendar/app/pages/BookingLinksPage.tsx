@@ -1,4 +1,4 @@
-import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
+import { ShareButton, useT, VisibilityBadge } from "@agent-native/core/client";
 import {
   BookingLinkCreateDialog,
   CustomFieldsEditor as SharedCustomFieldsEditor,
@@ -590,6 +590,7 @@ export default function BookingLinksPage({
 }: {
   selectedId?: string | null;
 }) {
+  const t = useT();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialTab = (searchParams.get("tab") as Tab) || "links";
@@ -887,7 +888,7 @@ export default function BookingLinksPage({
       toast.success("Booking link copied");
       return;
     }
-    toast.error("Clipboard access is unavailable");
+    toast.error(t("common.clipboardUnavailable"));
   }
 
   function openPreview(slug: string) {

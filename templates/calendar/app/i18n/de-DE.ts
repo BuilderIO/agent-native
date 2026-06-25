@@ -3,6 +3,7 @@ const messages = {
     connect: "Verbinden",
     connected: "Verbunden",
     connecting: "Verbindung wird hergestellt",
+    clipboardUnavailable: "Zugriff auf die Zwischenablage ist nicht verfügbar",
     disconnect: "Trennen",
     notConnected: "Nicht verbunden",
     saving: "Speichern...",

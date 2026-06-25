@@ -3,6 +3,7 @@ const messages = {
     connect: "Connecter",
     connected: "Connecté",
     connecting: "Connexion",
+    clipboardUnavailable: "L’accès au presse-papiers n’est pas disponible",
     disconnect: "Déconnecter",
     notConnected: "Non connecté",
     saving: "Enregistrement...",

@@ -27,6 +27,7 @@ nearby annotation instead. Before handoff, inspect the top canvas at default zoo
 and move any frame whose label, connector, or annotation crosses another frame.
 
 **Board-unit spacing defaults.** The canvas coordinate system uses approximately 2 board units per screen pixel. `browser` frames occupy roughly 700 × 600 board units; `desktop` frames roughly 900 × 700 board units. Apply these minimum x/y gaps when placing frames explicitly — any less and frames will touch or overlap:
+
 - x-gap between `browser` frames: **≥ 1100** (700-unit frame + 400-unit gutter)
 - x-gap between `desktop` frames: **≥ 1300** (900-unit frame + 400-unit gutter)
 - y-gap between rows of any surface: **≥ 1400** (includes frame height + section header + buffer)

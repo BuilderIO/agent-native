@@ -3,6 +3,8 @@ const messages = {
     connect: "Conectar",
     connected: "Conectado",
     connecting: "Conectando",
+    clipboardUnavailable:
+      "O acesso à área de transferência não está disponível",
     disconnect: "Desconectar",
     notConnected: "Não conectado",
     saving: "Salvando...",

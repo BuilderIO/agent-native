@@ -3,6 +3,7 @@ const messages = {
     connect: "연결",
     connected: "연결됨",
     connecting: "연결 중",
+    clipboardUnavailable: "클립보드 접근을 사용할 수 없습니다",
     disconnect: "연결 해제",
     notConnected: "연결되지 않음",
     saving: "저장 중...",

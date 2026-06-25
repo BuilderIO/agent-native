@@ -3,6 +3,7 @@ const messages = {
     connect: "连接",
     connected: "已连接",
     connecting: "正在连接",
+    clipboardUnavailable: "无法访问剪贴板",
     disconnect: "断开连接",
     notConnected: "未连接",
     saving: "正在保存...",

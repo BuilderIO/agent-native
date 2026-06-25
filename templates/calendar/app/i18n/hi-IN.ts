@@ -3,6 +3,7 @@ const messages = {
     connect: "कनेक्ट करें",
     connected: "कनेक्टेड",
     connecting: "कनेक्ट किया जा रहा है",
+    clipboardUnavailable: "क्लिपबोर्ड एक्सेस उपलब्ध नहीं है",
     disconnect: "डिस्कनेक्ट करें",
     notConnected: "कनेक्टेड नहीं",
     saving: "सहेजा जा रहा है...",

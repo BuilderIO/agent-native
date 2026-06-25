@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import type { AvailabilityConfig, DaySchedule } from "@shared/api";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
@@ -40,6 +41,7 @@ const DEFAULT_SCHEDULE: DaySchedule = {
 };
 
 export default function AvailabilitySettings() {
+  const t = useT();
   const { data: availability } = useAvailability();
   const updateAvailability = useUpdateAvailability();
 
@@ -73,7 +75,7 @@ export default function AvailabilitySettings() {
       toast.success("Booking link copied to clipboard");
       return;
     }
-    toast.error("Clipboard access is unavailable");
+    toast.error(t("common.clipboardUnavailable"));
   }
 
   useEffect(() => {

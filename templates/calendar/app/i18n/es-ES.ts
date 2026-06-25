@@ -3,6 +3,7 @@ const messages = {
     connect: "Conectar",
     connected: "Conectado",
     connecting: "Conectando",
+    clipboardUnavailable: "El acceso al portapapeles no está disponible",
     disconnect: "Desconectar",
     notConnected: "No conectado",
     saving: "Guardando...",

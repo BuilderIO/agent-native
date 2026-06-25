@@ -3,6 +3,7 @@ const messages = {
     connect: "اتصال",
     connected: "متصل",
     connecting: "جار الاتصال",
+    clipboardUnavailable: "الوصول إلى الحافظة غير متاح",
     disconnect: "قطع الاتصال",
     notConnected: "غير متصل",
     saving: "جار الحفظ...",

@@ -3,6 +3,7 @@ const messages = {
     connect: "Connect",
     connected: "Connected",
     connecting: "Connecting",
+    clipboardUnavailable: "Clipboard access is unavailable",
     disconnect: "Disconnect",
     notConnected: "Not connected",
     saving: "Saving...",
