@@ -102,7 +102,8 @@ const FIRST_PARTY_DASHBOARD_TIME_ZONE = "America/Los_Angeles";
 const LOCAL_EVENT_DATE_SQL = `to_char(timestamp::timestamptz AT TIME ZONE '${FIRST_PARTY_DASHBOARD_TIME_ZONE}', 'YYYY-MM-DD')`;
 
 function localDaysAgoSql(days: number): string {
-  return `to_char((now() AT TIME ZONE '${FIRST_PARTY_DASHBOARD_TIME_ZONE}') - INTERVAL '${days} days', 'YYYY-MM-DD')`;
+  const unit = days === 1 ? "day" : "days";
+  return `to_char((now() AT TIME ZONE '${FIRST_PARTY_DASHBOARD_TIME_ZONE}') - INTERVAL '${days} ${unit}', 'YYYY-MM-DD')`;
 }
 
 function dashboardTimeRangeFilter(dateExpr = LOCAL_EVENT_DATE_SQL): string {

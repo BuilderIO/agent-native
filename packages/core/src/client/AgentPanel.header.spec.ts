@@ -3,15 +3,20 @@
 import { describe, expect, it } from "vitest";
 import {
   getAgentPanelChatTabGroups,
+  shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
   shouldShowAgentPanelCliTabBar,
 } from "./AgentPanel.js";
 
-function chatTab(id: string, parentThreadId?: string) {
+function chatTab(
+  id: string,
+  parentThreadId?: string,
+  status: "idle" | "running" | "completed" = "idle",
+) {
   return {
     id,
     label: id,
-    status: "idle" as const,
+    status,
     ...(parentThreadId ? { parentThreadId } : {}),
   };
 }
@@ -47,5 +52,21 @@ describe("AgentPanel header tab visibility", () => {
   it("shows CLI tabs only after a second terminal exists", () => {
     expect(shouldShowAgentPanelCliTabBar(["cli-1"])).toBe(false);
     expect(shouldShowAgentPanelCliTabBar(["cli-1", "cli-2"])).toBe(true);
+  });
+
+  it("shows the page new-chat button only after the active chat has work", () => {
+    expect(
+      shouldShowAgentPanelPageNewChatButton([chatTab("main")], "main", 0),
+    ).toBe(false);
+    expect(
+      shouldShowAgentPanelPageNewChatButton([chatTab("main")], "main", 1),
+    ).toBe(true);
+    expect(
+      shouldShowAgentPanelPageNewChatButton(
+        [chatTab("main", undefined, "running")],
+        "main",
+        0,
+      ),
+    ).toBe(true);
   });
 });
