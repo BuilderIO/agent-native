@@ -9,11 +9,11 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
-import { GenerationResults } from "@/components/generation/GenerationResults";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { GenerationResults } from "@/components/generation/GenerationResults";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 import { cn } from "@/lib/utils";

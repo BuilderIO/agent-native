@@ -1,4 +1,3 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   appPath,
   getBrowserTabId,
@@ -31,15 +30,34 @@ import {
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams,   useLocation,
+import {
+  Link,
+  useSearchParams,
+  useLocation,
   useNavigate,
   useParams,
- } from "react-router";
+} from "react-router";
 import { toast } from "sonner";
+
+import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
+import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogClose,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -57,35 +75,27 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
-import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
-import type { AssetVariantState, ImageQualityTier, StyleStrength } from "../../shared/api";
-import { DEFAULT_LIBRARY_PRESETS, LibraryPreset } from "../../shared/library-presets";
 import {
   sortLibrariesByUsage,
   type ImageLibrarySummary,
 } from "@/lib/libraries";
+import { buildPickerChatHandoffPrompt } from "@/lib/picker-chat-handoff";
+import { cn } from "@/lib/utils";
 
+import type {
+  AssetVariantState,
+  ImageQualityTier,
+  StyleStrength,
+} from "../../shared/api";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-  DialogClose
-} from "@/components/ui/dialog";
-
+  DEFAULT_LIBRARY_PRESETS,
+  LibraryPreset,
+} from "../../shared/library-presets";
 import {
   BrandKitDetailRoute,
   LiveCandidatesStage,
   type VariantSlot,
 } from "./brand-kits.$id";
-import { buildPickerChatHandoffPrompt } from "@/lib/picker-chat-handoff";
 
 type AssetTab = "all" | "generated" | "references";
 

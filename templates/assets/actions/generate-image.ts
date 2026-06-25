@@ -43,8 +43,8 @@ import {
   requireGenerationSessionInLibrary,
   serializeAsset,
 } from "./_helpers.js";
-import { upsertVariantSlot, wasVariantSlotDismissed } from "./variant-slots.js";
 import { readImageModelDefault } from "./_image-model-default.js";
+import { upsertVariantSlot, wasVariantSlotDismissed } from "./variant-slots.js";
 
 function resolveModelForTier(
   tier: ImageQualityTier | undefined,

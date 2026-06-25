@@ -31,8 +31,17 @@ import {
   reasoningEffortLabel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
-import { AgentComposerReference, normalizeAgentComposerReference, sendToAgentChat, type AgentChatContextItem, AgentComposerReferenceInsertPayload, AGENT_CHAT_INSERT_REFERENCE_EVENT, AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE } from "../agent-chat.js";
+import {
+  AgentComposerReference,
+  normalizeAgentComposerReference,
+  sendToAgentChat,
+  type AgentChatContextItem,
+  AgentComposerReferenceInsertPayload,
+  AGENT_CHAT_INSERT_REFERENCE_EVENT,
+  AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+} from "../agent-chat.js";
 import { tryDelegateBuildRequestToBuilder } from "../builder-frame.js";
+import { isTrustedBuilderMessage } from "../builder-frame.js";
 import {
   Popover,
   PopoverContent,
@@ -43,6 +52,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { isTrustedFrameMessage } from "../frame.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
 import { getComposerDraftKey } from "./draft-key.js";
@@ -67,8 +77,6 @@ import { useMentionSearch } from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
-import { isTrustedFrameMessage } from "../frame.js";
-import { isTrustedBuilderMessage } from "../builder-frame.js";
 export interface TiptapComposerHandle {
   focus(): void;
   setText(text: string): void;
