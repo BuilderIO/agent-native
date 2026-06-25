@@ -5,6 +5,15 @@ on:
     branches: [main]
     paths:
       - "templates/chat/package.json"
+      - "templates/chat/react-router.config.ts"
+      - "templates/chat/vite.config.ts"
+      - "templates/chat/tsconfig.json"
+      - "templates/chat/ssr-entry.ts"
+      - "templates/chat/app/vite-env.d.ts"
+      - "templates/chat/app/routes.ts"
+      - "templates/chat/server/**"
+      - "templates/chat/components.json"
+      - "templates/chat/.oxfmtrc.json"
       - "pnpm-workspace.yaml"
       - "packages/core/src/cli/create.ts"
       - "packages/core/src/cli/sync-builder-starter-manifest.ts"

@@ -969,6 +969,7 @@ function postProcessStandalone(
   const appTitle = appTitleForScaffold(name);
   replacePlaceholders(targetDir, name, appTitle);
   rewriteTrackingAppId(targetDir, name, templateName);
+  rewriteAgentChatAppId(targetDir, name, templateName);
   fixPackageJsonName(targetDir, name, templateName);
   fixWebManifestName(targetDir, name, templateName);
   rewriteNetlifyToml(targetDir, name, "standalone");
@@ -1069,7 +1070,25 @@ function postProcessStandalone(
     }
   } catch {}
 
+  fixStandaloneTsconfig(targetDir);
+
   setupAgentSymlinks(targetDir);
+}
+
+function fixStandaloneTsconfig(targetDir: string): void {
+  const tsconfigPath = path.join(targetDir, "tsconfig.json");
+  if (!fs.existsSync(tsconfigPath)) return;
+  try {
+    const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, "utf-8")) as {
+      compilerOptions?: Record<string, unknown>;
+    };
+    tsconfig.compilerOptions ??= {};
+    // Standalone apps extend @agent-native/core/tsconfig.base.json, whose
+    // paths resolve relative to the package install dir unless baseUrl is set
+    // to the app root.
+    tsconfig.compilerOptions.baseUrl = ".";
+    fs.writeFileSync(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`);
+  } catch {}
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1764,6 +1783,36 @@ function rewriteNetlifyToml(
     }
 
     fs.writeFileSync(netlifyPath, content);
+  } catch {}
+}
+
+function rewriteAgentChatAppId(
+  appDir: string,
+  appName: string,
+  templateName?: string,
+): void {
+  const pluginPath = path.join(appDir, "server", "plugins", "agent-chat.ts");
+  if (!fs.existsSync(pluginPath)) return;
+
+  try {
+    const content = fs.readFileSync(pluginPath, "utf-8");
+    const sourceAppIds = ["chat", "starter"];
+    if (templateName && templateName !== appName) {
+      sourceAppIds.push(templateName);
+    }
+    const pattern = new RegExp(
+      `(appId:\\s*)(["'])(${sourceAppIds.map(escapeRegExp).join("|")})\\2`,
+    );
+    if (!pattern.test(content)) return;
+
+    const next = content.replace(
+      pattern,
+      (_match, prefix: string, quote: string) =>
+        `${prefix}${quote}${appName}${quote}`,
+    );
+    if (next !== content) {
+      fs.writeFileSync(pluginPath, next);
+    }
   } catch {}
 }
 
