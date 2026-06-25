@@ -1405,6 +1405,7 @@ const arSA = {
     cliAdapters: "CLI Adapters",
     processors: "In-Loop Processors",
     durableResume: "Durable Resume",
+    durableBackgroundRuns: "عمليات تشغيل الخلفية الدائمة",
     blueprintInstaller: "Blueprint Installer",
     chat: "Chat",
     calendar: "Calendar",

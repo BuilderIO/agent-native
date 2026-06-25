@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, asc, inArray } from "drizzle-orm";
+import { and, asc, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -47,9 +47,12 @@ export default defineAction({
       })
       .from(schema.contentDatabases)
       .where(
-        inArray(
-          schema.contentDatabases.documentId,
-          accessibleDocs.map((doc) => doc.id),
+        and(
+          inArray(
+            schema.contentDatabases.documentId,
+            accessibleDocs.map((doc) => doc.id),
+          ),
+          isNull(schema.contentDatabases.deletedAt),
         ),
       );
 

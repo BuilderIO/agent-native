@@ -63,6 +63,34 @@ describe("content database migrations", () => {
     expect(source).toContain("local_only INTEGER NOT NULL DEFAULT 1");
   });
 
+  it("adds inline database ownership columns additively", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("owner_document_id TEXT");
+    expect(source).toContain("owner_block_id TEXT");
+    expect(source).toContain(
+      "ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_document_id TEXT",
+    );
+    expect(source).toContain(
+      "ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_block_id TEXT",
+    );
+  });
+
+  it("adds content database soft-delete marker additively", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("deleted_at TEXT");
+    expect(source).toContain(
+      "ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS deleted_at TEXT",
+    );
+  });
+
   it("cleans source review and execution rows when database pages are deleted", () => {
     const source = readFileSync(
       join(__dirname, "..", "..", "actions", "_database-utils.ts"),

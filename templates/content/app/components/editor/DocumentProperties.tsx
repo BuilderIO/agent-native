@@ -101,7 +101,10 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
-import { applySourceFieldPropertyToDatabaseResponse } from "@/hooks/use-content-database";
+import {
+  applySourceFieldPropertyToDatabaseResponse,
+  contentDatabaseQueryKey,
+} from "@/hooks/use-content-database";
 import {
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
@@ -116,6 +119,7 @@ import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 interface DocumentPropertiesProps {
   documentId: string;
   canEdit: boolean;
+  databaseDocumentId?: string;
   popoversPortalled?: boolean;
 }
 
@@ -645,14 +649,14 @@ function scalarPlaceholder(type: DocumentPropertyType) {
 export function DocumentProperties({
   documentId,
   canEdit,
+  databaseDocumentId = documentId,
   popoversPortalled = true,
 }: DocumentPropertiesProps) {
   const { data, isLoading } = useDocumentProperties(documentId);
   // Blocks fields are rendered as body content (below the database/title), not
   // as scalar property rows in this panel — exclude them here.
-  const allProperties: DocumentProperty[] = data?.properties ?? [];
-  const properties = allProperties.filter(
-    (property: DocumentProperty) => property.definition.type !== "blocks",
+  const properties = (data?.properties ?? []).filter(
+    (property) => property.definition.type !== "blocks",
   );
   const databaseId = data?.databaseId ?? null;
   const visibleProperties = properties.filter(isPropertyVisible);
@@ -684,6 +688,7 @@ export function DocumentProperties({
       {canEdit && hiddenProperties.length > 0 ? (
         <HiddenPropertiesMenu
           documentId={documentId}
+          databaseDocumentId={databaseDocumentId}
           properties={hiddenProperties}
         />
       ) : null}
@@ -691,6 +696,7 @@ export function DocumentProperties({
       {canEdit && databaseId ? (
         <AddProperty
           documentId={documentId}
+          databaseDocumentId={databaseDocumentId}
           popoversPortalled={popoversPortalled}
         />
       ) : null}
@@ -709,12 +715,17 @@ function isPropertyVisible(property: DocumentProperty) {
 
 function HiddenPropertiesMenu({
   documentId,
+  databaseDocumentId,
   properties,
 }: {
   documentId: string;
+  databaseDocumentId: string;
   properties: DocumentProperty[];
 }) {
-  const configure = useConfigureDocumentProperty(documentId);
+  const configure = useConfigureDocumentProperty(
+    documentId,
+    databaseDocumentId,
+  );
 
   async function showProperty(property: DocumentProperty) {
     await configure.mutateAsync({
@@ -836,11 +847,9 @@ export function PropertyManagementPopover({
   const duplicate = useDuplicateDocumentProperty(documentId);
   const remove = useDeleteDocumentProperty(documentId);
   const { data: propertiesData } = useDocumentProperties(documentId);
-  const configuredProperties: DocumentProperty[] =
-    propertiesData?.properties ?? [];
   // Whether deleting THIS property removes the last Blocks field of the type —
   // i.e. the body. Drives the yellow warning in the delete dialog.
-  const blocksFieldCount = configuredProperties.filter(
+  const blocksFieldCount = (propertiesData?.properties ?? []).filter(
     (item) => item.definition.type === "blocks",
   ).length;
   const isOnlyBlocksField = isOnlyBlocksFieldDeletion({
@@ -2324,6 +2333,7 @@ function OptionValueEditor({
 
 export function AddProperty({
   documentId,
+  databaseDocumentId = documentId,
   variant = "default",
   label = "Add property",
   popoversPortalled = true,
@@ -2331,13 +2341,17 @@ export function AddProperty({
   sources,
 }: {
   documentId: string;
+  databaseDocumentId?: string;
   variant?: "default" | "header" | "icon";
   label?: string;
   popoversPortalled?: boolean;
   source?: ContentDatabaseSource | null;
   sources?: ContentDatabaseSource[];
 }) {
-  const configure = useConfigureDocumentProperty(documentId);
+  const configure = useConfigureDocumentProperty(
+    documentId,
+    databaseDocumentId,
+  );
   const queryClient = useQueryClient();
   const addSourceFieldProperty = useActionMutation<
     ContentDatabaseSourceFieldPropertyResponse,
@@ -2345,7 +2359,7 @@ export function AddProperty({
   >("add-content-database-source-field-property", {
     onSuccess: (data) => {
       queryClient.setQueriesData<ContentDatabaseResponse>(
-        { queryKey: ["action", "get-content-database"] },
+        { queryKey: contentDatabaseQueryKey(databaseDocumentId) },
         (current) => applySourceFieldPropertyToDatabaseResponse(current, data),
       );
       queryClient.invalidateQueries({

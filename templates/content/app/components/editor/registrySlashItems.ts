@@ -100,10 +100,17 @@ export function buildRegistrySlashItems(
       //   - `question-form` / `visual-questions` are agent-intake forms (they
       //     submit answers back to a planning agent), which is a plan workflow,
       //     not a content-authoring block.
+      //   - `inline-database` is registered in Phase 2 for render/round-trip
+      //     compatibility; Phase 3 owns the `/database` insertion flow.
       // The genuinely document-friendly rich blocks (callout, decision, diagram,
       // wireframe, and the dev-doc/structured set) ARE offered.
       includeSpec: (spec) =>
-        !["columns", "question-form", "visual-questions"].includes(spec.type),
+        ![
+          "columns",
+          "question-form",
+          "visual-questions",
+          "inline-database",
+        ].includes(spec.type),
       toItem: (spec, insert) => ({
         title: spec.label,
         description: getRegistryBlockSlashDescription(spec),

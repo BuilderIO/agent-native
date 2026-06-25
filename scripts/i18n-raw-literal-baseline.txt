@@ -1030,6 +1030,9 @@ templates/clips/app/components/recorder/countdown-overlay.tsx|Cancel recording
 templates/clips/app/components/recorder/countdown-overlay.tsx|Esc to cancel · Enter to start now
 templates/clips/app/components/recorder/countdown-overlay.tsx|Skip countdown and start recording now
 templates/clips/app/components/recorder/microphone-visualizer.tsx|Selected microphone waveform
+templates/clips/app/components/recorder/pre-record-panel.tsx|Background blur intensity
+templates/clips/app/components/recorder/pre-record-panel.tsx|Blur background
+templates/clips/app/components/recorder/pre-record-panel.tsx|Blur the camera background
 templates/clips/app/components/recorder/pre-record-panel.tsx|Browser tab
 templates/clips/app/components/recorder/pre-record-panel.tsx|Camera off
 templates/clips/app/components/recorder/pre-record-panel.tsx|Camera only
@@ -1041,6 +1044,7 @@ templates/clips/app/components/recorder/pre-record-panel.tsx|Default mic
 templates/clips/app/components/recorder/pre-record-panel.tsx|Default microphone
 templates/clips/app/components/recorder/pre-record-panel.tsx|Include audio in this recording
 templates/clips/app/components/recorder/pre-record-panel.tsx|Include camera in this recording
+templates/clips/app/components/recorder/pre-record-panel.tsx|Keep yourself sharp, blur what's behind you
 templates/clips/app/components/recorder/pre-record-panel.tsx|No audio
 templates/clips/app/components/recorder/pre-record-panel.tsx|Screen + cam
 templates/clips/app/components/recorder/pre-record-panel.tsx|Screen only
@@ -1308,160 +1312,6 @@ templates/content/app/components/editor/CommentsSidebar.tsx|Ask AI
 templates/content/app/components/editor/CommentsSidebar.tsx|Reply…
 templates/content/app/components/editor/DocumentBlockFields.tsx|No Blocks fields. Add one from the property menu.
 templates/content/app/components/editor/DocumentBlockFields.tsx|blockFields.length || blockFields.length
-templates/content/app/components/editor/DocumentDatabase.tsx|& Pick
-templates/content/app/components/editor/DocumentDatabase.tsx|Add a date property to use calendar view.
-templates/content/app/components/editor/DocumentDatabase.tsx|Add a date property to use timeline view.
-templates/content/app/components/editor/DocumentDatabase.tsx|Add a status, select, multi-select, or checkbox property to group this board.
-templates/content/app/components/editor/DocumentDatabase.tsx|Add a status, select, multi-select, or checkbox property to group.
-templates/content/app/components/editor/DocumentDatabase.tsx|Add another source
-templates/content/app/components/editor/DocumentDatabase.tsx|Add database view
-templates/content/app/components/editor/DocumentDatabase.tsx|Add filter
-templates/content/app/components/editor/DocumentDatabase.tsx|Add property
-templates/content/app/components/editor/DocumentDatabase.tsx|Add sort
-templates/content/app/components/editor/DocumentDatabase.tsx|Agent-Native apps
-templates/content/app/components/editor/DocumentDatabase.tsx|All models
-templates/content/app/components/editor/DocumentDatabase.tsx|All pages
-templates/content/app/components/editor/DocumentDatabase.tsx|Already attached
-templates/content/app/components/editor/DocumentDatabase.tsx|Analyzing both sources for a shared key
-templates/content/app/components/editor/DocumentDatabase.tsx|Body diff
-templates/content/app/components/editor/DocumentDatabase.tsx|Builder isn’t connected. Go back to connect your account first.
-templates/content/app/components/editor/DocumentDatabase.tsx|Builder space
-templates/content/app/components/editor/DocumentDatabase.tsx|Builder update failed
-templates/content/app/components/editor/DocumentDatabase.tsx|Builder write mode was not changed
-templates/content/app/components/editor/DocumentDatabase.tsx|Calendar by
-templates/content/app/components/editor/DocumentDatabase.tsx|Checking Builder connection
-templates/content/app/components/editor/DocumentDatabase.tsx|Clear all
-templates/content/app/components/editor/DocumentDatabase.tsx|Clear filters
-templates/content/app/components/editor/DocumentDatabase.tsx|Clear search and filters
-templates/content/app/components/editor/DocumentDatabase.tsx|Clear sort
-templates/content/app/components/editor/DocumentDatabase.tsx|Clear sorts
-templates/content/app/components/editor/DocumentDatabase.tsx|Clear value
-templates/content/app/components/editor/DocumentDatabase.tsx|Close database settings
-templates/content/app/components/editor/DocumentDatabase.tsx|Close search
-templates/content/app/components/editor/DocumentDatabase.tsx|Collapse all
-templates/content/app/components/editor/DocumentDatabase.tsx|Collapse all groups
-templates/content/app/components/editor/DocumentDatabase.tsx|Connect your Builder account to browse its spaces and models.
-templates/content/app/components/editor/DocumentDatabase.tsx|Connected sources
-templates/content/app/components/editor/DocumentDatabase.tsx|Couldn’t sync · Retry
-templates/content/app/components/editor/DocumentDatabase.tsx|Count all
-templates/content/app/components/editor/DocumentDatabase.tsx|Count empty
-templates/content/app/components/editor/DocumentDatabase.tsx|Count unique
-templates/content/app/components/editor/DocumentDatabase.tsx|Count values
-templates/content/app/components/editor/DocumentDatabase.tsx|Database page preview
-templates/content/app/components/editor/DocumentDatabase.tsx|Database rows and local properties were kept intact.
-templates/content/app/components/editor/DocumentDatabase.tsx|Date range
-templates/content/app/components/editor/DocumentDatabase.tsx|Delete group
-templates/content/app/components/editor/DocumentDatabase.tsx|Delete row
-templates/content/app/components/editor/DocumentDatabase.tsx|Delete row?
-templates/content/app/components/editor/DocumentDatabase.tsx|Delete selected rows?
-templates/content/app/components/editor/DocumentDatabase.tsx|Delete view
-templates/content/app/components/editor/DocumentDatabase.tsx|Disconnect source
-templates/content/app/components/editor/DocumentDatabase.tsx|Duplicate row
-templates/content/app/components/editor/DocumentDatabase.tsx|Duplicate view
-templates/content/app/components/editor/DocumentDatabase.tsx|End date
-templates/content/app/components/editor/DocumentDatabase.tsx|Enter a valid number.
-templates/content/app/components/editor/DocumentDatabase.tsx|Execution gate
-templates/content/app/components/editor/DocumentDatabase.tsx|Existing source · normalize
-templates/content/app/components/editor/DocumentDatabase.tsx|Expand all
-templates/content/app/components/editor/DocumentDatabase.tsx|Expand all groups
-templates/content/app/components/editor/DocumentDatabase.tsx|Failed to delete row
-templates/content/app/components/editor/DocumentDatabase.tsx|Failed to delete selected rows
-templates/content/app/components/editor/DocumentDatabase.tsx|Failed to duplicate every selected row
-templates/content/app/components/editor/DocumentDatabase.tsx|Failed to duplicate row
-templates/content/app/components/editor/DocumentDatabase.tsx|Failed to move card
-templates/content/app/components/editor/DocumentDatabase.tsx|Failed to move row
-templates/content/app/components/editor/DocumentDatabase.tsx|Failed to save page icon
-templates/content/app/components/editor/DocumentDatabase.tsx|Failed to save page preview
-templates/content/app/components/editor/DocumentDatabase.tsx|Failed to update checkbox
-templates/content/app/components/editor/DocumentDatabase.tsx|Failed to update every selected row
-templates/content/app/components/editor/DocumentDatabase.tsx|Filter checked
-templates/content/app/components/editor/DocumentDatabase.tsx|Filter empty
-templates/content/app/components/editor/DocumentDatabase.tsx|Filter not empty
-templates/content/app/components/editor/DocumentDatabase.tsx|Filter rows where
-templates/content/app/components/editor/DocumentDatabase.tsx|Filter unchecked
-templates/content/app/components/editor/DocumentDatabase.tsx|Group by
-templates/content/app/components/editor/DocumentDatabase.tsx|Group name
-templates/content/app/components/editor/DocumentDatabase.tsx|Hide all
-templates/content/app/components/editor/DocumentDatabase.tsx|Hide empty groups
-templates/content/app/components/editor/DocumentDatabase.tsx|Hide in view
-templates/content/app/components/editor/DocumentDatabase.tsx|Keep the database rows and local properties, but remove source mappings, row identity, and pending source changes.
-templates/content/app/components/editor/DocumentDatabase.tsx|Live writes on
-templates/content/app/components/editor/DocumentDatabase.tsx|Loading Builder models
-templates/content/app/components/editor/DocumentDatabase.tsx|Loading board
-templates/content/app/components/editor/DocumentDatabase.tsx|Loading calendar
-templates/content/app/components/editor/DocumentDatabase.tsx|Loading database
-templates/content/app/components/editor/DocumentDatabase.tsx|Loading gallery
-templates/content/app/components/editor/DocumentDatabase.tsx|Loading list
-templates/content/app/components/editor/DocumentDatabase.tsx|Loading tables
-templates/content/app/components/editor/DocumentDatabase.tsx|Loading timeline
-templates/content/app/components/editor/DocumentDatabase.tsx|Local tables
-templates/content/app/components/editor/DocumentDatabase.tsx|Match formula
-templates/content/app/components/editor/DocumentDatabase.tsx|Name column menu
-templates/content/app/components/editor/DocumentDatabase.tsx|New board group name
-templates/content/app/components/editor/DocumentDatabase.tsx|New database gallery card title
-templates/content/app/components/editor/DocumentDatabase.tsx|New database list item title
-templates/content/app/components/editor/DocumentDatabase.tsx|New database row
-templates/content/app/components/editor/DocumentDatabase.tsx|New group
-templates/content/app/components/editor/DocumentDatabase.tsx|New page
-templates/content/app/components/editor/DocumentDatabase.tsx|New property
-templates/content/app/components/editor/DocumentDatabase.tsx|New source · normalize
-templates/content/app/components/editor/DocumentDatabase.tsx|New view
-templates/content/app/components/editor/DocumentDatabase.tsx|New view name
-templates/content/app/components/editor/DocumentDatabase.tsx|Next database page
-templates/content/app/components/editor/DocumentDatabase.tsx|Next month
-templates/content/app/components/editor/DocumentDatabase.tsx|Next timeline range
-templates/content/app/components/editor/DocumentDatabase.tsx|No Builder models were found in this space.
-templates/content/app/components/editor/DocumentDatabase.tsx|No database page selected.
-templates/content/app/components/editor/DocumentDatabase.tsx|No date
-templates/content/app/components/editor/DocumentDatabase.tsx|No editable properties
-templates/content/app/components/editor/DocumentDatabase.tsx|No end date
-templates/content/app/components/editor/DocumentDatabase.tsx|No grouping
-templates/content/app/components/editor/DocumentDatabase.tsx|No matching options
-templates/content/app/components/editor/DocumentDatabase.tsx|No matching pages
-templates/content/app/components/editor/DocumentDatabase.tsx|No matching properties
-templates/content/app/components/editor/DocumentDatabase.tsx|No other databases available to add.
-templates/content/app/components/editor/DocumentDatabase.tsx|No properties found
-templates/content/app/components/editor/DocumentDatabase.tsx|No rows match this view
-templates/content/app/components/editor/DocumentDatabase.tsx|Not mapped to Builder.
-templates/content/app/components/editor/DocumentDatabase.tsx|One file or media link per line
-templates/content/app/components/editor/DocumentDatabase.tsx|Open page
-templates/content/app/components/editor/DocumentDatabase.tsx|Open pages in
-templates/content/app/components/editor/DocumentDatabase.tsx|Percent checked
-templates/content/app/components/editor/DocumentDatabase.tsx|Percent empty
-templates/content/app/components/editor/DocumentDatabase.tsx|Percent filled
-templates/content/app/components/editor/DocumentDatabase.tsx|Percent unchecked
-templates/content/app/components/editor/DocumentDatabase.tsx|Preview page title
-templates/content/app/components/editor/DocumentDatabase.tsx|Preview this database page without leaving the database.
-templates/content/app/components/editor/DocumentDatabase.tsx|Previous database page
-templates/content/app/components/editor/DocumentDatabase.tsx|Previous month
-templates/content/app/components/editor/DocumentDatabase.tsx|Previous timeline range
-templates/content/app/components/editor/DocumentDatabase.tsx|Property visibility
-templates/content/app/components/editor/DocumentDatabase.tsx|Read-only
-templates/content/app/components/editor/DocumentDatabase.tsx|Remove this source
-templates/content/app/components/editor/DocumentDatabase.tsx|Rename view
-templates/content/app/components/editor/DocumentDatabase.tsx|Resize Name column
-templates/content/app/components/editor/DocumentDatabase.tsx|Review before they reach Builder.
-templates/content/app/components/editor/DocumentDatabase.tsx|Review diff
-templates/content/app/components/editor/DocumentDatabase.tsx|Sample matches
-templates/content/app/components/editor/DocumentDatabase.tsx|Search Builder models
-templates/content/app/components/editor/DocumentDatabase.tsx|Search group properties
-templates/content/app/components/editor/DocumentDatabase.tsx|Search models
-templates/content/app/components/editor/DocumentDatabase.tsx|Search options
-templates/content/app/components/editor/DocumentDatabase.tsx|Search properties
-templates/content/app/components/editor/DocumentDatabase.tsx|Show all
-templates/content/app/components/editor/DocumentDatabase.tsx|Something went wrong
-templates/content/app/components/editor/DocumentDatabase.tsx|Sort ascending
-templates/content/app/components/editor/DocumentDatabase.tsx|Sort descending
-templates/content/app/components/editor/DocumentDatabase.tsx|Sort rows by
-templates/content/app/components/editor/DocumentDatabase.tsx|Source disconnected
-templates/content/app/components/editor/DocumentDatabase.tsx|Source was not disconnected
-templates/content/app/components/editor/DocumentDatabase.tsx|Start date
-templates/content/app/components/editor/DocumentDatabase.tsx|This database is local. Connect a source to map its columns onto these rows.
-templates/content/app/components/editor/DocumentDatabase.tsx|This property has no options yet.
-templates/content/app/components/editor/DocumentDatabase.tsx|This source is no longer connected.
-templates/content/app/components/editor/DocumentDatabase.tsx|Try again.
-templates/content/app/components/editor/DocumentDatabase.tsx|View name
-templates/content/app/components/editor/DocumentDatabase.tsx|Wrap all content
 templates/content/app/components/editor/DocumentEditor.tsx|Could not read local source file
 templates/content/app/components/editor/DocumentEditor.tsx|Could not save local file
 templates/content/app/components/editor/DocumentEditor.tsx|Document title
@@ -1560,7 +1410,6 @@ templates/content/app/components/editor/SlashCommandMenu.tsx|Bulleted list
 templates/content/app/components/editor/SlashCommandMenu.tsx|Checklist items
 templates/content/app/components/editor/SlashCommandMenu.tsx|Code snippet
 templates/content/app/components/editor/SlashCommandMenu.tsx|Collapsible block
-templates/content/app/components/editor/SlashCommandMenu.tsx|Create a child database page
 templates/content/app/components/editor/SlashCommandMenu.tsx|Create a child page
 templates/content/app/components/editor/SlashCommandMenu.tsx|Database created
 templates/content/app/components/editor/SlashCommandMenu.tsx|Describe what to generate...
@@ -1573,6 +1422,7 @@ templates/content/app/components/editor/SlashCommandMenu.tsx|Heading 3
 templates/content/app/components/editor/SlashCommandMenu.tsx|Heading 4
 templates/content/app/components/editor/SlashCommandMenu.tsx|Highlighted info block
 templates/content/app/components/editor/SlashCommandMenu.tsx|Horizontal rule
+templates/content/app/components/editor/SlashCommandMenu.tsx|Inline database in this page
 templates/content/app/components/editor/SlashCommandMenu.tsx|Large heading
 templates/content/app/components/editor/SlashCommandMenu.tsx|Local components
 templates/content/app/components/editor/SlashCommandMenu.tsx|Medium heading
@@ -1631,6 +1481,161 @@ templates/content/app/components/editor/database-sources/BuilderSourceReviewDial
 templates/content/app/components/editor/database-sources/BuilderSourceReviewDialog.tsx|Risk check
 templates/content/app/components/editor/database-sources/BuilderSourceReviewDialog.tsx|What changed
 templates/content/app/components/editor/database-sources/BuilderSourceReviewDialog.tsx|Where it will go
+templates/content/app/components/editor/database/DatabaseView.tsx|& Pick
+templates/content/app/components/editor/database/DatabaseView.tsx|Add a date property to use calendar view.
+templates/content/app/components/editor/database/DatabaseView.tsx|Add a date property to use timeline view.
+templates/content/app/components/editor/database/DatabaseView.tsx|Add a status, select, multi-select, or checkbox property to group this board.
+templates/content/app/components/editor/database/DatabaseView.tsx|Add a status, select, multi-select, or checkbox property to group.
+templates/content/app/components/editor/database/DatabaseView.tsx|Add another source
+templates/content/app/components/editor/database/DatabaseView.tsx|Add database view
+templates/content/app/components/editor/database/DatabaseView.tsx|Add filter
+templates/content/app/components/editor/database/DatabaseView.tsx|Add property
+templates/content/app/components/editor/database/DatabaseView.tsx|Add sort
+templates/content/app/components/editor/database/DatabaseView.tsx|Agent-Native apps
+templates/content/app/components/editor/database/DatabaseView.tsx|All models
+templates/content/app/components/editor/database/DatabaseView.tsx|All pages
+templates/content/app/components/editor/database/DatabaseView.tsx|Already attached
+templates/content/app/components/editor/database/DatabaseView.tsx|Analyzing both sources for a shared key
+templates/content/app/components/editor/database/DatabaseView.tsx|Body diff
+templates/content/app/components/editor/database/DatabaseView.tsx|Builder isn’t connected. Go back to connect your account first.
+templates/content/app/components/editor/database/DatabaseView.tsx|Builder space
+templates/content/app/components/editor/database/DatabaseView.tsx|Builder update failed
+templates/content/app/components/editor/database/DatabaseView.tsx|Builder write mode was not changed
+templates/content/app/components/editor/database/DatabaseView.tsx|Calendar by
+templates/content/app/components/editor/database/DatabaseView.tsx|Checking Builder connection
+templates/content/app/components/editor/database/DatabaseView.tsx|Clear all
+templates/content/app/components/editor/database/DatabaseView.tsx|Clear filters
+templates/content/app/components/editor/database/DatabaseView.tsx|Clear search and filters
+templates/content/app/components/editor/database/DatabaseView.tsx|Clear sort
+templates/content/app/components/editor/database/DatabaseView.tsx|Clear sorts
+templates/content/app/components/editor/database/DatabaseView.tsx|Clear value
+templates/content/app/components/editor/database/DatabaseView.tsx|Close database settings
+templates/content/app/components/editor/database/DatabaseView.tsx|Close search
+templates/content/app/components/editor/database/DatabaseView.tsx|Collapse all
+templates/content/app/components/editor/database/DatabaseView.tsx|Collapse all groups
+templates/content/app/components/editor/database/DatabaseView.tsx|Connect your Builder account to browse its spaces and models.
+templates/content/app/components/editor/database/DatabaseView.tsx|Connected sources
+templates/content/app/components/editor/database/DatabaseView.tsx|Couldn’t sync · Retry
+templates/content/app/components/editor/database/DatabaseView.tsx|Count all
+templates/content/app/components/editor/database/DatabaseView.tsx|Count empty
+templates/content/app/components/editor/database/DatabaseView.tsx|Count unique
+templates/content/app/components/editor/database/DatabaseView.tsx|Count values
+templates/content/app/components/editor/database/DatabaseView.tsx|Database page preview
+templates/content/app/components/editor/database/DatabaseView.tsx|Database rows and local properties were kept intact.
+templates/content/app/components/editor/database/DatabaseView.tsx|Date range
+templates/content/app/components/editor/database/DatabaseView.tsx|Delete group
+templates/content/app/components/editor/database/DatabaseView.tsx|Delete row
+templates/content/app/components/editor/database/DatabaseView.tsx|Delete row?
+templates/content/app/components/editor/database/DatabaseView.tsx|Delete selected rows?
+templates/content/app/components/editor/database/DatabaseView.tsx|Delete view
+templates/content/app/components/editor/database/DatabaseView.tsx|Disconnect source
+templates/content/app/components/editor/database/DatabaseView.tsx|Duplicate row
+templates/content/app/components/editor/database/DatabaseView.tsx|Duplicate view
+templates/content/app/components/editor/database/DatabaseView.tsx|End date
+templates/content/app/components/editor/database/DatabaseView.tsx|Enter a valid number.
+templates/content/app/components/editor/database/DatabaseView.tsx|Execution gate
+templates/content/app/components/editor/database/DatabaseView.tsx|Existing source · normalize
+templates/content/app/components/editor/database/DatabaseView.tsx|Expand all
+templates/content/app/components/editor/database/DatabaseView.tsx|Expand all groups
+templates/content/app/components/editor/database/DatabaseView.tsx|Failed to delete row
+templates/content/app/components/editor/database/DatabaseView.tsx|Failed to delete selected rows
+templates/content/app/components/editor/database/DatabaseView.tsx|Failed to duplicate every selected row
+templates/content/app/components/editor/database/DatabaseView.tsx|Failed to duplicate row
+templates/content/app/components/editor/database/DatabaseView.tsx|Failed to move card
+templates/content/app/components/editor/database/DatabaseView.tsx|Failed to move row
+templates/content/app/components/editor/database/DatabaseView.tsx|Failed to save page icon
+templates/content/app/components/editor/database/DatabaseView.tsx|Failed to save page preview
+templates/content/app/components/editor/database/DatabaseView.tsx|Failed to update checkbox
+templates/content/app/components/editor/database/DatabaseView.tsx|Failed to update every selected row
+templates/content/app/components/editor/database/DatabaseView.tsx|Filter checked
+templates/content/app/components/editor/database/DatabaseView.tsx|Filter empty
+templates/content/app/components/editor/database/DatabaseView.tsx|Filter not empty
+templates/content/app/components/editor/database/DatabaseView.tsx|Filter rows where
+templates/content/app/components/editor/database/DatabaseView.tsx|Filter unchecked
+templates/content/app/components/editor/database/DatabaseView.tsx|Group by
+templates/content/app/components/editor/database/DatabaseView.tsx|Group name
+templates/content/app/components/editor/database/DatabaseView.tsx|Hide all
+templates/content/app/components/editor/database/DatabaseView.tsx|Hide empty groups
+templates/content/app/components/editor/database/DatabaseView.tsx|Hide in view
+templates/content/app/components/editor/database/DatabaseView.tsx|Keep the database rows and local properties, but remove source mappings, row identity, and pending source changes.
+templates/content/app/components/editor/database/DatabaseView.tsx|Live writes on
+templates/content/app/components/editor/database/DatabaseView.tsx|Loading Builder models
+templates/content/app/components/editor/database/DatabaseView.tsx|Loading board
+templates/content/app/components/editor/database/DatabaseView.tsx|Loading calendar
+templates/content/app/components/editor/database/DatabaseView.tsx|Loading database
+templates/content/app/components/editor/database/DatabaseView.tsx|Loading gallery
+templates/content/app/components/editor/database/DatabaseView.tsx|Loading list
+templates/content/app/components/editor/database/DatabaseView.tsx|Loading tables
+templates/content/app/components/editor/database/DatabaseView.tsx|Loading timeline
+templates/content/app/components/editor/database/DatabaseView.tsx|Local tables
+templates/content/app/components/editor/database/DatabaseView.tsx|Match formula
+templates/content/app/components/editor/database/DatabaseView.tsx|Name column menu
+templates/content/app/components/editor/database/DatabaseView.tsx|New board group name
+templates/content/app/components/editor/database/DatabaseView.tsx|New database gallery card title
+templates/content/app/components/editor/database/DatabaseView.tsx|New database list item title
+templates/content/app/components/editor/database/DatabaseView.tsx|New database row
+templates/content/app/components/editor/database/DatabaseView.tsx|New group
+templates/content/app/components/editor/database/DatabaseView.tsx|New page
+templates/content/app/components/editor/database/DatabaseView.tsx|New property
+templates/content/app/components/editor/database/DatabaseView.tsx|New source · normalize
+templates/content/app/components/editor/database/DatabaseView.tsx|New view
+templates/content/app/components/editor/database/DatabaseView.tsx|New view name
+templates/content/app/components/editor/database/DatabaseView.tsx|Next database page
+templates/content/app/components/editor/database/DatabaseView.tsx|Next month
+templates/content/app/components/editor/database/DatabaseView.tsx|Next timeline range
+templates/content/app/components/editor/database/DatabaseView.tsx|No Builder models were found in this space.
+templates/content/app/components/editor/database/DatabaseView.tsx|No database page selected.
+templates/content/app/components/editor/database/DatabaseView.tsx|No date
+templates/content/app/components/editor/database/DatabaseView.tsx|No editable properties
+templates/content/app/components/editor/database/DatabaseView.tsx|No end date
+templates/content/app/components/editor/database/DatabaseView.tsx|No grouping
+templates/content/app/components/editor/database/DatabaseView.tsx|No matching options
+templates/content/app/components/editor/database/DatabaseView.tsx|No matching pages
+templates/content/app/components/editor/database/DatabaseView.tsx|No matching properties
+templates/content/app/components/editor/database/DatabaseView.tsx|No other databases available to add.
+templates/content/app/components/editor/database/DatabaseView.tsx|No properties found
+templates/content/app/components/editor/database/DatabaseView.tsx|No rows match this view
+templates/content/app/components/editor/database/DatabaseView.tsx|Not mapped to Builder.
+templates/content/app/components/editor/database/DatabaseView.tsx|One file or media link per line
+templates/content/app/components/editor/database/DatabaseView.tsx|Open as full page
+templates/content/app/components/editor/database/DatabaseView.tsx|Open page
+templates/content/app/components/editor/database/DatabaseView.tsx|Open pages in
+templates/content/app/components/editor/database/DatabaseView.tsx|Percent checked
+templates/content/app/components/editor/database/DatabaseView.tsx|Percent empty
+templates/content/app/components/editor/database/DatabaseView.tsx|Percent filled
+templates/content/app/components/editor/database/DatabaseView.tsx|Percent unchecked
+templates/content/app/components/editor/database/DatabaseView.tsx|Preview page title
+templates/content/app/components/editor/database/DatabaseView.tsx|Preview this database page without leaving the database.
+templates/content/app/components/editor/database/DatabaseView.tsx|Previous database page
+templates/content/app/components/editor/database/DatabaseView.tsx|Previous month
+templates/content/app/components/editor/database/DatabaseView.tsx|Previous timeline range
+templates/content/app/components/editor/database/DatabaseView.tsx|Property visibility
+templates/content/app/components/editor/database/DatabaseView.tsx|Read-only
+templates/content/app/components/editor/database/DatabaseView.tsx|Remove this source
+templates/content/app/components/editor/database/DatabaseView.tsx|Rename view
+templates/content/app/components/editor/database/DatabaseView.tsx|Resize Name column
+templates/content/app/components/editor/database/DatabaseView.tsx|Review before they reach Builder.
+templates/content/app/components/editor/database/DatabaseView.tsx|Review diff
+templates/content/app/components/editor/database/DatabaseView.tsx|Sample matches
+templates/content/app/components/editor/database/DatabaseView.tsx|Search Builder models
+templates/content/app/components/editor/database/DatabaseView.tsx|Search group properties
+templates/content/app/components/editor/database/DatabaseView.tsx|Search models
+templates/content/app/components/editor/database/DatabaseView.tsx|Search options
+templates/content/app/components/editor/database/DatabaseView.tsx|Search properties
+templates/content/app/components/editor/database/DatabaseView.tsx|Show all
+templates/content/app/components/editor/database/DatabaseView.tsx|Something went wrong
+templates/content/app/components/editor/database/DatabaseView.tsx|Sort ascending
+templates/content/app/components/editor/database/DatabaseView.tsx|Sort descending
+templates/content/app/components/editor/database/DatabaseView.tsx|Sort rows by
+templates/content/app/components/editor/database/DatabaseView.tsx|Source disconnected
+templates/content/app/components/editor/database/DatabaseView.tsx|Source was not disconnected
+templates/content/app/components/editor/database/DatabaseView.tsx|Start date
+templates/content/app/components/editor/database/DatabaseView.tsx|This database is local. Connect a source to map its columns onto these rows.
+templates/content/app/components/editor/database/DatabaseView.tsx|This property has no options yet.
+templates/content/app/components/editor/database/DatabaseView.tsx|This source is no longer connected.
+templates/content/app/components/editor/database/DatabaseView.tsx|Try again.
+templates/content/app/components/editor/database/DatabaseView.tsx|View name
+templates/content/app/components/editor/database/DatabaseView.tsx|Wrap all content
 templates/content/app/components/editor/database/calculations.ts|Count all
 templates/content/app/components/editor/database/calculations.ts|Count empty
 templates/content/app/components/editor/database/calculations.ts|Count unique
@@ -1766,20 +1771,25 @@ templates/content/app/components/editor/image-upload.ts|Audio upload failed.
 templates/content/app/components/editor/image-upload.ts|Image upload failed.
 templates/content/app/components/editor/image-upload.ts|Video upload failed.
 templates/content/app/components/editor/localComponentSlashItems.ts|Local MDX component
-templates/content/app/components/sidebar/DocumentSidebar.tsx|Cannot reorder pages
 templates/content/app/components/sidebar/DocumentSidebar.tsx|Collapse sidebar
+templates/content/app/components/sidebar/DocumentSidebar.tsx|Database permanently deleted
+templates/content/app/components/sidebar/DocumentSidebar.tsx|Database restored
+templates/content/app/components/sidebar/DocumentSidebar.tsx|Delete database permanently?
+templates/content/app/components/sidebar/DocumentSidebar.tsx|Delete permanently
 templates/content/app/components/sidebar/DocumentSidebar.tsx|Expand sidebar
+templates/content/app/components/sidebar/DocumentSidebar.tsx|Failed to create database
 templates/content/app/components/sidebar/DocumentSidebar.tsx|Failed to create page
 templates/content/app/components/sidebar/DocumentSidebar.tsx|Failed to delete page
 templates/content/app/components/sidebar/DocumentSidebar.tsx|Failed to move page
+templates/content/app/components/sidebar/DocumentSidebar.tsx|Failed to permanently delete database
+templates/content/app/components/sidebar/DocumentSidebar.tsx|Failed to restore database
 templates/content/app/components/sidebar/DocumentSidebar.tsx|Local files
-templates/content/app/components/sidebar/DocumentSidebar.tsx|New page
 templates/content/app/components/sidebar/DocumentSidebar.tsx|No pages found
-templates/content/app/components/sidebar/DocumentSidebar.tsx|One of the affected pages is read-only.
 templates/content/app/components/sidebar/DocumentSidebar.tsx|Search pages...
 templates/content/app/components/sidebar/DocumentSidebar.tsx|Shared copies
 templates/content/app/components/sidebar/DocumentSidebar.tsx|Something went wrong
-templates/content/app/components/sidebar/DocumentTreeItem.tsx|Add sub-page
+templates/content/app/components/sidebar/DocumentSidebar.tsx|Untitled database
+templates/content/app/components/sidebar/DocumentTreeItem.tsx|Add child
 templates/content/app/components/sidebar/DocumentTreeItem.tsx|Delete page?
 templates/content/app/components/sidebar/NotionButton.tsx|Complete steps above first
 templates/content/app/components/sidebar/NotionButton.tsx|Configure OAuth, then authorize your workspace.

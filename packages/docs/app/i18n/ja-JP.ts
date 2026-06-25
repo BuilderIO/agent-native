@@ -1415,6 +1415,7 @@ const jaJP = {
     cliAdapters: "CLI アダプター",
     processors: "インループプロセッサ",
     durableResume: "永続的な再開",
+    durableBackgroundRuns: "永続的なバックグラウンド実行",
     blueprintInstaller: "Blueprint Installer",
     chat: "Chat",
     calendar: "Calendar",
