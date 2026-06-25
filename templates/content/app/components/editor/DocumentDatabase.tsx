@@ -152,6 +152,7 @@ import {
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
   type BuilderCmsModelSummary,
+  type BuilderCmsWriteEffect,
   type ContentDatabaseItem,
   type ContentDatabaseResponse,
   type ContentDatabaseSource,
@@ -4994,6 +4995,30 @@ function BuilderSpaceModelsView({
   );
 }
 
+const BUILDER_DEV_EFFECT_LABEL: Record<
+  BuilderCmsWriteEffect,
+  { pending: string; done: string }
+> = {
+  create_draft: { pending: "Create draft", done: "Created draft" },
+  update_in_place: { pending: "Update entry", done: "Updated entry" },
+  autosave: { pending: "Save draft", done: "Saved draft" },
+  publish: { pending: "Publish", done: "Published" },
+  unpublish: { pending: "Unpublish", done: "Unpublished" },
+};
+
+function changeSetDisplayTitle(changeSet: ContentDatabaseSourceChangeSet) {
+  const titleChange = changeSet.fieldChanges.find(
+    (field) => field.localFieldKey === "title",
+  );
+  if (
+    typeof titleChange?.proposedValue === "string" &&
+    titleChange.proposedValue.trim()
+  ) {
+    return titleChange.proposedValue.trim();
+  }
+  return changeSet.summary;
+}
+
 function SourceChangeSetReviewCard({
   changeSet,
   source,
@@ -5008,6 +5033,41 @@ function SourceChangeSetReviewCard({
   const dryRunStatus = latestExecution
     ? builderExecutionDryRunStatus(latestExecution.payload)
     : null;
+  const effect = resolveBuilderCmsWriteEffect({ source, changeSet });
+  const effectLabel = BUILDER_DEV_EFFECT_LABEL[effect];
+  const title = changeSetDisplayTitle(changeSet);
+
+  // A change that already pushed is done — collapse it to a one-line
+  // confirmation instead of repeating the full diff + gate ceremony.
+  if (changeSet.state === "applied") {
+    // Use the effect that actually ran (recorded in the execution payload). The
+    // live resolver would now report update_in_place because the row is matched
+    // to its new entry, mislabeling a completed create as an update.
+    const appliedEffect =
+      (latestExecution && builderExecutionEffect(latestExecution.payload)) ??
+      effect;
+    const when =
+      formatRelativeSyncTime(
+        latestExecution?.updatedAt ?? changeSet.updatedAt,
+      ) ?? formatSourceTimestamp(changeSet.updatedAt);
+    return (
+      <div className="flex min-w-0 items-start gap-2 rounded-md border border-border/70 px-2 py-1.5 text-xs">
+        <IconCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+        <div className="min-w-0">
+          <div className="min-w-0 break-words font-medium leading-snug">
+            {title}
+          </div>
+          <div className="text-muted-foreground">
+            {BUILDER_DEV_EFFECT_LABEL[appliedEffect].done} · pushed {when}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const blockers = latestExecution
+    ? builderExecutionBlockers(latestExecution.payload)
+    : [];
 
   return (
     <div className="min-w-0 rounded-md border border-border/70 px-2 py-1.5">
@@ -5016,28 +5076,34 @@ function SourceChangeSetReviewCard({
           className="min-w-0 break-words font-medium leading-snug"
           title={changeSet.summary}
         >
-          {changeSet.summary}
+          {title}
         </span>
-        <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-          {changeSet.state.replace(/_/g, " ")}
+        <span className="shrink-0 rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          {effectLabel.pending}
         </span>
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
-        <span className={sourceRiskClass(changeSet.riskLevel)}>
-          {changeSet.riskLevel} risk
-        </span>
-        {changeSet.conflictState === "source_changed" ? (
-          <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-            source changed
-          </span>
-        ) : null}
-        {!changeSet.localOnly ? (
-          <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-            external write
-          </span>
-        ) : null}
-      </div>
+      {changeSet.riskLevel !== "low" ||
+      changeSet.conflictState === "source_changed" ||
+      !changeSet.localOnly ? (
+        <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+          {changeSet.riskLevel !== "low" ? (
+            <span className={sourceRiskClass(changeSet.riskLevel)}>
+              {changeSet.riskLevel} risk
+            </span>
+          ) : null}
+          {changeSet.conflictState === "source_changed" ? (
+            <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+              source changed
+            </span>
+          ) : null}
+          {!changeSet.localOnly ? (
+            <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
+              external write
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-2 grid min-w-0 gap-1.5">
         {changeSet.fieldChanges.slice(0, 3).map((field) => (
@@ -5071,70 +5137,54 @@ function SourceChangeSetReviewCard({
         ) : null}
       </div>
 
-      <div className="mt-2 break-words text-xs text-muted-foreground">
-        {changeSet.riskReasons.join(", ")}
-        {" • "}
-        {formatSourceTimestamp(changeSet.updatedAt)}
-      </div>
-
-      {latestReview ? (
-        <div className="mt-2 rounded border border-border/60 bg-muted/20 p-1.5 text-xs text-muted-foreground">
-          {latestReview.decision} by {latestReview.reviewerEmail}
-          {" • "}
-          {formatSourceTimestamp(latestReview.createdAt)}
+      {blockers.length > 0 ? (
+        <div className="mt-2 grid gap-1 text-xs text-amber-700 dark:text-amber-300">
+          {blockers.slice(0, 2).map((blocker) => (
+            <div key={blocker} className="break-words">
+              Blocked: {blocker}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {latestExecution?.lastError ? (
+        <div className="mt-2 break-words text-xs text-destructive">
+          {latestExecution.lastError}
         </div>
       ) : null}
 
-      {latestExecution ? (
-        <div className="mt-2 rounded border border-border/60 bg-muted/20 p-1.5 text-xs">
-          <div className="flex min-w-0 items-center justify-between gap-2">
-            <span className="font-medium">Execution gate</span>
-            <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
-              {latestExecution.state.replace(/_/g, " ")}
-            </span>
+      <details className="mt-2 text-xs text-muted-foreground">
+        <summary className="cursor-pointer text-[11px] hover:text-foreground">
+          Details
+        </summary>
+        <div className="mt-1 grid gap-1">
+          <div className="break-words">
+            {changeSet.riskReasons.join(", ")}
+            {" • "}
+            {formatSourceTimestamp(changeSet.updatedAt)}
           </div>
-          <div className="mt-1 break-words text-muted-foreground">
-            {latestExecution.summary}
-          </div>
-          {builderExecutionBlockers(latestExecution.payload).length > 0 ? (
-            <div className="mt-1 grid gap-1 text-muted-foreground">
-              {builderExecutionBlockers(latestExecution.payload)
-                .slice(0, 2)
-                .map((blocker) => (
-                  <div key={blocker} className="break-words">
-                    Blocked: {blocker}
-                  </div>
-                ))}
+          {latestReview ? (
+            <div className="break-words">
+              {latestReview.decision} by {latestReview.reviewerEmail}
+              {" • "}
+              {formatSourceTimestamp(latestReview.createdAt)}
             </div>
           ) : null}
-          {dryRunStatus ? (
-            <div className="mt-1 break-words text-muted-foreground">
-              Dry run {dryRunStatus.status}
-              {dryRunStatus.validatedAt
-                ? ` • ${formatSourceTimestamp(dryRunStatus.validatedAt)}`
-                : ""}
-            </div>
-          ) : null}
-          {latestExecution.lastError ? (
-            <div className="mt-1 break-words text-destructive">
-              {latestExecution.lastError}
-            </div>
-          ) : null}
-          <details className="mt-1.5">
-            <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground">
-              Technical details
-            </summary>
-            <div className="mt-1 grid gap-1 text-muted-foreground">
+          {latestExecution ? (
+            <>
+              <div className="break-words">
+                Execution gate: {latestExecution.state.replace(/_/g, " ")}
+                {dryRunStatus ? ` · dry run ${dryRunStatus.status}` : ""}
+              </div>
               {builderExecutionRequestLine(latestExecution.payload) ? (
                 <div className="break-words">
                   {builderExecutionRequestLine(latestExecution.payload)}
                 </div>
               ) : null}
               <div className="break-all">{latestExecution.idempotencyKey}</div>
-            </div>
-          </details>
+            </>
+          ) : null}
         </div>
-      ) : null}
+      </details>
     </div>
   );
 }
@@ -5196,6 +5246,19 @@ function builderExecutionRequestLine(payload: Record<string, unknown>) {
         .join("&")
     : "";
   return `${method} ${path}${queryText ? `?${queryText}` : ""}`;
+}
+
+function builderExecutionEffect(
+  payload: Record<string, unknown>,
+): BuilderCmsWriteEffect | null {
+  const effect = payload.effect;
+  return effect === "create_draft" ||
+    effect === "update_in_place" ||
+    effect === "autosave" ||
+    effect === "publish" ||
+    effect === "unpublish"
+    ? effect
+    : null;
 }
 
 function builderExecutionBlockers(payload: Record<string, unknown>) {
