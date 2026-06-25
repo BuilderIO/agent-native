@@ -85,9 +85,9 @@ alrededor de actions, no es un requisito previo requerido para la acción en sí
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});",
   "annotations": [
-    { "lines": "5", "label": "Tool surface", "note": "`description` is what the agent reads to decide when to call this. The per-field `.describe()` calls flow into the JSON Schema too." },
+    { "lines": "5", "label": "Superficie de herramienta", "note": "`description` es lo que lee el agente para decidir cuándo llamar a esto. Las llamadas `.describe()` de cada campo también pasan al JSON Schema." },
     { "lines": "6-9", "label": "Contrato tipado", "note": "Un schema valida la entrada de **todas** las superficies y se convierte a JSON Schema para el modelo. Las entradas no válidas nunca llegan a `run`." },
-    { "lines": "10-13", "label": "One implementation", "note": "The `run` body is the single source of truth — the UI button and the agent tool both execute exactly this." }
+    { "lines": "10-13", "label": "Una implementación", "note": "El cuerpo de `run` es la única fuente de verdad: el botón de la UI y la herramienta del agente ejecutan exactamente esto." }
   ]
 }
 ```
@@ -150,19 +150,19 @@ export default defineAction({
 
 Para una acción `GET`, se pasa `leadId` como parámetro de consulta: `/_agent-native/actions/get-lead?leadId=abc`.
 
-```an-api title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead"
+```an-api title="Endpoint de accion montado automaticamente" method="GET" path="/_agent-native/actions/get-lead"
 {
   "method": "GET",
   "path": "/_agent-native/actions/get-lead",
-  "summary": "Every action is mounted here automatically — the filename is the action name.",
-  "description": "POST by default; `http: { method: \"GET\" }` makes it a GET. The React hooks and `callAction` always call this path by name, regardless of any `http.path` override.",
-  "auth": "Session cookie; frontend calls carry `X-Agent-Native-Frontend: 1`",
+  "summary": "Cada accion se monta aqui automaticamente: el nombre del archivo es el nombre de la accion.",
+  "description": "POST por defecto; `http: { method: \"GET\" }` lo convierte en GET. Los hooks de React y `callAction` siempre llaman a esta ruta por nombre, sin importar cualquier override de `http.path`.",
+  "auth": "Cookie de sesion; las llamadas del frontend llevan `X-Agent-Native-Frontend: 1`",
   "params": [
-    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET args arrive as query params; POST args arrive in the JSON body." }
+    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "Los argumentos GET llegan como query params; los argumentos POST llegan en el cuerpo JSON." }
   ],
   "responses": [
-    { "status": "200", "description": "The action's return value as JSON." },
-    { "status": "400", "description": "Input failed schema validation before run() fired." }
+    { "status": "200", "description": "El valor de retorno de la accion como JSON." },
+    { "status": "400", "description": "La entrada fallo la validacion del schema antes de que run() se ejecutara." }
   ]
 }
 ```

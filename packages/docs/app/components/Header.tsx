@@ -240,6 +240,8 @@ export default function Header() {
           <div className="ms-auto flex min-w-0 items-center gap-2 sm:gap-3">
             <FeedbackButton
               variant="outlined"
+              label={t("feedback.label")}
+              placeholder={t("feedback.placeholder")}
               className="hidden lg:flex border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
               align="end"
               side="bottom"
@@ -331,6 +333,8 @@ export default function Header() {
             </a>
             <FeedbackButton
               variant="outlined"
+              label={t("feedback.label")}
+              placeholder={t("feedback.placeholder")}
               className="self-start border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
               align="start"
               side="bottom"

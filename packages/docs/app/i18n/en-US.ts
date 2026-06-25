@@ -18,6 +18,17 @@ const enUS = {
     privacy: "Privacy",
     terms: "Terms",
   },
+  feedback: {
+    label: "Feedback",
+    placeholder: "Tell us what would make these docs better.",
+  },
+  demoVideo: {
+    visualPlanningAria: "Agent-Native visual planning demo",
+  },
+  docBlocks: {
+    blockLabel: "{{alias}} block",
+    unknownBlockType: "unknown block type",
+  },
   theme: {
     light: "light",
     dark: "dark",
@@ -1066,6 +1077,13 @@ const enUS = {
     },
   },
   skillsPage: {
+    metaTitle: "Agent Skills - Visual Plan and Visual Recap for coding agents",
+    metaDescription:
+      "Install Agent-Native app-backed skills your coding agent can use for visual planning and PR recaps.",
+    metaOgDescription:
+      "Give your coding agent slash commands powered by Agent-Native apps you can host, inspect, and customize.",
+    metaKeywords:
+      "agent skills, visual plan, visual recap, coding agent, Claude Code, Codex, PR review, planning, agent-native",
     heroTitle: "Give your coding agent new superpowers",
     heroBody:
       "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation and visual PR recaps after changes land.",
