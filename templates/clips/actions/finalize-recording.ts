@@ -349,7 +349,7 @@ export default defineAction({
 
         if (!hasPlayableMp4Metadata(uploadData)) {
           const err = new Error(
-            "Recorded MP4 is missing playback metadata. Please retry the recording.",
+            "Recorded MP4 is corrupted or incomplete and cannot be recovered. Please record again.",
           );
           try {
             captureRouteError(err, {
