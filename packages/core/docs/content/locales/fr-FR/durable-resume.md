@@ -13,7 +13,7 @@ L'exécution d'un agent hébergé est interrompue : une fonction sans serveur a
 
 Un CV durable comble cet écart. À la reprise, le framework sait quels appels d'outils à effets secondaires ont déjà été effectués et refuse de les réexécuter - sur deux couches.
 
-```an-diagram title="Two layers block duplicate side effects on resume" summary="The journal reads the durable ledger and classifies prior calls; layer 1 tells the model, layer 2 hard-blocks a re-dispatched write that matches a completed entry."
+```an-diagram title="Deux couches bloquent les effets secondaires en double lors de la reprise" summary="Le journal lit le grand livre durable et classe les appels antérieurs ; la couche 1 indique au modèle, la couche 2 bloque en dur une écriture redistribuée qui correspond à une entrée terminée."
 {
   "html": "<div class=\"diagram-durable\"><div class=\"diagram-box\" data-rough>Run-event ledger<br><small class=\"diagram-muted\">tool_start / tool_done</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><strong>Tool-call journal</strong><small class=\"diagram-ok\">completed = start+done</small><small class=\"diagram-warn\">interrupted = start, no done</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">Layer 1 · prompt note &rarr; model</div><div class=\"diagram-pill accent\">Layer 2 · hard-block re-dispatched write</div></div></div>",
   "css": ".diagram-durable{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-durable .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-durable .diagram-arrow{font-size:22px;line-height:1}.diagram-durable .center{display:flex;flex-direction:column;align-items:center;gap:4px}"

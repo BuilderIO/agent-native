@@ -1,7 +1,8 @@
 import path from "path";
 import { createRequire } from "module";
 import { reactRouter } from "@react-router/dev/vite";
-import { defineConfig } from "@agent-native/core/vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
 
 const _require = createRequire(import.meta.url);
 const ffmpegDir = path.resolve(
@@ -10,11 +11,15 @@ const ffmpegDir = path.resolve(
 );
 
 export default defineConfig({
-  plugins: [reactRouter()],
-  // shiki only runs in AssistantChat's useEffect — keep it out of the
-  // CF Pages Functions bundle (25 MiB limit).
-  ssrStubs: ["shiki"],
-  fsAllow: [ffmpegDir],
+  plugins: [
+    reactRouter(),
+    agentNative({
+      // shiki only runs in AssistantChat's useEffect — keep it out of the
+      // CF Pages Functions bundle (25 MiB limit).
+      ssrStubs: ["shiki"],
+      fsAllow: [ffmpegDir],
+    }),
+  ],
   optimizeDeps: {
     exclude: ["@ffmpeg/ffmpeg", "@ffmpeg/util"],
   },

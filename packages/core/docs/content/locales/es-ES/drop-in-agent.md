@@ -27,7 +27,7 @@ No es necesario crear un agente nativo desde cero. El chat del agente, la pesta�
 
 Todos estos se exportan desde `@agent-native/core/client`.
 
-```an-diagram title="The mount model" summary="<AgentSidebar> wraps your existing layout. Your routes render in the main area; the agent panel mounts beside them. <AgentPanel> is the same panel without the wrapper."
+```an-diagram title="El modelo de montaje" summary="<AgentSidebar> ajusta su diseño existente. Tus rutas se muestran en el área principal; el panel del agente se monta junto a ellos. <AgentPanel> es el mismo panel sin el contenedor."
 {
   "html": "<div class=\"diagram-mount\"><div class=\"diagram-box sidebar\" data-rough><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><div class=\"inner\"><div class=\"diagram-node main\">Your app<br><small class=\"diagram-muted\">children: header + &lt;Outlet/&gt;</small></div><div class=\"diagram-node panel\">Agent panel<br><small class=\"diagram-muted\">chat &middot; CLI &middot; workspace</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card alt\"><span class=\"diagram-pill\">&lt;AgentPanel&gt;</span><small class=\"diagram-muted\">same panel, no wrapper &mdash; you own the layout</small></div></div>",
   "css": ".diagram-mount{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mount .sidebar{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-mount .inner{display:flex;gap:10px}.diagram-mount .main{flex:2}.diagram-mount .panel{flex:1}.diagram-mount .alt{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-mount .diagram-arrow{font-size:22px;line-height:1}"
@@ -40,7 +40,7 @@ La configuración más común es una barra lateral que se abre desde la derecha 
 Ajuste su diseño raíz existente con `<AgentSidebar>`; lo que sea que pases por
 los niños permanecen en el área principal de la aplicación. El chat del agente es el panel lateral.
 
-```an-annotated-code title="Wrapping the root layout with <AgentSidebar>"
+```an-annotated-code title="Ajustando el diseño raíz con <AgentSidebar>"
 {
   "filename": "app/root.tsx",
   "language": "tsx",

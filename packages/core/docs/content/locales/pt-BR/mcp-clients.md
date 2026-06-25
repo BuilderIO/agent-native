@@ -20,7 +20,7 @@ Você também pode [connect remote (HTTP) MCP servers at runtime](#remote-via-ui
 
 Cada fonte é resolvida em um **gerenciador MCP** de tempo de execução, e cada ferramenta que ela aprende chega ao registro de ferramentas do agente sob um prefixo `mcp__<server-id>__<tool>` à prova de colisão — pesquisável por intenção por meio de `tool-search`.
 
-```an-diagram title="Client direction: many sources, one tool registry" summary="Config files, env, and runtime UI all merge into the MCP manager; its tools appear prefixed and tool-searchable alongside your app's actions. This is the mirror of the server direction."
+```an-diagram title="Direção do cliente: muitas fontes, um registro de ferramenta" summary="Arquivos de configuração, env e UI de tempo de execução são mesclados no gerenciador MCP; suas ferramentas aparecem prefixadas e pesquisáveis ​​junto com as ações do seu aplicativo. Este é o espelho da direção do servidor."
 {
   "html": "<div class=\"mcp-merge\"><div class=\"diagram-col sources\"><div class=\"diagram-box\" data-rough>Workspace <code>mcp.config.json</code><br><small class=\"diagram-muted\">shared across apps</small></div><div class=\"diagram-box\" data-rough>App-root <code>mcp.config.json</code><br><small class=\"diagram-muted\">per-app override</small></div><div class=\"diagram-box\" data-rough><code>MCP_SERVERS</code> env<br><small class=\"diagram-muted\">CI / production</small></div><div class=\"diagram-box\" data-rough>Remote via settings UI<br><small class=\"diagram-muted\">personal &amp; org scope</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">MCP manager</span><small class=\"diagram-muted\">merge &middot; hot-reload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col out\"><div class=\"diagram-node\">Agent tool registry<br><small class=\"diagram-muted\"><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small></div><div class=\"diagram-node\"><code>tool-search</code><br><small class=\"diagram-muted\">discover by intent</small></div></div></div>",
   "css": ".mcp-merge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-merge .diagram-col{display:flex;flex-direction:column;gap:8px}.mcp-merge .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-merge .diagram-arrow{font-size:22px;line-height:1}.mcp-merge code{font-size:.85em}"
@@ -102,7 +102,7 @@ Crie `mcp.config.json` na raiz do seu espaço de trabalho (ou na raiz de um apli
 
 A forma é pequena: um mapa `servers` codificado por ID do servidor, onde cada entrada é um iniciador stdio (`command` + `args` + `env` opcional) ou uma entrada `{ "type": "http", "url", "headers" }` remota.
 
-```an-annotated-code title="mcp.config.json, annotated"
+```an-annotated-code title="mcp.config.json, anotado"
 {
   "filename": "mcp.config.json",
   "language": "jsonc",
@@ -202,7 +202,7 @@ Se seu espaço de trabalho executa vários aplicativos nativos de agente (por ex
 
 O Dispatch é o hub convencional: ele já coordena todos os aplicativos.
 
-```an-diagram title="Hub model: one app serves org-scope MCP servers" summary="Dispatch holds the org-scope MCP servers; consumer apps pull and merge them as mcp__hub_<orgId>_<name>__*. Only org-scope rows are shared — personal credentials stay put."
+```an-diagram title="Modelo de hub: um aplicativo atende servidores MCP de escopo organizacional" summary="Dispatch mantém os servidores MCP de escopo organizacional; aplicativos de consumo os extraem e mesclam como mcp__hub_<orgId>_<name>__*. Apenas as linhas do escopo organizacional são compartilhadas – as credenciais pessoais permanecem inalteradas."
 {
   "html": "<div class=\"mcp-hub\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Dispatch hub</span><small class=\"diagram-muted\">org-scope MCP servers</small><small class=\"diagram-muted\"><code>GET /mcp/hub/servers</code></small></div><div class=\"diagram-col arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div></div><div class=\"diagram-col consumers\"><div class=\"diagram-box\" data-rough>Mail<br><small class=\"diagram-muted\"><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small></div><div class=\"diagram-box\" data-rough>Clips<br><small class=\"diagram-muted\">pull + merge each ~60s</small></div></div></div><p class=\"diagram-muted note\">Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope) servers are never re-exposed.</p>",
   "css": ".mcp-hub{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-hub .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-hub .diagram-col{display:flex;flex-direction:column;gap:10px}.mcp-hub .arrows .diagram-arrow{font-size:22px;line-height:1}.mcp-hub .note{margin:8px 0 0;font-size:.85em}.mcp-hub code{font-size:.85em}"

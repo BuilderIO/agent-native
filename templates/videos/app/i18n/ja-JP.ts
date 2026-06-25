@@ -69,19 +69,19 @@ const messages = {
     description: "作成したい動画を説明してください",
     placeholder: "作成したい動画を説明してください...",
     timedOut:
-      "The composition request timed out. Please try again from the sidebar.",
-    generating: "Generating...",
+      "コンポジションのリクエストがタイムアウトしました。サイドバーからもう一度お試しください。",
+    generating: "生成中...",
   },
   notFound: {
-    message: "This page doesn't exist yet. Continue prompting to build it out.",
-    backToStudio: "Back to Studio",
+    message: "このページはまだ存在しません。続けて指示すると作成できます。",
+    backToStudio: "Studio に戻る",
   },
   designSystems: {
-    new: "New Design System",
-    setupBrand: "Set up your brand",
-    emptyTitle: "Set up your brand identity",
+    new: "新しいデザインシステム",
+    setupBrand: "ブランドを設定",
+    emptyTitle: "ブランドアイデンティティを設定",
     emptyDescription:
-      "Create a design system with your brand colors, typography, and logos. Every new composition will follow your visual identity.",
+      "ブランドカラー、タイポグラフィ、ロゴを使ってデザインシステムを作成します。新しいコンポジションはすべてそのビジュアルアイデンティティに従います。",
   },
 };
 

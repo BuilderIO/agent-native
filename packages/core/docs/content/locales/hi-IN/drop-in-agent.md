@@ -27,7 +27,7 @@ description: "एजेंट चैट + वर्कस्पेस को <Ag
 
 ये सभी `@agent-native/core/client` से निर्यात किए जाते हैं।
 
-```an-diagram title="The mount model" summary="<AgentSidebar> wraps your existing layout. Your routes render in the main area; the agent panel mounts beside them. <AgentPanel> is the same panel without the wrapper."
+```an-diagram title="माउंट मॉडल" summary="<AgentSidebar> आपके मौजूदा लेआउट को लपेटता है। आपके मार्ग मुख्य क्षेत्र में प्रस्तुत होते हैं; एजेंट पैनल उनके बगल में लगा होता है। <AgentPanel> बिना रैपर वाला वही पैनल है।"
 {
   "html": "<div class=\"diagram-mount\"><div class=\"diagram-box sidebar\" data-rough><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><div class=\"inner\"><div class=\"diagram-node main\">Your app<br><small class=\"diagram-muted\">children: header + &lt;Outlet/&gt;</small></div><div class=\"diagram-node panel\">Agent panel<br><small class=\"diagram-muted\">chat &middot; CLI &middot; workspace</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card alt\"><span class=\"diagram-pill\">&lt;AgentPanel&gt;</span><small class=\"diagram-muted\">same panel, no wrapper &mdash; you own the layout</small></div></div>",
   "css": ".diagram-mount{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mount .sidebar{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-mount .inner{display:flex;gap:10px}.diagram-mount .main{flex:2}.diagram-mount .panel{flex:1}.diagram-mount .alt{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-mount .diagram-arrow{font-size:22px;line-height:1}"
@@ -40,7 +40,7 @@ description: "एजेंट चैट + वर्कस्पेस को <Ag
 अपने मौजूदा रूट लेआउट को `<AgentSidebar>` के साथ लपेटें; जिसे भी आप
 बच्चे मुख्य ऐप क्षेत्र में रहते हैं। एजेंट चैट साइड पैनल है।
 
-```an-annotated-code title="Wrapping the root layout with <AgentSidebar>"
+```an-annotated-code title="रूट लेआउट को <AgentSidebar> के साथ लपेटना"
 {
   "filename": "app/root.tsx",
   "language": "tsx",

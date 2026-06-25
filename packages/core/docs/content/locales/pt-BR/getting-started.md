@@ -19,12 +19,12 @@ Construir do zero? A única escolha inicial é se você deseja um UI —
 tudo depois (escrever instruções, adicionar skills, definir actions, executar
 o agente) é o mesmo de qualquer maneira.
 
-```an-file-tree title="A basic Agent-Native agent"
+```an-file-tree title="Um agente Agent-Native básico"
 {
   "entries": [
-    { "path": "AGENTS.md", "note": "always-on instructions: purpose, rules, tone, and the map of what the agent can do" },
-    { "path": ".agents/skills/customer-research/SKILL.md", "note": "a reusable playbook the agent loads when the task matches" },
-    { "path": "actions/summarize-week.ts", "note": "typed code the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks can run" }
+    { "path": "AGENTS.md", "note": "Instruções sempre ativas: propósito, regras, tom e mapa do que o agente pode fazer" },
+    { "path": ".agents/skills/customer-research/SKILL.md", "note": "Um playbook reutilizável que o agente carrega quando a tarefa combina" },
+    { "path": "actions/summarize-week.ts", "note": "Código tipado que o agente, UI, CLI, HTTP, MCP, A2A, jobs e webhooks podem executar" }
   ]
 }
 ```
@@ -121,7 +121,7 @@ pnpm dev
 Essa ação agora pode ser acessada no chat UI, CLI, HTTP, MCP, A2A,
 trabalhos agendados e webhooks. Defina uma vez, ligue de qualquer lugar.
 
-```an-diagram title="One action, every surface" summary="A single defineAction file fans out to every consumer with no extra wiring."
+```an-diagram title="Uma ação, cada superfície" summary="Um único arquivo defineAction é distribuído para todos os consumidores sem fiação extra."
 {
   "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Scheduled jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
   "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"

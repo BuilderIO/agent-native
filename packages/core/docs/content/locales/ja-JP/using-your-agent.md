@@ -9,7 +9,7 @@ description: "エージェントとの日々の作業のループ。エージェ
 
 シンプルなスルーラインがあります。エージェントは、あなたが見ているものを**見て**、あなたが望むものに**指示**し、どこにでも**埋め込む**ことができ、最適な場合は完全に**UIライト**にすることができ、同じドキュメントを同時に**共同編集**できます。それぞれがこのセクションの 1 ページです。
 
-```an-diagram title="The day-to-day loop" summary="Five ways of working with a docked agent — each is a page in this section."
+```an-diagram title="日々のループ" summary="ドッキングされたエージェントを操作する 5 つの方法 - それぞれがこのセクションのページです。"
 {
   "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>UI-light</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">Co-edit</span><small class=\"diagram-muted\">live, side by side</small></div></div>",
   "css": ".diagram-loop{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-loop .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px;flex:1}.diagram-loop .diagram-arrow{align-self:center;font-size:22px;line-height:1}"

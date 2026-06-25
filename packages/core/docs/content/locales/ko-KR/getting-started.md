@@ -19,12 +19,12 @@ Agent-Native 앱은 AI 에이전트와 UI에 동일한 actions, 데이터 및
 이후의 모든 것(명령 작성, skills 추가, actions 정의, 실행
 에이전트)는 어느 쪽이든 동일합니다.
 
-```an-file-tree title="A basic Agent-Native agent"
+```an-file-tree title="기본 Agent-Native 에이전트"
 {
   "entries": [
-    { "path": "AGENTS.md", "note": "always-on instructions: purpose, rules, tone, and the map of what the agent can do" },
-    { "path": ".agents/skills/customer-research/SKILL.md", "note": "a reusable playbook the agent loads when the task matches" },
-    { "path": "actions/summarize-week.ts", "note": "typed code the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks can run" }
+    { "path": "AGENTS.md", "note": "항상 적용되는 지침: 목적, 규칙, 톤, 에이전트가 할 수 있는 일의 지도" },
+    { "path": ".agents/skills/customer-research/SKILL.md", "note": "작업이 일치할 때 에이전트가 로드하는 재사용 가능한 playbook" },
+    { "path": "actions/summarize-week.ts", "note": "에이전트, UI, CLI, HTTP, MCP, A2A, jobs, webhooks가 실행할 수 있는 typed code" }
   ]
 }
 ```
@@ -121,7 +121,7 @@ pnpm dev
 이제 해당 작업은 UI, CLI, HTTP, MCP, A2A,
 예약된 작업 및 webhooks. 한 번 정의하면 어디에서나 전화할 수 있습니다.
 
-```an-diagram title="One action, every surface" summary="A single defineAction file fans out to every consumer with no extra wiring."
+```an-diagram title="하나의 작업, 모든 표면" summary="추가 배선 없이 단일 defineAction 파일이 모든 소비자에게 전달됩니다."
 {
   "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Scheduled jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
   "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"

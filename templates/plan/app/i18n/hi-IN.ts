@@ -74,21 +74,21 @@ const messages = {
     signIn: "साइन इन करें",
   },
   chat: {
-    suggestionShipped: "What shipped in the last week?",
-    suggestionUi: "What does the new checkout UI look like?",
-    suggestionAuth: "When did the auth API change?",
-    suggestionApi: "What is the shape of the billing API?",
-    emptyState: "Ask Plan",
+    suggestionShipped: "पिछले सप्ताह क्या शिप हुआ?",
+    suggestionUi: "नया checkout UI कैसा दिखता है?",
+    suggestionAuth: "auth API कब बदला?",
+    suggestionApi: "billing API का आकार कैसा है?",
+    emptyState: "Plan से पूछें",
     placeholder:
-      "Ask what shipped, what changed, or what the current code shows...",
-    heading: "Ask Plan",
+      "पूछें कि क्या शिप हुआ, क्या बदला, या मौजूदा code क्या दिखाता है...",
+    heading: "Plan से पूछें",
     description:
-      "Search merged PR recaps, inspect visual blocks, and publish code answers as diagrams, wireframes, API specs, and data models.",
+      "merged PR recaps खोजें, visual blocks देखें, और code answers को diagrams, wireframes, API specs और data models के रूप में प्रकाशित करें।",
   },
   guest: {
     banner:
-      "You're browsing as a guest. Sign in to create plans, leave comments, and keep your work.",
-    signIn: "Sign in",
+      "You're browsing as a guest. साइन इन करें to create plans, leave comments, and keep your work.",
+    signIn: "साइन इन करें",
   },
 };
 

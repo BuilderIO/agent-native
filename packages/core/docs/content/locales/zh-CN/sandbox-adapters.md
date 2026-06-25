@@ -40,7 +40,7 @@ Agent-Native 有两个适配器接缝，可消除狭窄后面的问题，
 
 保持契约范围窄意味着远程适配器继承相同的安全状态。父进程保留所有秘密的所有权：它构建沙箱模块，运行本地主机桥（它保存请求上下文并应用主机允许列表+ SSRF 防护），清理环境并格式化输出。适配器仅接收已准备好的、**非秘密**模块源加上资源限制 - 它仅负责*运行*它并捕获 stdout/stderr/exit 状态。
 
-```an-diagram title="The parent keeps the secrets; the adapter only runs code" summary="run-code builds the module and runs the loopback bridge; the adapter receives a non-secret module + limits and returns stdout/stderr/exit."
+```an-diagram title="父母保守秘密；适配器仅运行代码" summary="run-code 构建模块并运行环回桥；适配器接收非秘密模块+限制并返回stdout/stderr/exit。"
 {
   "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>Parent process</strong><small class=\"diagram-muted\">builds module · loopback bridge · env scrub · output format</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">local child · Docker · remote · durable</small></div></div>",
   "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -51,14 +51,14 @@ Agent-Native 有两个适配器接缝，可消除狭窄后面的问题，
 
 接缝位于 `packages/core/src/coding-tools/sandbox/` 的核心 - `adapter.ts`（合约）、`index.ts`（选择：`getSandboxAdapter()` / `registerSandboxAdapter()`）和 `local-child-process-adapter.ts`（默认）。采用`run-code.ts`封装内接线；主机通过 `index.ts` 注册助手插入不同的后端（或者，对于 Docker 后端，通过直接编辑这些文件的 [blueprint](/docs/blueprint-installer)）。
 
-```an-file-tree title="The sandbox seam in core"
+```an-file-tree title="core 中的 sandbox 接缝"
 {
   "title": "packages/core/src/coding-tools/sandbox/",
   "entries": [
-    { "path": "adapter.ts", "note": "the SandboxAdapter contract (SandboxRunRequest / SandboxRunResult)" },
-    { "path": "index.ts", "note": "selection: getSandboxAdapter() / registerSandboxAdapter()" },
-    { "path": "local-child-process-adapter.ts", "note": "the default backend — locked-down Node child process" },
-    { "path": "../run-code.ts", "note": "wires the seam; never changes when you swap backends" }
+    { "path": "adapter.ts", "note": "SandboxAdapter 合约（SandboxRunRequest / SandboxRunResult）" },
+    { "path": "index.ts", "note": "选择：getSandboxAdapter() / registerSandboxAdapter()" },
+    { "path": "local-child-process-adapter.ts", "note": "默认后端：受限的 Node 子进程" },
+    { "path": "../run-code.ts", "note": "连接这个接缝；替换 backend 时永远不变" }
   ]
 }
 ```

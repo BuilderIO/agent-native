@@ -25,7 +25,7 @@ Agent-Native जानबूझकर रचना योग्य है। आ
 एक कार्रवाई के साथ एजेंट, चैट में एक तालिका या चार्ट के रूप में दिखाई देता है, और बाद में एक बन जाता है
 एजेंट द्वारा कॉल किए जाने वाले ऑपरेशन को बदले बिना किसी ऐप में पूर्ण स्क्रीन।
 
-```an-diagram title="The surface spectrum" summary="One action surface, four product shapes — each adds UI without changing the operation underneath."
+```an-diagram title="सतह स्पेक्ट्रम" summary="एक क्रिया सतह, चार उत्पाद आकार - प्रत्येक नीचे के ऑपरेशन को बदले बिना यूआई जोड़ता है।"
 {
   "html": "<div class=\"diagram-spectrum\"><div class=\"diagram-card\"><strong>Headless</strong><small class=\"diagram-muted\">actions, jobs, scripts, other agents</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Rich chat</strong><small class=\"diagram-muted\">composer, transcript, tool cards</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embedded sidecar</strong><small class=\"diagram-muted\">agent beside an existing app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">most UI</span><strong>Full application</strong><small class=\"diagram-muted\">durable screens, data, collaboration</small></div></div><div class=\"diagram-base\" data-rough><span class=\"diagram-muted\">same actions · same SQL · same agent loop</span></div>",
   "css": ".diagram-spectrum{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-spectrum .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px;flex:1}.diagram-spectrum .diagram-arrow{align-self:center;font-size:22px;line-height:1}.diagram-base{margin-top:12px;padding:10px 14px;text-align:center}"
@@ -345,7 +345,7 @@ export function AppShell({ children }) {
 }
 ```
 
-```an-diagram title="How the sidecar bridges to a host app" summary="The plugin mounts Agent-Native routes server-side; the React sidecar streams page context in and host commands out."
+```an-diagram title="साइडकार होस्ट ऐप से कैसे जुड़ता है" summary="प्लगइन Agent-Native रूट सर्वर-साइड को माउंट करता है; React साइडकार पेज संदर्भ को स्ट्रीम करता है और होस्ट कमांड को बाहर स्ट्रीम करता है।"
 {
   "html": "<div class=\"diagram-sidecar\"><div class=\"diagram-panel\"><strong>Host app</strong><small class=\"diagram-muted\">your existing SaaS</small><div class=\"diagram-node\">getContext()<br><small class=\"diagram-muted\">route · selection</small></div><div class=\"diagram-node\">onNavigate / onRefresh<br><small class=\"diagram-muted\">host commands</small></div></div><div class=\"diagram-col-arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div></div><div class=\"diagram-panel accent-panel\"><span class=\"diagram-pill accent\">AgentNativeEmbedded</span><small class=\"diagram-muted\">agent + workspace</small><div class=\"diagram-box\" data-rough>Agent-Native routes<br><small class=\"diagram-muted\">mounted by the server plugin</small></div></div></div>",
   "css": ".diagram-sidecar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sidecar .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:200px}.diagram-sidecar .diagram-col-arrows{display:flex;flex-direction:column;gap:6px}.diagram-sidecar .diagram-arrow{font-size:22px;line-height:1}"

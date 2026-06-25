@@ -17,7 +17,7 @@ description: "配置文件上传存储 - 用于开发的 SQL 后备、Builder.io
 2. **Builder.io 提供程序** — 内置，连接 Builder.io 时自动激活
 3. **SQL 后备** - 将文件作为 base64 存储在数据库中（适合开发，不适用于生产）
 
-```an-diagram title="Provider resolution order" summary="uploadFile() picks the first configured provider in order. The SQL fallback always exists so uploads work with zero setup."
+```an-diagram title="提供商决议顺序" summary="uploadFile() 按顺序选择第一个配置的提供程序。 SQL 后备始终存在，因此上传可以零设置进行。"
 {
   "html": "<div class=\"diagram-upload\"><div class=\"diagram-box\" data-rough>uploadFile()<br><small class=\"diagram-muted\">POST /_agent-native/file-upload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-step\"><span class=\"diagram-pill accent\">1</span><div class=\"diagram-node\">User-registered<br><small class=\"diagram-muted\">registerFileUploadProvider() — S3, R2, GCS…</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><div class=\"diagram-node\">Builder.io<br><small class=\"diagram-muted\">auto when connected — CDN-served</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill warn\">3</span><div class=\"diagram-node\">SQL fallback<br><small class=\"diagram-muted\">base64 in DB — dev only</small></div></div></div></div>",
   "css": ".diagram-upload{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-upload .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-upload .diagram-step{display:flex;align-items:center;gap:8px}.diagram-upload .diagram-arrow{font-size:22px;line-height:1}"

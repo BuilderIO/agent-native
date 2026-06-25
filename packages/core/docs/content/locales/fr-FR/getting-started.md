@@ -19,12 +19,12 @@ Construire à partir de zéro ? Le seul choix dès le départ est de savoir si 
 tout après (écrire les instructions, ajouter skills, définir actions, exécuter
 l'agent) est le même dans les deux cas.
 
-```an-file-tree title="A basic Agent-Native agent"
+```an-file-tree title="Un agent Agent-Native de base"
 {
   "entries": [
-    { "path": "AGENTS.md", "note": "always-on instructions: purpose, rules, tone, and the map of what the agent can do" },
-    { "path": ".agents/skills/customer-research/SKILL.md", "note": "a reusable playbook the agent loads when the task matches" },
-    { "path": "actions/summarize-week.ts", "note": "typed code the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks can run" }
+    { "path": "AGENTS.md", "note": "Instructions toujours actives : objectif, règles, ton et carte de ce que l'agent peut faire" },
+    { "path": ".agents/skills/customer-research/SKILL.md", "note": "Un playbook réutilisable que l'agent charge quand la tâche correspond" },
+    { "path": "actions/summarize-week.ts", "note": "Code typé que l'agent, UI, CLI, HTTP, MCP, A2A, jobs et webhooks peuvent exécuter" }
   ]
 }
 ```
@@ -121,7 +121,7 @@ pnpm dev
 Cette action est désormais accessible depuis le chat UI, les CLI, HTTP, MCP, A2A,
 tâches planifiées et webhooks. Définissez une fois, appelez de n'importe où.
 
-```an-diagram title="One action, every surface" summary="A single defineAction file fans out to every consumer with no extra wiring."
+```an-diagram title="Une action, chaque surface" summary="Un seul fichier defineAction est distribué à chaque consommateur sans câblage supplémentaire."
 {
   "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Scheduled jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
   "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"

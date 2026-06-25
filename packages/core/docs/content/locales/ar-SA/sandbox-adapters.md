@@ -40,7 +40,7 @@ search: "المحولات، محول وضع الحماية، محول cli، رم
 
 يعني إبقاء العقد محدودًا أن المحول البعيد يرث نفس الوضع الأمني. تحافظ العملية الأصلية على ملكية كل شيء يحمل سرًا: فهي تبني وحدة وضع الحماية، وتدير جسر المضيف المحلي (الذي يحتفظ بسياق الطلب ويطبق قوائم المضيف المسموح بها + حراس SSRF)، وينظف البيئة، وينسق المخرجات. يتلقى المحول فقط مصدر وحدة **غير سري** تم إعداده بالفعل بالإضافة إلى حدود الموارد — فهو مسؤول فقط عن تشغيله والتقاط حالة stdout/stderr/exit.
 
-```an-diagram title="The parent keeps the secrets; the adapter only runs code" summary="run-code builds the module and runs the loopback bridge; the adapter receives a non-secret module + limits and returns stdout/stderr/exit."
+```an-diagram title="يحتفظ الوالد بالأسرار؛ يقوم المحول بتشغيل التعليمات البرمجية فقط" summary="يقوم رمز التشغيل ببناء الوحدة وتشغيل جسر الاسترجاع؛ يتلقى المحول وحدة غير سرية + حدود ويعيد stdout/stderr/exit."
 {
   "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>Parent process</strong><small class=\"diagram-muted\">builds module · loopback bridge · env scrub · output format</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">local child · Docker · remote · durable</small></div></div>",
   "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -51,14 +51,14 @@ search: "المحولات، محول وضع الحماية، محول cli، رم
 
 يعيش خط التماس في قلب `packages/core/src/coding-tools/sandbox/` — `adapter.ts` (العقد)، `index.ts` (التحديد: `getSandboxAdapter()` / `registerSandboxAdapter()`)، و`local-child-process-adapter.ts` (الافتراضي). يتم توصيله داخل العبوة بواسطة `run-code.ts`؛ يقوم المضيف بتوصيل واجهة خلفية مختلفة من خلال مساعد التسجيل `index.ts` (أو، بالنسبة لواجهة Docker الخلفية، عبر [blueprint](/docs/blueprint-installer) الذي يحرر هذه الملفات مباشرة).
 
-```an-file-tree title="The sandbox seam in core"
+```an-file-tree title="نقطة وصل sandbox في core"
 {
   "title": "packages/core/src/coding-tools/sandbox/",
   "entries": [
-    { "path": "adapter.ts", "note": "the SandboxAdapter contract (SandboxRunRequest / SandboxRunResult)" },
-    { "path": "index.ts", "note": "selection: getSandboxAdapter() / registerSandboxAdapter()" },
-    { "path": "local-child-process-adapter.ts", "note": "the default backend — locked-down Node child process" },
-    { "path": "../run-code.ts", "note": "wires the seam; never changes when you swap backends" }
+    { "path": "adapter.ts", "note": "عقد SandboxAdapter (SandboxRunRequest / SandboxRunResult)" },
+    { "path": "index.ts", "note": "الاختيار: getSandboxAdapter() / registerSandboxAdapter()" },
+    { "path": "local-child-process-adapter.ts", "note": "ال backend الافتراضي: Node child process مقيد" },
+    { "path": "../run-code.ts", "note": "يوصل نقطة الربط؛ لا يتغير أبداً عند تبديل backends" }
   ]
 }
 ```

@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import { toast } from "sonner";
 import { DispatchShell } from "@/components/dispatch-shell";
 import { Button } from "@/components/ui/button";
@@ -33,15 +37,18 @@ function QuickSendRow({
 }: {
   destination: { id: string; name: string };
 }) {
+  const t = useT();
   const [text, setText] = useState("");
   const send = useActionMutation("send-platform-message", {
     onSuccess: () => {
-      toast.success("Message sent");
+      toast.success(t("dispatch.pages.messageSent"));
       setText("");
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Unable to send message",
+        error instanceof Error
+          ? error.message
+          : t("dispatch.pages.unableToSendMessage"),
       );
     },
   });
@@ -50,7 +57,7 @@ function QuickSendRow({
       <Input
         value={text}
         onChange={(event) => setText(event.target.value)}
-        placeholder="Quick test message"
+        placeholder={t("dispatch.pages.quickTestMessage")}
       />
       <Button
         onClick={() =>
@@ -61,13 +68,14 @@ function QuickSendRow({
         }
         disabled={send.isPending}
       >
-        Send
+        {t("dispatch.pages.send")}
       </Button>
     </div>
   );
 }
 
 export default function DestinationsRoute() {
+  const t = useT();
   const { data } = useActionQuery("list-destinations", {});
   const [form, setForm] = useState({
     name: "",
@@ -79,7 +87,7 @@ export default function DestinationsRoute() {
 
   const upsert = useActionMutation("upsert-destination", {
     onSuccess: () => {
-      toast.success("Destination saved");
+      toast.success(t("dispatch.pages.destinationSaved"));
       setForm((current) => ({
         ...current,
         name: "",
@@ -90,18 +98,18 @@ export default function DestinationsRoute() {
     },
   });
   const remove = useActionMutation("delete-destination", {
-    onSuccess: () => toast.success("Destination removed"),
+    onSuccess: () => toast.success(t("dispatch.pages.destinationRemoved")),
   });
 
   return (
     <DispatchShell
-      title="Destinations"
-      description="Saved outbound Slack channels, Telegram chats, and thread targets."
+      title={t("dispatch.nav.destinations")}
+      description={t("dispatch.pages.destinationsDescription")}
     >
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <section className="rounded-2xl border bg-card p-5">
           <h2 className="text-lg font-semibold text-foreground">
-            Saved destinations
+            {t("dispatch.pages.savedDestinations")}
           </h2>
           <div className="mt-4 space-y-3">
             {(data || []).map((destination: any) => (
@@ -129,24 +137,28 @@ export default function DestinationsRoute() {
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button variant="outline" size="sm">
-                        Delete
+                        {t("dispatch.pages.delete")}
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Delete destination?</AlertDialogTitle>
+                        <AlertDialogTitle>
+                          {t("dispatch.pages.deleteDestinationTitle")}
+                        </AlertDialogTitle>
                         <AlertDialogDescription>
-                          “{destination.name}” will be removed. Any saved
-                          workflows or jobs that target this destination will
-                          start failing on the next send.
+                          {t("dispatch.pages.deleteDestinationDescription", {
+                            name: destination.name,
+                          })}
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogCancel>
+                          {t("dispatch.pages.cancel")}
+                        </AlertDialogCancel>
                         <AlertDialogAction
                           onClick={() => remove.mutate({ id: destination.id })}
                         >
-                          Delete
+                          {t("dispatch.pages.delete")}
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
@@ -157,8 +169,7 @@ export default function DestinationsRoute() {
             ))}
             {(data?.length || 0) === 0 && (
               <div className="rounded-xl border border-dashed px-4 py-8 text-sm text-muted-foreground">
-                No destinations saved yet. Add your first Slack channel or
-                Telegram chat on the right.
+                {t("dispatch.pages.noDestinations")}
               </div>
             )}
           </div>
@@ -166,7 +177,7 @@ export default function DestinationsRoute() {
 
         <section className="rounded-2xl border bg-card p-5">
           <h2 className="text-lg font-semibold text-foreground">
-            Add destination
+            {t("dispatch.pages.addDestination")}
           </h2>
           <div className="mt-4 space-y-3">
             <Input
@@ -174,7 +185,7 @@ export default function DestinationsRoute() {
               onChange={(event) =>
                 setForm((current) => ({ ...current, name: event.target.value }))
               }
-              placeholder="Daily digest channel"
+              placeholder={t("dispatch.pages.dailyDigestChannel")}
             />
             <Select
               value={form.platform}
@@ -218,7 +229,7 @@ export default function DestinationsRoute() {
                   threadRef: event.target.value,
                 }))
               }
-              placeholder="Optional thread or topic id"
+              placeholder={t("dispatch.pages.optionalThreadOrTopicId")}
             />
             <Textarea
               value={form.notes}
@@ -228,7 +239,7 @@ export default function DestinationsRoute() {
                   notes: event.target.value,
                 }))
               }
-              placeholder="What should use this destination?"
+              placeholder={t("dispatch.pages.destinationNotes")}
             />
             <Button
               className="w-full"
@@ -243,7 +254,7 @@ export default function DestinationsRoute() {
               }
               disabled={!form.name || !form.destination}
             >
-              Save destination
+              {t("dispatch.pages.saveDestination")}
             </Button>
           </div>
         </section>

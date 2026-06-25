@@ -41,6 +41,65 @@
    zoom-in/out, slide-in-from-*, spin-in, etc.). */
 @import "tw-animate-css";
 
+/* Shared agent sidebar entry/exit transitions.
+   `@starting-style` gives newly-mounted panels a real before-change style, so
+   opening animates in as reliably as closing animates out. */
+.agent-sidebar-panel[data-agent-sidebar-animation="desktop"] {
+  width: 0;
+  will-change: width;
+  transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"] {
+  width: var(--agent-sidebar-width);
+}
+
+.agent-sidebar-panel[data-agent-sidebar-animation="mobile"] {
+  transform: var(
+    --agent-sidebar-closed-transform,
+    translateX(calc(100% + 1px))
+  );
+  will-change: transform;
+  transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.agent-sidebar-panel[data-agent-sidebar-animation="mobile"][data-agent-sidebar-state="open"] {
+  transform: translateX(0);
+}
+
+.agent-sidebar-backdrop[data-agent-sidebar-animation="mobile"] {
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.agent-sidebar-backdrop[data-agent-sidebar-animation="mobile"][data-agent-sidebar-state="open"] {
+  opacity: 1;
+}
+
+@starting-style {
+  .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"] {
+    width: 0;
+  }
+
+  .agent-sidebar-panel[data-agent-sidebar-animation="mobile"][data-agent-sidebar-state="open"] {
+    transform: var(
+      --agent-sidebar-closed-transform,
+      translateX(calc(100% + 1px))
+    );
+  }
+
+  .agent-sidebar-backdrop[data-agent-sidebar-animation="mobile"][data-agent-sidebar-state="open"] {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-sidebar-panel[data-agent-sidebar-animation],
+  .agent-sidebar-backdrop[data-agent-sidebar-animation] {
+    transition: none;
+  }
+}
+
 @theme inline {
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));

@@ -12,7 +12,7 @@ Slack"에 대한 일일 측정항목 - 에이전트는 어디에서나 작동하
 속합니다. actions, 세션, 앱 상태, 기록 등은 여전히 실제 앱입니다.
 설정, 자격 증명 및 공유 기록은 모두 SQL에 있습니다.
 
-```an-diagram title="The app-agent loop is the front door" summary="Many entry points reach one agent loop over SQL-backed actions and state; results return to wherever the request came from. UI is added only when humans need to supervise."
+```an-diagram title="앱 에이전트 루프는 정문입니다" summary="많은 진입점이 SQL-backed 작업 및 상태에 대해 하나의 에이전트 루프에 도달합니다. 결과는 요청이 발생한 곳으로 반환됩니다. UI는 사람이 감독해야 하는 경우에만 추가됩니다."
 {
   "html": "<div class=\"diagram-pure\"><div class=\"diagram-col\"><div class=\"diagram-pill\">Terminal</div><div class=\"diagram-pill\">Slack · email</div><div class=\"diagram-pill\">Scheduled job</div><div class=\"diagram-pill\">Another agent (A2A)</div><div class=\"diagram-pill\">Chat</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">App-agent loop</span><small class=\"diagram-muted\">actions · sessions · app state in SQL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Result returns<br><small class=\"diagram-muted\">to where it belongs</small></div></div>",
   "css": ".diagram-pure{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-pure .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-pure .diagram-arrow{font-size:22px;line-height:1}.diagram-pure .center{display:flex;flex-direction:column;align-items:center;gap:4px}"

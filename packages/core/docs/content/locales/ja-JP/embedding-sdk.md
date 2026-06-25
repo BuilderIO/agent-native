@@ -11,7 +11,7 @@ Agent-Native を既存の製品に埋め込む: SaaS アプリを維持し、耐
 埋め込みサイドカー、または完全なアプリ、から始まります
 [Agent Surfaces](/docs/agent-surfaces).
 
-```an-diagram title="The embedding membrane" summary="The host app supplies server-side auth and live page context; Agent-Native runs the durable sidecar and reaches the open tab through client actions and host commands."
+```an-diagram title="包埋膜" summary="ホスト アプリはサーバー側の認証とライブ ページ コンテキストを提供します。 Agent-Native は耐久性のあるサイドカーを実行し、クライアント アクションとホスト コマンドを通じて開いているタブに到達します。"
 {
   "html": "<div class=\"diagram-embed\"><div class=\"diagram-box\" data-rough><strong>Host SaaS app</strong><small class=\"diagram-muted\">your UI, your auth</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">getContext &rarr;</div><div class=\"diagram-pill\">&larr; client actions</div><div class=\"diagram-pill\">&larr; host commands</div></div><div class=\"diagram-panel center\" data-rough><strong>Agent-Native sidecar</strong><small class=\"diagram-muted\">durable chat · app state · extensions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL<br><small class=\"diagram-muted\">framework tables</small></div></div>",
   "css": ".diagram-embed{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-embed .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -373,7 +373,7 @@ const hostTools = createAgentNativeHostTools({
 
 CLAW スタイルの同僚の場合、iframe はライブ ブラウザ タブをサイドカー バックエンドに登録することもできます。次に、エージェントはリクエストをキューに入れる通常のバックエンド ツールを取得し、iframe がそれを要求し、ホスト ページがそれを実行し、バックエンドが結果をエージェントに返します。
 
-```an-diagram title="Server-mediated browser-session bridge" summary="A backend tool enqueues work; the registered tab claims it, runs it on the live page, and the result returns to the agent — so a backend/Slack/A2A agent can still touch the open tab."
+```an-diagram title="サーバー仲介のブラウザセッションブリッジ" summary="バックエンド ツールは作業をキューに入れます。登録されたタブがそれを要求し、ライブ ページ上で実行し、結果がエージェントに返されるため、backend/Slack/A2A エージェントは開いているタブを引き続きタッチできます。"
 {
   "html": "<div class=\"diagram-bridge\"><div class=\"diagram-node\" data-rough>Backend agent<br><small class=\"diagram-muted\">chat · Slack · A2A</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>enqueue request<br><small class=\"diagram-muted\">/_agent-native/browser-sessions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Live tab claims it<br><small class=\"diagram-muted\">registered bridge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">result &rarr; agent</div></div>",
   "css": ".diagram-bridge{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}"

@@ -20,7 +20,7 @@ converse, execute e (no desenvolvimento) edite o código. Existem três frames, 
 O código do seu aplicativo é idêntico, independentemente do quadro que o hospeda. O agente fala
 ao seu aplicativo por meio do mesmo actions e estado do aplicativo em todos os casos.
 
-```an-diagram title="Three frames, one runtime" summary="Your app and the agent panel are the same in every frame; only the wrapper around them changes."
+```an-diagram title="Três frames, um tempo de execução" summary="Seu aplicativo e o painel do agente são iguais em todos os frames; apenas o invólucro em torno deles muda."
 {
   "html": "<div class=\"diagram-frames\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Embedded panel</span><small class=\"diagram-muted\">ships in every app · dev + prod</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Local dev frame</span><small class=\"diagram-muted\">app in an iframe + panel + CLI terminal</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Builder.io cloud frame</span><small class=\"diagram-muted\">hosted: collaboration · visual edit · parallel runs</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Same runtime<br><small class=\"diagram-muted\">your app · actions · application state</small></div></div>",
   "css": ".diagram-frames{display:flex;flex-direction:column;gap:10px;align-items:stretch}.diagram-frames .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.diagram-frames .diagram-arrow{font-size:22px;line-height:1;align-self:center}"
@@ -57,7 +57,7 @@ O painel é executado em um dos dois modos de ferramenta:
   lista de ferramentas de codificação e contratos UI compartilhados, consulte
   [Agent-Native Code UI](/docs/code-agents-ui).
 
-```an-diagram title="Code-request gating" summary="A code-typed message needs a code-capable frame. With one connected, the request routes there; without one, the panel explains code changes need Desktop or Builder."
+```an-diagram title="Controle de solicitação de código" summary="Uma mensagem digitada em código precisa de um quadro compatível com código. Com um conectado, a solicitação é encaminhada para lá; sem ele, o painel explica que as alterações de código precisam de Desktop ou Builder."
 {
   "html": "<div class=\"diagram-gate\"><div class=\"diagram-node\" data-rough>message<br><small class=\"diagram-muted\">type: \\\"code\\\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>code-capable frame connected?</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">yes &rarr; route to frame, show code-agent indicator</div><div class=\"diagram-pill warn\">no &rarr; dialog: needs Desktop or Builder</div></div></div>",
   "css": ".diagram-gate{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-gate .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-gate .diagram-arrow{font-size:22px;line-height:1}.diagram-gate .center{text-align:center}"

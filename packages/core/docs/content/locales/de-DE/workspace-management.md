@@ -9,7 +9,7 @@ description: "Verzweigung, CODEOWNERS, PR-Überprüfung und wie Dispatch die Lau
 
 Dieser Leitfaden behandelt die betriebliche Seite der Ausführung eines agentennativen Arbeitsbereichs – wie man verzweigt, wer was überprüft, wie man Codebesitz einrichtet und wie die Dispatch-Steuerungsebene in Ihr Governance-Modell passt.
 
-```an-diagram title="Two governance planes" summary="Git governs code; Dispatch governs runtime. They are complementary — don't replicate one inside the other."
+```an-diagram title="Zwei Governance-Ebenen" summary="Git regelt den Code; Dispatch regelt die Laufzeit. Sie ergänzen sich – wiederholen Sie nicht das eine in dem anderen."
 {
   "html": "<div class=\"gov\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Git / GitHub</span><strong>Code governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">CODEOWNERS</span><span class=\"diagram-pill\">branch protection</span><span class=\"diagram-pill\">PR review</span><span class=\"diagram-pill\">git log / blame</span></div></div><div class=\"diagram-pill diagram-muted\">+</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Dispatch</span><strong>Runtime governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">vault secrets &amp; grants</span><span class=\"diagram-pill\">workspace resources</span><span class=\"diagram-pill\">agent profiles</span><span class=\"diagram-pill\">approvals &amp; audit</span></div></div></div>",
   "css": ".gov{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.gov .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:240px}.gov .gov-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}"
@@ -47,13 +47,13 @@ Nicht jeder, der Änderungen vornehmen muss, ist mit Git vertraut. [Builder.io](
 
 Code Governance wird durch eine Handvoll Dateien im Repo-Stammverzeichnis konfiguriert:
 
-```an-file-tree title="Governance config in the repo"
+```an-file-tree title="Governance-Konfiguration im Repo"
 {
   "entries": [
-    { "path": ".github/CODEOWNERS", "note": "Auto-assigns reviewers per changed path" },
-    { "path": ".github/labeler.yml", "note": "Auto-labels PRs by app" },
-    { "path": "pnpm-workspace.yaml", "note": "Workspace-level — broad review" },
-    { "path": "package.json", "note": "Workspace-level — platform team owns" }
+    { "path": ".github/CODEOWNERS", "note": "Weist Reviewer automatisch je geändertem Pfad zu" },
+    { "path": ".github/labeler.yml", "note": "Labelt PRs automatisch nach App" },
+    { "path": "pnpm-workspace.yaml", "note": "Workspace-Ebene: breite Review" },
+    { "path": "package.json", "note": "Workspace-Ebene: im Besitz des Plattformteams" }
   ]
 }
 ```

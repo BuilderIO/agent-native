@@ -115,6 +115,8 @@ function SettingsPage() {
 غير مترجم. إذا لم تكن اللغة تحتوي على Markdown مترجمة لصفحة ما، فإن موقع المستندات
 يعود إلى اللغة الإنجليزية لتلك الصفحة مع الاستمرار في ترجمة التنقل وchrome.
 
+قد يحتوي Docs Markdown على كتل مرئية منظمة `an-*`. ترجم حقول النص الظاهرة للمستخدم عندما يكون ذلك منطقياً، مثل عناوين file-tree و `entries[].note`، ونصوص callout، و labels الخاصة بال tabs، و labels/notes في annotated-code. اترك المعرفات الثابتة كما هي: filenames و paths و env vars و route strings و action names و language tags و code snippets و JSON keys و protocol names.
+
 ## Actions والإصرار
 
 يرث كل تطبيق:

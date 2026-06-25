@@ -20,7 +20,7 @@ A2A 是此框架中跨应用程序委派的基础 - 最显着的是 [Dispatch](/
 - **任务** - 每条消息都会创建一个具有生命周期的任务（已提交、正在工作、已完成、失败、已取消）
 - **JWT 承载身份验证** - 生产 A2A 需要 `A2A_SECRET` 或显式遗留 `apiKeyEnv`
 
-```an-diagram title="One agent hands work to another" summary="A mail agent discovers the analytics agent's card, sends a JSON-RPC message, and gets a completed task back."
+```an-diagram title="一名代理人将工作交给另一名代理人" summary="邮件代理发现分析代理的卡，发送 JSON-RPC 消息，并返回已完成的任务。"
 {
   "html": "<div class=\"diagram-handoff\"><div class=\"diagram-card\"><strong>Mail agent</strong><small class=\"diagram-muted\">needs analytics</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">GET /.well-known/agent-card.json</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">POST /_agent-native/a2a<br><small class=\"diagram-muted\">message/send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-pill ok\">task · completed</div></div><div class=\"diagram-card\" data-rough><strong>Analytics agent</strong><small class=\"diagram-muted\">runs run-query, returns result</small></div></div>",
   "css": ".diagram-handoff{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-handoff .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-handoff .diagram-arrow{font-size:20px;line-height:1}"
@@ -146,7 +146,7 @@ _（版本可能有所不同；在 `/.well-known/agent-card.json` 获取当前 `
 
 当使用 `async: true` 调用 `message/send` 时，JSON-RPC 处理程序会将任务排入队列，并将 POST 自触发到内部 `/_agent-native/a2a/_process-task` 路由，以便处理程序在具有自己的完全超时的新函数执行中运行。该路由使用绑定到任务 ID 的 HMAC 令牌进行身份验证（5 分钟生存期，使用 `A2A_SECRET` 签名）。它安装在 `/_agent-native/a2a` JSON-RPC 路由之前，因此 h3 的前缀匹配不会吞噬它。
 
-```an-diagram title="Async task lifecycle on serverless" summary="async:true returns working in milliseconds, then a fresh execution runs the agent loop while the caller polls."
+```an-diagram title="无服务器上的异步任务生命周期" summary="async:true 在几毫秒内返回工作，然后在调用者轮询时重新执行运行代理循环。"
 {
   "html": "<div class=\"diagram-async\"><div class=\"diagram-box\" data-rough>message/send<br><small class=\"diagram-muted\">async: true</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">enqueue task</span><span class=\"diagram-pill warn\">return working</span><small class=\"diagram-muted\">~milliseconds</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>self-fire POST /_agent-native/a2a/_process-task<br><small class=\"diagram-muted\">HMAC token · fresh execution · full timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">tasks/get (poll)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">completed</div></div></div>",
   "css": ".diagram-async{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-async .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-arrow{font-size:20px;line-height:1}",
@@ -160,7 +160,7 @@ _（版本可能有所不同；在 `/.well-known/agent-card.json` 获取当前 `
 
 消息包含键入的部分 - 文本、结构化数据和文件都可以在一条消息中传输：
 
-```an-annotated-code title="A2A message with typed parts"
+```an-annotated-code title="带有键入部分的 A2A 消息"
 {
   "language": "json",
   "code": "{\n  \"role\": \"user\",\n  \"parts\": [\n    { \"type\": \"text\", \"text\": \"Show signups by source\" },\n    { \"type\": \"data\", \"data\": { \"dateRange\": \"last-30d\" } },\n    {\n      \"type\": \"file\",\n      \"file\": { \"name\": \"report.csv\", \"mimeType\": \"text/csv\", \"bytes\": \"...\" }\n    }\n  ]\n}",

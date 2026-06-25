@@ -11,7 +11,7 @@ já estou usando. Se você ainda está decidindo entre agentes sem cabeça, chat
 arquivo secundário incorporado ou um aplicativo completo, comece com
 [Agent Surfaces](/docs/agent-surfaces).
 
-```an-diagram title="The embedding membrane" summary="The host app supplies server-side auth and live page context; Agent-Native runs the durable sidecar and reaches the open tab through client actions and host commands."
+```an-diagram title="A membrana de incorporação" summary="O aplicativo host fornece autenticação do lado do servidor e contexto de página ativa; Agent-Native executa o sidecar durável e acessa a guia aberta por meio de ações do cliente e comandos do host."
 {
   "html": "<div class=\"diagram-embed\"><div class=\"diagram-box\" data-rough><strong>Host SaaS app</strong><small class=\"diagram-muted\">your UI, your auth</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">getContext &rarr;</div><div class=\"diagram-pill\">&larr; client actions</div><div class=\"diagram-pill\">&larr; host commands</div></div><div class=\"diagram-panel center\" data-rough><strong>Agent-Native sidecar</strong><small class=\"diagram-muted\">durable chat · app state · extensions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL<br><small class=\"diagram-muted\">framework tables</small></div></div>",
   "css": ".diagram-embed{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-embed .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -373,7 +373,7 @@ const hostTools = createAgentNativeHostTools({
 
 Para um colega de trabalho no estilo CLAW, o iframe também pode registrar sua guia ativa do navegador com o backend sidecar. O agente então obtém ferramentas de back-end normais que enfileiram uma solicitação, o iframe a reivindica, a página host a executa e o back-end retorna o resultado ao agente.
 
-```an-diagram title="Server-mediated browser-session bridge" summary="A backend tool enqueues work; the registered tab claims it, runs it on the live page, and the result returns to the agent — so a backend/Slack/A2A agent can still touch the open tab."
+```an-diagram title="Ponte de sessão de navegador mediada por servidor" summary="Uma ferramenta de back-end enfileira o trabalho; a aba registrada reivindica-o, executa-o na página ativa e o resultado retorna ao agente - então um agente backend/Slack/A2A ainda pode tocar na aba aberta."
 {
   "html": "<div class=\"diagram-bridge\"><div class=\"diagram-node\" data-rough>Backend agent<br><small class=\"diagram-muted\">chat · Slack · A2A</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>enqueue request<br><small class=\"diagram-muted\">/_agent-native/browser-sessions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Live tab claims it<br><small class=\"diagram-muted\">registered bridge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">result &rarr; agent</div></div>",
   "css": ".diagram-bridge{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}"

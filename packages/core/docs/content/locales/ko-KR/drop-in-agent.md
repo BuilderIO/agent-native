@@ -27,7 +27,7 @@ description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여
 
 이 모든 것은 `@agent-native/core/client`에서 내보내집니다.
 
-```an-diagram title="The mount model" summary="<AgentSidebar> wraps your existing layout. Your routes render in the main area; the agent panel mounts beside them. <AgentPanel> is the same panel without the wrapper."
+```an-diagram title="마운트 모델" summary="<AgentSidebar>은 기존 레이아웃을 래핑합니다. 경로는 주요 영역에서 렌더링됩니다. 에이전트 패널이 그 옆에 마운트됩니다. <AgentPanel>은 래퍼가 없는 동일한 패널입니다."
 {
   "html": "<div class=\"diagram-mount\"><div class=\"diagram-box sidebar\" data-rough><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><div class=\"inner\"><div class=\"diagram-node main\">Your app<br><small class=\"diagram-muted\">children: header + &lt;Outlet/&gt;</small></div><div class=\"diagram-node panel\">Agent panel<br><small class=\"diagram-muted\">chat &middot; CLI &middot; workspace</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card alt\"><span class=\"diagram-pill\">&lt;AgentPanel&gt;</span><small class=\"diagram-muted\">same panel, no wrapper &mdash; you own the layout</small></div></div>",
   "css": ".diagram-mount{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mount .sidebar{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-mount .inner{display:flex;gap:10px}.diagram-mount .main{flex:2}.diagram-mount .panel{flex:1}.diagram-mount .alt{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-mount .diagram-arrow{font-size:22px;line-height:1}"
@@ -40,7 +40,7 @@ description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여
 기존 루트 레이아웃을 `<AgentSidebar>`로 래핑합니다. 당신이 전달하는 무엇이든
 어린이는 기본 앱 영역에 머물러 있습니다. 상담원 채팅은 측면 패널입니다.
 
-```an-annotated-code title="Wrapping the root layout with <AgentSidebar>"
+```an-annotated-code title="<AgentSidebar>으로 루트 레이아웃 래핑"
 {
   "filename": "app/root.tsx",
   "language": "tsx",

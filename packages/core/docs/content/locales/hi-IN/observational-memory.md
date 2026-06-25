@@ -19,7 +19,7 @@ description: "पृष्ठभूमि त्रि-स्तरीय सं
 | **टिप्पणियाँ**         | सघन, दिनांकित प्रविष्टियाँ जो कच्चे संदेशों के एक खंड को घटित होने वाले एक संक्षिप्त रिकॉर्ड में बदल देती हैं। |
 | **हाल के कच्चे संदेश** | अंतिम एन मोड़, **शब्दशः** रखा गया - कभी मुड़ा नहीं - इसलिए एजेंट हमेशा नवीनतम संदर्भ देखता है।                 |
 
-```an-diagram title="Three tiers, distilled to recent" summary="The older prefix folds into dated observations and a long-arc reflection; only the most recent turns stay verbatim."
+```an-diagram title="तीन स्तरीय, हाल तक आसवित" summary="पुराना उपसर्ग दिनांकित अवलोकनों और एक लंबे-चाप प्रतिबिंब में बदल जाता है; केवल नवीनतम मोड़ ही शब्दशः रहते हैं।"
 {
   "html": "<div class=\"om\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Reflections</span><small class=\"diagram-muted\">long-arc summary, condensed from the observation log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Observations</span><small class=\"diagram-muted\">dense, dated entries folding stretches of raw messages</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Recent raw messages</span><small class=\"diagram-muted\">last N turns, kept <strong>verbatim</strong> — never folded</small></div></div>",
   "css": ".om{display:flex;flex-direction:column-reverse;align-items:stretch;gap:8px}.om .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.om .diagram-arrow{text-align:center;font-size:20px;line-height:1}"
@@ -35,7 +35,7 @@ description: "पृष्ठभूमि त्रि-स्तरीय सं
 1. **ऑब्जर्वर** - एक बार जब थ्रेड के _unobserved_ संदेश अवलोकन टोकन सीमा से अधिक हो जाते हैं, तो उन्हें एक सघन अवलोकन प्रविष्टि में बदल देता है।
 2. **परावर्तक** - एक बार जब निरंतर अवलोकन लॉग स्वयं प्रतिबिंब टोकन सीमा से अधिक हो जाता है, तो अवलोकनों को उच्च-स्तरीय प्रतिबिंब में संघनित कर देता है।
 
-```an-diagram title="Two best-effort passes after a clean turn" summary="Each pass no-ops below its threshold, so running the compactor every turn is cheap. Failures are swallowed and never add latency."
+```an-diagram title="एक साफ़ मोड़ के बाद दो सर्वोत्तम प्रयास पास" summary="प्रत्येक अपनी सीमा से नीचे नो-ऑप्स पास करता है, इसलिए कॉम्पेक्टर को हर मोड़ पर चलाना सस्ता है। विफलताओं को निगल लिया जाता है और कभी विलंबता नहीं बढ़ती।"
 {
   "html": "<div class=\"om-pass\"><div class=\"diagram-node\">Clean turn ends<br><small class=\"diagram-muted\">fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Observer</span><small class=\"diagram-muted\">unobserved tokens &gt; 30k? &rarr; fold into one observation</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Reflector</span><small class=\"diagram-muted\">observation log &gt; 40k? &rarr; condense into a reflection</small></div></div>",
   "css": ".om-pass{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.om-pass .diagram-node,.om-pass .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.om-pass .diagram-arrow{font-size:22px;line-height:1}"

@@ -9,7 +9,7 @@ description: "ब्रांचिंग, CODEOWNERS, पीआर समीक
 
 यह मार्गदर्शिका एजेंट-नेटिव वर्कस्पेस को चलाने के परिचालन पक्ष को कवर करती है - शाखा कैसे लगाएं, कौन क्या समीक्षा करता है, कोड स्वामित्व कैसे सेट करें, और डिस्पैच नियंत्रण विमान आपके शासन मॉडल में कैसे फिट बैठता है।
 
-```an-diagram title="Two governance planes" summary="Git governs code; Dispatch governs runtime. They are complementary — don't replicate one inside the other."
+```an-diagram title="दो शासन विमान" summary="Git कोड को नियंत्रित करता है; Dispatch रनटाइम को नियंत्रित करता है। वे पूरक हैं - एक को दूसरे के अंदर दोहराएँ नहीं।"
 {
   "html": "<div class=\"gov\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Git / GitHub</span><strong>Code governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">CODEOWNERS</span><span class=\"diagram-pill\">branch protection</span><span class=\"diagram-pill\">PR review</span><span class=\"diagram-pill\">git log / blame</span></div></div><div class=\"diagram-pill diagram-muted\">+</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Dispatch</span><strong>Runtime governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">vault secrets &amp; grants</span><span class=\"diagram-pill\">workspace resources</span><span class=\"diagram-pill\">agent profiles</span><span class=\"diagram-pill\">approvals &amp; audit</span></div></div></div>",
   "css": ".gov{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.gov .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:240px}.gov .gov-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}"
@@ -47,13 +47,13 @@ main                         ← production
 
 कोड गवर्नेंस को रेपो रूट पर कुछ फाइलों द्वारा कॉन्फ़िगर किया गया है:
 
-```an-file-tree title="Governance config in the repo"
+```an-file-tree title="repo में governance config"
 {
   "entries": [
-    { "path": ".github/CODEOWNERS", "note": "Auto-assigns reviewers per changed path" },
-    { "path": ".github/labeler.yml", "note": "Auto-labels PRs by app" },
-    { "path": "pnpm-workspace.yaml", "note": "Workspace-level — broad review" },
-    { "path": "package.json", "note": "Workspace-level — platform team owns" }
+    { "path": ".github/CODEOWNERS", "note": "बदले गए path के अनुसार reviewers auto-assign करता है" },
+    { "path": ".github/labeler.yml", "note": "app के अनुसार PRs पर labels auto-apply करता है" },
+    { "path": "pnpm-workspace.yaml", "note": "Workspace-level: broad review" },
+    { "path": "package.json", "note": "Workspace-level: platform team ownership" }
   ]
 }
 ```

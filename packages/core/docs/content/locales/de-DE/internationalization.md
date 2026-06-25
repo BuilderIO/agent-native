@@ -115,6 +115,8 @@ und hinterlassen Sie Routen, Aktionsnamen, Protokollfelder, Umgebungsvariablen u
 unübersetzt. Wenn ein Gebietsschema kein übersetztes Markdown für eine Seite hat, die Dokumentationsseite
 greift für diese Seite auf Englisch zurück, während Navigation und Chrome weiterhin lokalisiert werden.
 
+Docs-Markdown kann strukturierte `an-*`-Visual-Blocks enthalten. Übersetze ihre sichtbaren Prose-Felder, wo es sinnvoll ist, etwa file-tree-Titel und `entries[].note`, Callout-Bodies, Tab-Labels sowie annotated-code-Labels/Notes. Lass stabile Identifikatoren unverändert: Dateinamen, Pfade, env vars, Routenstrings, Action-Namen, Language-Tags, Code-Snippets, JSON-Keys und Protokollnamen.
+
 ## Actions und Beharrlichkeit
 
 Jede App erbt:

@@ -9,7 +9,7 @@ Una **automatización** es una regla: _cuando sucede X, haz Y_, descrita en leng
 
 Las automatizaciones amplían [recurring jobs](/docs/recurring-jobs) con **activadores de eventos**, **condiciones de lenguaje natural** y **HTTP saliente** a través de la herramienta `web-request`. Utilizan el mismo formato de archivo `jobs/<name>.md`, almacenamiento y flujo de trabajo de "creación de tres formas" que los trabajos recurrentes; consulte [Recurring Jobs](/docs/recurring-jobs#job-file) para conocer el formato compartido. Esta página cubre solo las novedades de las automatizaciones basadas en eventos.
 
-```an-diagram title="When X happens, do Y" summary="An event fires on the bus, an optional natural-language condition gates it, and the agent runs the automation body with full tool access."
+```an-diagram title="Cuando suceda X, haz Y" summary="Se activa un evento en el autobús, una condición opcional de lenguaje natural lo bloquea y el agente ejecuta el cuerpo de automatización con acceso completo a las herramientas."
 {
   "html": "<div class=\"auto-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Event</span><small class=\"diagram-muted\"><code>calendar.booking.created</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Condition</span><small class=\"diagram-muted\">Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">Agent runs the body</span><small class=\"diagram-muted\">actions &middot; web-request &middot; MCP &middot; sub-agents</small></div></div>",
   "css": ".auto-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.auto-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px;min-width:180px}.auto-flow .diagram-arrow{font-size:22px}"
@@ -39,7 +39,7 @@ Las automatizaciones aparecen en el panel de configuración. Los usuarios pueden
 
 La tercera ruta (escribir el archivo `jobs/<name>.md` a mano mediante `resourcePut`) funciona exactamente igual que para [recurring jobs](/docs/recurring-jobs#creating). Para una automatización basada en eventos, agregue el frontmatter de activación de eventos a continuación al mismo archivo. Un trabajo desencadenado por evento establece `schedule: ""` y proporciona `triggerType: event`, un nombre de `event` y un `condition` opcional:
 
-```an-annotated-code title="An event-triggered automation"
+```an-annotated-code title="Una automatización activada por eventos"
 {
   "filename": "jobs/slack-on-builder-booking.md",
   "language": "markdown",
@@ -208,7 +208,7 @@ Herramienta adicional: `web-request`: HTTP saliente con sustitución de `${keys.
 
 ## Cómo funciona el despacho {#dispatch}
 
-```an-diagram title="The dispatch path" summary="From a fired event to a completed agent run, gated by ownership scope and the natural-language condition."
+```an-diagram title="La ruta de despacho" summary="Desde un evento activado hasta una ejecución de agente completa, controlado por el alcance de propiedad y la condición del lenguaje natural."
 {
   "html": "<div class=\"disp\"><div class=\"diagram-box accent\">event fired on the bus</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">match</span><small class=\"diagram-muted\">load enabled automations subscribed to this event name</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">scope</span><small class=\"diagram-muted\">keep only those owned by the event's owner (or shared)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">condition</span><small class=\"diagram-muted\">Haiku yes/no on the payload &mdash; false &rarr; <code>skipped</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">run</span><small class=\"diagram-muted\"><code>runAgentLoop</code> with body as prompt, payload as context, 5-min timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">record</span><small class=\"diagram-muted\">write <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code></small></div></div>",
   "css": ".disp{display:flex;flex-direction:column;gap:6px;max-width:540px}.disp .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.disp .diagram-box{align-self:flex-start}.disp .diagram-arrow{font-size:18px;align-self:center}"

@@ -19,7 +19,7 @@ description: "सार्वजनिक मार्गों को एजे
 
 `publicMcp: true` को सेट करने से ऑप्ट-इन actions एक सार्वजनिक MCP एंडपॉइंट के रूप में सामने आता है, जिससे बाहरी एजेंट उन्हें सीधे कॉल कर सकते हैं ([MCP Protocol](/docs/mcp-protocol) देखें)।
 
-```an-diagram title="What a public route publishes" summary="A public route fans out into agent-friendly representations. Reading the route is separate from calling tools — tool access stays opt-in."
+```an-diagram title="सार्वजनिक मार्ग क्या प्रकाशित करता है" summary="एक सार्वजनिक मार्ग एजेंट-अनुकूल अभ्यावेदन को बढ़ावा देता है। रूट पढ़ना कॉलिंग टूल से अलग है - टूल एक्सेस ऑप्ट-इन रहता है।"
 {
   "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>Public route<br><small class=\"diagram-muted\">derived from route access settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">.md mirror</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">Tools stay private</span><small class=\"diagram-muted\">publicMcp + publicAgent.expose required</small></div></div>",
   "css": ".diagram-web{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-web .diagram-arrow{font-size:22px;line-height:1}.diagram-web .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.diagram-web .gate{display:flex;flex-direction:column;gap:4px;align-items:flex-start}"
@@ -83,7 +83,7 @@ description: "सार्वजनिक मार्गों को एजे
 
 सार्वजनिक एजेंट प्रोटोकॉल के माध्यम से किसी कार्रवाई को उजागर करने के लिए, कार्रवाई को इसमें शामिल होना होगा:
 
-```an-annotated-code title="Opting one safe action onto the public surface"
+```an-annotated-code title="सार्वजनिक सतह पर एक सुरक्षित कार्रवाई का विकल्प चुनना"
 {
   "filename": "actions/search-docs.ts",
   "language": "ts",

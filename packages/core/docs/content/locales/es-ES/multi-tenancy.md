@@ -19,7 +19,7 @@ Ya se envía un andamio `npx @agent-native/core@latest create` nuevo con:
 
 Si está evaluando un agente nativo para un CRM, un rastreador de proyectos, una bandeja de entrada de soporte o cualquier herramienta de equipo, la base multiinquilino ya está ahí. Todas las plantillas propias son multiinquilino; consulte [Cloneable SaaS templates](/docs/cloneable-saas) para ver la lista.
 
-```an-diagram title="Org membership and isolation" summary="Users join organizations as owner/admin/member. Every ownable row carries the org_id of the tenant that owns it, and no row leaks across the boundary."
+```an-diagram title="Membresía y aislamiento de la organización" summary="Los usuarios se unen a organizaciones como owner/admin/member. Cada fila poseíble lleva el org_id del inquilino propietario y ninguna fila cruza el límite."
 {
   "html": "<div class=\"mt-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Org A</span><small class=\"diagram-muted\">members: alice (owner), bob (member)</small><div class=\"diagram-box\">rows where org_id = A</div></div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Org B</span><small class=\"diagram-muted\">members: carol (owner)</small><div class=\"diagram-box\">rows where org_id = B</div></div></div><div class=\"mt-wall\" aria-hidden=\"true\"><span class=\"diagram-pill warn\">no cross-org reads</span></div>",
   "css": ".mt-grid{display:flex;gap:16px;flex-wrap:wrap}.mt-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;flex:1;min-width:200px}.mt-wall{display:flex;justify-content:center;margin-top:12px}"
@@ -36,7 +36,7 @@ Este es el módulo `org/` propio del marco, no el complemento de organización d
 
 Los datos del inquilino están aislados mediante una columna `org_id` (agregada por `ownableColumns()`) y el marco abarca cada consulta a la organización activa automáticamente: `session.orgId → AGENT_ORG_ID → SQL`. Cuando un usuario cambia de organización, UI, actions y el agente ven solo los datos de esa organización; el agente no puede acceder a los datos de una organización de la que el usuario no es miembro.
 
-```an-diagram title="From session to scoped SQL" summary="The active org on the session becomes AGENT_ORG_ID, which the framework folds into the WHERE clause of every query."
+```an-diagram title="De la sesión al ámbito SQL" summary="La organización activa en la sesión se convierte en AGENT_ORG_ID, que el marco integra en la cláusula WHERE de cada consulta."
 {
   "html": "<div class=\"mt-pipe\"><div class=\"diagram-node\">session.orgId<br><small class=\"diagram-muted\">active org on session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">AGENT_ORG_ID<br><small class=\"diagram-muted\">request context</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">SQL row scoping<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div></div>",
   "css": ".mt-pipe{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mt-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.mt-pipe .diagram-arrow{font-size:22px;line-height:1}"

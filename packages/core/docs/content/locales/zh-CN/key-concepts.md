@@ -17,9 +17,9 @@ description: "代理本机应用程序的工作原理：首先是 actions、SQL 
 >
 > **计算机** — 数据库、浏览器、代码执行。代理直接使用SQL和内置工具进行工作； MCP 服务器是可选的附加组件，而不是基础。
 
-```an-diagram title="Agent, application, and computer" summary="Three layers working together over one shared SQL store. The agent and the application both read and write the same data."
+```an-diagram title="代理、应用程序和计算机" summary="三层在一个共享的 SQL 存储上协同工作。代理和应用程序读取和写入相同的数据。"
 {
-  "html": "<div class=\"diagram-arch\"><div class=\"diagram-row\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads + writes data, runs actions, modifies code</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Application</span><small class=\"diagram-muted\">action-only, chat, control plane, or full React UI</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;&nbsp;&uarr;</div><div class=\"diagram-box\" data-rough>Computer<br><small class=\"diagram-muted\">SQL database · browser · code execution</small></div></div>",
+  "html": "<div class=\"diagram-arch\"><div class=\"diagram-row\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads + writes data, runs actions, modifies code</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Application</span><small class=\"diagram-muted\">action-only, chat, control plane, or full React UI</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;&nbsp;&uarr;</div><div class=\"diagram-box\" data-rough>Computer<br><small class=\"diagram-muted\">SQL 数据库 · browser · code execution</small></div></div>",
   "css": ".diagram-arch{display:flex;flex-direction:column;align-items:center;gap:10px}.diagram-arch .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-arch .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:220px}.diagram-arch .diagram-arrow{font-size:20px;line-height:1}.diagram-arch .diagram-box{text-align:center;padding:12px 18px}"
 }
 ```
@@ -31,12 +31,12 @@ description: "代理本机应用程序的工作原理：首先是 actions、SQL 
 每个代理本机应用程序都具有相同的代理构建块，无论是否
 产品表面是无头的、聊天优先的或完整的 UI：
 
-```an-file-tree title="Guidance and behavior"
+```an-file-tree title="指导和行为"
 {
   "entries": [
-    { "path": "AGENTS.md", "note": "always-on instructions: purpose, core rules, state keys, action index, skills index" },
-    { "path": ".agents/skills/<name>/SKILL.md", "note": "reusable behavior: workflow steps, policies, examples, references, and do/don't lists" },
-    { "path": "actions/<name>.ts", "note": "executable capability: typed operation exposed to the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks" }
+    { "path": "AGENTS.md", "note": "始终生效的指令：目的、核心规则、状态键、actions 索引、skills 索引" },
+    { "path": ".agents/skills/<name>/SKILL.md", "note": "可复用行为：workflow 步骤、策略、示例、参考以及做/不做清单" },
+    { "path": "actions/<name>.ts", "note": "可执行能力：暴露给代理、UI、CLI、HTTP、MCP、A2A、jobs 和 webhooks 的类型化操作" }
   ]
 }
 ```
@@ -211,7 +211,7 @@ useDbSync({ queryClient });
 4. `useActionQuery` 挂钩和源版本 `useQuery` 挂钩重新获取
 5. 组件无需重新加载页面即可呈现新数据
 
-```an-diagram title="Live sync flow" summary="An agent write becomes a UI render with no manual refresh — SSE first, polling as the universal fallback."
+```an-diagram title="实时同步流程" summary="代理写入变成 UI 渲染，无需手动刷新 - 首先是 SSE，轮询作为通用后备。"
 {
   "html": "<div class=\"diagram-sync\"><div class=\"diagram-node\">Agent action<br><small class=\"diagram-muted\">writes to DB</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Change event<br><small class=\"diagram-muted\">source: action / settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">useDbSync</span><small class=\"diagram-muted\">SSE &middot; poll fallback</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Query refetch<br><small class=\"diagram-muted\">render, no reload</small></div></div>",
   "css": ".diagram-sync{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}.diagram-sync .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 14px}"

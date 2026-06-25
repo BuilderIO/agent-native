@@ -9,7 +9,7 @@ description: "迁移是 Agent-Native 代码工作区中的内置 /migrate 目标
 [Agent-Native Code](/docs/code-agents-ui) 工作空间内的 `/migrate` 目标。
 它作为正常的代码会话运行，您可以恢复、附加、检查和停止。
 
-```an-diagram title="/migrate is a Code session, not a separate app" summary="A path, URL, or description goes in; the run shares the same store, transcript, and controls as every other Code session, and can emit a portable dossier."
+```an-diagram title="/migrate 是一个代码会话，而不是一个单独的应用程序" summary="路径、URL 或描述进入；该运行与其他所有代码会话共享相同的存储、脚本和控件，并且可以生成可移植的档案。"
 {
   "html": "<div class=\"diagram-migrate\"><div class=\"diagram-col\"><div class=\"diagram-pill\">./local-app</div><div class=\"diagram-pill\">https://example.com</div><div class=\"diagram-pill\">--describe \\\"...\\\"</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">/migrate goal</span><small class=\"diagram-muted\">same store · transcript · run controls</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\" data-rough>Migrated app</div><div class=\"diagram-pill ok\">--emit dossier</div></div></div>",
   "css": ".diagram-migrate{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-migrate .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-migrate .diagram-arrow{font-size:22px;line-height:1}.diagram-migrate .center{display:flex;flex-direction:column;align-items:center;gap:4px}"

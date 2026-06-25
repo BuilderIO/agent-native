@@ -17,9 +17,9 @@ Cada aplicación nativa del agente consta de tres cosas que funcionan juntas:
 >
 > **Computadora**: base de datos, navegador, ejecución de código. Los agentes trabajan directamente con SQL y herramientas integradas; Los servidores MCP son complementos opcionales, no la base.
 
-```an-diagram title="Agent, application, and computer" summary="Three layers working together over one shared SQL store. The agent and the application both read and write the same data."
+```an-diagram title="Agente, aplicación y computadora." summary="Tres capas trabajando juntas en una tienda SQL compartida. Tanto el agente como la aplicación leen y escriben los mismos datos."
 {
-  "html": "<div class=\"diagram-arch\"><div class=\"diagram-row\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads + writes data, runs actions, modifies code</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Application</span><small class=\"diagram-muted\">action-only, chat, control plane, or full React UI</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;&nbsp;&uarr;</div><div class=\"diagram-box\" data-rough>Computer<br><small class=\"diagram-muted\">SQL database · browser · code execution</small></div></div>",
+  "html": "<div class=\"diagram-arch\"><div class=\"diagram-row\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads + writes data, runs actions, modifies code</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Application</span><small class=\"diagram-muted\">action-only, chat, control plane, or full React UI</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;&nbsp;&uarr;</div><div class=\"diagram-box\" data-rough>Computer<br><small class=\"diagram-muted\">base de datos SQL · browser · code execution</small></div></div>",
   "css": ".diagram-arch{display:flex;flex-direction:column;align-items:center;gap:10px}.diagram-arch .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-arch .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:220px}.diagram-arch .diagram-arrow{font-size:20px;line-height:1}.diagram-arch .diagram-box{text-align:center;padding:12px 18px}"
 }
 ```
@@ -31,12 +31,12 @@ Las aplicaciones headless pueden ejecutar el mismo bucle de producción de aplic
 Cada aplicación nativa del agente tiene los mismos componentes básicos del agente, independientemente de si
 la superficie del producto es headless, chat-first o UI completo:
 
-```an-file-tree title="Guidance and behavior"
+```an-file-tree title="Guía y comportamiento"
 {
   "entries": [
-    { "path": "AGENTS.md", "note": "always-on instructions: purpose, core rules, state keys, action index, skills index" },
-    { "path": ".agents/skills/<name>/SKILL.md", "note": "reusable behavior: workflow steps, policies, examples, references, and do/don't lists" },
-    { "path": "actions/<name>.ts", "note": "executable capability: typed operation exposed to the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks" }
+    { "path": "AGENTS.md", "note": "Instrucciones siempre activas: propósito, reglas principales, claves de estado, índice de actions e índice de skills" },
+    { "path": ".agents/skills/<name>/SKILL.md", "note": "Comportamiento reutilizable: pasos de workflow, políticas, ejemplos, referencias y listas de qué hacer y no hacer" },
+    { "path": "actions/<name>.ts", "note": "Capacidad ejecutable: operación tipada expuesta al agente, UI, CLI, HTTP, MCP, A2A, jobs y webhooks" }
   ]
 }
 ```
@@ -211,7 +211,7 @@ El flujo es:
 4. Recuperación de ganchos `useActionQuery` y ganchos `useQuery` con versión de origen
 5. Los componentes representan los nuevos datos sin recargar la página
 
-```an-diagram title="Live sync flow" summary="An agent write becomes a UI render with no manual refresh — SSE first, polling as the universal fallback."
+```an-diagram title="Flujo de sincronización en vivo" summary="La escritura de un agente se convierte en una representación de la interfaz de usuario sin actualización manual: SSE primero, el sondeo como respaldo universal."
 {
   "html": "<div class=\"diagram-sync\"><div class=\"diagram-node\">Agent action<br><small class=\"diagram-muted\">writes to DB</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Change event<br><small class=\"diagram-muted\">source: action / settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">useDbSync</span><small class=\"diagram-muted\">SSE &middot; poll fallback</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Query refetch<br><small class=\"diagram-muted\">render, no reload</small></div></div>",
   "css": ".diagram-sync{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}.diagram-sync .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 14px}"

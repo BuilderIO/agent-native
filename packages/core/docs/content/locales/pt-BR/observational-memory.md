@@ -19,7 +19,7 @@ OM representa um fio longo em três camadas, do mais destilado ao mais recente:
 | **Observações**               | Entradas densas e datadas que reúnem uma série de mensagens brutas em um registro compacto do que aconteceu.                |
 | **Mensagens brutas recentes** | Os últimos N turnos são mantidos **literalmente** — nunca dobrados — para que o agente sempre veja o contexto mais recente. |
 
-```an-diagram title="Three tiers, distilled to recent" summary="The older prefix folds into dated observations and a long-arc reflection; only the most recent turns stay verbatim."
+```an-diagram title="Três níveis, destilados até recentes" summary="O prefixo mais antigo se transforma em observações datadas e uma reflexão de arco longo; apenas as voltas mais recentes permanecem textuais."
 {
   "html": "<div class=\"om\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Reflections</span><small class=\"diagram-muted\">long-arc summary, condensed from the observation log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Observations</span><small class=\"diagram-muted\">dense, dated entries folding stretches of raw messages</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Recent raw messages</span><small class=\"diagram-muted\">last N turns, kept <strong>verbatim</strong> — never folded</small></div></div>",
   "css": ".om{display:flex;flex-direction:column-reverse;align-items:stretch;gap:8px}.om .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.om .diagram-arrow{text-align:center;font-size:20px;line-height:1}"
@@ -35,7 +35,7 @@ Duas passagens são executadas como uma etapa de **disparar e esquecer, melhor e
 1. **Observador** — quando as mensagens _não observadas_ de um thread excedem o limite do token de observação, ele as agrupa em uma única entrada de observação densa.
 2. **Refletor** — quando o próprio registro de observação persistente excede o limite do token de reflexão, condensa as observações em uma reflexão de nível superior.
 
-```an-diagram title="Two best-effort passes after a clean turn" summary="Each pass no-ops below its threshold, so running the compactor every turn is cheap. Failures are swallowed and never add latency."
+```an-diagram title="Dois passes de melhor esforço após uma curva limpa" summary="Cada operação autônoma passa abaixo de seu limite, portanto, operar o compactador a cada curva é barato. As falhas são engolidas e nunca adicionam latência."
 {
   "html": "<div class=\"om-pass\"><div class=\"diagram-node\">Clean turn ends<br><small class=\"diagram-muted\">fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Observer</span><small class=\"diagram-muted\">unobserved tokens &gt; 30k? &rarr; fold into one observation</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Reflector</span><small class=\"diagram-muted\">observation log &gt; 40k? &rarr; condense into a reflection</small></div></div>",
   "css": ".om-pass{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.om-pass .diagram-node,.om-pass .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.om-pass .diagram-arrow{font-size:22px;line-height:1}"

@@ -40,7 +40,7 @@ Agent-Native에는 좁은 뒤에 있는 문제를 고려하는 두 개의 어댑
 
 계약을 좁게 유지한다는 것은 원격 어댑터가 동일한 보안 상태를 상속한다는 것을 의미합니다. 상위 프로세스는 비밀이 포함된 모든 것에 대한 소유권을 유지합니다. 즉, 샌드박스 모듈을 빌드하고, localhost 브리지(요청 컨텍스트를 보유하고 호스트 허용 목록 + SSRF 가드를 적용함)를 실행하고, 환경을 스크러빙하고 출력 형식을 지정합니다. 어댑터는 이미 준비된 **비밀이 아닌** 모듈 소스와 리소스 제한만 수신합니다. 어댑터는 이를 *실행*하고 stdout/stderr/exit 상태를 캡처하는 역할만 담당합니다.
 
-```an-diagram title="The parent keeps the secrets; the adapter only runs code" summary="run-code builds the module and runs the loopback bridge; the adapter receives a non-secret module + limits and returns stdout/stderr/exit."
+```an-diagram title="부모는 비밀을 유지합니다. 어댑터는 코드만 실행합니다." summary="실행 코드는 모듈을 빌드하고 루프백 브리지를 실행합니다. 어댑터는 비밀이 아닌 모듈 + 제한을 수신하고 stdout/stderr/exit을 반환합니다."
 {
   "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>Parent process</strong><small class=\"diagram-muted\">builds module · loopback bridge · env scrub · output format</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">local child · Docker · remote · durable</small></div></div>",
   "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -51,14 +51,14 @@ Agent-Native에는 좁은 뒤에 있는 문제를 고려하는 두 개의 어댑
 
 심은 `packages/core/src/coding-tools/sandbox/` — `adapter.ts`(계약), `index.ts`(선택: `getSandboxAdapter()` / `registerSandboxAdapter()`) 및 `local-child-process-adapter.ts`(기본값)의 코어에 있습니다. `run-code.ts`에 의해 패키지 내로 배선됩니다. 호스트는 `index.ts` 등록 도우미를 통해(또는 Docker 백엔드의 경우 이러한 파일을 직접 편집하는 [blueprint](/docs/blueprint-installer)를 통해) 다른 백엔드에 연결됩니다.
 
-```an-file-tree title="The sandbox seam in core"
+```an-file-tree title="core의 sandbox 접점"
 {
   "title": "packages/core/src/coding-tools/sandbox/",
   "entries": [
-    { "path": "adapter.ts", "note": "the SandboxAdapter contract (SandboxRunRequest / SandboxRunResult)" },
-    { "path": "index.ts", "note": "selection: getSandboxAdapter() / registerSandboxAdapter()" },
-    { "path": "local-child-process-adapter.ts", "note": "the default backend — locked-down Node child process" },
-    { "path": "../run-code.ts", "note": "wires the seam; never changes when you swap backends" }
+    { "path": "adapter.ts", "note": "SandboxAdapter 계약(SandboxRunRequest / SandboxRunResult)" },
+    { "path": "index.ts", "note": "선택: getSandboxAdapter() / registerSandboxAdapter()" },
+    { "path": "local-child-process-adapter.ts", "note": "기본 backend: 잠긴 Node child process" },
+    { "path": "../run-code.ts", "note": "이 접점을 연결; backend를 바꿔도 변경되지 않음" }
   ]
 }
 ```

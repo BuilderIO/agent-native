@@ -16,7 +16,7 @@ description: "استديو فيديو برمجي للرسومات المتحرك
 
 عند فتح الاستوديو، سترى قائمة من المقطوعات الموسيقية على الشاشة الرئيسية. انقر فوق أحدها وستحصل على لاعب في الأعلى، ومخطط زمني في الأسفل، ولوحة خصائص على اليمين. يعرف الوكيل دائمًا التركيبة التي قمت بفتحها.
 
-```an-diagram title="Animation as data" summary="A composition is a React component; every animation reads from a track so the agent and the timeline edit the same data."
+```an-diagram title="الرسوم المتحركة كبيانات" summary="التكوين هو مكون React؛ تتم قراءة كل رسم متحرك من المسار، لذا يقوم الوكيل والمخطط الزمني بتحرير نفس البيانات."
 {
   "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Timeline<br><small class=\"diagram-muted\">drag, resize, scrub</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">\"fade in at 2s\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">AnimationTrack</span><small class=\"diagram-muted\">startFrame / easing / animatedProps</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>React composition<br><small class=\"diagram-muted\">Remotion &lt;Player&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">MP4 / WebM</div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"

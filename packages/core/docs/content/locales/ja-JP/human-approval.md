@@ -14,7 +14,7 @@ description: "重要なアクションが実行される前にエージェント
 
 `defineAction` に `needsApproval` を設定します。ブール値または述語を受け入れます。
 
-```an-annotated-code title="Gating the one consequential action"
+```an-annotated-code title="1 つの結果的なアクションをゲートする"
 {
   "filename": "actions/send-email.ts",
   "language": "ts",
@@ -70,7 +70,7 @@ description: "重要なアクションが実行される前にエージェント
 
 ## エンドツーエンド {#flow}
 
-```an-diagram title="The approval interrupt" summary="A gated call pauses the turn before run() fires. Approval re-issues the turn carrying the call's key; only then does the side effect happen."
+```an-diagram title="承認の中断" summary="ゲート呼び出しは、run() が起動される前にターンを一時停止します。承認により、コールのキーを保持するターンが再発行されます。そうして初めて副作用が起こります。"
 {
   "html": "<div class=\"diagram-approve\"><div class=\"diagram-box\" data-rough>Agent calls send-email</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel warn\" data-rough><strong>Gate truthy, call not yet approved</strong><small class=\"diagram-muted\">loop emits tool_start + approval_required { tool, input, approvalKey }</small><span class=\"diagram-pill warn\">turn pauses &mdash; run() did NOT execute</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Human clicks Approve in chat<br><small class=\"diagram-muted\">client re-issues the turn with approvedToolCalls: [approvalKey]</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel ok\" data-rough><span class=\"diagram-pill ok\">Gate sees the key &rarr; run() executes &rarr; email sends</span></div></div>",
   "css": ".diagram-approve{display:flex;flex-direction:column;align-items:center;gap:8px}.diagram-approve .diagram-panel{display:flex;flex-direction:column;gap:6px;align-items:center;padding:12px 16px;text-align:center}.diagram-approve .diagram-arrow{font-size:22px;line-height:1}"

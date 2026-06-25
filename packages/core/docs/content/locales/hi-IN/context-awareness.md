@@ -24,7 +24,7 @@ description: "एजेंट को कैसे पता चलता है 
 5. **प्रॉम्प्ट हैंडऑफ़** -- UI कॉल `sendToAgentChat()` को नियंत्रित करता है जब एक क्लिक एजेंट टर्न बन जाना चाहिए
 6. **`navigate`** -- एजेंट का एक-शॉट कमांड जो UI को बताता है कि कहां जाना है
 
-```an-diagram title="How the agent sees what you see" summary="The UI writes lightweight state keys; view-screen hydrates them into real records; the agent can write navigate back to move the UI."
+```an-diagram title="आप जो देखते हैं उसे एजेंट कैसे देखता है" summary="यूआई हल्के राज्य कुंजी लिखता है; व्यू-स्क्रीन उन्हें वास्तविक रिकॉर्ड में हाइड्रेट करता है; एजेंट यूआई को स्थानांतरित करने के लिए वापस नेविगेट लिख सकता है।"
 {
   "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI writes</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">view, open ids</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">rows, blocks, shapes</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Agent acts<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">agent moves the UI</small></div></div>",
   "css": ".diagram-ctx{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-ctx .col{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-ctx .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-ctx .diagram-arrow{font-size:22px;line-height:1}"
@@ -191,7 +191,7 @@ await setClientAppState(
 
 प्रत्येक टेम्पलेट में `view-screen` क्रिया होनी चाहिए। यह नेविगेशन और चयन स्थिति को पढ़ता है, प्रासंगिक डेटा लाता है, और उपयोगकर्ता जो देखता है उसका एक स्नैपशॉट लौटाता है। यह एजेंट की नजर है।
 
-```an-annotated-code title="view-screen — the agent's eyes"
+```an-annotated-code title="व्यू-स्क्रीन - एजेंट की आंखें"
 {
   "filename": "actions/view-screen.ts",
   "language": "ts",
@@ -365,7 +365,7 @@ useDbSync({
 - सिंक ईवेंट को संसाधित करते समय, UI अपने स्वयं के `ignoreSource` मान से मेल खाने वाले ईवेंट को फ़िल्टर करता है - इसलिए यह अभी लिखे गए डेटा को दोबारा प्राप्त नहीं करता है
 - एजेंटों, अन्य टैब और actions से ईवेंट अभी भी सामान्य रूप से आते हैं
 
-```an-diagram title="Source tagging stops self-refetch jitter" summary="A tab ignores sync events stamped with its own TAB_ID, but still reacts to agent and other-tab writes."
+```an-diagram title="सोर्स टैगिंग सेल्फ-रिफ़ेच घबराहट को रोकता है" summary="एक टैब अपने स्वयं के TAB_ID से मुद्रित सिंक घटनाओं को अनदेखा करता है, लेकिन फिर भी एजेंट और अन्य-टैब लिखने पर प्रतिक्रिया करता है।"
 {
   "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">This tab writes<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Server stores source<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">no refetch, no flicker</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">UI updates live</small></div></div>",
   "css": ".diagram-jitter{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jitter .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-jitter .diagram-arrow{font-size:22px;line-height:1}"

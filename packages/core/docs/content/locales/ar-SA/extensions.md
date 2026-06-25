@@ -22,7 +22,7 @@ description: "التطبيقات المصغرة التي ينشئها المست
 الملحق المواجه للوكيل actions والتوجيه الفوري أثناء مغادرة بقية
 وكيل التطبيق سليم.
 
-```an-diagram title="The sandbox bridge" summary="Extension HTML runs in an isolated iframe and reaches the host only through a fixed set of bridge helpers — every call is scoped and access-checked."
+```an-diagram title="جسر الرمل" summary="يعمل الامتداد HTML في إطار iframe معزول ولا يصل إلى المضيف إلا من خلال مجموعة ثابتة من مساعدي الجسر - يتم تحديد نطاق كل مكالمة والتحقق من الوصول إليها."
 {
   "html": "<div class=\"ext-bridge\"><div class=\"diagram-card sandbox\" data-rough><span class=\"diagram-pill warn\">Sandboxed iframe</span><small class=\"diagram-muted\">Alpine.js HTML &middot; no host cookies, session, or DOM</small><div class=\"ext-helpers\"><span class=\"diagram-pill\">appAction</span><span class=\"diagram-pill\">appFetch</span><span class=\"diagram-pill\">dbQuery / dbExec</span><span class=\"diagram-pill\">extensionData</span><span class=\"diagram-pill\">extensionFetch</span></div></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Host template<br><small class=\"diagram-muted\">actions, auto-scoped SQL</small></div><div class=\"diagram-box\">Secret proxy<br><small class=\"diagram-muted\"><code>${keys.NAME}</code>, domain-locked</small></div><div class=\"diagram-box\">External APIs<br><small class=\"diagram-muted\">via extensionFetch only</small></div></div></div>",
   "css": ".ext-bridge{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ext-bridge .sandbox{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:240px}.ext-bridge .ext-helpers{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.ext-bridge .diagram-col{display:flex;flex-direction:column;gap:8px}.ext-bridge .diagram-arrow{font-size:24px}"
@@ -220,7 +220,7 @@ description: "التطبيقات المصغرة التي ينشئها المست
 
 عند تثبيت ملحق في إحدى الفتحات\*\*، يدفع المضيف السياق ذي الصلة — البريد الإلكتروني لجهة الاتصال، ومعرف لوحة المعلومات، ومعرف الحدث — في إطار iframe. يقرأ الامتداد `window.slotContext` لمعرفة ما ينظر إليه المستخدم.
 
-```an-diagram title="Slots push context into the widget" summary="The host template owns named slots; installing an extension into one feeds it window.slotContext for whatever the user is currently viewing."
+```an-diagram title="فتحات تدفع السياق إلى القطعة" summary="يمتلك القالب المضيف فتحات مسماة؛ يؤدي تثبيت الامتداد إلى تغذيته window.slotContext لكل ما يشاهده المستخدم حاليًا."
 {
 "html": "<div class=\"slot\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Mail thread</span><small class=\"diagram-muted\">slot <code>mail.contact-sidebar.bottom</code></small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box accent\"><code>window.slotContext</code><br><small class=\"diagram-muted\">{ contactEmail }</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Contact notes</span><small class=\"diagram-muted\">loads notes for that contact &mdash; same widget, different context</small></div></div>",
 "css": ".slot{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.slot .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px;min-width:180px}.slot .diagram-arrow{font-size:22px}"

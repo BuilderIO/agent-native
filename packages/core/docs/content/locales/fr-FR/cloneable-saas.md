@@ -51,7 +51,7 @@ Ce n'est pas une affirmation théorique. L'auteur du framework exécute sa boît
 
 Le chemin de « Je veux mon propre SaaS » à « J'ai mon propre SaaS » est court :
 
-```an-diagram title="Fork and customize" summary="Pick a finished product, brand it, evolve it in plain English, and ship it to your own domain."
+```an-diagram title="Fourcher et personnaliser" summary="Choisissez un produit fini, marquez-le, faites-le évoluer dans un anglais simple et expédiez-le vers votre propre domaine."
 {
   "html": "<div class=\"diagram-fork\"><div class=\"diagram-card\"><span class=\"diagram-pill\">1</span><strong>Pick</strong><small class=\"diagram-muted\">a complete template</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2</span><strong>Brand</strong><small class=\"diagram-muted\">name, colors, logo, copy</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">3</span><strong>Customize</strong><small class=\"diagram-muted\">ask the agent &#8635;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">4</span><strong>Ship</strong><small class=\"diagram-muted\">your own domain</small></div></div>",
   "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px}.diagram-fork .diagram-arrow{font-size:22px;line-height:1}"
@@ -74,9 +74,9 @@ Un modèle traditionnel de fork-the-codebase s'effondre à grande échelle : ch
 
 Le résultat : une flexibilité au niveau du code Claude pour chaque utilisateur, avec des coûts de déploiement SaaS normaux.
 
-```an-diagram title="Why per-user forks scale" summary="Two ideas keep the fork-and-customize model practical: the agent does the maintenance, and per-user customization lives in SQL — not in per-user code."
+```an-diagram title="Pourquoi les forks par utilisateur évoluent" summary="Deux idées maintiennent le modèle fork-and-customize pratique : l'agent effectue la maintenance et la personnalisation par utilisateur réside dans SQL – et non dans le code par utilisateur."
 {
-  "html": "<div class=\"diagram-why\"><div class=\"diagram-panel\" data-rough><strong>Shared codebase</strong><small class=\"diagram-muted\">one app, deployed once</small><div class=\"diagram-pill accent\">agent does the maintenance</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-panel\" data-rough><strong>Per-user layer in SQL</strong><small class=\"diagram-muted\">skills · memory · instructions · MCP · sub-agents</small><div class=\"diagram-pill ok\">no per-user code</div></div></div>",
+  "html": "<div class=\"diagram-why\"><div class=\"diagram-panel\" data-rough><strong>Partagerd codebase</strong><small class=\"diagram-muted\">one app, deployed once</small><div class=\"diagram-pill accent\">agent does the maintenance</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-panel\" data-rough><strong>Per-user layer in SQL</strong><small class=\"diagram-muted\">skills · memory · instructions · MCP · sub-agents</small><div class=\"diagram-pill ok\">no per-user code</div></div></div>",
   "css": ".diagram-why{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-why .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 18px;min-width:240px;flex:1}.diagram-why .diagram-arrow{font-size:24px;line-height:1}"
 }
 ```

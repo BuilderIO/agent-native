@@ -27,7 +27,7 @@ Vous n'avez pas besoin de créer un agent natif à partir de zéro. Le chat de l
 
 Tous ces éléments sont exportés depuis `@agent-native/core/client`.
 
-```an-diagram title="The mount model" summary="<AgentSidebar> wraps your existing layout. Your routes render in the main area; the agent panel mounts beside them. <AgentPanel> is the same panel without the wrapper."
+```an-diagram title="Le modèle de monture" summary="<AgentSidebar> enveloppe votre mise en page existante. Vos itinéraires s'affichent dans la zone principale ; le panneau d'agent se monte à côté d'eux. <AgentPanel> est le même panneau sans le wrapper."
 {
   "html": "<div class=\"diagram-mount\"><div class=\"diagram-box sidebar\" data-rough><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><div class=\"inner\"><div class=\"diagram-node main\">Your app<br><small class=\"diagram-muted\">children: header + &lt;Outlet/&gt;</small></div><div class=\"diagram-node panel\">Agent panel<br><small class=\"diagram-muted\">chat &middot; CLI &middot; workspace</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card alt\"><span class=\"diagram-pill\">&lt;AgentPanel&gt;</span><small class=\"diagram-muted\">same panel, no wrapper &mdash; you own the layout</small></div></div>",
   "css": ".diagram-mount{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mount .sidebar{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-mount .inner{display:flex;gap:10px}.diagram-mount .main{flex:2}.diagram-mount .panel{flex:1}.diagram-mount .alt{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-mount .diagram-arrow{font-size:22px;line-height:1}"
@@ -40,7 +40,7 @@ La configuration la plus courante est une barre latérale qui s'ouvre depuis la 
 Enveloppez votre disposition racine existante avec `<AgentSidebar>` ; peu importe ce que vous faites passer
 les enfants restent dans la zone principale de l'application. Le chat de l'agent est le panneau latéral.
 
-```an-annotated-code title="Wrapping the root layout with <AgentSidebar>"
+```an-annotated-code title="Encapsuler la disposition racine avec <AgentSidebar>"
 {
   "filename": "app/root.tsx",
   "language": "tsx",

@@ -19,7 +19,7 @@ description: "ضغط الخلفية ثلاثي الطبقات (الخام الأ
 | **الملاحظات**               | إدخالات كثيفة ومؤرخة تدمج مجموعة من الرسائل الأولية في سجل مضغوط لما حدث.                              |
 | **الرسائل الأولية الأخيرة** | يتم الاحتفاظ بآخر المنعطفات N **حرفيًا** — ولا يتم طيها مطلقًا — بحيث يرى الوكيل دائمًا السياق الأحدث. |
 
-```an-diagram title="Three tiers, distilled to recent" summary="The older prefix folds into dated observations and a long-arc reflection; only the most recent turns stay verbatim."
+```an-diagram title="ثلاث طبقات، مقطرة إلى الأخيرة" summary="تُطوى البادئة الأقدم إلى ملاحظات مؤرخة وانعكاس قوس طويل؛ فقط أحدث المنعطفات تبقى حرفية."
 {
   "html": "<div class=\"om\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Reflections</span><small class=\"diagram-muted\">long-arc summary, condensed from the observation log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Observations</span><small class=\"diagram-muted\">dense, dated entries folding stretches of raw messages</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Recent raw messages</span><small class=\"diagram-muted\">last N turns, kept <strong>verbatim</strong> — never folded</small></div></div>",
   "css": ".om{display:flex;flex-direction:column-reverse;align-items:stretch;gap:8px}.om .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.om .diagram-arrow{text-align:center;font-size:20px;line-height:1}"
@@ -35,7 +35,7 @@ description: "ضغط الخلفية ثلاثي الطبقات (الخام الأ
 1. **المراقب** — بمجرد أن تتجاوز رسائل سلسلة المحادثات _unobserved_ عتبة رمز الملاحظة، يتم دمجها في إدخال مراقبة كثيف واحد.
 2. **العاكس** — بمجرد أن يتجاوز سجل المراقبة المستمرة حد رمز الانعكاس، يتم تكثيف الملاحظات في انعكاس عالي المستوى.
 
-```an-diagram title="Two best-effort passes after a clean turn" summary="Each pass no-ops below its threshold, so running the compactor every turn is cheap. Failures are swallowed and never add latency."
+```an-diagram title="تمريرتان من أفضل المحاولات بعد منعطف نظيف" summary="كل تمريرة محظورة أقل من عتبتها، لذا فإن تشغيل الضاغط في كل دورة يعد رخيصًا. يتم ابتلاع الفشل ولا يضيف الكمون أبدًا."
 {
   "html": "<div class=\"om-pass\"><div class=\"diagram-node\">Clean turn ends<br><small class=\"diagram-muted\">fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Observer</span><small class=\"diagram-muted\">unobserved tokens &gt; 30k? &rarr; fold into one observation</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Reflector</span><small class=\"diagram-muted\">observation log &gt; 40k? &rarr; condense into a reflection</small></div></div>",
   "css": ".om-pass{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.om-pass .diagram-node,.om-pass .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.om-pass .diagram-arrow{font-size:22px;line-height:1}"

@@ -51,15 +51,15 @@ const messages = {
     collapseSidebar: "サイドバーを折りたたむ",
   },
   notFound: {
-    message: "This page doesn't exist yet.",
-    backToDecks: "Back to Decks",
+    message: "このページはまだ存在しません。",
+    backToDecks: "デッキに戻る",
   },
   designSystems: {
-    new: "New Design System",
-    setupBrand: "Set up your brand",
-    emptyTitle: "Set up your brand identity",
+    new: "新しいデザインシステム",
+    setupBrand: "ブランドを設定",
+    emptyTitle: "ブランドを設定 identity",
     emptyDescription:
-      "Create a design system with your brand colors, typography, and logos. Every new deck will follow your visual identity.",
+      "ブランドカラー、タイポグラフィ、ロゴを使ってデザインシステムを作成します。新しいデッキはすべてそのビジュアルアイデンティティに従います。",
   },
 };
 

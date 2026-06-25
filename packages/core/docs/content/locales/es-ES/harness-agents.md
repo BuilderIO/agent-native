@@ -23,7 +23,7 @@ debajo de `runAgentLoop`. Un arnés no es un proveedor `AgentEngine`: ejecuta su
 propio bucle de extremo a extremo, por lo que Agent-Native lo controla como una sesión, no como una sola
 llamada modelo.
 
-```an-diagram title="A harness owns its loop; Agent-Native drives the session" summary="The AgentHarness substrate creates/resumes the native session, streams its events into the normal transcript, and persists resumeState in SQL between turns."
+```an-diagram title="Un arnés es dueño de su bucle; Agent-Native dirige la sesión" summary="El AgentHarness sustrato creates/resumes la sesión nativa, transmite sus eventos a la transcripción normal y persiste resumeState en SQL entre turnos."
 {
   "html": "<div class=\"diagram-harness\"><div class=\"diagram-box\" data-rough><strong>AgentHarness substrate</strong><small class=\"diagram-muted\">@agent-native/core/agent/harness</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><strong>Native harness loop</strong><small class=\"diagram-muted\">Claude Code · Codex · Pi — own tools, sandbox, compaction</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">events &rarr; transcript</div><div class=\"diagram-pill ok\">resumeState &rarr; SQL session</div></div></div>",
   "css": ".diagram-harness{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-harness .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-harness .diagram-arrow{font-size:22px;line-height:1}.diagram-harness .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -213,7 +213,7 @@ para que un hilo pueda sobrevivir a través de turnos, procesos e implementacion
 es **opaco**: Agent-Native lo guarda y lo devuelve, pero nunca lo inspecciona ni
 lo interpreta.
 
-```an-diagram title="Resume across turns, processes, and deploys" summary="Each turn detaches an opaque resumeState into SQL; the next turn feeds it back into createSession instead of replaying chat history."
+```an-diagram title="Reanudación en turnos, procesos y despliegues" summary="Cada turno separa un resumeState opaco en SQL; el siguiente turno lo devuelve a createSession en lugar de reproducir el historial de chat."
 {
   "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Turn N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opaque · SQL harness session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Turn N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
   "css": ".diagram-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-resume .diagram-arrow{font-size:22px;line-height:1}"

@@ -75,21 +75,20 @@ const messages = {
     signIn: "サインイン",
   },
   chat: {
-    suggestionShipped: "What shipped in the last week?",
-    suggestionUi: "What does the new checkout UI look like?",
-    suggestionAuth: "When did the auth API change?",
-    suggestionApi: "What is the shape of the billing API?",
-    emptyState: "Ask Plan",
-    placeholder:
-      "Ask what shipped, what changed, or what the current code shows...",
-    heading: "Ask Plan",
+    suggestionShipped: "この1週間で何がリリースされましたか？",
+    suggestionUi: "新しいチェックアウトUIはどのような見た目ですか？",
+    suggestionAuth: "認証APIはいつ変更されましたか？",
+    suggestionApi: "課金APIの構造はどうなっていますか？",
+    emptyState: "Plan に質問",
+    placeholder: "出荷内容、変更点、現在のコードの状態を質問...",
+    heading: "Plan に質問",
     description:
-      "Search merged PR recaps, inspect visual blocks, and publish code answers as diagrams, wireframes, API specs, and data models.",
+      "マージ済み PR の要約を検索し、ビジュアルブロックを確認し、コード回答を図、ワイヤーフレーム、API 仕様、データモデルとして公開します。",
   },
   guest: {
     banner:
-      "You're browsing as a guest. Sign in to create plans, leave comments, and keep your work.",
-    signIn: "Sign in",
+      "ゲストとして閲覧しています。サインインすると、プランの作成、コメント、作業の保存ができます。",
+    signIn: "サインイン",
   },
 };
 

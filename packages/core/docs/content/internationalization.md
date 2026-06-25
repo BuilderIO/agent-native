@@ -115,6 +115,12 @@ and leave routes, action names, protocol fields, env vars, and provider names
 untranslated. If a locale has no translated Markdown for a page, the docs site
 falls back to English for that page while still localizing navigation and chrome.
 
+Docs Markdown may include structured `an-*` visual blocks. Translate their
+user-facing prose fields where it makes sense, such as file-tree titles and
+`entries[].note`, callout bodies, tab labels, and annotated-code labels/notes.
+Keep stable identifiers unchanged: filenames, paths, env vars, route strings,
+action names, language tags, code snippets, JSON keys, and protocol names.
+
 ## Actions And Persistence
 
 Every app inherits:

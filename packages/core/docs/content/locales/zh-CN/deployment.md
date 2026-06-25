@@ -28,7 +28,7 @@ npx @agent-native/core@latest deploy
 
 每个应用程序均使用 `APP_BASE_PATH=/<name>` 和 `VITE_APP_BASE_PATH=/<name>` 构建，然后打包为目标 Nitro 预设。 Cloudflare Pages 是默认预设，并使用 `dist/_worker.js` 生成的调度程序工作人员； Netlify 在 `.netlify/functions-internal/<app>-server` 中为每个应用程序使用一个函数以及生成的重定向； Vercel 使用构建输出 API 编写工作区级 `.vercel/output`。
 
-```an-diagram title="One origin, many apps" summary="Each workspace app is built with its own base path and mounted under a path prefix on a single origin — so login and cross-app A2A are same-origin and free."
+```an-diagram title="一个来源，多个应用程序" summary="每个工作区应用程序都使用自己的基本路径构建，并安装在单个源的路径前缀下 - 因此登录和跨应用程序 A2A 是同源且免费的。"
 {
   "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">zero-config cross-app A2A</span></div></div>",
   "css": ".diagram-ws{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-ws .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-ws .diagram-row{display:flex;align-items:center;gap:8px}.diagram-ws .wins{display:flex;flex-direction:column;gap:8px;align-items:flex-start}"
@@ -70,20 +70,20 @@ npx @agent-native/core@latest deploy --preset vercel
 
 当您运行`npx @agent-native/core@latest build`时，Nitro将客户端SPA和服务器API构建为`.output/`：
 
-```an-file-tree title="Build output"
+```an-file-tree title="构建输出"
 {
   "entries": [
-    { "path": ".output/", "note": "self-contained — copy to any environment and run" },
-    { "path": ".output/public/", "note": "built SPA (static assets)" },
-    { "path": ".output/server/index.mjs", "note": "server entry point" },
-    { "path": ".output/server/chunks/", "note": "server code chunks" }
+    { "path": ".output/", "note": "自包含：复制到任何环境即可运行" },
+    { "path": ".output/public/", "note": "构建后的 SPA（静态 assets）" },
+    { "path": ".output/server/index.mjs", "note": "服务器入口点" },
+    { "path": ".output/server/chunks/", "note": "服务器代码 chunks" }
   ]
 }
 ```
 
 输出是独立的 - 将 `.output/` 复制到任何环境并运行它。
 
-```an-diagram title="Build to deploy" summary="One source tree builds to a Nitro preset; the same self-contained output runs on Node, Vercel, Netlify, Cloudflare, AWS, or Deno. Every instance points at the same persistent DATABASE_URL."
+```an-diagram title="构建部署" summary="一棵源树构建为 Nitro 预设；相同的独立输出在 Node、Vercel、Netlify、Cloudflare、AWS 或 Deno 上运行。每个实例都指向同一个持久的 DATABASE_URL。"
 {
   "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>App source</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Persistent DATABASE_URL<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
   "css": ".diagram-deploy{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-deploy .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-deploy .diagram-arrow{font-size:22px;line-height:1}.diagram-deploy .diagram-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}"
@@ -95,12 +95,11 @@ npx @agent-native/core@latest deploy --preset vercel
 默认情况下，Nitro 为 Node.js 构建。要针对不同的平台，请在 `vite.config.ts` 中设置预设：
 
 ```ts
-import { defineConfig } from "@agent-native/core/vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
-  nitro: {
-    preset: "vercel",
-  },
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
 });
 ```
 
@@ -151,7 +150,7 @@ CMD ["node", ".output/server/index.mjs"]
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "vercel" },
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
 });
 ```
 
@@ -182,7 +181,7 @@ Nitro `netlify` 预设运行良好，在实践中，对于与外部 Postgres (Ne
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "netlify" },
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
 });
 ```
 
@@ -201,7 +200,7 @@ npx @agent-native/core@latest deploy --preset netlify
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "cloudflare_pages" },
+  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
 });
 ```
 
@@ -210,7 +209,7 @@ export default defineConfig({
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "aws_lambda" },
+  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
 });
 ```
 
@@ -219,7 +218,7 @@ export default defineConfig({
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "deno_deploy" },
+  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
 });
 ```
 

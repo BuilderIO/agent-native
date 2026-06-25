@@ -1,8 +1,16 @@
 import { reactRouter } from "@react-router/dev/vite";
-import { defineConfig } from "@agent-native/core/vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [reactRouter()],
+  plugins: [
+    reactRouter(),
+    agentNative({
+      // shiki only runs in AssistantChat's useEffect — keep it out of the
+      // CF Pages Functions bundle (25 MiB limit).
+      ssrStubs: ["shiki"],
+    }),
+  ],
   optimizeDeps: {
     include: [
       "@hookform/resolvers",
@@ -17,7 +25,4 @@ export default defineConfig({
       "vaul",
     ],
   },
-  // shiki only runs in AssistantChat's useEffect — keep it out of the
-  // CF Pages Functions bundle (25 MiB limit).
-  ssrStubs: ["shiki"],
 });

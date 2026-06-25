@@ -22,7 +22,7 @@ description: "आपके उपयोगकर्ता आपके टेम
 एजेंट-फेसिंग एक्सटेंशन actions और शेष को छोड़ते समय त्वरित मार्गदर्शन
 ऐप एजेंट बरकरार।
 
-```an-diagram title="The sandbox bridge" summary="Extension HTML runs in an isolated iframe and reaches the host only through a fixed set of bridge helpers — every call is scoped and access-checked."
+```an-diagram title="सैंडबॉक्स ब्रिज" summary="एक्सटेंशन HTML एक पृथक आईफ्रेम में चलता है और केवल ब्रिज हेल्पर्स के एक निश्चित सेट के माध्यम से होस्ट तक पहुंचता है - प्रत्येक कॉल का दायरा होता है और एक्सेस-चेक किया जाता है।"
 {
   "html": "<div class=\"ext-bridge\"><div class=\"diagram-card sandbox\" data-rough><span class=\"diagram-pill warn\">Sandboxed iframe</span><small class=\"diagram-muted\">Alpine.js HTML &middot; no host cookies, session, or DOM</small><div class=\"ext-helpers\"><span class=\"diagram-pill\">appAction</span><span class=\"diagram-pill\">appFetch</span><span class=\"diagram-pill\">dbQuery / dbExec</span><span class=\"diagram-pill\">extensionData</span><span class=\"diagram-pill\">extensionFetch</span></div></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Host template<br><small class=\"diagram-muted\">actions, auto-scoped SQL</small></div><div class=\"diagram-box\">Secret proxy<br><small class=\"diagram-muted\"><code>${keys.NAME}</code>, domain-locked</small></div><div class=\"diagram-box\">External APIs<br><small class=\"diagram-muted\">via extensionFetch only</small></div></div></div>",
   "css": ".ext-bridge{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ext-bridge .sandbox{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:240px}.ext-bridge .ext-helpers{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.ext-bridge .diagram-col{display:flex;flex-direction:column;gap:8px}.ext-bridge .diagram-arrow{font-size:24px}"
@@ -220,7 +220,7 @@ iframe सैंडबॉक्स के अंदर, प्रत्येक
 
 जब कोई एक्सटेंशन **स्लॉट में इंस्टॉल** किया जाता है, तो होस्ट संबंधित संदर्भ - संपर्क का ईमेल, डैशबोर्ड आईडी, इवेंट आईडी - को आईफ्रेम में धकेलता है। उपयोगकर्ता क्या देख रहा है यह जानने के लिए एक्सटेंशन `window.slotContext` पढ़ता है।
 
-```an-diagram title="Slots push context into the widget" summary="The host template owns named slots; installing an extension into one feeds it window.slotContext for whatever the user is currently viewing."
+```an-diagram title="स्लॉट्स संदर्भ को विजेट में धकेलते हैं" summary="होस्ट टेम्पलेट नामित स्लॉट का स्वामी है; किसी एक्सटेंशन को इंस्टॉल करने से उपयोगकर्ता जो भी वर्तमान में देख रहा है, उसके लिए उसे window.slotContext फीड करता है।"
 {
 "html": "<div class=\"slot\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Mail thread</span><small class=\"diagram-muted\">slot <code>mail.contact-sidebar.bottom</code></small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box accent\"><code>window.slotContext</code><br><small class=\"diagram-muted\">{ contactEmail }</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Contact notes</span><small class=\"diagram-muted\">loads notes for that contact &mdash; same widget, different context</small></div></div>",
 "css": ".slot{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.slot .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px;min-width:180px}.slot .diagram-arrow{font-size:22px}"

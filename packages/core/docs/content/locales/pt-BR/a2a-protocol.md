@@ -20,7 +20,7 @@ Conceitos principais:
 - **Tarefas** — cada mensagem cria uma tarefa com um ciclo de vida (enviada, em funcionamento, concluída, com falha, cancelada)
 - **Autenticação do portador JWT** — a produção A2A requer `A2A_SECRET` ou um `apiKeyEnv` legado explícito
 
-```an-diagram title="One agent hands work to another" summary="A mail agent discovers the analytics agent's card, sends a JSON-RPC message, and gets a completed task back."
+```an-diagram title="Um agente passa o trabalho para outro" summary="Um agente de correio descobre o cartão do agente analítico, envia uma mensagem JSON-RPC e recebe de volta uma tarefa concluída."
 {
   "html": "<div class=\"diagram-handoff\"><div class=\"diagram-card\"><strong>Mail agent</strong><small class=\"diagram-muted\">needs analytics</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">GET /.well-known/agent-card.json</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">POST /_agent-native/a2a<br><small class=\"diagram-muted\">message/send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-pill ok\">task · completed</div></div><div class=\"diagram-card\" data-rough><strong>Analytics agent</strong><small class=\"diagram-muted\">runs run-query, returns result</small></div></div>",
   "css": ".diagram-handoff{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-handoff .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-handoff .diagram-arrow{font-size:20px;line-height:1}"
@@ -146,7 +146,7 @@ Todos os métodos são chamados via `POST /_agent-native/a2a` com formato JSON-R
 
 Quando `message/send` é chamado com `async: true`, o manipulador JSON-RPC enfileira a tarefa e dispara automaticamente um POST para uma rota interna `/_agent-native/a2a/_process-task` para que o manipulador seja executado em uma nova execução de função com seu próprio tempo limite completo. Esta rota é autenticada com um token HMAC vinculado ao ID da tarefa (tempo de vida de 5 minutos, assinado com `A2A_SECRET`). Ele é montado antes da rota `/_agent-native/a2a` JSON-RPC para que a correspondência de prefixo de h3 não o engula.
 
-```an-diagram title="Async task lifecycle on serverless" summary="async:true returns working in milliseconds, then a fresh execution runs the agent loop while the caller polls."
+```an-diagram title="Ciclo de vida de tarefa assíncrona sem servidor" summary="async:true retorna funcionando em milissegundos e, em seguida, uma nova execução executa o loop do agente enquanto o chamador pesquisa."
 {
   "html": "<div class=\"diagram-async\"><div class=\"diagram-box\" data-rough>message/send<br><small class=\"diagram-muted\">async: true</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">enqueue task</span><span class=\"diagram-pill warn\">return working</span><small class=\"diagram-muted\">~milliseconds</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>self-fire POST /_agent-native/a2a/_process-task<br><small class=\"diagram-muted\">HMAC token · fresh execution · full timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">tasks/get (poll)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">completed</div></div></div>",
   "css": ".diagram-async{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-async .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-arrow{font-size:20px;line-height:1}",
@@ -160,7 +160,7 @@ Quando `message/send` é chamado com `async: true`, o manipulador JSON-RPC enfil
 
 As mensagens contêm partes digitadas — texto, dados estruturados e arquivos podem viajar em uma única mensagem:
 
-```an-annotated-code title="A2A message with typed parts"
+```an-annotated-code title="Mensagem A2A com partes digitadas"
 {
   "language": "json",
   "code": "{\n  \"role\": \"user\",\n  \"parts\": [\n    { \"type\": \"text\", \"text\": \"Show signups by source\" },\n    { \"type\": \"data\", \"data\": { \"dateRange\": \"last-30d\" } },\n    {\n      \"type\": \"file\",\n      \"file\": { \"name\": \"report.csv\", \"mimeType\": \"text/csv\", \"bytes\": \"...\" }\n    }\n  ]\n}",

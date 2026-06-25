@@ -11,7 +11,7 @@ description: "페이지 컨텍스트 및 호스트 명령을 사용하여 기존
 내장형 사이드카 또는 전체 앱으로 시작
 [Agent Surfaces](/docs/agent-surfaces).
 
-```an-diagram title="The embedding membrane" summary="The host app supplies server-side auth and live page context; Agent-Native runs the durable sidecar and reaches the open tab through client actions and host commands."
+```an-diagram title="임베딩 멤브레인" summary="호스트 앱은 서버 측 인증 및 라이브 페이지 컨텍스트를 제공합니다. Agent-Native은 내구성 있는 사이드카를 실행하고 클라이언트 작업 및 호스트 명령을 통해 열린 탭에 도달합니다."
 {
   "html": "<div class=\"diagram-embed\"><div class=\"diagram-box\" data-rough><strong>Host SaaS app</strong><small class=\"diagram-muted\">your UI, your auth</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">getContext &rarr;</div><div class=\"diagram-pill\">&larr; client actions</div><div class=\"diagram-pill\">&larr; host commands</div></div><div class=\"diagram-panel center\" data-rough><strong>Agent-Native sidecar</strong><small class=\"diagram-muted\">durable chat · app state · extensions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL<br><small class=\"diagram-muted\">framework tables</small></div></div>",
   "css": ".diagram-embed{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-embed .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -373,7 +373,7 @@ const hostTools = createAgentNativeHostTools({
 
 CLAW 스타일 동료의 경우 iframe은 사이드카 백엔드에 라이브 브라우저 탭을 등록할 수도 있습니다. 그런 다음 에이전트는 요청을 대기열에 추가하는 일반 백엔드 도구를 가져오고, iframe이 이를 요청하고, 호스트 페이지가 이를 실행하며, 백엔드가 결과를 에이전트에 반환합니다.
 
-```an-diagram title="Server-mediated browser-session bridge" summary="A backend tool enqueues work; the registered tab claims it, runs it on the live page, and the result returns to the agent — so a backend/Slack/A2A agent can still touch the open tab."
+```an-diagram title="서버 중재 브라우저 세션 브리지" summary="백엔드 도구는 작업을 대기열에 넣습니다. 등록된 탭이 이를 요청하고 라이브 페이지에서 실행하면 결과가 에이전트에 반환됩니다. 따라서 backend/Slack/A2A 에이전트는 여전히 열려 있는 탭을 터치할 수 있습니다."
 {
   "html": "<div class=\"diagram-bridge\"><div class=\"diagram-node\" data-rough>Backend agent<br><small class=\"diagram-muted\">chat · Slack · A2A</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>enqueue request<br><small class=\"diagram-muted\">/_agent-native/browser-sessions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Live tab claims it<br><small class=\"diagram-muted\">registered bridge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">result &rarr; agent</div></div>",
   "css": ".diagram-bridge{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}"

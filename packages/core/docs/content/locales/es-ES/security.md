@@ -9,7 +9,7 @@ Las aplicaciones nativas del agente están diseñadas para ser seguras de forma 
 
 ## Lo que obtienes gratis y lo que posees {#what-you-own}
 
-```an-diagram title="Defense in layers" summary="The framework owns most of the threat surface; you own two things — tagging tables for scoping and validating external input."
+```an-diagram title="Defensa en capas" summary="El marco posee la mayor parte de la superficie de amenazas; usted posee dos cosas: etiquetar tablas para determinar el alcance y validar entradas externas."
 {
   "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">Framework owns</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">You own</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
   "css": ".sec-layers{display:flex;flex-direction:column;gap:12px}.sec-layers .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
@@ -123,7 +123,7 @@ El alcance fluye desde la sesión autenticada hasta el SQL que ejecuta el agente
 session.orgId → AGENT_ORG_ID → SQL row scoping
 ```
 
-```an-diagram title="The scoping pipeline" summary="Agent SQL never touches base tables directly — it reads through a temporary view scoped to the current identity, so a bare table name can only return owned rows."
+```an-diagram title="El canal de alcance" summary="El agente SQL nunca toca las tablas base directamente: lee una vista temporal cuyo ámbito es la identidad actual, por lo que un nombre de tabla simple solo puede devolver filas propias."
 {
   "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">Signed-in session<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">Agent SQL<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
   "css": ".scope-pipe{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.scope-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.scope-pipe .diagram-arrow{font-size:22px;line-height:1}"

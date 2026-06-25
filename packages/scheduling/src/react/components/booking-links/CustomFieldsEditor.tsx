@@ -355,7 +355,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                             .filter((o) => o.trim());
                           updateField(field.id, { options });
                         }}
-                        placeholder={"Option 1\nOption 2\nOption 3"}
+                        placeholder={t("optionListPlaceholder")}
                         rows={3}
                         className="text-sm"
                       />
@@ -377,7 +377,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                             pattern: e.target.value || undefined,
                           })
                         }
-                        placeholder="e.g. ^https?://(www\.)?linkedin\.com/in/.+"
+                        placeholder={t("validationPatternPlaceholder")}
                         className="h-8 font-mono text-sm"
                       />
                       {field.pattern && (
@@ -395,7 +395,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                                 patternError: e.target.value || undefined,
                               })
                             }
-                            placeholder="e.g. Please enter a valid LinkedIn URL"
+                            placeholder={t("validationErrorPlaceholder")}
                             className="h-8 text-sm"
                           />
                         </div>

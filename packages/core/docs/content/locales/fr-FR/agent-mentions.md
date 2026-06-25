@@ -29,7 +29,7 @@ Il existe deux chemins d'accès aux agents :
 
 Dans les deux cas, votre agent principal voit la réponse et peut y faire référence ou s'en inspirer.
 
-```an-diagram title="Where an @-mention routes" summary="The server splits each mention by type: custom agents run locally, connected agents go over A2A — both responses fold back into the main agent's context."
+```an-diagram title="Où une @-mention route" summary="Le serveur divise chaque mention par type : les agents personnalisés s'exécutent localement, les agents connectés passent par A2A — les deux réponses se replient dans le contexte de l'agent principal."
 {
   "html": "<div class=\"diagram-mention\"><div class=\"diagram-node\">@-mention<br><small class=\"diagram-muted\">in the composer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Server resolves</span><small class=\"diagram-muted\">extract refs by type</small></div><div class=\"diagram-col\"><div class=\"row\"><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\">Custom agent<br><small class=\"diagram-muted\">agents/*.md &middot; runs local</small></div></div><div class=\"row\"><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\">Connected agent<br><small class=\"diagram-muted\">A2A peer &middot; remote call</small></div></div></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box diagram-accent\">&lt;agent-response&gt;<br><small class=\"diagram-muted\">injected into main agent</small></div></div>",
   "css": ".diagram-mention{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-mention .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-mention .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mention .row{display:flex;align-items:center;gap:8px}.diagram-mention .diagram-arrow{font-size:22px;line-height:1}"
@@ -119,7 +119,7 @@ Les agents A2A distants utilisent toujours les manifestes JSON :
 
 Les modèles peuvent enregistrer des fournisseurs de mentions personnalisés pour ajouter des éléments mentionnables spécifiques au domaine au-delà des agents et des fichiers. Un fournisseur de mentions implémente l'interface `MentionProvider` :
 
-```an-annotated-code title="A custom MentionProvider"
+```an-annotated-code title="Un MentionProvider personnalisé"
 {
   "filename": "server/mentions/contacts.ts",
   "language": "ts",

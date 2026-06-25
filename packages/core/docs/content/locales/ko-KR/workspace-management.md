@@ -9,7 +9,7 @@ description: "브랜칭, CODEOWNERS, PR 검토 및 Dispatch가 Git 수준 거버
 
 이 가이드에서는 분기 방법, 누가 무엇을 검토하는지, 코드 소유권을 설정하는 방법, Dispatch 제어 플레인이 거버넌스 모델에 어떻게 적합한지 등 에이전트 기반 작업 영역 실행의 운영 측면을 다룹니다.
 
-```an-diagram title="Two governance planes" summary="Git governs code; Dispatch governs runtime. They are complementary — don't replicate one inside the other."
+```an-diagram title="두 개의 거버넌스 평면" summary="Git은 코드를 관리합니다. Dispatch은 런타임을 관리합니다. 그것들은 보완적입니다. 하나를 다른 것 안에 복제하지 마십시오."
 {
   "html": "<div class=\"gov\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Git / GitHub</span><strong>Code governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">CODEOWNERS</span><span class=\"diagram-pill\">branch protection</span><span class=\"diagram-pill\">PR review</span><span class=\"diagram-pill\">git log / blame</span></div></div><div class=\"diagram-pill diagram-muted\">+</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Dispatch</span><strong>Runtime governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">vault secrets &amp; grants</span><span class=\"diagram-pill\">workspace resources</span><span class=\"diagram-pill\">agent profiles</span><span class=\"diagram-pill\">approvals &amp; audit</span></div></div></div>",
   "css": ".gov{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.gov .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:240px}.gov .gov-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}"
@@ -47,13 +47,13 @@ main                         ← production
 
 코드 거버넌스는 저장소 루트에 있는 소수의 파일로 구성됩니다.
 
-```an-file-tree title="Governance config in the repo"
+```an-file-tree title="repo의 거버넌스 설정"
 {
   "entries": [
-    { "path": ".github/CODEOWNERS", "note": "Auto-assigns reviewers per changed path" },
-    { "path": ".github/labeler.yml", "note": "Auto-labels PRs by app" },
-    { "path": "pnpm-workspace.yaml", "note": "Workspace-level — broad review" },
-    { "path": "package.json", "note": "Workspace-level — platform team owns" }
+    { "path": ".github/CODEOWNERS", "note": "변경된 경로별로 reviewers를 자동 지정" },
+    { "path": ".github/labeler.yml", "note": "app별로 PR에 labels 자동 적용" },
+    { "path": "pnpm-workspace.yaml", "note": "Workspace 수준: 폭넓은 review" },
+    { "path": "package.json", "note": "Workspace 수준: platform team 소유" }
   ]
 }
 ```

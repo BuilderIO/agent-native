@@ -19,7 +19,7 @@ Un nouvel échafaudage `npx @agent-native/core@latest create` est déjà livré 
 
 Si vous évaluez un agent natif pour un CRM, un outil de suivi de projet, une boîte de réception d'assistance ou tout autre outil d'équipe, la base multi-tenant est déjà là. Tous les modèles propriétaires sont multi-tenants – voir [Cloneable SaaS templates](/docs/cloneable-saas) pour la liste.
 
-```an-diagram title="Org membership and isolation" summary="Users join organizations as owner/admin/member. Every ownable row carries the org_id of the tenant that owns it, and no row leaks across the boundary."
+```an-diagram title="Appartenance à une organisation et isolement" summary="Les utilisateurs rejoignent les organisations en tant que owner/admin/member. Chaque ligne propriétaire porte le org_id du locataire qui en est propriétaire, et aucune ligne ne traverse la limite."
 {
   "html": "<div class=\"mt-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Org A</span><small class=\"diagram-muted\">members: alice (owner), bob (member)</small><div class=\"diagram-box\">rows where org_id = A</div></div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Org B</span><small class=\"diagram-muted\">members: carol (owner)</small><div class=\"diagram-box\">rows where org_id = B</div></div></div><div class=\"mt-wall\" aria-hidden=\"true\"><span class=\"diagram-pill warn\">no cross-org reads</span></div>",
   "css": ".mt-grid{display:flex;gap:16px;flex-wrap:wrap}.mt-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;flex:1;min-width:200px}.mt-wall{display:flex;justify-content:center;margin-top:12px}"
@@ -36,7 +36,7 @@ Il s'agit du module `org/` propre au framework, et non du plugin d'organisation 
 
 Les données des locataires sont isolées par une colonne `org_id` (ajoutée par `ownableColumns()`) et le framework étend automatiquement chaque requête à l'organisation active : `session.orgId → AGENT_ORG_ID → SQL`. Lorsqu'un utilisateur change d'organisation, le UI, le actions et l'agent voient tous uniquement les données de cette organisation : l'agent ne peut pas accéder aux données d'une organisation dont l'utilisateur n'est pas membre.
 
-```an-diagram title="From session to scoped SQL" summary="The active org on the session becomes AGENT_ORG_ID, which the framework folds into the WHERE clause of every query."
+```an-diagram title="De la session à la portée SQL" summary="L'organisation active sur la session devient AGENT_ORG_ID, que le framework intègre dans la clause WHERE de chaque requête."
 {
   "html": "<div class=\"mt-pipe\"><div class=\"diagram-node\">session.orgId<br><small class=\"diagram-muted\">active org on session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">AGENT_ORG_ID<br><small class=\"diagram-muted\">request context</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">SQL row scoping<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div></div>",
   "css": ".mt-pipe{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mt-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.mt-pipe .diagram-arrow{font-size:22px;line-height:1}"

@@ -7,7 +7,7 @@ description: "이식 가능한 SQL 데이터베이스를 에이전트 기반 앱
 
 에이전트 기본 앱은 [Drizzle ORM](https://orm.drizzle.team)를 사용하고 휴대용 SQL 백엔드를 지원합니다. 로컬 개발 이상의 작업을 위해서는 `DATABASE_URL`를 설정하여 영구 SQL 데이터베이스(Postgres, libSQL/Turso 또는 다른 Drizzle 호환 백엔드)를 연결하세요. 해당 변수가 설정 해제되면 앱은 구성이 0인 로컬 SQLite 파일로 대체되므로 즉시 개발을 시작할 수 있습니다.
 
-```an-diagram title="One schema, many backends" summary="App code uses the framework's dialect-agnostic helpers. The dialect is auto-detected from DATABASE_URL at runtime; unset means a local SQLite file."
+```an-diagram title="하나의 스키마, 많은 백엔드" summary="앱 코드는 프레임워크의 방언에 구애받지 않는 도우미를 사용합니다. 방언은 런타임 시 DATABASE_URL에서 자동 감지됩니다. unset은 로컬 SQLite 파일을 의미합니다."
 {
   "html": "<div class=\"diagram-db\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">@agent-native/core/db/schema</span><small class=\"diagram-muted\">table · text · integer · real · now</small><small class=\"diagram-muted\">+ Drizzle query DSL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>DATABASE_URL<br><small class=\"diagram-muted\">dialect auto-detected</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Postgres<br><small class=\"diagram-muted\">Neon · Supabase</small></span><span class=\"diagram-pill\">libSQL / Turso</span><span class=\"diagram-pill\">Cloudflare D1</span><span class=\"diagram-pill warn\">SQLite file<br><small class=\"diagram-muted\">unset = local dev only</small></span></div></div>",
   "css": ".diagram-db{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-db .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-db .diagram-arrow{font-size:22px;line-height:1}.diagram-db .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
@@ -162,7 +162,7 @@ Drizzle 쿼리 외부에 원시 SQL가 꼭 필요한 경우:
 
 직접 푸시하는 대신 애플리케이션 시작 시 실행되는 SQL 마이그레이션을 통해 스키마 변경 사항을 적용해야 합니다. 프레임워크의 `runMigrations()` 도우미를 호출하여 서버 플러그인(예: `server/plugins/db.ts`) 내에서 추가 마이그레이션을 구현합니다.
 
-```an-annotated-code title="An additive migration plugin"
+```an-annotated-code title="추가 마이그레이션 플러그인"
 {
   "filename": "server/plugins/db.ts",
   "language": "ts",

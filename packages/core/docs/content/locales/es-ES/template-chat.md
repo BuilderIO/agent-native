@@ -35,7 +35,7 @@ Si desea el tiempo de ejecución más pequeño de solo acciones sin navegador UI
 
 Ese es el punto. Chat es un shell predeterminado ligero y útil para su propio agente, no un producto de dominio que pretende ser genérico.
 
-```an-diagram title="What ships in the Chat shell" summary="A thin chat surface over the framework's standard runtime — actions, durable threads, live sync, and auth — with room to add your own UI."
+```an-diagram title="Qué se incluye en el shell de Chat" summary="Una superficie de chat delgada sobre el tiempo de ejecución estándar del marco (acciones, subprocesos duraderos, sincronización en vivo y autenticación) con espacio para agregar su propia interfaz de usuario."
 {
   "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">Thread list<br><small class=\"diagram-muted\">create · reopen · pin · archive</small></div><div class=\"diagram-node\">Full-page chat<br><small class=\"diagram-muted\">framework chat surface on /</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">Core SQL tables<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">Live sync &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">login · orgs · sessions</small></div></div></div>",
   "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -74,14 +74,14 @@ Desde allí, copie la ruta `/` de la plantilla de Chat y la lista de subprocesos
   sugerencias, estado vacío, compositor o diseño circundante aquí.
 - `AGENTS.md` le dice al agente integrado cómo trabajar dentro de esta aplicación.
 
-```an-file-tree title="Chat template layout"
+```an-file-tree title="Estructura de la plantilla Chat"
 {
   "entries": [
-    { "path": "actions/hello.ts", "note": "the one example action; replace or add actions beside it" },
-    { "path": "actions/view-screen.ts", "note": "standard context action the agent reads" },
-    { "path": "actions/navigate.ts", "note": "standard navigation action" },
-    { "path": "app/routes/_index.tsx", "note": "renders the full-page chat surface; edit suggestions, empty state, composer" },
-    { "path": "AGENTS.md", "note": "chat-first guidance the built-in agent reads" }
+    { "path": "actions/hello.ts", "note": "La action de ejemplo; reemplázala o agrega actions junto a ella" },
+    { "path": "actions/view-screen.ts", "note": "Action de contexto estándar que el agente lee" },
+    { "path": "actions/navigate.ts", "note": "Action de navegación estándar" },
+    { "path": "app/routes/_index.tsx", "note": "Renderiza la superficie de chat de página completa; edita sugerencias, estado vacío y composer" },
+    { "path": "AGENTS.md", "note": "Guía centrada en chat que lee el agente integrado" }
   ]
 }
 ```

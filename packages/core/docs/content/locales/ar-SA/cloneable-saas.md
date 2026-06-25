@@ -51,9 +51,9 @@ description: "ابتكر منتج SaaS فعالاً واجعله ملكك - بم
 
 المسار من "أريد SaaS الخاص بي" إلى "لدي SaaS الخاص بي" قصير:
 
-```an-diagram title="Fork and customize" summary="Pick a finished product, brand it, evolve it in plain English, and ship it to your own domain."
+```an-diagram title="شوكة وتخصيص" summary="اختر منتجًا نهائيًا، وقم بوضع علامة تجارية عليه، وقم بتطويره بلغة إنجليزية بسيطة، ثم اشحنه إلى النطاق الخاص بك."
 {
-  "html": "<div class=\"diagram-fork\"><div class=\"diagram-card\"><span class=\"diagram-pill\">1</span><strong>Pick</strong><small class=\"diagram-muted\">a complete template</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2</span><strong>Brand</strong><small class=\"diagram-muted\">name, colors, logo, copy</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">3</span><strong>Customize</strong><small class=\"diagram-muted\">ask the agent &#8635;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">4</span><strong>Ship</strong><small class=\"diagram-muted\">your own domain</small></div></div>",
+  "html": "<div class=\"diagram-fork\"><div class=\"diagram-card\"><span class=\"diagram-pill\">1</span><strong>يختار</strong><small class=\"diagram-muted\">قالب كامل</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2</span><strong>ماركة</strong><small class=\"diagram-muted\">الاسم والألوان والشعار والنسخة</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">3</span><strong>تخصيص</strong><small class=\"diagram-muted\">اسأل الوكيل &#8635;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">4</span><strong>سفينة</strong><small class=\"diagram-muted\">المجال الخاص بك</small></div></div>",
   "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px}.diagram-fork .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -74,9 +74,9 @@ description: "ابتكر منتج SaaS فعالاً واجعله ملكك - بم
 
 النتيجة: مرونة على مستوى الكود Claude لكل مستخدم، مع اقتصاديات نشر SaaS العادية.
 
-```an-diagram title="Why per-user forks scale" summary="Two ideas keep the fork-and-customize model practical: the agent does the maintenance, and per-user customization lives in SQL — not in per-user code."
+```an-diagram title="لماذا مقياس الشوكات لكل مستخدم" summary="هناك فكرتان تجعلان نموذج الشوكة والتخصيص عمليًا: يقوم الوكيل بالصيانة، ويعيش التخصيص لكل مستخدم في SQL - وليس في التعليمات البرمجية لكل مستخدم."
 {
-  "html": "<div class=\"diagram-why\"><div class=\"diagram-panel\" data-rough><strong>Shared codebase</strong><small class=\"diagram-muted\">one app, deployed once</small><div class=\"diagram-pill accent\">agent does the maintenance</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-panel\" data-rough><strong>Per-user layer in SQL</strong><small class=\"diagram-muted\">skills · memory · instructions · MCP · sub-agents</small><div class=\"diagram-pill ok\">no per-user code</div></div></div>",
+  "html": "<div class=\"diagram-why\"><div class=\"diagram-panel\" data-rough><strong>قاعدة التعليمات البرمجية المشتركة</strong><small class=\"diagram-muted\">تطبيق واحد، تم نشره مرة واحدة</small><div class=\"diagram-pill accent\">الوكيل يقوم بالصيانة</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-panel\" data-rough><strong>طبقة لكل مستخدم في SQL</strong><small class=\"diagram-muted\">المهارات · الذاكرة · التعليمات · SQL · الوكلاء الفرعيون</small><div class=\"diagram-pill ok\">لا يوجد رمز لكل مستخدم</div></div></div>",
   "css": ".diagram-why{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-why .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 18px;min-width:240px;flex:1}.diagram-why .diagram-arrow{font-size:24px;line-height:1}"
 }
 ```

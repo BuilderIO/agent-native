@@ -12,7 +12,7 @@ description: "代理是整个产品的应用程序：应用程序代理循环是
 属于。它仍然是一个真实的应用程序：actions、会话、应用程序状态、历史记录，
 设置、凭据和共享记录均位于 SQL 中。
 
-```an-diagram title="The app-agent loop is the front door" summary="Many entry points reach one agent loop over SQL-backed actions and state; results return to wherever the request came from. UI is added only when humans need to supervise."
+```an-diagram title="应用程序代理循环是前门" summary="许多入口点通过 SQL-backed 操作和状态到达一个代理循环；结果返回到请求来自的地方。仅当需要人类监督时才添加 UI。"
 {
   "html": "<div class=\"diagram-pure\"><div class=\"diagram-col\"><div class=\"diagram-pill\">Terminal</div><div class=\"diagram-pill\">Slack · email</div><div class=\"diagram-pill\">Scheduled job</div><div class=\"diagram-pill\">Another agent (A2A)</div><div class=\"diagram-pill\">Chat</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">App-agent loop</span><small class=\"diagram-muted\">actions · sessions · app state in SQL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Result returns<br><small class=\"diagram-muted\">to where it belongs</small></div></div>",
   "css": ".diagram-pure{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-pure .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-pure .diagram-arrow{font-size:22px;line-height:1}.diagram-pure .center{display:flex;flex-direction:column;align-items:center;gap:4px}"

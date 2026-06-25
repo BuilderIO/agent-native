@@ -9,7 +9,7 @@ description: "具有自然语言条件的事件触发和计划自动化"
 
 自动化通过 `web-request` 工具使用**事件触发器**、**自然语言条件**和**出站 HTTP** 扩展 [recurring jobs](/docs/recurring-jobs)。它们使用与重复作业相同的 `jobs/<name>.md` 文件格式、存储和“创建三种方式”工作流程 - 请参阅 [Recurring Jobs](/docs/recurring-jobs#job-file) 了解共享格式。本页面仅涵盖事件驱动自动化的新增内容。
 
-```an-diagram title="When X happens, do Y" summary="An event fires on the bus, an optional natural-language condition gates it, and the agent runs the automation body with full tool access."
+```an-diagram title="当X发生时，做Y" summary="总线上触发事件，可选的自然语言条件对其进行门控，代理运行具有完整工具访问权限的自动化主体。"
 {
   "html": "<div class=\"auto-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Event</span><small class=\"diagram-muted\"><code>calendar.booking.created</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Condition</span><small class=\"diagram-muted\">Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">Agent runs the body</span><small class=\"diagram-muted\">actions &middot; web-request &middot; MCP &middot; sub-agents</small></div></div>",
   "css": ".auto-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.auto-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px;min-width:180px}.auto-flow .diagram-arrow{font-size:22px}"
@@ -39,7 +39,7 @@ description: "具有自然语言条件的事件触发和计划自动化"
 
 第三条路径 - 通过 `resourcePut` 手动写入 `jobs/<name>.md` 文件 - 与 [recurring jobs](/docs/recurring-jobs#creating) 的工作方式完全相同。对于事件驱动的自动化，您可以将下面的事件触发 frontmatter 添加到同一文件中。事件触发作业设置 `schedule: ""` 并提供 `triggerType: event`、`event` 名称和可选的 `condition`：
 
-```an-annotated-code title="An event-triggered automation"
+```an-annotated-code title="事件触发的自动化"
 {
   "filename": "jobs/slack-on-builder-booking.md",
   "language": "markdown",
@@ -208,7 +208,7 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ## 调度如何运作 {#dispatch}
 
-```an-diagram title="The dispatch path" summary="From a fired event to a completed agent run, gated by ownership scope and the natural-language condition."
+```an-diagram title="调度路径" summary="从触发事件到完成代理运行，由所有权范围和自然语言条件控制。"
 {
   "html": "<div class=\"disp\"><div class=\"diagram-box accent\">event fired on the bus</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">match</span><small class=\"diagram-muted\">load enabled automations subscribed to this event name</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">scope</span><small class=\"diagram-muted\">keep only those owned by the event's owner (or shared)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">condition</span><small class=\"diagram-muted\">Haiku yes/no on the payload &mdash; false &rarr; <code>skipped</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">run</span><small class=\"diagram-muted\"><code>runAgentLoop</code> with body as prompt, payload as context, 5-min timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">record</span><small class=\"diagram-muted\">write <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code></small></div></div>",
   "css": ".disp{display:flex;flex-direction:column;gap:6px;max-width:540px}.disp .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.disp .diagram-box{align-self:flex-start}.disp .diagram-arrow{font-size:18px;align-self:center}"

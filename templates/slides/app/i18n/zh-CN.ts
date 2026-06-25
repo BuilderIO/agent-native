@@ -49,15 +49,15 @@ const messages = {
     collapseSidebar: "折叠侧边栏",
   },
   notFound: {
-    message: "This page doesn't exist yet.",
-    backToDecks: "Back to Decks",
+    message: "此页面尚不存在。",
+    backToDecks: "返回演示文稿",
   },
   designSystems: {
-    new: "New Design System",
-    setupBrand: "Set up your brand",
-    emptyTitle: "Set up your brand identity",
+    new: "新建设计系统",
+    setupBrand: "设置你的品牌",
+    emptyTitle: "设置你的品牌 identity",
     emptyDescription:
-      "Create a design system with your brand colors, typography, and logos. Every new deck will follow your visual identity.",
+      "使用你的品牌颜色、字体和徽标创建设计系统。每个新演示文稿都会遵循你的视觉标识。",
   },
 };
 

@@ -39,23 +39,23 @@ Se você ainda não estiver criando um modelo UI reutilizável, use a rampa de a
 
 Cada modelo segue o mesmo layout amplo:
 
-```an-file-tree title="Template project layout"
+```an-file-tree title="Layout do projeto de template"
 {
   "title": "my-template/",
   "entries": [
-    { "path": "app/", "note": "React frontend" },
-    { "path": "app/root.tsx", "note": "HTML shell and providers" },
-    { "path": "app/routes/", "note": "React Router file routes" },
-    { "path": "app/components/", "note": "Template UI" },
-    { "path": "app/hooks/", "note": "UI state and data hooks" },
-    { "path": "actions/", "note": "defineAction operations — the single source of truth" },
-    { "path": "server/db/schema.ts", "note": "Drizzle schema" },
-    { "path": "server/plugins/db.ts", "note": "additive migrations" },
-    { "path": "server/plugins/", "note": "startup integrations" },
-    { "path": "server/routes/api/", "note": "custom routes only when actions are not enough" },
-    { "path": "shared/types.ts", "note": "shared client/server types" },
-    { "path": ".agents/skills/", "note": "<skill>/SKILL.md — agent guidance for complex workflows" },
-    { "path": "AGENTS.md", "note": "template-specific agent instructions" },
+    { "path": "app/", "note": "Frontend React" },
+    { "path": "app/root.tsx", "note": "Shell HTML e providers" },
+    { "path": "app/routes/", "note": "Rotas de arquivo do React Router" },
+    { "path": "app/components/", "note": "UI do template" },
+    { "path": "app/hooks/", "note": "Hooks de estado e dados da UI" },
+    { "path": "actions/", "note": "Operações defineAction: a única fonte de verdade" },
+    { "path": "server/db/schema.ts", "note": "Schema Drizzle" },
+    { "path": "server/plugins/db.ts", "note": "Migrações aditivas" },
+    { "path": "server/plugins/", "note": "Integrações de inicialização" },
+    { "path": "server/routes/api/", "note": "Rotas personalizadas somente quando actions não bastam" },
+    { "path": "shared/types.ts", "note": "Tipos compartilhados cliente/servidor" },
+    { "path": ".agents/skills/", "note": "<skill>/SKILL.md: orientação do agente para workflows complexos" },
+    { "path": "AGENTS.md", "note": "Instruções de agente específicas do template" },
     { "path": "package.json" },
     { "path": "react-router.config.ts" },
     { "path": "vite.config.ts" }
@@ -67,7 +67,7 @@ Não adicione um diretório `data/` para o estado do aplicativo. Os dados duráv
 
 As quatro áreas de cada modelo se conectam por meio de uma superfície de ação compartilhada e um banco de dados SQL — o agente e o UI são parceiros iguais nas mesmas operações:
 
-```an-diagram title="How a template's four areas connect" summary="The UI and the agent both reach SQL through the same actions; application state and polling sync keep them aligned."
+```an-diagram title="Como as quatro áreas de um modelo se conectam" summary="A UI e o agente alcançam SQL através das mesmas ações; o estado do aplicativo e a sincronização de pesquisa os mantêm alinhados."
 {
   "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React UI<br><small class=\"diagram-muted\">app/routes · components</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL via Drizzle<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">Polling sync</div></div>",
   "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -149,7 +149,7 @@ Actions são a única fonte de verdade sobre o comportamento do aplicativo. O ag
   "annotations": [
     { "lines": "2", "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`." },
     { "lines": "8", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this action as a tool." },
-    { "lines": "9-11", "label": "Contrato tipado", "note": "One zod `schema` validates input from the agent, the UI, HTTP, MCP, and A2A." },
+    { "lines": "9-11", "label": "Contrato tipado", "note": "Um zod `schema` valida a entrada do agente, da UI, de HTTP, MCP e A2A." },
     { "lines": "18-19", "label": "Scoped write", "note": "Stamp `ownerEmail` / `orgId` from `ctx` so the row is correctly scoped for sharing and access checks." }
   ]
 }

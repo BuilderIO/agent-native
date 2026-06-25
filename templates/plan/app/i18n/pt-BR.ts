@@ -74,21 +74,21 @@ const messages = {
     signIn: "Entrar",
   },
   chat: {
-    suggestionShipped: "What shipped in the last week?",
-    suggestionUi: "What does the new checkout UI look like?",
-    suggestionAuth: "When did the auth API change?",
-    suggestionApi: "What is the shape of the billing API?",
-    emptyState: "Ask Plan",
+    suggestionShipped: "O que foi lançado na última semana?",
+    suggestionUi: "Como é a nova interface de checkout?",
+    suggestionAuth: "Quando a API de autenticação mudou?",
+    suggestionApi: "Qual é o formato da API de cobrança?",
+    emptyState: "Perguntar ao Plan",
     placeholder:
-      "Ask what shipped, what changed, or what the current code shows...",
-    heading: "Ask Plan",
+      "Pergunte o que foi enviado, o que mudou ou o que o codigo atual mostra...",
+    heading: "Perguntar ao Plan",
     description:
-      "Search merged PR recaps, inspect visual blocks, and publish code answers as diagrams, wireframes, API specs, and data models.",
+      "Pesquise recaps de PRs mesclados, inspecione blocos visuais e publique respostas de codigo como diagramas, wireframes, specs de API e modelos de dados.",
   },
   guest: {
     banner:
-      "You're browsing as a guest. Sign in to create plans, leave comments, and keep your work.",
-    signIn: "Sign in",
+      "Voce esta navegando como convidado. Entre para criar planos, deixar comentarios e manter seu trabalho.",
+    signIn: "Entrar",
   },
 };
 

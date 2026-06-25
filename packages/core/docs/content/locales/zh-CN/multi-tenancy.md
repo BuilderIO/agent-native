@@ -19,7 +19,7 @@ description: "每个代理本机应用程序都是开箱即用的多租户 - 组
 
 如果您正在评估 CRM、项目跟踪器、支持收件箱或任何团队工具的原生代理，那么多租户基础已经存在。所有第一方模板都是多租户的 - 请参阅 [Cloneable SaaS templates](/docs/cloneable-saas) 获取列表。
 
-```an-diagram title="Org membership and isolation" summary="Users join organizations as owner/admin/member. Every ownable row carries the org_id of the tenant that owns it, and no row leaks across the boundary."
+```an-diagram title="组织成员资格和隔离" summary="用户以 owner/admin/member 身份加入组织。每个可拥有的行都带有拥有它的租户的 org_id ，并且没有行跨越边界泄漏。"
 {
   "html": "<div class=\"mt-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Org A</span><small class=\"diagram-muted\">members: alice (owner), bob (member)</small><div class=\"diagram-box\">rows where org_id = A</div></div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Org B</span><small class=\"diagram-muted\">members: carol (owner)</small><div class=\"diagram-box\">rows where org_id = B</div></div></div><div class=\"mt-wall\" aria-hidden=\"true\"><span class=\"diagram-pill warn\">no cross-org reads</span></div>",
   "css": ".mt-grid{display:flex;gap:16px;flex-wrap:wrap}.mt-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;flex:1;min-width:200px}.mt-wall{display:flex;justify-content:center;margin-top:12px}"
@@ -36,7 +36,7 @@ description: "每个代理本机应用程序都是开箱即用的多租户 - 组
 
 租户数据由 `org_id` 列（由 `ownableColumns()` 添加）隔离，框架自动将每个查询范围限定为活动组织：`session.orgId → AGENT_ORG_ID → SQL`。当用户切换组织时，UI、actions 和代理都只能看到该组织的数据 - 代理无法访问用户不是其成员的组织的数据。
 
-```an-diagram title="From session to scoped SQL" summary="The active org on the session becomes AGENT_ORG_ID, which the framework folds into the WHERE clause of every query."
+```an-diagram title="从会话到作用域 SQL" summary="会话中的活动组织变为 AGENT_ORG_ID，框架将其折叠到每个查询的 WHERE 子句中。"
 {
   "html": "<div class=\"mt-pipe\"><div class=\"diagram-node\">session.orgId<br><small class=\"diagram-muted\">active org on session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">AGENT_ORG_ID<br><small class=\"diagram-muted\">request context</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">SQL row scoping<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div></div>",
   "css": ".mt-pipe{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mt-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.mt-pipe .diagram-arrow{font-size:22px;line-height:1}"

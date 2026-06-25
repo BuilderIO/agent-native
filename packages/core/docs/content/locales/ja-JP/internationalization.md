@@ -115,6 +115,8 @@ SQL 設定 actions の代わりにブラウザ言語。英語のソースは
 未翻訳。ロケールのページに翻訳された Markdown がない場合は、ドキュメント サイト
 ナビゲーションとクロムをローカライズしながら、そのページは英語に戻ります。
 
+Docs Markdown には構造化された `an-*` ビジュアルブロックが含まれることがあります。file-tree のタイトルや `entries[].note`、callout の本文、tab ラベル、annotated-code の labels/notes など、ユーザーに見える文章フィールドは必要に応じて翻訳します。ファイル名、path、env vars、route 文字列、action 名、language tags、code snippets、JSON keys、protocol 名などの安定した識別子は変更しません。
+
 ## Actions と永続性
 
 すべてのアプリは以下を継承します:

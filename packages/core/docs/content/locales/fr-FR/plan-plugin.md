@@ -14,7 +14,7 @@ Une installation vous offre :
 - **Deux skills** — `/visual-plan` (le point d'entrée canonique) et `/visual-recap`.
 - **Le connecteur Plan MCP** — enregistré auprès de l'application hébergée sur `https://plan.agent-native.com` (point de terminaison MCP `https://plan.agent-native.com/_agent-native/mcp`, nom de serveur `plan`).
 
-```an-diagram title="Three routes, one bundle" summary="The universal CLI, Claude Code plugin, and Codex plugin all install the same two skills plus the hosted Plan connector."
+```an-diagram title="Trois itinéraires, un forfait" summary="Les plugins universels CLI, Claude Code et Codex installent tous les mêmes deux compétences plus le connecteur Plan hébergé."
 {
   "html": "<div class=\"diagram-routes\"><div class=\"diagram-col\"><div class=\"diagram-node\">Universal CLI<br><small class=\"diagram-muted\">skills add visual-plan</small></div><div class=\"diagram-node\">Claude Code plugin<br><small class=\"diagram-muted\">/plugin install</small></div><div class=\"diagram-node\">Codex plugin<br><small class=\"diagram-muted\">codex plugin add</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">/visual-plan</span><span class=\"diagram-pill accent\">/visual-recap</span><small class=\"diagram-muted\">two skills</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com/_agent-native/mcp</small></div></div>",
   "css": ".diagram-routes{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-routes .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-routes .diagram-arrow{font-size:22px;line-height:1}.diagram-routes .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-routes .center .diagram-pill{margin:2px}"
@@ -82,7 +82,7 @@ Cela maintient le contenu du plan hors de la base de données du plan Agent-Nati
 les commentaires, les captures d'écran et l'historique du plan ne sont pas disponibles jusqu'à ce que vous l'ayez explicitement
 publier plus tard.
 
-```an-diagram title="Hosted vs. local-files mode" summary="By default skills publish through the connector; local-files mode writes MDX to disk and previews via a localhost bridge instead."
+```an-diagram title="Mode hébergé ou fichiers locaux" summary="Par défaut, les compétences sont publiées via le connecteur ; Le mode fichiers locaux écrit MDX sur le disque et prévisualise via un pont localhost à la place."
 {
   "html": "<div class=\"diagram-modes\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Default · hosted</span><strong>Publish to the Plan app</strong><small class=\"diagram-muted\">MCP connector &rarr; hosted DB &rarr; share links, comments, history, screenshots</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Local-files privacy</span><strong>Write MDX to disk</strong><small class=\"diagram-muted\">plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost bridge &rarr; hosted Plan UI reads local source. No DB writes until <code>publish-visual-plan</code>.</small></div></div>",
   "css": ".diagram-modes{display:flex;gap:14px;flex-wrap:wrap}.diagram-modes .diagram-card{flex:1 1 260px;display:flex;flex-direction:column;gap:6px;padding:16px 18px}"

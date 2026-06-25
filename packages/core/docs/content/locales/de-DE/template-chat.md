@@ -35,7 +35,7 @@ Wenn Sie die kleinste reine Aktionslaufzeit ohne Browser UI wünschen, beginnen 
 
 Das ist der Punkt. Chat ist eine schlanke, nützliche Standard-Shell für Ihren eigenen Agenten und kein Domänenprodukt, das vorgibt, generisch zu sein.
 
-```an-diagram title="What ships in the Chat shell" summary="A thin chat surface over the framework's standard runtime — actions, durable threads, live sync, and auth — with room to add your own UI."
+```an-diagram title="Was in der Chat-Shell enthalten ist" summary="Eine schlanke Chat-Oberfläche über die Standardlaufzeit des Frameworks – Aktionen, dauerhafte Threads, Live-Synchronisierung und Authentifizierung – mit Platz zum Hinzufügen Ihrer eigenen Benutzeroberfläche."
 {
   "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">Thread list<br><small class=\"diagram-muted\">create · reopen · pin · archive</small></div><div class=\"diagram-node\">Full-page chat<br><small class=\"diagram-muted\">framework chat surface on /</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">Core SQL tables<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">Live sync &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">login · orgs · sessions</small></div></div></div>",
   "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -74,14 +74,14 @@ Kopieren Sie von dort aus die `/`-Route und die Seitenleisten-Thread-Liste der C
   Vorschläge, leerer Zustand, Komponist oder umgebendes Layout hier.
 - `AGENTS.md` teilt dem integrierten Agent mit, wie er in dieser App arbeiten soll.
 
-```an-file-tree title="Chat template layout"
+```an-file-tree title="Layout des Chat-Templates"
 {
   "entries": [
-    { "path": "actions/hello.ts", "note": "the one example action; replace or add actions beside it" },
-    { "path": "actions/view-screen.ts", "note": "standard context action the agent reads" },
-    { "path": "actions/navigate.ts", "note": "standard navigation action" },
-    { "path": "app/routes/_index.tsx", "note": "renders the full-page chat surface; edit suggestions, empty state, composer" },
-    { "path": "AGENTS.md", "note": "chat-first guidance the built-in agent reads" }
+    { "path": "actions/hello.ts", "note": "Die eine Beispiel-Action; ersetzen oder daneben Actions ergänzen" },
+    { "path": "actions/view-screen.ts", "note": "Standard-Kontext-Action, die der Agent liest" },
+    { "path": "actions/navigate.ts", "note": "Standard-Navigations-Action" },
+    { "path": "app/routes/_index.tsx", "note": "Rendert die ganzseitige Chat-Oberfläche; Vorschläge, Empty State und Composer bearbeiten" },
+    { "path": "AGENTS.md", "note": "Chat-orientierte Anleitung, die der integrierte Agent liest" }
   ]
 }
 ```

@@ -1,5 +1,7 @@
 export {
+  agentNative,
   defineConfig,
+  type AgentNativeVitePluginOptions,
   type ClientConfigOptions,
   type NitroOptions,
 } from "./client.js";

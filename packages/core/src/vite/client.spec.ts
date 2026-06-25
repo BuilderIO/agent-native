@@ -8,6 +8,7 @@ import {
   _getClientDedupe,
   _getDefaultOptimizeDeps,
   _getReactRouterAliases,
+  agentNative,
   defineConfig,
   isFrameworkDevPath,
   stripMountedDevApiPath,
@@ -21,6 +22,10 @@ function findPlugin(name: string) {
   const plugin = plugins.find((p) => p?.name === name);
   expect(plugin).toBeDefined();
   return plugin;
+}
+
+function flatPlugins(plugins: any[] | undefined): any[] {
+  return (plugins ?? []).flat().filter(Boolean) as any[];
 }
 
 describe("dev server mounted path helpers", () => {
@@ -308,6 +313,88 @@ describe("route warmup config", () => {
     );
 
     expect(routeWarmup.strategy).toBe("viewport");
+  });
+});
+
+describe("agentNative Vite plugin preset", () => {
+  it("returns a Vite preset with framework plugins and a config hook", () => {
+    const plugins = flatPlugins(agentNative({ ssrStubs: ["yjs"] }));
+    const pluginNames = plugins.map((p) => p?.name);
+
+    expect(pluginNames[0]).toBe("agent-native-config");
+    expect(pluginNames).toContain("agent-native-ssr-stub-heavy-libs");
+    expect(pluginNames).toContain("agent-native-action-types");
+    expect(pluginNames).toContain("agent-native-agents-bundle");
+    expect(pluginNames).toContain("agent-native-auto-reload-optimize-dep");
+    expect(pluginNames).toContain("agent-native-port-exposer");
+  });
+
+  it("applies framework defaults without clobbering ordinary Vite config", async () => {
+    const plugins = flatPlugins(
+      agentNative({ routeWarmup: { strategy: "render" } }),
+    );
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+
+    const config = (await configPlugin.config(
+      {
+        define: {
+          __APP_DEFINE__: JSON.stringify("ok"),
+          __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__: JSON.stringify({
+            strategy: "off",
+          }),
+        },
+        server: {
+          port: 4242,
+          fs: {
+            allow: ["/tmp/app-assets"],
+            deny: ["secret.txt"],
+          },
+        },
+        build: {
+          outDir: "build/client",
+        },
+        optimizeDeps: {
+          include: ["date-fns"],
+          exclude: ["lodash"],
+        },
+        resolve: {
+          dedupe: ["zustand"],
+          alias: { "~": "/tmp/app" },
+        },
+      },
+      { command: "serve", mode: "development" },
+    )) as any;
+
+    const routeWarmup = JSON.parse(
+      String(config.define.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+    );
+
+    expect(config.plugins).toBeUndefined();
+    expect(routeWarmup.strategy).toBe("render");
+    expect(config.define.__APP_DEFINE__).toBe(JSON.stringify("ok"));
+    expect(config.server.port).toBe(4242);
+    expect(config.server.fs.allow).toContain("/tmp/app-assets");
+    expect(config.server.fs.deny).toContain("secret.txt");
+    expect(config.build.outDir).toBe("build/client");
+    expect(config.build.cssMinify).toBe("esbuild");
+    expect(config.optimizeDeps.include).toContain("date-fns");
+    expect(config.optimizeDeps.exclude).toContain("lodash");
+    expect(config.resolve.dedupe).toContain("zustand");
+    expect(config.resolve.alias).toContainEqual({
+      find: "~",
+      replacement: "/tmp/app",
+    });
+  });
+
+  it("keeps legacy defineConfig caller plugins before framework plugins", () => {
+    const callerPlugin = { name: "react-router" };
+    const config = defineConfig({ plugins: [callerPlugin] });
+    const pluginNames = flatPlugins(config.plugins as any[]).map((p) => p.name);
+
+    expect(pluginNames.indexOf("react-router")).toBeLessThan(
+      pluginNames.indexOf("agent-native-action-types"),
+    );
+    expect(pluginNames).not.toContain("@vitejs/plugin-react-swc");
   });
 });
 

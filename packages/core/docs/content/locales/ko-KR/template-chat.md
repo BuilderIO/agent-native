@@ -35,7 +35,7 @@ description: "최소 채팅 우선 에이전트 기본 앱: 내구성 있는 채
 
 그게 핵심입니다. Chat은 일반적인 척하는 도메인 제품이 아니라 귀하의 에이전트를 위한 얇고 유용한 기본 셸입니다.
 
-```an-diagram title="What ships in the Chat shell" summary="A thin chat surface over the framework's standard runtime — actions, durable threads, live sync, and auth — with room to add your own UI."
+```an-diagram title="Chat 셸에 포함된 내용" summary="프레임워크의 표준 런타임(작업, 내구성 있는 스레드, 라이브 동기화 및 인증)에 대한 얇은 채팅 표면과 자체 UI를 추가할 수 있는 공간이 있습니다."
 {
   "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">Thread list<br><small class=\"diagram-muted\">create · reopen · pin · archive</small></div><div class=\"diagram-node\">Full-page chat<br><small class=\"diagram-muted\">framework chat surface on /</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">Core SQL tables<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">Live sync &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">login · orgs · sessions</small></div></div></div>",
   "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -74,14 +74,14 @@ npx @agent-native/core@latest create my-agent --headless
   제안, 빈 상태, 작곡가 또는 주변 레이아웃이 여기에 있습니다.
 - `AGENTS.md`는 내장 에이전트에게 이 앱 내에서 작업하는 방법을 알려줍니다.
 
-```an-file-tree title="Chat template layout"
+```an-file-tree title="Chat 템플릿 레이아웃"
 {
   "entries": [
-    { "path": "actions/hello.ts", "note": "the one example action; replace or add actions beside it" },
-    { "path": "actions/view-screen.ts", "note": "standard context action the agent reads" },
-    { "path": "actions/navigate.ts", "note": "standard navigation action" },
-    { "path": "app/routes/_index.tsx", "note": "renders the full-page chat surface; edit suggestions, empty state, composer" },
-    { "path": "AGENTS.md", "note": "chat-first guidance the built-in agent reads" }
+    { "path": "actions/hello.ts", "note": "하나의 예시 action; 교체하거나 옆에 actions 추가" },
+    { "path": "actions/view-screen.ts", "note": "에이전트가 읽는 표준 context action" },
+    { "path": "actions/navigate.ts", "note": "표준 navigation action" },
+    { "path": "app/routes/_index.tsx", "note": "전체 페이지 chat 화면을 렌더링; suggestions, empty state, composer 편집" },
+    { "path": "AGENTS.md", "note": "내장 에이전트가 읽는 chat-first 지침" }
   ]
 }
 ```

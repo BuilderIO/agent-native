@@ -13,7 +13,7 @@ description: "ホスト型エージェントの実行が中断されて再開さ
 
 耐久性のある履歴書がそのギャップを埋めます。再開時に、フレームワークは、どの副作用ツール呼び出しがすでに完了しているかを認識し、それらの再実行を拒否します (2 つのレイヤーで)。
 
-```an-diagram title="Two layers block duplicate side effects on resume" summary="The journal reads the durable ledger and classifies prior calls; layer 1 tells the model, layer 2 hard-blocks a re-dispatched write that matches a completed entry."
+```an-diagram title="2 つのレイヤーが再開時の重複した副作用をブロックします" summary="ジャーナルは耐久性台帳を読み取り、以前の通話を分類します。レイヤ 1 はモデルに指示し、レイヤ 2 は完了したエントリに一致する再ディスパッチされた書き込みをハードブロックします。"
 {
   "html": "<div class=\"diagram-durable\"><div class=\"diagram-box\" data-rough>Run-event ledger<br><small class=\"diagram-muted\">tool_start / tool_done</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><strong>Tool-call journal</strong><small class=\"diagram-ok\">completed = start+done</small><small class=\"diagram-warn\">interrupted = start, no done</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">Layer 1 · prompt note &rarr; model</div><div class=\"diagram-pill accent\">Layer 2 · hard-block re-dispatched write</div></div></div>",
   "css": ".diagram-durable{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-durable .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-durable .diagram-arrow{font-size:22px;line-height:1}.diagram-durable .center{display:flex;flex-direction:column;align-items:center;gap:4px}"

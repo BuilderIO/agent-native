@@ -30,7 +30,7 @@ Agent-Native ऐप की अपनी चैट के अंदर, टेब
 
 उत्पाद UI के लिए एकमुश्त सादे HTML MCP ऐप्स को हाथ से न लिखें; यदि कार्रवाई के लिए एक कस्टम सतह की आवश्यकता है, तो पहले एक वास्तविक ऐप रूट/घटक जोड़ें या पुन: उपयोग करें और उस रूट को एम्बेड करें।
 
-```an-diagram title="MCP App embed round-trip" summary="The action's link target is also the embed target. Capable hosts load the same signed app route inline; everyone else falls back to the deep link."
+```an-diagram title="MCP ऐप एम्बेड राउंड-ट्रिप" summary="कार्रवाई का लिंक लक्ष्य एम्बेड लक्ष्य भी है। सक्षम होस्ट समान हस्ताक्षरित ऐप रूट इनलाइन लोड करते हैं; बाकी सभी लोग गहरे लिंक पर वापस आ जाते हैं।"
 {
   "html": "<div class=\"diagram-embed\"><div class=\"diagram-card\" data-rough><strong>Action</strong><small class=\"diagram-muted\">`link` target = MCP App embed target</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>embedApp()</strong><span class=\"diagram-pill accent\">create_embed_session</span><small class=\"diagram-muted\">mints short-lived embed session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>/_agent-native/embed/start</strong><small class=\"diagram-muted\">exchanges one-time SQL ticket</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>Signed app route</strong><span class=\"diagram-pill ok\">real React route</span><small class=\"diagram-muted\">short-lived browser session</small></div><div class=\"diagram-fallback\"><span class=\"diagram-pill warn\">no MCP Apps support</span><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>&quot;Open in … &rarr;&quot; deep link</div></div></div>",
 "css": ".diagram-embed{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-embed .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:140px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .diagram-fallback{display:flex;flex-direction:column;align-items:center;gap:6px;margin-inline-start:8px}"
@@ -54,7 +54,7 @@ export default defineAction({
 });
 ```
 
-```an-annotated-code title="The mcpApp resource config"
+```an-annotated-code title="mcpApp संसाधन कॉन्फिगरेशन"
 {
   "filename": "actions/review-draft.ts",
   "language": "ts",
@@ -79,7 +79,7 @@ MCP सर्वर एक्सटेंशन `io.modelcontextprotocol/ui` क
 
 MCP ऐप एम्बेड रूट एम्बेड हैं, अलग-अलग मिनी-उत्पाद नहीं। `embedApp()` कार्रवाई के `link` लक्ष्य से शुरू होता है, एक अल्पकालिक एम्बेड सत्र बनाता है, और उस हस्ताक्षरित ऐप रूट को लॉन्च करता है। मानक MCP ऐप्स होस्ट MCP ऐप फ़्रेम को स्वयं नेविगेट कर सकते हैं जब होस्ट सीधे रूट को हाइड्रेट कर सकता है।
 
-```an-diagram title="Two host bridge paths, one signed route" summary="Claude transplants the hydrated route and uses the direct ui/_bridge; ChatGPT gets a controlled iframe via window.openai and relays host actions over postMessage. Both point at the same signed app route."
+```an-diagram title="दो मेजबान पुल पथ, एक हस्ताक्षरित मार्ग" summary="क्लाउड हाइड्रेटेड मार्ग को ट्रांसप्लांट करता है और प्रत्यक्ष ui/_bridge का उपयोग करता है; ChatGPT को window.openai के माध्यम से एक नियंत्रित iframe मिलता है और पोस्टमैसेज पर होस्ट क्रियाओं को रिले करता है। दोनों एक ही हस्ताक्षरित ऐप रूट की ओर इशारा करते हैं।"
 {
   "html": "<div class=\"diagram-bridge\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><strong>Claude web</strong><span class=\"diagram-pill accent\">single-frame transplant</span><small class=\"diagram-muted\">hydrates signed app HTML in Claude's iframe, then direct`ui/_` host bridge</small></div><div class=\"diagram-card\" data-rough><strong>ChatGPT web</strong><span class=\"diagram-pill accent\">controlled route iframe</span><small class=\"diagram-muted\">`window.openai`host APIs ·`agentNative.mcpHost.*` postMessage relay</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Same signed app route<br><small class=\"diagram-muted\">normal route + React components</small></div></div>",
 "css": ".diagram-bridge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-bridge .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-bridge .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;max-width:300px}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}.diagram-bridge .diagram-box{padding:16px 18px;text-align:center}"

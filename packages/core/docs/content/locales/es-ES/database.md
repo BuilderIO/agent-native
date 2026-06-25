@@ -7,7 +7,7 @@ description: "Conecte una base de datos SQL portátil a su aplicación nativa de
 
 Las aplicaciones nativas del agente utilizan [Drizzle ORM](https://orm.drizzle.team) y admiten backends portátiles SQL. Para cualquier cosa más allá del desarrollo local, conecte una base de datos persistente SQL (Postgres, libSQL/Turso u otro backend compatible con Drizzle) configurando `DATABASE_URL`. Cuando esa variable no está configurada, la aplicación recurre a un archivo SQLite local de configuración cero para que pueda comenzar a desarrollar de inmediato.
 
-```an-diagram title="One schema, many backends" summary="App code uses the framework's dialect-agnostic helpers. The dialect is auto-detected from DATABASE_URL at runtime; unset means a local SQLite file."
+```an-diagram title="Un esquema, muchos backends" summary="El código de la aplicación utiliza los ayudantes independientes del dialecto del marco. El dialecto se detecta automáticamente desde DATABASE_URL en tiempo de ejecución; unset significa un archivo SQLite local."
 {
   "html": "<div class=\"diagram-db\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">@agent-native/core/db/schema</span><small class=\"diagram-muted\">table · text · integer · real · now</small><small class=\"diagram-muted\">+ Drizzle query DSL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>DATABASE_URL<br><small class=\"diagram-muted\">dialect auto-detected</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Postgres<br><small class=\"diagram-muted\">Neon · Supabase</small></span><span class=\"diagram-pill\">libSQL / Turso</span><span class=\"diagram-pill\">Cloudflare D1</span><span class=\"diagram-pill warn\">SQLite file<br><small class=\"diagram-muted\">unset = local dev only</small></span></div></div>",
   "css": ".diagram-db{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-db .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-db .diagram-arrow{font-size:22px;line-height:1}.diagram-db .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
@@ -162,7 +162,7 @@ Todas las actualizaciones del esquema de la base de datos deben ser **estrictame
 
 En lugar de enviarlos directamente, los cambios de esquema deben aplicarse mediante migraciones SQL ejecutadas al inicio de la aplicación. Implemente migraciones aditivas dentro de un complemento de servidor (por ejemplo, `server/plugins/db.ts`) invocando el asistente `runMigrations()` del marco:
 
-```an-annotated-code title="An additive migration plugin"
+```an-annotated-code title="Un complemento de migración aditiva"
 {
   "filename": "server/plugins/db.ts",
   "language": "ts",

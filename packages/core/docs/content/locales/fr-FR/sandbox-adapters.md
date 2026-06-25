@@ -40,7 +40,7 @@ Le backend par défaut génère un processus enfant de nœud local verrouillé. 
 
 En gardant le contrat étroit, un adaptateur distant hérite de la même posture de sécurité. Le processus parent conserve la propriété de tout ce qui porte secret : il construit le module sandbox, exécute le pont localhost (qui contient le contexte de la demande et applique les listes autorisées d'hôtes + les gardes SSRF), nettoie l'environnement et formate la sortie. Un adaptateur reçoit uniquement une source de module **non secrète** déjà préparée ainsi que les limites de ressources — il est uniquement responsable de son _exécution_ et de la capture de l'état stdout/stderr/exit.
 
-```an-diagram title="The parent keeps the secrets; the adapter only runs code" summary="run-code builds the module and runs the loopback bridge; the adapter receives a non-secret module + limits and returns stdout/stderr/exit."
+```an-diagram title="Le parent garde les secrets ; l'adaptateur exécute uniquement du code" summary="run-code construit le module et exécute le pont de bouclage ; l'adaptateur reçoit un module non secret + limites et renvoie stdout/stderr/exit."
 {
   "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>Parent process</strong><small class=\"diagram-muted\">builds module · loopback bridge · env scrub · output format</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">local child · Docker · remote · durable</small></div></div>",
   "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -51,14 +51,14 @@ En gardant le contrat étroit, un adaptateur distant hérite de la même posture
 
 La couture réside dans le noyau de `packages/core/src/coding-tools/sandbox/` : `adapter.ts` (le contrat), `index.ts` (sélection : `getSandboxAdapter()` / `registerSandboxAdapter()`) et `local-child-process-adapter.ts` (la valeur par défaut). Il est câblé dans l'emballage par `run-code.ts` ; un hôte connecte un backend différent via l'assistant d'enregistrement `index.ts` (ou, pour un backend Docker, via le [blueprint](/docs/blueprint-installer) qui édite directement ces fichiers).
 
-```an-file-tree title="The sandbox seam in core"
+```an-file-tree title="Le point de jonction du sandbox dans core"
 {
   "title": "packages/core/src/coding-tools/sandbox/",
   "entries": [
-    { "path": "adapter.ts", "note": "the SandboxAdapter contract (SandboxRunRequest / SandboxRunResult)" },
-    { "path": "index.ts", "note": "selection: getSandboxAdapter() / registerSandboxAdapter()" },
-    { "path": "local-child-process-adapter.ts", "note": "the default backend — locked-down Node child process" },
-    { "path": "../run-code.ts", "note": "wires the seam; never changes when you swap backends" }
+    { "path": "adapter.ts", "note": "Le contrat SandboxAdapter (SandboxRunRequest / SandboxRunResult)" },
+    { "path": "index.ts", "note": "Sélection : getSandboxAdapter() / registerSandboxAdapter()" },
+    { "path": "local-child-process-adapter.ts", "note": "Backend par défaut : processus enfant Node verrouillé" },
+    { "path": "../run-code.ts", "note": "Relie ce point ; ne change jamais quand vous remplacez les backends" }
   ]
 }
 ```

@@ -39,23 +39,23 @@ npx @agent-native/core@latest create my-platform
 
 प्रत्येक टेम्प्लेट समान व्यापक लेआउट का अनुसरण करता है:
 
-```an-file-tree title="Template project layout"
+```an-file-tree title="Template project की संरचना"
 {
   "title": "my-template/",
   "entries": [
-    { "path": "app/", "note": "React frontend" },
-    { "path": "app/root.tsx", "note": "HTML shell and providers" },
-    { "path": "app/routes/", "note": "React Router file routes" },
-    { "path": "app/components/", "note": "Template UI" },
-    { "path": "app/hooks/", "note": "UI state and data hooks" },
-    { "path": "actions/", "note": "defineAction operations — the single source of truth" },
-    { "path": "server/db/schema.ts", "note": "Drizzle schema" },
-    { "path": "server/plugins/db.ts", "note": "additive migrations" },
-    { "path": "server/plugins/", "note": "startup integrations" },
-    { "path": "server/routes/api/", "note": "custom routes only when actions are not enough" },
-    { "path": "shared/types.ts", "note": "shared client/server types" },
-    { "path": ".agents/skills/", "note": "<skill>/SKILL.md — agent guidance for complex workflows" },
-    { "path": "AGENTS.md", "note": "template-specific agent instructions" },
+    { "path": "app/", "note": "React frontend सतह" },
+    { "path": "app/root.tsx", "note": "HTML shell और providers" },
+    { "path": "app/routes/", "note": "React Router की file routes" },
+    { "path": "app/components/", "note": "Template की UI" },
+    { "path": "app/hooks/", "note": "UI state और data hooks" },
+    { "path": "actions/", "note": "defineAction operations: single source of truth" },
+    { "path": "server/db/schema.ts", "note": "Drizzle schema परिभाषा" },
+    { "path": "server/plugins/db.ts", "note": "additive migrations केवल जोड़ने वाली" },
+    { "path": "server/plugins/", "note": "startup integrations setup" },
+    { "path": "server/routes/api/", "note": "custom routes केवल तब जब actions पर्याप्त न हों" },
+    { "path": "shared/types.ts", "note": "shared client/server type definitions" },
+    { "path": ".agents/skills/", "note": "<skill>/SKILL.md: जटिल workflows के लिए agent guidance" },
+    { "path": "AGENTS.md", "note": "template-specific agent निर्देश" },
     { "path": "package.json" },
     { "path": "react-router.config.ts" },
     { "path": "vite.config.ts" }
@@ -67,7 +67,7 @@ npx @agent-native/core@latest create my-platform
 
 प्रत्येक टेम्प्लेट के चार क्षेत्र एक साझा क्रिया सतह और एक SQL डेटाबेस के माध्यम से एक साथ जुड़ते हैं - एजेंट और UI समान संचालन में समान भागीदार हैं:
 
-```an-diagram title="How a template's four areas connect" summary="The UI and the agent both reach SQL through the same actions; application state and polling sync keep them aligned."
+```an-diagram title="किसी टेम्प्लेट के चार क्षेत्र कैसे जुड़ते हैं" summary="यूआई और एजेंट दोनों समान क्रियाओं के माध्यम से SQL तक पहुंचते हैं; एप्लिकेशन स्थिति और पोलिंग सिंक उन्हें संरेखित रखते हैं।"
 {
   "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React UI<br><small class=\"diagram-muted\">app/routes · components</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL via Drizzle<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">Polling sync</div></div>",
   "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -149,7 +149,7 @@ Actions ऐप व्यवहार के लिए सत्य का एक
   "annotations": [
     { "lines": "2", "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`." },
     { "lines": "8", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this action as a tool." },
-    { "lines": "9-11", "label": "Typed contract", "note": "One zod `schema` validates input from the agent, the UI, HTTP, MCP, and A2A." },
+    { "lines": "9-11", "label": "टाइप किया हुआ अनुबंध", "note": "एक zod `schema` agent, UI, HTTP, MCP और A2A से आने वाले input को validate करता है।" },
     { "lines": "18-19", "label": "Scoped write", "note": "Stamp `ownerEmail` / `orgId` from `ctx` so the row is correctly scoped for sharing and access checks." }
   ]
 }

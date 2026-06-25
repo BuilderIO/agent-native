@@ -10,7 +10,7 @@ Wenn Sie zum ersten Mal eine App öffnen, die auf dem agentennativen Framework b
 zum Agenten-Chat: Verbinden Sie eine KI-Engine, verweisen Sie die App optional auf „Freigegeben“
 Infrastruktur und fügen Sie Anbieter nur dann hinzu, wenn Sie sie benötigen.
 
-```an-diagram title="The setup checklist" summary="Only Connect an AI engine is required. The panel tracks completion and auto-hides once everything required is done."
+```an-diagram title="Die Setup-Checkliste" summary="Es ist lediglich das Anschließen einer KI-Engine erforderlich. Das Panel verfolgt den Abschluss und wird automatisch ausgeblendet, sobald alles Erforderliche erledigt ist."
 {
   "html": "<div class=\"ob\"><div class=\"diagram-card\"><span class=\"diagram-pill warn\">required</span><strong>Connect an AI engine</strong><small class=\"diagram-muted\">Connect Builder (one click) or paste an LLM key</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Database</strong><small class=\"diagram-muted\">set <code>DATABASE_URL</code></small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Authentication</strong><small class=\"diagram-muted\">OAuth / access token</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Email delivery</strong><small class=\"diagram-muted\">Resend / SendGrid</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">all required done &rarr; panel auto-hides</div></div>",
   "css": ".ob{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ob .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 14px}.ob .diagram-arrow{font-size:22px}"
@@ -114,7 +114,7 @@ Alle Routen live unter `/_agent-native/onboarding/`:
 
 ### Einen Schritt aus einer Vorlage hinzufügen
 
-```an-annotated-code title="Registering a custom onboarding step"
+```an-annotated-code title="Registrieren eines benutzerdefinierten Onboarding-Schritts"
 {
   "filename": "server/plugins/my-onboarding.ts",
   "language": "ts",

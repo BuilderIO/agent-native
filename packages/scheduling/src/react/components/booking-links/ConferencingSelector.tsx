@@ -275,7 +275,7 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
             onChange={(e) =>
               onChange({ type: "custom", url: e.currentTarget.value })
             }
-            placeholder="https://meet.example.com/room"
+            placeholder={t("customMeetingUrlPlaceholder")}
             className="h-8 text-sm"
           />
         </div>

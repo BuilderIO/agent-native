@@ -95,12 +95,11 @@ The output is self-contained — copy `.output/` to any environment and run it.
 By default, Nitro builds for Node.js. To target a different platform, set the preset in your `vite.config.ts`:
 
 ```ts
-import { defineConfig } from "@agent-native/core/vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
-  nitro: {
-    preset: "vercel",
-  },
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
 });
 ```
 
@@ -151,7 +150,7 @@ CMD ["node", ".output/server/index.mjs"]
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "vercel" },
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
 });
 ```
 
@@ -182,7 +181,7 @@ The Nitro `netlify` preset works well and, in practice, has given us much faster
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "netlify" },
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
 });
 ```
 
@@ -201,7 +200,7 @@ The workspace build writes static assets under `dist/_workspace_static/` and rou
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "cloudflare_pages" },
+  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
 });
 ```
 
@@ -210,7 +209,7 @@ export default defineConfig({
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "aws_lambda" },
+  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
 });
 ```
 
@@ -219,7 +218,7 @@ export default defineConfig({
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "deno_deploy" },
+  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
 });
 ```
 

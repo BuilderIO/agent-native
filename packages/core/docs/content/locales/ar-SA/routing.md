@@ -21,7 +21,7 @@ description: "التوجيه المستند إلى الملفات لتطبيقا
 
 بادئة مقطع بـ `$` لمعلمة ديناميكية. البادئة بـ `_` لجعلها مسار تخطيط بلا مسار (لا يوجد مقطع URL). تستخدم القوالب `flatRoutes()` — ملف التدوين النقطي أعلاه هو ملف أساسي؛ يعمل أيضًا نموذج المجلد المتداخل `inbox/route.tsx`.
 
-```an-diagram title="Pathless layout wraps the pages" summary="A _app.tsx layout (no URL segment) renders the shared shell once; matched pages render inside its <Outlet/>, so the agent sidebar never remounts on navigation."
+```an-diagram title="تخطيط بلا مسار يلتف الصفحات" summary="يعرض تخطيط _app.tsx (لا يوجد مقطع URL) الصدفة المشتركة مرة واحدة؛ يتم عرض الصفحات المطابقة داخل <Outlet/> الخاص بها، لذلك لا يتم إعادة تحميل الشريط الجانبي للوكيل أبدًا أثناء التنقل."
 {
 "html": "<div class=\"diagram-layout\" data-rough><div class=\"diagram-shell\"><span class=\"diagram-pill accent\">_app.tsx</span><small class=\"diagram-muted\">pathless layout · persistent shell + agent sidebar</small><div class=\"diagram-outlet\" data-rough><small class=\"diagram-muted\">&lt;Outlet/&gt; — the matched page</small><div class=\"diagram-row\"><span class=\"diagram-pill\">_index.tsx &rarr; /</span><span class=\"diagram-pill\">settings.tsx &rarr; /settings</span><span class=\"diagram-pill\">inbox.$threadId.tsx &rarr; /inbox/:threadId</span></div></div></div></div>",
 "css": ".diagram-layout .diagram-shell{display:flex;flex-direction:column;gap:8px;padding:16px}.diagram-layout .diagram-outlet{display:flex;flex-direction:column;gap:8px;padding:14px;margin-top:6px}.diagram-layout .diagram-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}"

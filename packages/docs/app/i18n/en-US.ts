@@ -71,11 +71,11 @@ const enUS = {
       titleLine1: "Agentic Applications",
       titleAccent: "You Own",
       body: "Start with a chat-first app and the app-agent loop. Add actions, screens, jobs, and workflows as your agent grows.",
-      primaryCta: "Start with Chat",
+      primaryCta: "Start with a Template",
       secondaryCta: "View the Docs",
     },
     code: {
-      quickStartComment: "Start with a chat-first app",
+      quickStartComment: "Start with a full app template",
       skillInstallComment:
         "Add agent-native planning to a coding agent you already use",
       frameworkComment:
@@ -294,8 +294,8 @@ const enUS = {
     eyebrow: "100% free and open source",
     body: "Fork a template, run it locally, and let the agent evolve it. You own the code and can customize everything.",
     community:
-      "Every template is forkable and open source. The community can build and share their own.",
-    createYourOwn: "Create your own",
+      "Want a blank app instead? Start from scratch with the framework guide.",
+    createYourOwn: "Start from scratch",
   },
   templateCard: {
     pasteIntoTerminal: "Paste into your terminal.",

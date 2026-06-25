@@ -45,16 +45,16 @@ El CLI muestra un selector múltiple de cada plantilla propia. Elija tantos como
 
 Obtienes un monorepo pnpm con el paquete compartido privado, un `package.json` raíz que conecta el descubrimiento del espacio de trabajo, un `.env` compartido y un subdirectorio por aplicación que hayas elegido:
 
-```an-file-tree title="A scaffolded workspace"
+```an-file-tree title="Un workspace generado"
 {
   "entries": [
-    { "path": "package.json", "note": "declares agent-native.workspaceCore" },
+    { "path": "package.json", "note": "Declara agent-native.workspaceCore" },
     { "path": "pnpm-workspace.yaml", "note": "packages: [\"packages/*\", \"apps/*\"]" },
-    { "path": ".env.example", "note": "shared ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ..." },
+    { "path": ".env.example", "note": "ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ... compartidos" },
     { "path": "packages/shared/", "note": "@my-company-platform/shared" },
-    { "path": "packages/shared/src/server/", "note": "plugin overrides only when needed" },
-    { "path": "packages/shared/src/client/", "note": "shared React code only when needed" },
-    { "path": "packages/shared/AGENTS.md", "note": "workspace-wide instructions" },
+    { "path": "packages/shared/src/server/", "note": "Overrides de plugins solo cuando haga falta" },
+    { "path": "packages/shared/src/client/", "note": "Código React compartido solo cuando haga falta" },
+    { "path": "packages/shared/AGENTS.md", "note": "Instrucciones para todo el workspace" },
     { "path": "apps/mail/" },
     { "path": "apps/calendar/" },
     { "path": "apps/forms/" }
@@ -115,7 +115,7 @@ Las aplicaciones nativas del agente dentro de un espacio de trabajo resuelven el
 
 La fusión se realiza por nombre de archivo. Si una aplicación proporciona un archivo local que también existe en sentido ascendente, el local gana. Si no es así, se aplica la versión compartida del espacio de trabajo. Si compartido tampoco proporciona uno, se activa el marco predeterminado. Esto se aplica a los complementos skills, actions y `AGENTS.md`.
 
-```an-diagram title="Three layers, merged by file name" summary="Each app resolves plugins, skills, actions, and AGENTS.md from app-local first, then the shared package, then the framework default."
+```an-diagram title="Tres capas, fusionadas por nombre de archivo" summary="Cada aplicación resuelve complementos, habilidades, acciones y AGENTS.md desde la aplicación local primero, luego el paquete compartido y luego el marco predeterminado."
 {
   "html": "<div class=\"layer\"><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">1 &middot; App local</span><small class=\"diagram-muted\"><code>apps/&lt;name&gt;/</code> &mdash; highest priority</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2 &middot; Workspace shared</span><small class=\"diagram-muted\"><code>packages/shared/</code> &mdash; the mid-layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">3 &middot; Framework default</span><small class=\"diagram-muted\"><code>@agent-native/core</code> &mdash; lowest</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box ok\">first match wins</div></div>",
   "css": ".layer{display:flex;flex-direction:column;align-items:center;gap:6px}.layer .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 16px;width:320px}.layer .diagram-arrow{font-size:18px;line-height:1}.layer .diagram-box{margin-top:2px}"
@@ -225,7 +225,7 @@ npx @agent-native/core@latest deploy
 
 Cada aplicación se crea con `APP_BASE_PATH=/<name>` y `VITE_APP_BASE_PATH=/<name>` y se emite a través del preajuste Nitro seleccionado. Cloudflare Pages es el valor predeterminado predeterminado y utiliza un trabajador despachador en `dist/_worker.js` más `_routes.json`. Netlify es compatible con `npx @agent-native/core@latest deploy --preset netlify`; emite funciones de aplicación bajo `.netlify/functions-internal/<app>-server` y genera redirecciones que dejan los activos estáticos sin forzar para que CDN entregue los archivos primero. Vercel es compatible con `npx @agent-native/core@latest deploy --preset vercel`; escribe un paquete raíz `.vercel/output` utilizando Build Output API de Vercel.
 
-```an-diagram title="Unified deploy: one origin, one path per app" summary="Every app ships behind a single origin, so login sessions and cross-app A2A are free."
+```an-diagram title="Implementación unificada: un origen, una ruta por aplicación" summary="Cada aplicación se envía detrás de un único origen, por lo que las sesiones de inicio de sesión y la aplicación cruzada A2A son gratuitas."
 {
   "html": "<div class=\"deploy\"><div class=\"diagram-box accent\">your-agents.com<br><small class=\"diagram-muted\">one DNS record &middot; one cert &middot; one CDN</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"deploy-apps\"><div class=\"diagram-box\">/mail/*</div><div class=\"diagram-box\">/calendar/*</div><div class=\"diagram-box\">/forms/*</div></div><div class=\"diagram-pill ok\">shared login cookie on the apex &bull; same-origin A2A, no CORS</div></div>",
   "css": ".deploy{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.deploy .deploy-apps{display:flex;flex-direction:column;gap:8px}.deploy .diagram-arrow{font-size:24px}.deploy .diagram-pill{flex-basis:100%}"
