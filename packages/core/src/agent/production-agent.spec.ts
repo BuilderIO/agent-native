@@ -4152,4 +4152,87 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     expect(outcome).toEqual({ action: "inline", reason: "dispatch-failed" });
     expect(readClaim).not.toHaveBeenCalled();
   });
+
+  it("alive worker still in setup past the base grace -> extend, then stream when it claims", async () => {
+    // auth_passed proves the worker is alive and grinding through setup. Without
+    // the extension the base grace (25) elapses (~iter3) and recovers inline;
+    // the extension (65) keeps polling so the late claim is honored.
+    const claim = vi.fn();
+    const alive = {
+      dispatchMode: "background",
+      status: "running",
+      diagStage: "auth_passed",
+    };
+    const readClaim = vi
+      .fn()
+      .mockResolvedValueOnce(alive)
+      .mockResolvedValueOnce(alive)
+      .mockResolvedValueOnce(alive)
+      .mockResolvedValueOnce(alive)
+      .mockResolvedValue({
+        dispatchMode: "background-processing",
+        status: "running",
+        diagStage: "worker_claimed",
+      });
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      extendedGraceMs: 65,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({ action: "stream" });
+    expect(claim).not.toHaveBeenCalled();
+  });
+
+  it("dead handoff (never recorded auth_passed) is NOT extended -> inline at the base grace", async () => {
+    // No diag stage = the generated wrapper never reached the route, so the
+    // extension must not apply and it recovers inline at the base grace.
+    const readClaim = vi.fn().mockResolvedValue({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: null,
+    });
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      extendedGraceMs: 65,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "worker-never-claimed",
+    });
+    expect(claim).toHaveBeenCalledWith("run-x");
+  });
+
+  it("worker that threw during setup (route_threw) recovers inline immediately, not after the grace", async () => {
+    const readClaim = vi.fn().mockResolvedValue({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: "route_threw",
+    });
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      extendedGraceMs: 65,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "worker-never-claimed",
+    });
+    // Broke on the FIRST poll via the death check — did not wait out the grace.
+    expect(readClaim).toHaveBeenCalledTimes(1);
+  });
 });

@@ -146,22 +146,6 @@ const mockDb = {
       return { rows: [], rowsAffected: 0 };
     }
 
-    // updateRunStatusIfRunning — UPDATE ... SET status=?, completed_at=?
-    // WHERE id=? AND status='running'. Parameterized status, so it does NOT
-    // match the literal `SET status = 'errored'` reaper branches below.
-    if (
-      /UPDATE agent_runs SET status = \?, completed_at = \? WHERE id = \? AND status = 'running'/i.test(
-        sql,
-      )
-    ) {
-      const [status, completedAt, id] = args;
-      const row = rows.find((r) => r.id === id && r.status === "running");
-      if (!row) return { rows: [], rowsAffected: 0 };
-      row.status = status as string;
-      row.completed_at = completedAt as number;
-      return { rows: [], rowsAffected: 1 };
-    }
-
     // reapIfStale (UPDATE ... WHERE id = ? AND status='running' AND <stale>)
     if (
       /UPDATE agent_runs SET status = 'errored'/i.test(sql) &&
@@ -245,7 +229,6 @@ vi.mock("../server/capture-error.js", () => ({
 const {
   insertRun,
   claimBackgroundRun,
-  updateRunStatusIfRunning,
   reapIfStale,
   reapUnclaimedBackgroundRun,
   recordRunDiagnostic,
@@ -303,28 +286,6 @@ describe("run-store durable background", () => {
     await insertRun("r-done", "t1", "turn", { dispatchMode: "background" });
     rows.find((r) => r.id === "r-done")!.status = "completed";
     expect(await claimBackgroundRun("r-done")).toBe(false);
-  });
-
-  it("up-front claim leaves status=running, so a setup failure after the claim goes terminal (early-claim failure path)", async () => {
-    // The foreground inserts the background run; the worker claims it UP-FRONT,
-    // before its heavy setup runs. The claim flips dispatch_mode but leaves
-    // status='running' — the run has NOT started yet.
-    await insertRun("r-early", "t1", "turn", { dispatchMode: "background" });
-    expect(await claimBackgroundRun("r-early")).toBe(true);
-    const claimed = rows.find((r) => r.id === "r-early")!;
-    expect(claimed.dispatch_mode).toBe("background-processing");
-    expect(claimed.status).toBe("running");
-
-    // System-prompt build / thread-data / action loading throws AFTER the early
-    // claim. The _process-run route catch marks the claimed run errored so it
-    // goes terminal immediately instead of sitting in background-processing
-    // until the reaper (which would strand the subscribed foreground).
-    expect(await updateRunStatusIfRunning("r-early", "errored")).toBe(true);
-    expect(await getRunStatus("r-early")).toBe("errored");
-
-    // A duplicate worker delivery can no longer claim the now-terminal run, so
-    // the turn can never be double-executed.
-    expect(await claimBackgroundRun("r-early")).toBe(false);
   });
 
   it("stale reaper does NOT reap an actively-heartbeating background run", async () => {

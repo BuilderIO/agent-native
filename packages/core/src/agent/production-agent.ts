@@ -161,6 +161,18 @@ export { PROVIDER_TO_ENV };
  * well within the foreground's ~40s soft-timeout.
  */
 export const BACKGROUND_CLAIM_GRACE_MS = 15_000;
+/**
+ * Longer cap used ONLY while the worker has proven it is alive and grinding
+ * through setup — it recorded `auth_passed`/`worker_entered` but has not reached
+ * `claimBackgroundRun` yet. Heavy apps (e.g. analytics) can take longer than the
+ * base grace to build the system prompt + load actions before claiming; without
+ * the extension the foreground abandons a live worker mid-setup and recovers
+ * inline, wasting the background budget. A dead handoff never records those
+ * stages, so it is NOT extended and still recovers at the base grace. Kept below
+ * the foreground's ~40s soft-timeout so inline recovery still has room if it
+ * ultimately fires.
+ */
+export const EXTENDED_BACKGROUND_CLAIM_GRACE_MS = 30_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
 
 export type BackgroundDispatchOutcome =
@@ -192,10 +204,18 @@ export async function resolveBackgroundDispatchOutcome(opts: {
   backgroundRowInserted: boolean;
   runId: string;
   graceMs: number;
+  /**
+   * Optional longer cap, applied ONLY while the worker is provably alive and
+   * still in setup (see `EXTENDED_BACKGROUND_CLAIM_GRACE_MS`). Omit to disable
+   * the extension (behaves exactly like the base grace).
+   */
+  extendedGraceMs?: number;
   pollIntervalMs: number;
-  readClaim: (
-    runId: string,
-  ) => Promise<{ dispatchMode: string | null; status: string | null } | null>;
+  readClaim: (runId: string) => Promise<{
+    dispatchMode: string | null;
+    status: string | null;
+    diagStage?: string | null;
+  } | null>;
   claim: (runId: string) => Promise<boolean>;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -204,8 +224,32 @@ export async function resolveBackgroundDispatchOutcome(opts: {
   const sleep =
     opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
+  // Pre-claim diag stages that prove the worker is ALIVE and executing: it
+  // reached the route, passed HMAC auth, and is grinding through handler setup
+  // (system prompt build / action loading) on its way to `claimBackgroundRun`.
+  // A dead handoff — the generated wrapper never reached the route — never
+  // records these, so it is NOT eligible for the extended grace.
+  const ALIVE_IN_SETUP: ReadonlySet<string> = new Set([
+    RUN_DIAG_STAGE.authPassed,
+    RUN_DIAG_STAGE.workerEntered,
+  ]);
+  // Pre-claim diag stages that prove the worker DIED before claiming — stop
+  // waiting and recover inline immediately instead of burning the rest of the
+  // grace on a worker that already failed.
+  const DIED_BEFORE_CLAIM: ReadonlySet<string> = new Set([
+    RUN_DIAG_STAGE.authFailed,
+    RUN_DIAG_STAGE.routeThrew,
+    RUN_DIAG_STAGE.workerThrew,
+  ]);
+
   if (opts.dispatched) {
-    const deadline = now() + opts.graceMs;
+    // One now() at entry + one per iteration (matches the pre-extension call
+    // count, so callers/tests that model a stepping clock stay deterministic).
+    const startedAt = now();
+    const baseDeadline = startedAt + opts.graceMs;
+    const maxDeadline =
+      startedAt + Math.max(opts.graceMs, opts.extendedGraceMs ?? opts.graceMs);
+    let deadline = baseDeadline;
     for (;;) {
       const claim = await opts.readClaim(opts.runId).catch(() => null);
       if (
@@ -215,7 +259,24 @@ export async function resolveBackgroundDispatchOutcome(opts: {
       ) {
         return { action: "stream" };
       }
-      if (now() >= deadline) break;
+      // Worker recorded a pre-claim death — no point waiting out the grace.
+      if (claim?.diagStage && DIED_BEFORE_CLAIM.has(claim.diagStage)) break;
+      const elapsedNow = now();
+      // ADAPTIVE GRACE: the base window elapsed but the worker is alive and still
+      // in setup (heavy cold start) — extend ONCE to the longer cap so a live
+      // worker is not abandoned mid-setup (which would waste the background
+      // budget by recovering inline). The extension never applies to a dead
+      // handoff because it never recorded an ALIVE_IN_SETUP stage.
+      if (
+        deadline < maxDeadline &&
+        elapsedNow >= baseDeadline &&
+        claim?.status === "running" &&
+        claim.diagStage &&
+        ALIVE_IN_SETUP.has(claim.diagStage)
+      ) {
+        deadline = maxDeadline;
+      }
+      if (elapsedNow >= deadline) break;
       await sleep(opts.pollIntervalMs);
     }
   }
@@ -3847,54 +3908,6 @@ export function createProductionAgentHandler(
       Number.isFinite(backgroundRunMarker.continuationCount)
         ? Math.max(0, Math.floor(backgroundRunMarker.continuationCount))
         : 0;
-    // CLAIM UP-FRONT (before the heavy handler setup further down). A heavy
-    // app's setup — system-prompt build, thread-data read, action loading — can
-    // run longer than the foreground's claim grace. Claiming only in the worker
-    // branch, which executes AFTER all that setup, lets the foreground recover
-    // the turn inline before we ever flip the run to `background-processing`, so
-    // the 15-min worker budget is never used (observed on analytics: the worker
-    // stalls at `auth_passed` with NO crash — it is just slow through setup).
-    // Claiming here, up front, makes the foreground see the claim within the
-    // grace and subscribe to this worker instead of re-running inline. Uses the
-    // marker's pre-claimed runId (identical to the `runId` resolved later for a
-    // background worker).
-    if (isBackgroundWorker) {
-      const claimRunId = backgroundRunMarker!.runId as string;
-      await recordRunDiagnostic(
-        claimRunId,
-        RUN_DIAG_STAGE.workerEntered,
-        `runsInBackgroundFunction=${runsInBackgroundFunction} continuationCount=${backgroundContinuationCount}`,
-      ).catch(() => {});
-      // Chained continuation chunks were minted by the prior chunk and never
-      // inserted by a foreground POST, so insert the row now (idempotent: a
-      // duplicate delivery PK-collides and the claim below dedups). The first
-      // chunk's row was already inserted by the foreground.
-      if (backgroundContinuationCount > 0) {
-        const claimThreadId = threadId ?? claimRunId;
-        const claimTurnId =
-          typeof backgroundRunMarker!.turnId === "string" &&
-          backgroundRunMarker!.turnId.trim()
-            ? backgroundRunMarker!.turnId.trim()
-            : (requestTurnId ?? claimRunId);
-        await insertRun(claimRunId, claimThreadId, claimTurnId, {
-          dispatchMode: "background",
-        }).catch(() => {});
-      }
-      const won = await claimBackgroundRun(claimRunId);
-      if (!won) {
-        // Already claimed by an earlier delivery — benign ack so Netlify does
-        // not retry a successful handoff.
-        await recordRunDiagnostic(
-          claimRunId,
-          RUN_DIAG_STAGE.workerClaimLost,
-        ).catch(() => {});
-        return { ok: true, skipped: "already-claimed" };
-      }
-      await recordRunDiagnostic(claimRunId, RUN_DIAG_STAGE.workerClaimed).catch(
-        () => {},
-      );
-      await updateRunHeartbeat(claimRunId).catch(() => {});
-    }
     // The foreground POST decides whether to dispatch into a background
     // function. The background worker itself never re-dispatches.
     const dispatchToBackground =
@@ -4585,6 +4598,7 @@ export function createProductionAgentHandler(
         backgroundRowInserted,
         runId,
         graceMs: BACKGROUND_CLAIM_GRACE_MS,
+        extendedGraceMs: EXTENDED_BACKGROUND_CLAIM_GRACE_MS,
         pollIntervalMs: BACKGROUND_CLAIM_POLL_MS,
         readClaim: readBackgroundRunClaim,
         claim: claimBackgroundRun,
@@ -4857,11 +4871,49 @@ export function createProductionAgentHandler(
           }
         : undefined;
 
-    // Background worker claim now happens UP-FRONT — right after the marker is
-    // recognized, before the heavy handler setup above — so a slow-setup app
-    // still flips to `background-processing` within the foreground's claim grace.
-    // See the "CLAIM UP-FRONT" block earlier in this handler. (A lost claim from
-    // a duplicate Netlify delivery already returned there.)
+    // Background worker: claim the pre-inserted run idempotently before
+    // executing. A duplicate Netlify delivery loses the claim and no-ops here,
+    // so the run can never be double-executed. Bump the heartbeat immediately
+    // on entry so a slow cold-start doesn't leave the row looking stale to the
+    // reaper before startRun's 1.5s heartbeat timer takes over.
+    if (isBackgroundWorker) {
+      // DIAGNOSTIC: the re-entered handler recognized itself as the background
+      // worker. Record the runtime regime too — `isInBackgroundFunctionRuntime()`
+      // reads a globalThis marker set by the bg-fn entry, which may NOT be set in
+      // this isolate; recording the ACTUAL resolved value reveals whether the
+      // worker is on the 13-min `-background` budget or the 40s clamp. This is
+      // the proof the worker reached its own code (vs. dying at auth before it).
+      await recordRunDiagnostic(
+        runId,
+        RUN_DIAG_STAGE.workerEntered,
+        `runsInBackgroundFunction=${runsInBackgroundFunction} continuationCount=${backgroundContinuationCount}`,
+      ).catch(() => {});
+      // A chained continuation chunk's runId was minted by the prior chunk and
+      // never inserted, so insert its background row now (idempotently — a
+      // duplicate Netlify delivery that already inserted it just PK-collides and
+      // the claim below dedups). The first chunk's row was inserted by the
+      // foreground, so skip the insert there.
+      if (isChainedBackgroundContinuation) {
+        await insertRun(runId, effectiveThreadId, effectiveTurnId, {
+          dispatchMode: "background",
+        }).catch(() => {});
+      }
+      const won = await claimBackgroundRun(runId);
+      if (!won) {
+        // Already claimed by an earlier delivery — return a benign ack so
+        // Netlify doesn't retry a successful handoff.
+        await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimLost).catch(
+          () => {},
+        );
+        return { ok: true, skipped: "already-claimed" };
+      }
+      // DIAGNOSTIC: this worker won the claim and now OWNS the run. If a run
+      // ever stalls at this stage it means the loop below failed to start.
+      await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimed).catch(
+        () => {},
+      );
+      await updateRunHeartbeat(runId).catch(() => {});
+    }
 
     startRun(
       runId,
