@@ -24,3 +24,8 @@ export const docsI18nCatalog = {
   messages: enUS,
   loadMessages: async (locale) => localeLoaders[locale]?.() ?? null,
 } satisfies AgentNativeI18nCatalog;
+
+export async function loadDocsMessages(locale: LocaleCode) {
+  if (locale === docsI18nCatalog.sourceLocale) return docsI18nCatalog.messages;
+  return localeLoaders[locale]?.() ?? null;
+}

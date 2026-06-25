@@ -80,6 +80,7 @@ export interface AgentNativeI18nProviderProps {
 
 interface LocaleContextValue {
   locale: LocaleCode;
+  sourceLocale: LocaleCode;
   preference: LocalePreference;
   dir: "ltr" | "rtl";
   metadata: LocaleMetadata;
@@ -438,13 +439,14 @@ export function AgentNativeI18nProvider({
   const context = useMemo<LocaleContextValue>(
     () => ({
       locale,
+      sourceLocale,
       preference,
       dir: localeDirection(locale),
       metadata: LOCALE_METADATA[locale],
       setPreference,
       loading,
     }),
-    [loading, locale, preference, setPreference],
+    [loading, locale, preference, setPreference, sourceLocale],
   );
 
   return (
@@ -592,6 +594,8 @@ function fallbackMessage(key: string, options?: Record<string, unknown>) {
 
 export function useT() {
   const { i18n, t } = useTranslation();
+  const context = useContext(LocaleContext);
+  const sourceLocale = context?.sourceLocale ?? DEFAULT_LOCALE;
   return useCallback(
     (key: string, options?: Record<string, unknown>) => {
       const translated = t(key, options);
@@ -599,11 +603,11 @@ export function useT() {
       const getFixedT = (
         i18n as { getFixedT?: (locale: LocaleCode) => typeof t }
       ).getFixedT;
-      const english = getFixedT?.(DEFAULT_LOCALE)(key, options);
-      if (english && english !== key) return english;
+      const sourceFallback = getFixedT?.(sourceLocale)(key, options);
+      if (sourceFallback && sourceFallback !== key) return sourceFallback;
       return fallbackMessage(key, options);
     },
-    [i18n, t],
+    [i18n, sourceLocale, t],
   );
 }
 

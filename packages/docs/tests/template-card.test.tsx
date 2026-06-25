@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
+import { AgentNativeI18nProvider } from "@agent-native/core/client";
 import { TemplateCard, templates } from "../app/components/TemplateCard";
+import { docsI18nCatalog } from "../app/i18n";
 import { getTemplateDocsPath } from "../app/components/template-docs";
 
 describe("TemplateCard", () => {
@@ -9,7 +11,14 @@ describe("TemplateCard", () => {
     for (const template of templates) {
       const html = renderToStaticMarkup(
         <MemoryRouter>
-          <TemplateCard template={template} />
+          <AgentNativeI18nProvider
+            catalog={docsI18nCatalog}
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <TemplateCard template={template} />
+          </AgentNativeI18nProvider>
         </MemoryRouter>,
       );
 

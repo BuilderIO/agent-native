@@ -62,11 +62,11 @@ const ptBR = {
       titleLine1: "Aplicações agentic",
       titleAccent: "que são suas",
       body: "Comece com uma Chat-first app e o app-agent loop. Adicione actions, telas, jobs e workflows à medida que seu agent cresce.",
-      primaryCta: "Começar com Chat",
+      primaryCta: "Começar com um template",
       secondaryCta: "Ver a documentação",
     },
     code: {
-      quickStartComment: "Comece com uma Chat-first app",
+      quickStartComment: "Comece com um template completo de app",
       skillInstallComment:
         "Adicione planejamento Agent-Native a um coding agent que você já usa",
       frameworkComment: "Um action impulsiona agent, UI, HTTP, MCP, A2A e CLI.",
@@ -294,8 +294,8 @@ const ptBR = {
     eyebrow: "100% gratuito e de código aberto",
     body: "Bifurque um modelo, execute-o localmente e deixe o agente evoluí-lo. Você possui o código e pode personalizar tudo.",
     community:
-      "Cada modelo pode ser bifurcado e de código aberto. A comunidade pode construir e compartilhar os seus próprios.",
-    createYourOwn: "Crie o seu próprio",
+      "Quer uma app em branco? Comece do zero com o guia do framework.",
+    createYourOwn: "Começar do zero",
   },
   templateCard: {
     pasteIntoTerminal: "Cole em seu terminal.",

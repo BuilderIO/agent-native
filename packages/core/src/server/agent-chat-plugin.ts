@@ -7877,6 +7877,32 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           (event as any).context = (event as any).context ?? {};
           (event as any).context.__agentChatBackgroundBody = prepared.body;
 
+          // DURABLE OWNER CONTEXT: this self-dispatch is cookieless (HMAC-only —
+          // the foreground POST carried the user's session, but this background-
+          // function invocation does not). Without a session, resolveOwnerContext()
+          // falls through to its 401 "Unauthenticated" throw and the worker dies
+          // before it can even claim the run (observed in prod as the `route_threw`
+          // diag stage — every durable run only completed via the foreground
+          // circuit-breaker's inline recovery). The run's chat thread already
+          // records the authenticated owner (written by the foreground under the
+          // signed-in user), so resolve the owner from the run row — NOT from the
+          // request body, which the HMAC does not cover and a caller could forge —
+          // and pre-seed the owner context the handler reads (resolveOwnerContext
+          // returns it before attempting any session lookup).
+          try {
+            const { getRunOwnerEmail } = await import("../agent/run-store.js");
+            const backgroundOwner = await getRunOwnerEmail(prepared.runId);
+            if (backgroundOwner) {
+              (event as any).context[OWNER_CONTEXT_KEY] = {
+                owner: backgroundOwner,
+                anonymous: false,
+              };
+            }
+          } catch {
+            // Best-effort: if the lookup fails, resolveOwnerContext runs as before
+            // and throws its normal 401, surfaced via the route_threw diagnostic.
+          }
+
           try {
             return await invokeAgentChatHandler(event);
           } catch (err: any) {

@@ -1,11 +1,14 @@
+import { Link } from "react-router";
+import { useLocale, useT } from "@agent-native/core/client";
 import {
   featuredTemplates,
   TemplateCard,
   trackEvent,
 } from "../components/TemplateCard";
-import { useT } from "@agent-native/core/client";
+import { sitePathForLocale } from "../components/docs-locale";
 
 export default function TemplatesPage() {
+  const { locale } = useLocale();
   const t = useT();
 
   return (
@@ -23,8 +26,8 @@ export default function TemplatesPage() {
       </div>
 
       <div className="grid min-w-0 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {featuredTemplates.map((t) => (
-          <TemplateCard key={t.name} template={t} />
+        {featuredTemplates.map((template) => (
+          <TemplateCard key={template.name} template={template} />
         ))}
       </div>
 
@@ -32,10 +35,11 @@ export default function TemplatesPage() {
         <p className="mb-4 text-sm text-[var(--fg-secondary)]">
           {t("templatesPage.community")}
         </p>
-        <a
-          href="/docs"
+        <Link
+          data-an-prefetch="render"
+          to={sitePathForLocale("/docs/getting-started", locale)}
           onClick={() =>
-            trackEvent("create your own", { location: "templates_index" })
+            trackEvent("start from scratch", { location: "templates_index" })
           }
           className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
         >
@@ -53,7 +57,7 @@ export default function TemplatesPage() {
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
           {t("templatesPage.createYourOwn")}
-        </a>
+        </Link>
       </div>
     </main>
   );

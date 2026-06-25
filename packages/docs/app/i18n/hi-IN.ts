@@ -62,11 +62,11 @@ const hiIN = {
       titleLine1: "एजेंटिक अनुप्रयोग",
       titleAccent: "जिन पर आपका अधिकार है",
       body: "Chat-first app और app-agent loop से शुरू करें। जैसे-जैसे आपका agent बढ़े, actions, स्क्रीन, jobs और workflows जोड़ें।",
-      primaryCta: "Chat से शुरू करें",
+      primaryCta: "टेम्पलेट से शुरू करें",
       secondaryCta: "दस्तावेज़ देखें",
     },
     code: {
-      quickStartComment: "Chat-first app से शुरू करें",
+      quickStartComment: "पूरे app template से शुरू करें",
       skillInstallComment:
         "जिस coding agent का आप पहले से उपयोग करते हैं उसमें Agent-Native planning जोड़ें",
       frameworkComment:
@@ -294,9 +294,8 @@ const hiIN = {
     title: "ओपन-सोर्स, एजेंट-नेटिव ऐप्स आपके स्वामित्व में हैं",
     eyebrow: "100% मुफ़्त और खुला स्रोत",
     body: "एक टेम्प्लेट फोर्क करें, इसे स्थानीय रूप से चलाएं, और एजेंट को इसे विकसित करने दें। आपके पास कोड है और आप हर चीज़ को कस्टमाइज़ कर सकते हैं।",
-    community:
-      "प्रत्येक टेम्पलेट फोर्क करने योग्य और खुला स्रोत है। समुदाय अपना स्वयं का निर्माण और साझा कर सकता है।",
-    createYourOwn: "अपना खुद का बनाएं",
+    community: "Blank app चाहिए? Framework guide से scratch से शुरू करें।",
+    createYourOwn: "Scratch से शुरू करें",
   },
   templateCard: {
     pasteIntoTerminal: "अपने टर्मिनल में चिपकाएँ.",

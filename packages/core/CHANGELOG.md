@@ -1,5 +1,54 @@
 # @agent-native/core
 
+## 0.76.8
+
+### Patch Changes
+
+- fd78baa: Animate the standard agent sidebar drawer when it opens and closes.
+- fd78baa: Durable background diagnostics: preserve the background-function worker's last
+  `diag_stage` (`route_entered` / `auth_failed` / etc., or `none` if it never
+  reached the route) in the foreground circuit-breaker's
+  `foreground_inline_recovery` detail instead of overwriting it. This makes a
+  silent worker death diagnosable from `/runs/active` without reading the
+  unreadable Netlify background-function logs. `readBackgroundRunClaim` now also
+  returns `diagStage`.
+- fd78baa: Durable background agent runs: add a foreground **circuit-breaker** so a dead
+  background worker can no longer break chat. A Netlify async background function
+  returns `202` the instant it enqueues the invocation, but the worker may never
+  execute — e.g. the generated function wrapper fails to import `./main.mjs` or
+  hand off to the Nitro `_process-run` route, so it never reaches
+  `claimBackgroundRun` and the run is reaped as "worker never claimed the run".
+  After a successful dispatch the foreground now polls briefly for the worker to
+  actually claim the run; if it doesn't within the grace window, the turn is
+  recovered **inline** (the same safe atomic-claim path used for a fast dispatch
+  failure), so a dead worker degrades to a working synchronous turn instead of a
+  reaped failure. Also harden the generated background-function wrapper to pass
+  Netlify's `context` through to the Nitro handler and wrap the handoff in
+  try/catch so a pre-route failure is logged loudly instead of silently swallowed
+  behind the async 202.
+- fd78baa: Add an `agentNative()` Vite plugin preset so app `vite.config.ts` files can use
+  Vite's native `defineConfig` while keeping Agent-Native framework defaults.
+
+## 0.76.7
+
+### Patch Changes
+
+- dbb5cac: Durable background diagnostics: preserve the background-function worker's last
+  `diag_stage` (`route_entered` / `auth_failed` / etc., or `none` if it never
+  reached the route) in the foreground circuit-breaker's
+  `foreground_inline_recovery` detail instead of overwriting it. This makes a
+  silent worker death diagnosable from `/runs/active` without reading the
+  unreadable Netlify background-function logs. `readBackgroundRunClaim` now also
+  returns `diagStage`.
+
+## 0.76.6
+
+### Patch Changes
+
+- c294aaa: Expand localized UI coverage across core client surfaces, Dispatch chrome, scheduling controls, templates, and the docs site.
+- c294aaa: Document the authenticated extension data API and enforce extension sharing
+  roles server-side for direct `/_agent-native/extensions/data/*` calls.
+
 ## 0.76.5
 
 ### Patch Changes

@@ -2,21 +2,19 @@ import { useState } from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { IconCheck, IconLanguage } from "@tabler/icons-react";
 import {
+  LOCALE_STORAGE_KEY,
   normalizeLocalizationPreference,
   useLocale,
   useT,
 } from "@agent-native/core/client";
-import { useLocation, useNavigate } from "react-router";
+import { useLocation } from "react-router";
 import {
-  DEFAULT_DOCS_LOCALE,
   DOCS_LOCALE_METADATA,
   DOCS_LOCALES,
   browserDocsLocale,
-  docsPathForSlug,
-  docsSlugFromPathname,
+  sitePathForLocale,
   type DocsLocale,
 } from "./docs-locale";
-import { hasLocalizedDoc } from "./docs-content";
 
 function localeOptionLabel(locale: DocsLocale) {
   const metadata = DOCS_LOCALE_METADATA[locale];
@@ -32,24 +30,22 @@ function preferenceLabel(preference: string) {
 }
 
 export default function DocsLanguagePicker() {
-  const { preference, setPreference } = useLocale();
+  const { preference } = useLocale();
   const t = useT();
   const location = useLocation();
-  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
 
-  async function handleChange(value: string) {
+  function handleChange(value: string) {
     const nextPreference = normalizeLocalizationPreference(value).locale;
-    await setPreference(nextPreference);
     const nextLocale =
       nextPreference === "system" ? browserDocsLocale() : nextPreference;
-    const slug = docsSlugFromPathname(location.pathname);
-    if (!slug) return;
-    const targetLocale = hasLocalizedDoc(nextLocale, slug)
-      ? nextLocale
-      : DEFAULT_DOCS_LOCALE;
-    const path = docsPathForSlug(slug, targetLocale);
-    navigate(`${path}${location.search}${location.hash}`);
+    try {
+      window.localStorage.setItem(LOCALE_STORAGE_KEY, nextPreference);
+    } catch {
+      // Locale selection still works through the URL when storage is blocked.
+    }
+    const path = sitePathForLocale(location.pathname, nextLocale);
+    window.location.assign(`${path}${location.search}${location.hash}`);
   }
 
   const label = `${t("language.label")}: ${

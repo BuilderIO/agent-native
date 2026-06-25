@@ -1,5 +1,17 @@
 # @agent-native/dispatch
 
+## 0.12.3
+
+### Patch Changes
+
+- fd78baa: Localize Dispatch workspace pages and scheduling booking-link controls.
+
+## 0.12.2
+
+### Patch Changes
+
+- c294aaa: Expand localized UI coverage across core client surfaces, Dispatch chrome, scheduling controls, templates, and the docs site.
+
 ## 0.12.1
 
 ### Patch Changes

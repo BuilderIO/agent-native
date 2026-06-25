@@ -62,11 +62,11 @@ const arSA = {
       titleLine1: "تطبيقات الوكيل",
       titleAccent: "تملكها أنت",
       body: "ابدأ مع Chat-first app و app-agent loop. أضف actions وشاشات و jobs و workflows مع نمو agent لديك.",
-      primaryCta: "ابدأ مع Chat",
+      primaryCta: "ابدأ بقالب",
       secondaryCta: "عرض الوثائق",
     },
     code: {
-      quickStartComment: "ابدأ مع Chat-first app",
+      quickStartComment: "ابدأ بقالب تطبيق كامل",
       skillInstallComment:
         "أضف تخطيط Agent-Native إلى coding agent تستخدمه بالفعل",
       frameworkComment: "يشغل action واحد agent و UI و HTTP و MCP و A2A و CLI.",
@@ -293,9 +293,8 @@ const arSA = {
     title: "تطبيقات الوكيل الأصلية مفتوحة المصدر التي تمتلكها",
     eyebrow: "100% مجاني ومفتوح المصدر",
     body: "قم بتفرع القالب، وتشغيله محليًا، والسماح للوكيل بتطويره. أنت تمتلك الكود ويمكنك تخصيص كل شيء.",
-    community:
-      "كل قالب قابل للتشعب ومفتوح المصدر. يمكن للمجتمع بناء ومشاركة خاصة بهم.",
-    createYourOwn: "إنشاء بنفسك",
+    community: "تريد تطبيقا فارغا؟ ابدأ من الصفر مع دليل إطار العمل.",
+    createYourOwn: "ابدأ من الصفر",
   },
   templateCard: {
     pasteIntoTerminal: "لصق في المحطة الخاصة بك.",
