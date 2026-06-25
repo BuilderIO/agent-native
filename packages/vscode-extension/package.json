@@ -1,7 +1,7 @@
 {
   "name": "agent-native",
   "displayName": "Agent-Native Plans",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Open Agent-Native Plans and MCP handoff links inside VS Code.",
   "categories": [
     "Other"
