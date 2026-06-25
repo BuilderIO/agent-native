@@ -1080,10 +1080,17 @@ function fixStandaloneTsconfig(targetDir: string): void {
       compilerOptions?: Record<string, unknown>;
     };
     tsconfig.compilerOptions ??= {};
-    // Standalone apps extend @agent-native/core/tsconfig.base.json, whose
-    // paths resolve relative to the package install dir unless baseUrl is set
-    // to the app root.
-    tsconfig.compilerOptions.baseUrl = ".";
+    // TS 6 removed baseUrl. Standalone apps extend @agent-native/core's base
+    // config, whose paths resolve from the package install dir unless the app
+    // re-declares paths anchored to the app root.
+    delete tsconfig.compilerOptions.baseUrl;
+    const paths = {
+      ...((tsconfig.compilerOptions.paths as Record<string, string[]>) ?? {}),
+    };
+    paths["*"] ??= ["./*"];
+    paths["@/*"] ??= ["./app/*"];
+    paths["@shared/*"] ??= ["./shared/*"];
+    tsconfig.compilerOptions.paths = paths;
     fs.writeFileSync(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`);
   } catch {}
 }

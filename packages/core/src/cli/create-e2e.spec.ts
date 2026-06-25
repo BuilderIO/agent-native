@@ -324,6 +324,8 @@ describe("headless onboarding guards", { timeout: 60000 }, () => {
     ).toBeDefined();
     expect(types).not.toContain("vite/client");
     expect(types).toContain("node");
+    expect(tsconfig.compilerOptions?.baseUrl).toBeUndefined();
+    expect(tsconfig.compilerOptions?.paths?.["*"]).toEqual(["./*"]);
   });
 
   it("keeps the package root (Node default) entry free of the React client barrel", () => {

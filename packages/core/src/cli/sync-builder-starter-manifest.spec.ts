@@ -57,9 +57,10 @@ describe("sync-builder-starter-manifest", () => {
           "v8_viteEnvironmentApi",
         );
         const tsconfig = JSON.parse(files.get("tsconfig.json") ?? "{}") as {
-          compilerOptions?: { baseUrl?: string };
+          compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> };
         };
-        expect(tsconfig.compilerOptions?.baseUrl).toBe(".");
+        expect(tsconfig.compilerOptions?.baseUrl).toBeUndefined();
+        expect(tsconfig.compilerOptions?.paths?.["*"]).toEqual(["./*"]);
         expect(
           fs.readFileSync(
             path.join(snapshot.dir, "server/plugins/agent-chat.ts"),
