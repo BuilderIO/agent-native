@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -95,7 +95,12 @@ export default defineAction({
     const [database] = await db
       .select()
       .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, databaseId));
+      .where(
+        and(
+          eq(schema.contentDatabases.id, databaseId),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      );
     if (!database) throw new Error(`Database "${databaseId}" not found`);
 
     await assertAccess("document", database.documentId, "editor");

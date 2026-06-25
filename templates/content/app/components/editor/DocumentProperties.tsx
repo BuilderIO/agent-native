@@ -82,7 +82,10 @@ import {
   useDuplicateDocumentProperty,
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
-import { applySourceFieldPropertyToDatabaseResponse } from "@/hooks/use-content-database";
+import {
+  applySourceFieldPropertyToDatabaseResponse,
+  contentDatabaseQueryKey,
+} from "@/hooks/use-content-database";
 import {
   CREATABLE_DOCUMENT_PROPERTY_TYPES,
   DOCUMENT_PROPERTY_TYPE_LABELS,
@@ -114,6 +117,7 @@ import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 interface DocumentPropertiesProps {
   documentId: string;
   canEdit: boolean;
+  databaseDocumentId?: string;
   popoversPortalled?: boolean;
 }
 
@@ -643,6 +647,7 @@ function scalarPlaceholder(type: DocumentPropertyType) {
 export function DocumentProperties({
   documentId,
   canEdit,
+  databaseDocumentId = documentId,
   popoversPortalled = true,
 }: DocumentPropertiesProps) {
   const { data, isLoading } = useDocumentProperties(documentId);
@@ -681,6 +686,7 @@ export function DocumentProperties({
       {canEdit && hiddenProperties.length > 0 ? (
         <HiddenPropertiesMenu
           documentId={documentId}
+          databaseDocumentId={databaseDocumentId}
           properties={hiddenProperties}
         />
       ) : null}
@@ -688,6 +694,7 @@ export function DocumentProperties({
       {canEdit && databaseId ? (
         <AddProperty
           documentId={documentId}
+          databaseDocumentId={databaseDocumentId}
           popoversPortalled={popoversPortalled}
         />
       ) : null}
@@ -706,12 +713,17 @@ function isPropertyVisible(property: DocumentProperty) {
 
 function HiddenPropertiesMenu({
   documentId,
+  databaseDocumentId,
   properties,
 }: {
   documentId: string;
+  databaseDocumentId: string;
   properties: DocumentProperty[];
 }) {
-  const configure = useConfigureDocumentProperty(documentId);
+  const configure = useConfigureDocumentProperty(
+    documentId,
+    databaseDocumentId,
+  );
 
   async function showProperty(property: DocumentProperty) {
     await configure.mutateAsync({
@@ -2319,6 +2331,7 @@ function OptionValueEditor({
 
 export function AddProperty({
   documentId,
+  databaseDocumentId = documentId,
   variant = "default",
   label = "Add property",
   popoversPortalled = true,
@@ -2326,13 +2339,17 @@ export function AddProperty({
   sources,
 }: {
   documentId: string;
+  databaseDocumentId?: string;
   variant?: "default" | "header" | "icon";
   label?: string;
   popoversPortalled?: boolean;
   source?: ContentDatabaseSource | null;
   sources?: ContentDatabaseSource[];
 }) {
-  const configure = useConfigureDocumentProperty(documentId);
+  const configure = useConfigureDocumentProperty(
+    documentId,
+    databaseDocumentId,
+  );
   const queryClient = useQueryClient();
   const addSourceFieldProperty = useActionMutation<
     ContentDatabaseSourceFieldPropertyResponse,
@@ -2340,7 +2357,7 @@ export function AddProperty({
   >("add-content-database-source-field-property", {
     onSuccess: (data) => {
       queryClient.setQueriesData<ContentDatabaseResponse>(
-        { queryKey: ["action", "get-content-database"] },
+        { queryKey: contentDatabaseQueryKey(databaseDocumentId) },
         (current) => applySourceFieldPropertyToDatabaseResponse(current, data),
       );
       queryClient.invalidateQueries({
