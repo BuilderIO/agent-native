@@ -144,11 +144,12 @@ function normalizeNotionPageId(input: string | null | undefined) {
 
 function getNotionPageId(attrs: Record<string, string>) {
   return (
-    normalizeNotionPageId(attrs.url) ??
-    normalizeNotionPageId(attrs.href) ??
-    normalizeNotionPageId(attrs.id) ??
-    normalizeNotionPageId(attrs.pageId) ??
-    normalizeNotionPageId(attrs.page_id)
+    attrs["data-agent-native-document-id"] ||
+    attrs.id ||
+    (normalizeNotionPageId(attrs.url) ??
+      normalizeNotionPageId(attrs.href) ??
+      normalizeNotionPageId(attrs.pageId) ??
+      normalizeNotionPageId(attrs.page_id))
   );
 }
 

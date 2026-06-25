@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { serializeRegistryBlockToMdx } from "../shared/nfm-registry.js";
@@ -88,6 +88,9 @@ async function createDocument(args: {
   parentId?: string | null;
   title?: string;
   content?: string;
+  position?: number;
+  visibility?: "private" | "org" | "public";
+  orgId?: string | null;
   ownerEmail?: string;
 }) {
   const db = getDb();
@@ -99,10 +102,27 @@ async function createDocument(args: {
     parentId: args.parentId ?? null,
     title: args.title ?? "Untitled",
     content: args.content ?? "",
+    position: args.position ?? 0,
+    visibility: args.visibility ?? "private",
+    orgId: args.orgId ?? null,
     createdAt: now,
     updatedAt: now,
   });
   return id;
+}
+
+async function documentRow(documentId: string, ownerEmail = OWNER) {
+  const db = getDb();
+  const [document] = await db
+    .select()
+    .from(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.id, documentId),
+        eq(schema.documents.ownerEmail, ownerEmail),
+      ),
+    );
+  return document;
 }
 
 async function createDatabase(args: {
@@ -311,6 +331,28 @@ describe("content database soft-delete actions and reads", () => {
     expect((await databaseRow(databaseId))?.deletedAt).toBeNull();
   });
 
+  it("clears stale inline ownership when restoring after the owner block is gone", async () => {
+    const hostDocumentId = await createDocument({
+      title: "Host",
+      content: "The inline block is gone.",
+    });
+    const ownerBlockId = nextId("inline_database");
+    const { databaseId } = await createDatabase({
+      hostDocumentId,
+      ownerBlockId,
+      deletedAt: new Date().toISOString(),
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      restoreContentDatabaseAction.run({ databaseId }),
+    );
+
+    const restored = await databaseRow(databaseId);
+    expect(restored?.deletedAt).toBeNull();
+    expect(restored?.ownerDocumentId).toBeNull();
+    expect(restored?.ownerBlockId).toBeNull();
+  });
+
   it("excludes soft-deleted databases from get-content-database and list-documents", async () => {
     const hostDocumentId = await createDocument({ title: "Host" });
     const { databaseId, databaseDocumentId } = await createDatabase({
@@ -418,6 +460,25 @@ describe("content database soft-delete actions and reads", () => {
       deletedAt,
       ownerEmail: "other@example.com",
     });
+    const inlineHost = await createDocument({
+      title: "Inline Host",
+      content: "Inline block has already been deleted.",
+    });
+    const inlineOwnedDeleted = await createDatabase({
+      hostDocumentId: inlineHost,
+      ownerBlockId: nextId("inline_database"),
+      deletedAt,
+    });
+    const db = getDb();
+    await db.insert(schema.documentShares).values({
+      id: nextId("share"),
+      resourceId: inlineOwnedDeleted.databaseDocumentId,
+      principalType: "user",
+      principalId: COLLABORATOR,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
 
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>
       listTrashedContentDatabasesAction.run({}),
@@ -439,6 +500,16 @@ describe("content database soft-delete actions and reads", () => {
     );
     expect(listedIds.has(active.databaseId)).toBe(false);
     expect(listedIds.has(otherDeleted.databaseId)).toBe(false);
+
+    const collaboratorResult = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => listTrashedContentDatabasesAction.run({}),
+    );
+    expect(
+      collaboratorResult.databases.some(
+        (database) => database.databaseId === inlineOwnedDeleted.databaseId,
+      ),
+    ).toBe(false);
   });
 
   it("requires host document edit access before detaching inline database ownership", async () => {
@@ -467,5 +538,127 @@ describe("content database soft-delete actions and reads", () => {
     const database = await databaseRow(databaseId);
     expect(database?.ownerDocumentId).toBe(hostDocumentId);
     expect(database?.ownerBlockId).toEqual(expect.any(String));
+    expect((await documentRow(databaseDocumentId))?.parentId).toBe(
+      hostDocumentId,
+    );
+  });
+
+  it("keeps root reordering scoped to the document visibility section", async () => {
+    const ownerEmail = `${nextId("owner")}@example.com`;
+    const privateA = await createDocument({
+      title: "Private A",
+      position: 0,
+      visibility: "private",
+      ownerEmail,
+    });
+    const privateB = await createDocument({
+      title: "Private B",
+      position: 1,
+      visibility: "private",
+      ownerEmail,
+    });
+    const orgRoot = await createDocument({
+      title: "Org Root",
+      position: 0,
+      visibility: "org",
+      ownerEmail,
+    });
+
+    await runWithRequestContext({ userEmail: ownerEmail }, () =>
+      moveDocumentAction.run({ id: privateB, parentId: null, position: 0 }),
+    );
+
+    expect((await documentRow(privateB, ownerEmail))?.position).toBe(0);
+    expect((await documentRow(privateA, ownerEmail))?.position).toBe(1);
+    expect((await documentRow(orgRoot, ownerEmail))?.position).toBe(0);
+  });
+
+  it("keeps root reordering scoped to the document org section", async () => {
+    const ownerEmail = `${nextId("owner")}@example.com`;
+    const orgA1 = await createDocument({
+      title: "Org A 1",
+      position: 0,
+      visibility: "org",
+      orgId: "org-a",
+      ownerEmail,
+    });
+    const orgA2 = await createDocument({
+      title: "Org A 2",
+      position: 1,
+      visibility: "org",
+      orgId: "org-a",
+      ownerEmail,
+    });
+    const orgB = await createDocument({
+      title: "Org B",
+      position: 0,
+      visibility: "org",
+      orgId: "org-b",
+      ownerEmail,
+    });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId: "org-a" }, () =>
+      moveDocumentAction.run({ id: orgA2, parentId: null, position: 0 }),
+    );
+
+    expect((await documentRow(orgA2, ownerEmail))?.position).toBe(0);
+    expect((await documentRow(orgA1, ownerEmail))?.position).toBe(1);
+    expect((await documentRow(orgB, ownerEmail))?.position).toBe(0);
+  });
+
+  it("rejects parenting documents across visibility sections", async () => {
+    const ownerEmail = `${nextId("owner")}@example.com`;
+    const privateChild = await createDocument({
+      title: "Private Child",
+      visibility: "private",
+      ownerEmail,
+    });
+    const orgParent = await createDocument({
+      title: "Org Parent",
+      visibility: "org",
+      ownerEmail,
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: ownerEmail }, () =>
+        moveDocumentAction.run({ id: privateChild, parentId: orgParent }),
+      ),
+    ).rejects.toThrow("Parent document must be in the same section");
+
+    expect((await documentRow(privateChild, ownerEmail))?.parentId).toBeNull();
+  });
+
+  it("rejects parenting documents across org sections", async () => {
+    const ownerEmail = `${nextId("owner")}@example.com`;
+    const orgAChild = await createDocument({
+      title: "Org A Child",
+      visibility: "org",
+      orgId: "org-a",
+      ownerEmail,
+    });
+    const orgBParent = await createDocument({
+      title: "Org B Parent",
+      visibility: "org",
+      orgId: "org-b",
+      ownerEmail,
+    });
+    const db = getDb();
+    await db.insert(schema.documentShares).values({
+      id: nextId("share"),
+      resourceId: orgBParent,
+      principalType: "user",
+      principalId: ownerEmail,
+      role: "editor",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: ownerEmail, orgId: "org-a" }, () =>
+        moveDocumentAction.run({ id: orgAChild, parentId: orgBParent }),
+      ),
+    ).rejects.toThrow("Parent document must be in the same section");
+
+    expect((await documentRow(orgAChild, ownerEmail))?.parentId).toBeNull();
   });
 });
