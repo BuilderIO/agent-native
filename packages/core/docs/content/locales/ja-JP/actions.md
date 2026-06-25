@@ -85,9 +85,9 @@ actions 付近ですが、アクション自体の必要な前提条件ではあ
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});",
   "annotations": [
-    { "lines": "5", "label": "Tool surface", "note": "`description` is what the agent reads to decide when to call this. The per-field `.describe()` calls flow into the JSON Schema too." },
+    { "lines": "5", "label": "ツール面", "note": "`description` は、エージェントがこれをいつ呼び出すか判断するために読む内容です。各フィールドの `.describe()` も JSON Schema に反映されます。" },
     { "lines": "6-9", "label": "型付き契約", "note": "1つの schema が**すべて**のサーフェスからの入力を検証し、モデル向けに JSON Schema へ変換します。無効な入力が `run` に届くことはありません。" },
-    { "lines": "10-13", "label": "One implementation", "note": "The `run` body is the single source of truth — the UI button and the agent tool both execute exactly this." }
+    { "lines": "10-13", "label": "単一の実装", "note": "`run` 本体が唯一の信頼できる実装です。UI ボタンとエージェントツールはどちらもこれをそのまま実行します。" }
   ]
 }
 ```
@@ -150,19 +150,19 @@ export default defineAction({
 
 `GET` アクションの場合、`leadId` はクエリ パラメーター `/_agent-native/actions/get-lead?leadId=abc` として渡されます。
 
-```an-api title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead"
+```an-api title="自動マウントされる action エンドポイント" method="GET" path="/_agent-native/actions/get-lead"
 {
   "method": "GET",
   "path": "/_agent-native/actions/get-lead",
-  "summary": "Every action is mounted here automatically — the filename is the action name.",
-  "description": "POST by default; `http: { method: \"GET\" }` makes it a GET. The React hooks and `callAction` always call this path by name, regardless of any `http.path` override.",
-  "auth": "Session cookie; frontend calls carry `X-Agent-Native-Frontend: 1`",
+  "summary": "すべての action はここに自動でマウントされます。ファイル名が action 名になります。",
+  "description": "デフォルトは POST です。`http: { method: \"GET\" }` で GET になります。React hooks と `callAction` は、`http.path` の上書きに関係なく常にこのパスを名前で呼び出します。",
+  "auth": "セッション cookie。フロントエンド呼び出しには `X-Agent-Native-Frontend: 1` が付きます",
   "params": [
-    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET args arrive as query params; POST args arrive in the JSON body." }
+    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET 引数は query params として届き、POST 引数は JSON body に届きます。" }
   ],
   "responses": [
-    { "status": "200", "description": "The action's return value as JSON." },
-    { "status": "400", "description": "Input failed schema validation before run() fired." }
+    { "status": "200", "description": "action の戻り値を JSON として返します。" },
+    { "status": "400", "description": "run() が実行される前に入力が schema 検証に失敗しました。" }
   ]
 }
 ```

@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { useParseDate, useSnoozeEmail } from "@/hooks/use-scheduled-jobs";
 import { IconAlarm } from "@tabler/icons-react";
 import { toast } from "sonner";
+import { useT } from "@agent-native/core/client";
 
 interface SnoozePopoverProps {
   emailId: string;
@@ -68,6 +69,7 @@ export function SnoozePopover({
   onArchive,
   children,
 }: SnoozePopoverProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [nlInput, setNlInput] = useState("");
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -140,7 +142,7 @@ export function SnoozePopover({
       <PopoverContent className="w-72 p-3" align="end">
         <div className="space-y-3">
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            Snooze until
+            {t("mail.snooze.snoozeUntil")}
           </div>
 
           {/* Preset chips */}
@@ -171,17 +173,17 @@ export function SnoozePopover({
               type="text"
               value={nlInput}
               onChange={(e) => setNlInput(e.target.value)}
-              placeholder="or try: friday 5pm, in 2 weeks..."
+              placeholder={t("mail.snooze.tryPlaceholder")}
               className="w-full text-xs px-2.5 py-1.5 rounded-md border border-input bg-background placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring/30"
             />
             {nlInput && displayDate && (
               <div className="text-[11px] px-1 text-muted-foreground">
-                Snooze until {displayDate}
+                {t("mail.snooze.snoozeUntilDate", { date: displayDate })}
               </div>
             )}
             {nlInput && !displayDate && parseDate.isPending && (
               <div className="text-[11px] px-1 text-muted-foreground">
-                Parsing...
+                {t("mail.snooze.parsing")}
               </div>
             )}
           </div>
@@ -194,7 +196,9 @@ export function SnoozePopover({
             onClick={handleSnooze}
           >
             <IconAlarm className="h-3.5 w-3.5 mr-1.5" />
-            {snoozeEmail.isPending ? "Snoozing..." : "Snooze"}
+            {snoozeEmail.isPending
+              ? t("mail.snooze.snoozing")
+              : t("mail.snooze.snooze")}
             {displayDate && !snoozeEmail.isPending && (
               <span className="ml-1 opacity-60 truncate max-w-[120px]">
                 · {displayDate}

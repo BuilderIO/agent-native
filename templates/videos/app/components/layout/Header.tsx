@@ -1,11 +1,7 @@
 import { useLocation } from "react-router";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import {
-  AgentToggleButton,
-  LanguagePicker,
-  useT,
-} from "@agent-native/core/client";
+import { AgentToggleButton, useT } from "@agent-native/core/client";
 import { compositions } from "@/remotion/registry";
 
 const pageTitleKeys: Record<string, string> = {
@@ -60,7 +56,6 @@ export function Header({ onOpenMobileSidebar }: HeaderProps) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <LanguagePicker variant="icon" />
         <AgentToggleButton />
       </div>
     </header>

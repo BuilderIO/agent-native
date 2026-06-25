@@ -162,19 +162,19 @@ export default defineAction({
 
 بالنسبة لإجراء `GET`، يتم تمرير `leadId` كمعلمة استعلام: `/_agent-native/actions/get-lead?leadId=abc`.
 
-```an-api title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead"
+```an-api title="نقطة نهاية action المثبتة تلقائيا" method="GET" path="/_agent-native/actions/get-lead"
 {
   "method": "GET",
   "path": "/_agent-native/actions/get-lead",
-  "summary": "Every action is mounted here automatically — the filename is the action name.",
-  "description": "POST by default; `http: { method: \"GET\" }` makes it a GET. The React hooks and `callAction` always call this path by name, regardless of any `http.path` override.",
-  "auth": "Session cookie; frontend calls carry `X-Agent-Native-Frontend: 1`",
+  "summary": "كل action يثبت هنا تلقائيا - اسم الملف هو اسم action.",
+  "description": "الافتراضي هو POST؛ `http: { method: \"GET\" }` يجعلها GET. تستدعي React hooks و `callAction` هذا المسار دائما بالاسم، بغض النظر عن أي تجاوز `http.path`.",
+  "auth": "ملف تعريف ارتباط للجلسة؛ تحمل استدعاءات الواجهة `X-Agent-Native-Frontend: 1`",
   "params": [
-    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET args arrive as query params; POST args arrive in the JSON body." }
+    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "تصل وسائط GET كمعاملات query؛ وتصل وسائط POST في جسم JSON." }
   ],
   "responses": [
-    { "status": "200", "description": "The action's return value as JSON." },
-    { "status": "400", "description": "Input failed schema validation before run() fired." }
+    { "status": "200", "description": "قيمة إرجاع action بصيغة JSON." },
+    { "status": "400", "description": "فشل الإدخال في التحقق من schema قبل تشغيل run()." }
   ]
 }
 ```

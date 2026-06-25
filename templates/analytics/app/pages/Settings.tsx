@@ -17,8 +17,6 @@ export default function Settings() {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <ChangelogSettingsCard markdown={changelog} />
-
       <Card className="bg-card border-border/50">
         <CardHeader>
           <CardTitle className="text-base">{t("settings.account")}</CardTitle>
@@ -92,6 +90,8 @@ export default function Settings() {
           <p>{t("settings.aboutUsage")}</p>
         </CardContent>
       </Card>
+
+      <ChangelogSettingsCard markdown={changelog} />
     </div>
   );
 }

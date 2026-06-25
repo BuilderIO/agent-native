@@ -20,6 +20,17 @@ const deDE = {
     privacy: "Datenschutz",
     terms: "Bedingungen",
   },
+  feedback: {
+    label: "Feedback",
+    placeholder: "Sag uns, wie diese Dokumentation besser werden kann.",
+  },
+  demoVideo: {
+    visualPlanningAria: "Agent-Native Demo für visuelle Planung",
+  },
+  docBlocks: {
+    blockLabel: "{{alias}}-Block",
+    unknownBlockType: "unbekannter Blocktyp",
+  },
   theme: {
     light: "hell",
     dark: "dunkel",
@@ -1069,33 +1080,40 @@ const deDE = {
     },
   },
   skillsPage: {
-    heroTitle: "Give your coding agent new superpowers",
+    metaTitle: "Agent Skills - Visual Plan und Visual Recap fuer Coding Agents",
+    metaDescription:
+      "Installiere Agent-Native appgestuetzte Skills fuer visuelle Planung und PR-Recaps in deinem Coding Agent.",
+    metaOgDescription:
+      "Gib deinem Coding Agent Slash-Commands auf Basis von Agent-Native Apps, die du hosten, pruefen und anpassen kannst.",
+    metaKeywords:
+      "Agent Skills, Visual Plan, Visual Recap, Coding Agent, Claude Code, Codex, PR Review, Planung, agent-native",
+    heroTitle: "Gib deinem Coding Agent neue Superkraefte",
     heroBody:
-      "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation and visual PR recaps after changes land.",
-    sectionTitle: "App-backed skills for coding agents",
+      "Installiere appgestuetzte Skills mit Agent-Native Apps, die du voll anpassen kannst: visuelle Planung vor der Umsetzung und visuelle PR-Recaps nach den Aenderungen.",
+    sectionTitle: "Appgestuetzte Skills fuer Coding Agents",
     sectionBody:
-      "Use hosted shareable app links, local files, or a self-hosted/custom app, and your agent gets instructions plus the matching MCP surface when one is required.",
+      "Nutze gehostete teilbare App-Links, lokale Dateien oder eine selbst gehostete/angepasste App; dein Agent erhaelt Anweisungen plus die passende MCP-Oberflaeche, wenn sie gebraucht wird.",
     ctaBody:
-      "Works with Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, and similar coding agents.",
-    readVisualPlansDocs: "Read the Visual Plans docs",
-    browseTemplates: "Browse templates",
+      "Funktioniert mit Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code und aehnlichen Coding Agents.",
+    readVisualPlansDocs: "Visual Plans Dokumentation lesen",
+    browseTemplates: "Templates ansehen",
     visualPlan: {
       name: "Visual Plan",
-      tagline: "Review before code",
+      tagline: "Vor dem Code pruefen",
       description:
-        "Turns a coding task into a shareable plan with diagrams, file notes, and optional UI sketches.",
-      feature1: "See the implementation shape before changes land",
-      feature2: "Comment, revise, approve, or hand off",
-      videoAriaLabel: "Visual Plan skill demo video",
+        "Verwandelt eine Coding-Aufgabe in einen teilbaren Plan mit Diagrammen, Dateinotizen und optionalen UI-Skizzen.",
+      feature1: "Sieh die Umsetzungsform, bevor Aenderungen landen",
+      feature2: "Kommentieren, ueberarbeiten, genehmigen oder uebergeben",
+      videoAriaLabel: "Demo-Video zum Visual Plan Skill",
     },
     visualRecap: {
       name: "Visual Recap",
-      tagline: "Review after changes",
+      tagline: "Nach Aenderungen pruefen",
       description:
-        "Turns a PR or git diff into a shareable recap of what changed and why.",
-      feature1: "Summarizes schema, API, and file changes",
-      feature2: "Optionally posts one sticky PR comment",
-      videoAriaLabel: "Visual Recap skill demo video",
+        "Verwandelt einen PR oder git diff in einen teilbaren Recap dessen, was sich geaendert hat und warum.",
+      feature1: "Fasst Schema-, API- und Dateiaenderungen zusammen",
+      feature2: "Kann optional einen fixierten PR-Kommentar posten",
+      videoAriaLabel: "Demo-Video zum Visual Recap Skill",
     },
   },
   downloadPage: {

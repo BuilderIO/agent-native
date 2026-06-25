@@ -85,9 +85,9 @@ pnpm agent "Call hello for Steve and explain the result"
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});",
   "annotations": [
-    { "lines": "5", "label": "Tool surface", "note": "`description` is what the agent reads to decide when to call this. The per-field `.describe()` calls flow into the JSON Schema too." },
+    { "lines": "5", "label": "工具表面", "note": "`description` 是代理读取以决定何时调用此动作的内容。每个字段的 `.describe()` 也会进入 JSON Schema。" },
     { "lines": "6-9", "label": "类型化契约", "note": "一个 schema 会验证来自**每个**界面的输入，并转换为供模型使用的 JSON Schema。无效输入永远不会进入 `run`。" },
-    { "lines": "10-13", "label": "One implementation", "note": "The `run` body is the single source of truth — the UI button and the agent tool both execute exactly this." }
+    { "lines": "10-13", "label": "单一实现", "note": "`run` 主体是唯一事实来源，UI 按钮和代理工具都会执行这一段。" }
   ]
 }
 ```
@@ -150,19 +150,19 @@ export default defineAction({
 
 对于 `GET` 操作，`leadId` 作为查询参数传递：`/_agent-native/actions/get-lead?leadId=abc`。
 
-```an-api title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead"
+```an-api title="自动挂载的 action 端点" method="GET" path="/_agent-native/actions/get-lead"
 {
   "method": "GET",
   "path": "/_agent-native/actions/get-lead",
-  "summary": "Every action is mounted here automatically — the filename is the action name.",
-  "description": "POST by default; `http: { method: \"GET\" }` makes it a GET. The React hooks and `callAction` always call this path by name, regardless of any `http.path` override.",
-  "auth": "Session cookie; frontend calls carry `X-Agent-Native-Frontend: 1`",
+  "summary": "每个 action 都会自动挂载在这里 - 文件名就是 action 名称。",
+  "description": "默认是 POST；`http: { method: \"GET\" }` 会让它成为 GET。无论任何 `http.path` 覆盖如何，React hooks 和 `callAction` 始终按名称调用这个路径。",
+  "auth": "会话 cookie；前端调用会携带 `X-Agent-Native-Frontend: 1`",
   "params": [
-    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET args arrive as query params; POST args arrive in the JSON body." }
+    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET 参数以查询参数传入；POST 参数以 JSON body 传入。" }
   ],
   "responses": [
-    { "status": "200", "description": "The action's return value as JSON." },
-    { "status": "400", "description": "Input failed schema validation before run() fired." }
+    { "status": "200", "description": "action 的返回值，以 JSON 表示。" },
+    { "status": "400", "description": "输入在 run() 触发前未通过 schema 验证。" }
   ]
 }
 ```

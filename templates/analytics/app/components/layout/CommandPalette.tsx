@@ -27,6 +27,7 @@ import {
   callAction,
   useChangeVersions,
   ChangelogDialog,
+  useT,
 } from "@agent-native/core/client";
 import { extensionPath } from "@agent-native/core/client/extensions";
 import changelog from "../../../CHANGELOG.md?raw";
@@ -50,10 +51,14 @@ interface ExtensionSearchItem {
 }
 
 const defaultTools = [
-  { id: "explorer", name: "Explorer", href: "/dashboards/explorer" },
+  {
+    id: "explorer",
+    nameKey: "commandPalette.toolExplorer",
+    href: "/dashboards/explorer",
+  },
   {
     id: "customer-health",
-    name: "Customer Health",
+    nameKey: "commandPalette.toolCustomerHealth",
     href: "/dashboards/customer-health",
   },
 ];
@@ -126,9 +131,9 @@ async function fetchExplorerDashboards(): Promise<ExplorerDashboard[]> {
   }
 }
 
-async function fetchSqlDashboards(): Promise<
-  { id: string; name: string; hiddenAt: string | null }[]
-> {
+async function fetchSqlDashboards(
+  t: (key: string) => string,
+): Promise<{ id: string; name: string; hiddenAt: string | null }[]> {
   try {
     const rows = await callAction(
       "list-sql-dashboards",
@@ -142,7 +147,7 @@ async function fetchSqlDashboards(): Promise<
         name:
           typeof d.name === "string" && d.name.trim().length > 0
             ? d.name
-            : "Untitled dashboard",
+            : t("commandPalette.untitledDashboard"),
         hiddenAt: typeof d.hiddenAt === "string" ? d.hiddenAt : null,
       }));
   } catch {
@@ -183,6 +188,7 @@ function persistThemePreference(theme: "light" | "dark") {
 }
 
 export function CommandPalette() {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [changelogOpen, setChangelogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -213,7 +219,7 @@ export function CommandPalette() {
   const { data: sqlDashboards = [], isFetching: sqlDashboardsFetching } =
     useQuery({
       queryKey: ["sql-dashboards-palette", dashboardsSync],
-      queryFn: fetchSqlDashboards,
+      queryFn: () => fetchSqlDashboards(t),
       staleTime: 30_000,
       enabled: open,
       placeholderData: (prev) => prev,
@@ -276,21 +282,24 @@ export function CommandPalette() {
         }}
       >
         <CommandInput
-          placeholder="Search dashboards, extensions, charts..."
+          placeholder={t("commandPalette.searchPlaceholder")}
           value={searchQuery}
           onValueChange={setSearchQuery}
         />
         <CommandList>
           {!asyncGroupsLoading && (
-            <CommandEmpty>No results found.</CommandEmpty>
+            <CommandEmpty>{t("commandPalette.noResults")}</CommandEmpty>
           )}
 
           {explorerDashboardsFetching && explorerDashboards.length === 0 && (
-            <CommandLoadingGroup heading="Explorer Dashboards" rows={2} />
+            <CommandLoadingGroup
+              heading={t("commandPalette.groupExplorerDashboards")}
+              rows={2}
+            />
           )}
 
           {visibleExplorerDashboards.length > 0 && (
-            <CommandGroup heading="Explorer Dashboards">
+            <CommandGroup heading={t("commandPalette.groupExplorerDashboards")}>
               {visibleExplorerDashboards.map((d) => (
                 <CommandItem
                   key={`ed-${d.id}`}
@@ -307,7 +316,7 @@ export function CommandPalette() {
                   <span className="truncate">{d.name}</span>
                   {d.hiddenAt ? (
                     <span className="ms-2 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                      Hidden
+                      {t("commandPalette.hidden")}
                     </span>
                   ) : null}
                 </CommandItem>
@@ -316,11 +325,14 @@ export function CommandPalette() {
           )}
 
           {sqlDashboardsFetching && sqlDashboards.length === 0 && (
-            <CommandLoadingGroup heading="SQL Dashboards" rows={3} />
+            <CommandLoadingGroup
+              heading={t("commandPalette.groupSqlDashboards")}
+              rows={3}
+            />
           )}
 
           {visibleSqlDashboards.length > 0 && (
-            <CommandGroup heading="SQL Dashboards">
+            <CommandGroup heading={t("commandPalette.groupSqlDashboards")}>
               {visibleSqlDashboards.map((d) => (
                 <CommandItem
                   key={`sql-${d.id}`}
@@ -335,7 +347,7 @@ export function CommandPalette() {
                   <span className="truncate">{d.name}</span>
                   {d.hiddenAt ? (
                     <span className="ms-2 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                      Hidden
+                      {t("commandPalette.hidden")}
                     </span>
                   ) : null}
                 </CommandItem>
@@ -344,11 +356,14 @@ export function CommandPalette() {
           )}
 
           {extensionsFetching && extensions.length === 0 && (
-            <CommandLoadingGroup heading="Extensions" rows={3} />
+            <CommandLoadingGroup
+              heading={t("commandPalette.groupExtensions")}
+              rows={3}
+            />
           )}
 
           {extensions.length > 0 && (
-            <CommandGroup heading="Extensions">
+            <CommandGroup heading={t("commandPalette.groupExtensions")}>
               {extensions.map((extension) => (
                 <CommandItem
                   key={`extension-${extension.id}`}
@@ -369,7 +384,7 @@ export function CommandPalette() {
             </CommandGroup>
           )}
 
-          <CommandGroup heading="Dashboards">
+          <CommandGroup heading={t("commandPalette.groupDashboards")}>
             {dashboards.map((d) => (
               <CommandItem
                 key={`dash-${d.id}`}
@@ -382,20 +397,20 @@ export function CommandPalette() {
             ))}
           </CommandGroup>
 
-          <CommandGroup heading="Tools">
-            {defaultTools.map((t) => (
+          <CommandGroup heading={t("commandPalette.groupTools")}>
+            {defaultTools.map((tool) => (
               <CommandItem
-                key={`tool-${t.id}`}
-                onSelect={() => go(t.href)}
-                keywords={commandPaletteKeywords(t.name, "tool")}
+                key={`tool-${tool.id}`}
+                onSelect={() => go(tool.href)}
+                keywords={commandPaletteKeywords(t(tool.nameKey), "tool")}
               >
                 <IconTool className="me-2 h-4 w-4 text-muted-foreground" />
-                {t.name}
+                {t(tool.nameKey)}
               </CommandItem>
             ))}
           </CommandGroup>
 
-          <CommandGroup heading="Appearance">
+          <CommandGroup heading={t("commandPalette.groupAppearance")}>
             <CommandItem
               onSelect={() => {
                 const nextTheme = isDark ? "light" : "dark";
@@ -409,18 +424,20 @@ export function CommandPalette() {
               ) : (
                 <IconMoon className="me-2 h-4 w-4 text-muted-foreground" />
               )}
-              Toggle {isDark ? "light" : "dark"} mode
+              {isDark
+                ? t("commandPalette.toggleLightMode")
+                : t("commandPalette.toggleDarkMode")}
             </CommandItem>
           </CommandGroup>
 
-          <CommandGroup heading="Help">
+          <CommandGroup heading={t("commandPalette.groupHelp")}>
             <CommandItem
               onSelect={() => {
                 setOpen(false);
                 setChangelogOpen(true);
               }}
               keywords={commandPaletteKeywords(
-                "What's new",
+                t("commandPalette.whatsNew"),
                 "changelog",
                 "updates",
                 "release notes",
@@ -428,16 +445,19 @@ export function CommandPalette() {
               )}
             >
               <IconHistory className="me-2 h-4 w-4 text-muted-foreground" />
-              What's new
+              {t("commandPalette.whatsNew")}
             </CommandItem>
           </CommandGroup>
 
           {savedChartsFetching && savedCharts.length === 0 && (
-            <CommandLoadingGroup heading="Saved Charts" rows={2} />
+            <CommandLoadingGroup
+              heading={t("commandPalette.groupSavedCharts")}
+              rows={2}
+            />
           )}
 
           {savedCharts.length > 0 && (
-            <CommandGroup heading="Saved Charts">
+            <CommandGroup heading={t("commandPalette.groupSavedCharts")}>
               {savedCharts.map((c) => (
                 <CommandItem
                   key={`chart-${c.id}`}

@@ -85,9 +85,9 @@ actions के आसपास, कार्रवाई के लिए को
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});",
   "annotations": [
-    { "lines": "5", "label": "Tool surface", "note": "`description` is what the agent reads to decide when to call this. The per-field `.describe()` calls flow into the JSON Schema too." },
+    { "lines": "5", "label": "टूल सतह", "note": "`description` वह पाठ है जिसे एजेंट यह तय करने के लिए पढ़ता है कि इसे कब कॉल करना है। हर फ़ील्ड की `.describe()` कॉल JSON Schema में भी जाती है।" },
     { "lines": "6-9", "label": "टाइप किया हुआ अनुबंध", "note": "एक schema **हर** सतह से आने वाले input को validate करता है और model के लिए JSON Schema में बदलता है। अमान्य input कभी `run` तक नहीं पहुंचते।" },
-    { "lines": "10-13", "label": "One implementation", "note": "The `run` body is the single source of truth — the UI button and the agent tool both execute exactly this." }
+    { "lines": "10-13", "label": "एक कार्यान्वयन", "note": "`run` का मुख्य भाग ही भरोसेमंद स्रोत है — UI बटन और एजेंट टूल दोनों यही चलाते हैं।" }
   ]
 }
 ```
@@ -150,19 +150,19 @@ export default defineAction({
 
 `GET` कार्रवाई के लिए, `leadId` को क्वेरी पैरामीटर के रूप में पारित किया जाता है: `/_agent-native/actions/get-lead?leadId=abc`।
 
-```an-api title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead"
+```an-api title="अपने आप mount हुआ action endpoint" method="GET" path="/_agent-native/actions/get-lead"
 {
   "method": "GET",
   "path": "/_agent-native/actions/get-lead",
-  "summary": "Every action is mounted here automatically — the filename is the action name.",
-  "description": "POST by default; `http: { method: \"GET\" }` makes it a GET. The React hooks and `callAction` always call this path by name, regardless of any `http.path` override.",
-  "auth": "Session cookie; frontend calls carry `X-Agent-Native-Frontend: 1`",
+  "summary": "हर action यहां अपने आप mount होता है - filename ही action name है।",
+  "description": "Default POST है; `http: { method: \"GET\" }` इसे GET बनाता है। React hooks और `callAction` हमेशा इस path को name से call करते हैं, चाहे कोई भी `http.path` override हो।",
+  "auth": "Session cookie; frontend calls `X-Agent-Native-Frontend: 1` लेकर चलते हैं",
   "params": [
-    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET args arrive as query params; POST args arrive in the JSON body." }
+    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET args query params के रूप में आते हैं; POST args JSON body में आते हैं।" }
   ],
   "responses": [
-    { "status": "200", "description": "The action's return value as JSON." },
-    { "status": "400", "description": "Input failed schema validation before run() fired." }
+    { "status": "200", "description": "Action का return value JSON के रूप में।" },
+    { "status": "400", "description": "run() चलने से पहले input schema validation में fail हुआ।" }
   ]
 }
 ```

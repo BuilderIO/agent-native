@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import {
   AgentSidebar,
   AgentToggleButton,
-  LanguagePicker,
   NotificationsBell,
   useAppearanceSync,
 } from "@agent-native/core/client";
@@ -288,7 +287,6 @@ export function AppLayout({ children }: AppLayoutProps) {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {headerControls?.right}
-                  <LanguagePicker variant="icon" />
                   {!isMobile && (
                     <NotificationsBell emptyDescription="Calendar can pop browser alerts while this app is open. Clips desktop handles fuller meeting prompts with one-click notes." />
                   )}

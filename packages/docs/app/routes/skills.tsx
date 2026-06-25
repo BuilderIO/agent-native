@@ -1,35 +1,64 @@
 import { Link } from "react-router";
 import { useState, type SyntheticEvent } from "react";
-import { trackEvent, useLocale, useT } from "@agent-native/core/client";
+import {
+  normalizeLocaleCode,
+  trackEvent,
+  useLocale,
+  useT,
+} from "@agent-native/core/client";
 import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
 import { sitePathForLocale } from "../components/docs-locale";
+import arSA from "../i18n/ar-SA";
+import deDE from "../i18n/de-DE";
+import enUS from "../i18n/en-US";
+import esES from "../i18n/es-ES";
+import frFR from "../i18n/fr-FR";
+import hiIN from "../i18n/hi-IN";
+import jaJP from "../i18n/ja-JP";
+import koKR from "../i18n/ko-KR";
+import ptBR from "../i18n/pt-BR";
+import zhCN from "../i18n/zh-CN";
 import { withDefaultSocialImage } from "../seo";
 
-export const meta = () =>
-  withDefaultSocialImage([
+const SKILLS_PAGE_META = {
+  "ar-SA": arSA.skillsPage,
+  "de-DE": deDE.skillsPage,
+  "en-US": enUS.skillsPage,
+  "es-ES": esES.skillsPage,
+  "fr-FR": frFR.skillsPage,
+  "hi-IN": hiIN.skillsPage,
+  "ja-JP": jaJP.skillsPage,
+  "ko-KR": koKR.skillsPage,
+  "pt-BR": ptBR.skillsPage,
+  "zh-CN": zhCN.skillsPage,
+};
+
+export const meta = ({ params }: { params?: { locale?: string } } = {}) => {
+  const locale = normalizeLocaleCode(params?.locale) ?? "en-US";
+  const copy = SKILLS_PAGE_META[locale] ?? enUS.skillsPage;
+
+  return withDefaultSocialImage([
     {
-      title: "Agent Skills — Visual Plan and Visual Recap for coding agents",
+      title: copy.metaTitle,
     },
     {
       name: "description",
-      content:
-        "Install Agent-Native app-backed skills your coding agent can use for visual planning and PR recaps.",
+      content: copy.metaDescription,
     },
     {
       property: "og:title",
-      content: "Agent Skills — Visual Plan and Visual Recap for coding agents",
+      content: copy.metaTitle,
     },
     {
       property: "og:description",
-      content:
-        "Give your coding agent slash commands powered by Agent-Native apps you can host, inspect, and customize.",
+      content: copy.metaOgDescription,
     },
     {
       name: "keywords",
-      content:
-        "agent skills, visual plan, visual recap, coding agent, Claude Code, Codex, PR review, planning, agent-native",
+      content: copy.metaKeywords,
     },
   ]);
+};
 
 const INSTALL_COMMAND = "npx @agent-native/core@latest skills add";
 

@@ -20,6 +20,17 @@ const frFR = {
     privacy: "Confidentialité",
     terms: "Conditions",
   },
+  feedback: {
+    label: "Retour",
+    placeholder: "Dites-nous comment améliorer cette documentation.",
+  },
+  demoVideo: {
+    visualPlanningAria: "Démo de planification visuelle Agent-Native",
+  },
+  docBlocks: {
+    blockLabel: "Bloc {{alias}}",
+    unknownBlockType: "type de bloc inconnu",
+  },
   theme: {
     light: "clair",
     dark: "sombre",
@@ -1069,33 +1080,41 @@ const frFR = {
     },
   },
   skillsPage: {
-    heroTitle: "Give your coding agent new superpowers",
+    metaTitle: "Skills agent - Visual Plan et Visual Recap pour agents de code",
+    metaDescription:
+      "Installez des skills adossees a des apps Agent-Native pour aider votre agent de code a produire des plans visuels et des recaps de PR.",
+    metaOgDescription:
+      "Donnez a votre agent de code des commandes slash propulsees par des apps Agent-Native que vous pouvez heberger, inspecter et personnaliser.",
+    metaKeywords:
+      "skills agent, visual plan, visual recap, agent de code, Claude Code, Codex, revue PR, planification, agent-native",
+    heroTitle: "Donnez de nouveaux superpouvoirs a votre agent de code",
     heroBody:
-      "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation and visual PR recaps after changes land.",
-    sectionTitle: "App-backed skills for coding agents",
+      "Installez des skills adossees a des apps Agent-Native entierement personnalisables : planification visuelle avant implementation et recaps visuels de PR apres les changements.",
+    sectionTitle: "Skills adossees a des apps pour agents de code",
     sectionBody:
-      "Use hosted shareable app links, local files, or a self-hosted/custom app, and your agent gets instructions plus the matching MCP surface when one is required.",
+      "Utilisez des liens d apps hebergees et partageables, des fichiers locaux ou une app auto-hebergee/personnalisee ; votre agent recoit les instructions et la surface MCP correspondante quand elle est necessaire.",
     ctaBody:
-      "Works with Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, and similar coding agents.",
-    readVisualPlansDocs: "Read the Visual Plans docs",
-    browseTemplates: "Browse templates",
+      "Fonctionne avec Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code et les agents de code similaires.",
+    readVisualPlansDocs: "Lire la documentation Visual Plans",
+    browseTemplates: "Parcourir les modeles",
     visualPlan: {
       name: "Visual Plan",
-      tagline: "Review before code",
+      tagline: "Relire avant le code",
       description:
-        "Turns a coding task into a shareable plan with diagrams, file notes, and optional UI sketches.",
-      feature1: "See the implementation shape before changes land",
-      feature2: "Comment, revise, approve, or hand off",
-      videoAriaLabel: "Visual Plan skill demo video",
+        "Transforme une tache de code en plan partageable avec diagrammes, notes de fichiers et croquis UI facultatifs.",
+      feature1:
+        "Voyez la forme de l implementation avant que les changements arrivent",
+      feature2: "Commentez, revise, approuvez ou passez le relais",
+      videoAriaLabel: "Video de demonstration de la skill Visual Plan",
     },
     visualRecap: {
       name: "Visual Recap",
-      tagline: "Review after changes",
+      tagline: "Relire apres les changements",
       description:
-        "Turns a PR or git diff into a shareable recap of what changed and why.",
-      feature1: "Summarizes schema, API, and file changes",
-      feature2: "Optionally posts one sticky PR comment",
-      videoAriaLabel: "Visual Recap skill demo video",
+        "Transforme une PR ou un git diff en recap partageable de ce qui a change et pourquoi.",
+      feature1: "Resume les changements de schema, d API et de fichiers",
+      feature2: "Peut publier un commentaire PR epingle",
+      videoAriaLabel: "Video de demonstration de la skill Visual Recap",
     },
   },
   downloadPage: {

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useT } from "@agent-native/core/client";
 
 const DEMO_VIDEO_URL =
   "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F99ec814b12784b1885742a1c82d9dcf5?alt=media&token=e164a53f-ae25-41f9-b8fb-a58937a4d370"; // ggignore: public Builder CDN media token
@@ -9,6 +10,7 @@ export function AgentNativeDemoVideo({
   className?: string;
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
+  const t = useT();
 
   return (
     <div
@@ -16,7 +18,7 @@ export function AgentNativeDemoVideo({
     >
       <video
         src={DEMO_VIDEO_URL}
-        aria-label="Agent-Native visual planning demo"
+        aria-label={t("demoVideo.visualPlanningAria")}
         autoPlay
         muted
         loop

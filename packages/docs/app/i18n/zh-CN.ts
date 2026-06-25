@@ -20,6 +20,17 @@ const zhCN = {
     privacy: "隐私",
     terms: "条款",
   },
+  feedback: {
+    label: "反馈",
+    placeholder: "告诉我们怎样能让这些文档更好。",
+  },
+  demoVideo: {
+    visualPlanningAria: "Agent-Native 可视化规划演示",
+  },
+  docBlocks: {
+    blockLabel: "{{alias}} 区块",
+    unknownBlockType: "未知区块类型",
+  },
   theme: {
     light: "浅色",
     dark: "深色",
@@ -1059,33 +1070,40 @@ const zhCN = {
     },
   },
   skillsPage: {
-    heroTitle: "Give your coding agent new superpowers",
+    metaTitle: "代理技能 - 面向编码代理的 Visual Plan 和 Visual Recap",
+    metaDescription:
+      "安装由 Agent-Native 应用支持的技能，让你的编码代理能进行可视化规划和 PR 回顾。",
+    metaOgDescription:
+      "为你的编码代理添加由 Agent-Native 应用驱动的斜杠命令，可托管、检查并自定义。",
+    metaKeywords:
+      "代理技能, visual plan, visual recap, 编码代理, Claude Code, Codex, PR 审查, 规划, agent-native",
+    heroTitle: "给你的编码代理新的超能力",
     heroBody:
-      "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation and visual PR recaps after changes land.",
-    sectionTitle: "App-backed skills for coding agents",
+      "安装由 Agent-Native 应用支持、可完全自定义的应用技能：实现前做可视化规划，变更落地后做可视化 PR 回顾。",
+    sectionTitle: "面向编码代理的应用支持技能",
     sectionBody:
-      "Use hosted shareable app links, local files, or a self-hosted/custom app, and your agent gets instructions plus the matching MCP surface when one is required.",
+      "使用托管的可分享应用链接、本地文件，或自托管/自定义应用；代理会获得指令，并在需要时获得匹配的 MCP 表面。",
     ctaBody:
-      "Works with Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, and similar coding agents.",
-    readVisualPlansDocs: "Read the Visual Plans docs",
-    browseTemplates: "Browse templates",
+      "适用于 Claude Code、Codex、Cursor、Pi、OpenCode、GitHub Copilot / VS Code 以及类似编码代理。",
+    readVisualPlansDocs: "阅读 Visual Plans 文档",
+    browseTemplates: "浏览模板",
     visualPlan: {
       name: "Visual Plan",
-      tagline: "Review before code",
+      tagline: "写代码前先审阅",
       description:
-        "Turns a coding task into a shareable plan with diagrams, file notes, and optional UI sketches.",
-      feature1: "See the implementation shape before changes land",
-      feature2: "Comment, revise, approve, or hand off",
-      videoAriaLabel: "Visual Plan skill demo video",
+        "把编码任务转成可分享的计划，包含图表、文件说明和可选 UI 草图。",
+      feature1: "在变更落地前看清实现形状",
+      feature2: "评论、修订、批准或交接",
+      videoAriaLabel: "Visual Plan 技能演示视频",
     },
     visualRecap: {
       name: "Visual Recap",
-      tagline: "Review after changes",
+      tagline: "变更后再审阅",
       description:
-        "Turns a PR or git diff into a shareable recap of what changed and why.",
-      feature1: "Summarizes schema, API, and file changes",
-      feature2: "Optionally posts one sticky PR comment",
-      videoAriaLabel: "Visual Recap skill demo video",
+        "把 PR 或 git diff 转成可分享的变更回顾，说明改了什么以及为什么。",
+      feature1: "总结 schema、API 和文件变更",
+      feature2: "可选择发布一条固定的 PR 评论",
+      videoAriaLabel: "Visual Recap 技能演示视频",
     },
   },
   downloadPage: {

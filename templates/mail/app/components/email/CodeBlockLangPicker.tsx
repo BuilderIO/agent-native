@@ -7,6 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useT } from "@agent-native/core/client";
 
 const LANGUAGES = [
   { value: "", label: "Plain text" },
@@ -34,6 +35,7 @@ interface CodeBlockLangPickerProps {
 }
 
 export function CodeBlockLangPicker({ editor }: CodeBlockLangPickerProps) {
+  const t = useT();
   const [position, setPosition] = useState<{
     top: number;
     right: number;
@@ -122,12 +124,12 @@ export function CodeBlockLangPicker({ editor }: CodeBlockLangPickerProps) {
           className="code-lang-select h-7 w-auto min-w-[100px] text-xs"
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <SelectValue placeholder="Plain text" />
+          <SelectValue placeholder={t("mail.compose.plainText")} />
         </SelectTrigger>
         <SelectContent>
           {LANGUAGES.map((l) => (
             <SelectItem key={l.value || "__plain"} value={l.value || "__plain"}>
-              {l.label}
+              {l.value ? l.label : t("mail.compose.plainText")}
             </SelectItem>
           ))}
         </SelectContent>

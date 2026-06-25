@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useT } from "@agent-native/core/client";
 
 const lowlight = createLowlight(common);
 
@@ -76,6 +77,7 @@ export const ComposeEditor = forwardRef<
   },
   ref,
 ) {
+  const t = useT();
   const isSettingContent = useRef(false);
   // Last time the user actually typed (not merely had focus). Used to let an
   // external/agent edit reconcile in even while the editor is focused but idle,
@@ -105,7 +107,7 @@ export const ComposeEditor = forwardRef<
         allowBase64: true,
       }),
       Placeholder.configure({
-        placeholder: "Write your message...",
+        placeholder: t("mail.compose.writeMessagePlaceholder"),
         showOnlyWhenEditable: true,
         showOnlyCurrent: true,
       }),
@@ -267,8 +269,10 @@ export const ComposeEditor = forwardRef<
       <Dialog open={showLinkDialog} onOpenChange={setShowLinkDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Insert link</DialogTitle>
-            <DialogDescription>Enter the URL for the link.</DialogDescription>
+            <DialogTitle>{t("mail.compose.insertLink")}</DialogTitle>
+            <DialogDescription>
+              {t("mail.compose.enterLinkUrl")}
+            </DialogDescription>
           </DialogHeader>
           <Input
             autoFocus
@@ -284,10 +288,10 @@ export const ComposeEditor = forwardRef<
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowLinkDialog(false)}>
-              Cancel
+              {t("mail.compose.cancel")}
             </Button>
             <Button onClick={applyLink} disabled={!linkUrl.trim()}>
-              Apply
+              {t("mail.compose.apply")}
             </Button>
           </DialogFooter>
         </DialogContent>

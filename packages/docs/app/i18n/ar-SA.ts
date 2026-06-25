@@ -20,6 +20,17 @@ const arSA = {
     privacy: "الخصوصية",
     terms: "الشروط",
   },
+  feedback: {
+    label: "ملاحظات",
+    placeholder: "أخبرنا بما يجعل هذه الوثائق أفضل.",
+  },
+  demoVideo: {
+    visualPlanningAria: "عرض Agent-Native للتخطيط المرئي",
+  },
+  docBlocks: {
+    blockLabel: "كتلة {{alias}}",
+    unknownBlockType: "نوع كتلة غير معروف",
+  },
   theme: {
     light: "فاتح",
     dark: "داكن",
@@ -1065,33 +1076,40 @@ const arSA = {
     },
   },
   skillsPage: {
-    heroTitle: "Give your coding agent new superpowers",
+    metaTitle: "مهارات الوكيل - Visual Plan و Visual Recap لوكلاء البرمجة",
+    metaDescription:
+      "ثبّت مهارات مدعومة بتطبيقات Agent-Native ليستخدم وكيل البرمجة التخطيط المرئي وملخصات PR.",
+    metaOgDescription:
+      "امنح وكيل البرمجة أوامر slash مدعومة بتطبيقات Agent-Native يمكنك استضافتها وفحصها وتخصيصها.",
+    metaKeywords:
+      "مهارات الوكيل, visual plan, visual recap, وكيل برمجة, Claude Code, Codex, مراجعة PR, تخطيط, agent-native",
+    heroTitle: "امنح وكيل البرمجة قدرات جديدة",
     heroBody:
-      "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation and visual PR recaps after changes land.",
-    sectionTitle: "App-backed skills for coding agents",
+      "ثبّت مهارات مدعومة بتطبيقات Agent-Native يمكنك تخصيصها بالكامل: تخطيط مرئي قبل التنفيذ وملخصات PR مرئية بعد وصول التغييرات.",
+    sectionTitle: "مهارات مدعومة بتطبيقات لوكلاء البرمجة",
     sectionBody:
-      "Use hosted shareable app links, local files, or a self-hosted/custom app, and your agent gets instructions plus the matching MCP surface when one is required.",
+      "استخدم روابط تطبيقات مستضافة قابلة للمشاركة أو ملفات محلية أو تطبيقا مستضافا ذاتيا/مخصصا؛ يحصل وكيلك على التعليمات وسطح MCP المطابق عند الحاجة.",
     ctaBody:
-      "Works with Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, and similar coding agents.",
-    readVisualPlansDocs: "Read the Visual Plans docs",
-    browseTemplates: "Browse templates",
+      "يعمل مع Claude Code و Codex و Cursor و Pi و OpenCode و GitHub Copilot / VS Code ووكلاء برمجة مشابهين.",
+    readVisualPlansDocs: "اقرأ وثائق Visual Plans",
+    browseTemplates: "تصفح القوالب",
     visualPlan: {
       name: "Visual Plan",
-      tagline: "Review before code",
+      tagline: "راجع قبل كتابة الكود",
       description:
-        "Turns a coding task into a shareable plan with diagrams, file notes, and optional UI sketches.",
-      feature1: "See the implementation shape before changes land",
-      feature2: "Comment, revise, approve, or hand off",
-      videoAriaLabel: "Visual Plan skill demo video",
+        "يحوّل مهمة البرمجة إلى خطة قابلة للمشاركة تحتوي على مخططات وملاحظات ملفات ورسومات واجهة اختيارية.",
+      feature1: "شاهد شكل التنفيذ قبل وصول التغييرات",
+      feature2: "علّق أو راجع أو وافق أو سلّم العمل",
+      videoAriaLabel: "فيديو توضيحي لمهارة Visual Plan",
     },
     visualRecap: {
       name: "Visual Recap",
-      tagline: "Review after changes",
+      tagline: "راجع بعد التغييرات",
       description:
-        "Turns a PR or git diff into a shareable recap of what changed and why.",
-      feature1: "Summarizes schema, API, and file changes",
-      feature2: "Optionally posts one sticky PR comment",
-      videoAriaLabel: "Visual Recap skill demo video",
+        "يحوّل PR أو git diff إلى ملخص قابل للمشاركة يوضح ما تغيّر ولماذا.",
+      feature1: "يلخص تغييرات schema و API والملفات",
+      feature2: "يمكنه اختياريا نشر تعليق PR مثبت",
+      videoAriaLabel: "فيديو توضيحي لمهارة Visual Recap",
     },
   },
   downloadPage: {

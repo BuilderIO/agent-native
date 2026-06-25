@@ -20,6 +20,17 @@ const jaJP = {
     privacy: "プライバシー",
     terms: "利用規約",
   },
+  feedback: {
+    label: "フィードバック",
+    placeholder: "このドキュメントをより良くする方法を教えてください。",
+  },
+  demoVideo: {
+    visualPlanningAria: "Agent-Native ビジュアルプランニングのデモ",
+  },
+  docBlocks: {
+    blockLabel: "{{alias}} ブロック",
+    unknownBlockType: "不明なブロックタイプ",
+  },
   theme: {
     light: "ライト",
     dark: "ダーク",
@@ -1069,33 +1080,41 @@ const jaJP = {
     },
   },
   skillsPage: {
-    heroTitle: "Give your coding agent new superpowers",
+    metaTitle:
+      "Agent Skills - コーディングエージェント向け Visual Plan と Visual Recap",
+    metaDescription:
+      "コーディングエージェントが視覚的な計画と PR レビュー要約を使えるように、Agent-Native アプリベースのスキルをインストールします。",
+    metaOgDescription:
+      "ホスト、確認、カスタマイズできる Agent-Native アプリで、コーディングエージェントにスラッシュコマンドを追加します。",
+    metaKeywords:
+      "agent skills, visual plan, visual recap, コーディングエージェント, Claude Code, Codex, PR レビュー, 計画, agent-native",
+    heroTitle: "コーディングエージェントに新しい力を追加",
     heroBody:
-      "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation and visual PR recaps after changes land.",
-    sectionTitle: "App-backed skills for coding agents",
+      "完全にカスタマイズできる Agent-Native アプリベースのスキルをインストールします。実装前の視覚的な計画と、変更後の視覚的な PR レビュー要約に対応します。",
+    sectionTitle: "コーディングエージェント向けアプリベーススキル",
     sectionBody:
-      "Use hosted shareable app links, local files, or a self-hosted/custom app, and your agent gets instructions plus the matching MCP surface when one is required.",
+      "ホストされた共有可能なアプリリンク、ローカルファイル、自分でホストまたはカスタマイズしたアプリを使えます。必要に応じて、エージェントには指示と対応する MCP サーフェスが渡されます。",
     ctaBody:
-      "Works with Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, and similar coding agents.",
-    readVisualPlansDocs: "Read the Visual Plans docs",
-    browseTemplates: "Browse templates",
+      "Claude Code、Codex、Cursor、Pi、OpenCode、GitHub Copilot / VS Code などのコーディングエージェントで使えます。",
+    readVisualPlansDocs: "Visual Plans のドキュメントを読む",
+    browseTemplates: "テンプレートを見る",
     visualPlan: {
       name: "Visual Plan",
-      tagline: "Review before code",
+      tagline: "コードを書く前にレビュー",
       description:
-        "Turns a coding task into a shareable plan with diagrams, file notes, and optional UI sketches.",
-      feature1: "See the implementation shape before changes land",
-      feature2: "Comment, revise, approve, or hand off",
-      videoAriaLabel: "Visual Plan skill demo video",
+        "コーディングタスクを、図、ファイルメモ、任意の UI スケッチを含む共有可能な計画に変換します。",
+      feature1: "変更が入る前に実装の形を確認",
+      feature2: "コメント、修正、承認、引き継ぎが可能",
+      videoAriaLabel: "Visual Plan スキルのデモ動画",
     },
     visualRecap: {
       name: "Visual Recap",
-      tagline: "Review after changes",
+      tagline: "変更後にレビュー",
       description:
-        "Turns a PR or git diff into a shareable recap of what changed and why.",
-      feature1: "Summarizes schema, API, and file changes",
-      feature2: "Optionally posts one sticky PR comment",
-      videoAriaLabel: "Visual Recap skill demo video",
+        "PR や git diff を、何がなぜ変わったかを示す共有可能な要約に変換します。",
+      feature1: "スキーマ、API、ファイル変更を要約",
+      feature2: "必要に応じて固定 PR コメントを投稿",
+      videoAriaLabel: "Visual Recap スキルのデモ動画",
     },
   },
   downloadPage: {

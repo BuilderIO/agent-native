@@ -34,7 +34,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { getResolvedTheme } from "@/lib/theme";
-import { appApiPath } from "@agent-native/core/client";
+import { appApiPath, useT } from "@agent-native/core/client";
 import {
   decodeHtmlEntities,
   processHtmlImages,
@@ -111,6 +111,7 @@ export function EmailThread({
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
 }) {
+  const t = useT();
   const { view = "inbox", threadId: routeThreadId } = useParams<{
     view: string;
     threadId: string;
@@ -1211,7 +1212,7 @@ export function EmailThread({
                         className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
                       >
                         <IconExternalLink className="h-3 w-3" />
-                        View Pull Request
+                        {t("mail.thread.viewPullRequest")}
                       </a>
                     </TooltipTrigger>
                     <TooltipContent
@@ -1219,7 +1220,7 @@ export function EmailThread({
                       align="start"
                       className="flex items-center gap-1.5 text-[12px] font-medium"
                     >
-                      View Pull Request
+                      {t("mail.thread.viewPullRequest")}
                       <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1 text-[10px] text-muted-foreground">
                         {formatShortcut("cmd")}
                       </kbd>
@@ -1238,11 +1239,13 @@ export function EmailThread({
                         className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors disabled:opacity-50"
                       >
                         <IconMailOff className="h-3 w-3" />
-                        {unsubscribing ? "Unsubscribing..." : "Unsubscribe"}
+                        {unsubscribing
+                          ? t("mail.thread.unsubscribing")
+                          : t("mail.thread.unsubscribe")}
                       </button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      Unsubscribe from this mailing list
+                      {t("mail.thread.unsubscribeTooltip")}
                     </TooltipContent>
                   </Tooltip>
                 )}
@@ -1679,6 +1682,7 @@ const ExpandedMessageCard = forwardRef<
   },
   ref,
 ) {
+  const t = useT();
   const [showDetails, setShowDetails] = useState(false);
   const senderName = email.from.name || email.from.email;
   const recipients = [
@@ -1960,7 +1964,7 @@ const ExpandedMessageCard = forwardRef<
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
               >
                 <IconDownload className="h-3 w-3" />
-                Download all
+                {t("mail.thread.downloadAll")}
               </button>
             )}
           </div>
@@ -2070,6 +2074,7 @@ function PlainTextBody({
   searchTerm?: string;
   activeLocalIdx?: number | null;
 }) {
+  const t = useT();
   const [showQuoted, setShowQuoted] = useState(false);
   const [showSig, setShowSig] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -2169,7 +2174,7 @@ function PlainTextBody({
       {hasSig && !showSig && !forceShowAll && (
         <button
           type="button"
-          aria-label="Show signature"
+          aria-label={t("mail.thread.showSignature")}
           onClick={() => setShowSig(true)}
           className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground"
         >
@@ -2179,7 +2184,7 @@ function PlainTextBody({
       {hasQuoted && !showQuoted && !forceShowAll && (showSig || !hasSig) && (
         <button
           type="button"
-          aria-label="Show quoted text"
+          aria-label={t("mail.thread.showQuotedText")}
           onClick={() => setShowQuoted(true)}
           className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground"
         >
@@ -2541,6 +2546,7 @@ function HtmlEmailBody({
   searchTerm?: string;
   activeLocalIdx?: number | null;
 }) {
+  const t = useT();
   const frameHostRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
@@ -2977,7 +2983,7 @@ function HtmlEmailBody({
         if (lightened) el.setAttribute("color", lightened);
       });
 
-      // Transform dark text color rules in <style> blocks
+      // Transform dark text color rules in <style> blocks // i18n-ignore
       doc.querySelectorAll("style").forEach((tag) => {
         const text = tag.textContent || "";
         tag.textContent = text.replace(
@@ -3287,8 +3293,8 @@ function HtmlEmailBody({
           <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
           <span>
             {isEmbedded
-              ? "Remote images hidden in this embed."
-              : "Images blocked."}
+              ? t("mail.thread.remoteImagesHidden")
+              : t("mail.thread.imagesBlocked")}
           </span>
           {!isEmbedded && (
             <>
@@ -3296,14 +3302,16 @@ function HtmlEmailBody({
                 onClick={() => setShowImagesForThread(true)}
                 className="text-primary hover:text-primary/80 font-medium transition-colors"
               >
-                Show images
+                {t("mail.thread.showImages")}
               </button>
               {senderEmail && (
                 <button
                   onClick={handleAlwaysTrust}
                   className="text-muted-foreground/60 hover:text-muted-foreground font-medium transition-colors"
                 >
-                  Always from {senderEmail.split("@")[1]}
+                  {t("mail.thread.alwaysFrom", {
+                    domain: senderEmail.split("@")[1],
+                  })}
                 </button>
               )}
             </>
@@ -3321,7 +3329,7 @@ function HtmlEmailBody({
           colorScheme: useDarkIframeCss ? "dark" : "light",
           borderRadius: hasDesignedBg && isDark ? "6px" : undefined,
         }}
-        title="Email content"
+        title={t("mail.thread.emailContent")}
       />
     </div>
   );
@@ -3348,6 +3356,7 @@ function ThreadSearchBar({
   totalMatches: number;
   inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
+  const t = useT();
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") {
       e.preventDefault();
@@ -3368,7 +3377,7 @@ function ThreadSearchBar({
         value={query}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Search in conversation…"
+        placeholder={t("mail.thread.searchConversation")}
         className="flex-1 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none min-w-0"
         autoComplete="off"
         spellCheck={false}
@@ -3376,7 +3385,7 @@ function ThreadSearchBar({
       {query && (
         <span className="text-[12px] text-muted-foreground/50 tabular-nums shrink-0 select-none">
           {totalMatches === 0
-            ? "No matches"
+            ? t("mail.search.noMatches")
             : `${matchIdx + 1} / ${totalMatches}`}
         </span>
       )}

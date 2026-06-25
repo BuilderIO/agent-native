@@ -630,7 +630,7 @@ export default function SettingsIndexRoute() {
         </h1>
       </PageHeader>
       <div className="mx-auto w-full max-w-6xl p-6">
-        <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="space-y-6">
           <div className="min-w-0 space-y-6">
             <p className="text-sm text-muted-foreground">
               {t("settings.intro")}
@@ -1248,6 +1248,8 @@ export default function SettingsIndexRoute() {
               </Button>
             </div>
           </div>
+        </div>
+        <div className="mt-6">
           <CompactChangelogAside />
         </div>
       </div>

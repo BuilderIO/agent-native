@@ -2,6 +2,7 @@ import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { useState, useCallback } from "react";
 import { IconPhoto, IconLoader2, IconX } from "@tabler/icons-react";
 import { openFilePicker, uploadFile } from "@/lib/upload";
+import { useT } from "@agent-native/core/client";
 
 export function ComposeImageBlock({
   node,
@@ -9,6 +10,7 @@ export function ComposeImageBlock({
   deleteNode,
   selected,
 }: NodeViewProps) {
+  const t = useT();
   const [isUploading, setIsUploading] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const src = node.attrs.src as string;
@@ -40,12 +42,12 @@ export function ComposeImageBlock({
           {isUploading ? (
             <>
               <IconLoader2 size={20} className="animate-spin" />
-              <span>Uploading...</span>
+              <span>{t("mail.compose.uploading")}</span>
             </>
           ) : (
             <>
               <IconPhoto size={20} />
-              <span>Add an image</span>
+              <span>{t("mail.compose.addImage")}</span>
             </>
           )}
         </div>

@@ -20,6 +20,17 @@ const koKR = {
     privacy: "개인정보",
     terms: "약관",
   },
+  feedback: {
+    label: "피드백",
+    placeholder: "이 문서를 더 좋게 만들 방법을 알려주세요.",
+  },
+  demoVideo: {
+    visualPlanningAria: "Agent-Native 시각적 계획 데모",
+  },
+  docBlocks: {
+    blockLabel: "{{alias}} 블록",
+    unknownBlockType: "알 수 없는 블록 유형",
+  },
   theme: {
     light: "라이트",
     dark: "다크",
@@ -1068,33 +1079,41 @@ const koKR = {
     },
   },
   skillsPage: {
-    heroTitle: "Give your coding agent new superpowers",
+    metaTitle:
+      "Agent Skills - 코딩 에이전트를 위한 Visual Plan 및 Visual Recap",
+    metaDescription:
+      "코딩 에이전트가 시각적 계획과 PR 요약을 사용할 수 있도록 Agent-Native 앱 기반 스킬을 설치합니다.",
+    metaOgDescription:
+      "호스팅, 검사, 커스터마이즈가 가능한 Agent-Native 앱으로 코딩 에이전트에 슬래시 명령을 추가하세요.",
+    metaKeywords:
+      "agent skills, visual plan, visual recap, 코딩 에이전트, Claude Code, Codex, PR 리뷰, 계획, agent-native",
+    heroTitle: "코딩 에이전트에 새로운 능력을 더하세요",
     heroBody:
-      "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation and visual PR recaps after changes land.",
-    sectionTitle: "App-backed skills for coding agents",
+      "완전히 커스터마이즈할 수 있는 Agent-Native 앱 기반 스킬을 설치하세요. 구현 전 시각적 계획과 변경 후 시각적 PR 요약을 제공합니다.",
+    sectionTitle: "코딩 에이전트를 위한 앱 기반 스킬",
     sectionBody:
-      "Use hosted shareable app links, local files, or a self-hosted/custom app, and your agent gets instructions plus the matching MCP surface when one is required.",
+      "호스팅된 공유 앱 링크, 로컬 파일 또는 자체 호스팅/커스텀 앱을 사용할 수 있으며, 에이전트는 필요한 지침과 해당 MCP 표면을 받습니다.",
     ctaBody:
-      "Works with Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, and similar coding agents.",
-    readVisualPlansDocs: "Read the Visual Plans docs",
-    browseTemplates: "Browse templates",
+      "Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code 및 유사한 코딩 에이전트에서 작동합니다.",
+    readVisualPlansDocs: "Visual Plans 문서 읽기",
+    browseTemplates: "템플릿 둘러보기",
     visualPlan: {
       name: "Visual Plan",
-      tagline: "Review before code",
+      tagline: "코드 작성 전 검토",
       description:
-        "Turns a coding task into a shareable plan with diagrams, file notes, and optional UI sketches.",
-      feature1: "See the implementation shape before changes land",
-      feature2: "Comment, revise, approve, or hand off",
-      videoAriaLabel: "Visual Plan skill demo video",
+        "코딩 작업을 다이어그램, 파일 메모, 선택적 UI 스케치가 포함된 공유 가능한 계획으로 바꿉니다.",
+      feature1: "변경이 적용되기 전에 구현 형태를 확인",
+      feature2: "댓글, 수정, 승인 또는 인계",
+      videoAriaLabel: "Visual Plan 스킬 데모 비디오",
     },
     visualRecap: {
       name: "Visual Recap",
-      tagline: "Review after changes",
+      tagline: "변경 후 검토",
       description:
-        "Turns a PR or git diff into a shareable recap of what changed and why.",
-      feature1: "Summarizes schema, API, and file changes",
-      feature2: "Optionally posts one sticky PR comment",
-      videoAriaLabel: "Visual Recap skill demo video",
+        "PR 또는 git diff를 무엇이 왜 바뀌었는지 보여 주는 공유 가능한 요약으로 바꿉니다.",
+      feature1: "스키마, API, 파일 변경을 요약",
+      feature2: "선택적으로 고정 PR 댓글 게시",
+      videoAriaLabel: "Visual Recap 스킬 데모 비디오",
     },
   },
   downloadPage: {
