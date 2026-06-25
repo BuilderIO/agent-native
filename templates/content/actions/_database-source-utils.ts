@@ -418,6 +418,34 @@ function reviewedChangeSet(args: {
   };
 }
 
+// Stable, key-order-insensitive serialization so two same-shape property values
+// (source baseline vs local) don't false-diff purely on key order.
+function stableValueString(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) {
+    return `[${value.map(stableValueString).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableValueString(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+// Equal when both normalize the same. null/undefined/"" are all "empty"; strings
+// are trimmed; objects compared by stable serialization.
+function sameSourceFieldValue(a: unknown, b: unknown): boolean {
+  const normalize = (value: unknown) => {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "string") return value.trim();
+    return stableValueString(value);
+  };
+  return normalize(a) === normalize(b);
+}
+
 export function buildBuilderLocalOutboundChangeSets(args: {
   source: ContentDatabaseSourceRowDb;
   rowRows: ContentDatabaseSourceRecordRowDb[];
@@ -453,19 +481,45 @@ export function buildBuilderLocalOutboundChangeSets(args: {
 
     const sourceTitle = row.sourceDisplayKey.trim();
     const localTitle = args.documentTitleById.get(row.documentId)?.trim() ?? "";
-    if (!localTitle || localTitle === sourceTitle) continue;
-
-    const fieldChanges: ContentDatabaseSourceFieldChange[] = [
-      {
+    const fieldChanges: ContentDatabaseSourceFieldChange[] = [];
+    if (localTitle && localTitle !== sourceTitle) {
+      fieldChanges.push({
         propertyId: null,
         propertyName: "Title",
         localFieldKey: "title",
         sourceFieldKey: "data.title",
         currentValue: sourceTitle,
         proposedValue: localTitle,
-      },
-    ];
-    const matchingStoredChange = args.storedChangeSets.some((changeSet) => {
+      });
+    }
+    // Diff every mapped property field: local value vs the synced source
+    // baseline (same-shape DocumentPropertyValue, stable compare). An absent
+    // local value means "not loaded", not "cleared" — skip it.
+    const rowLocalValues = args.localValuesByDocument?.get(row.documentId);
+    if (rowLocalValues) {
+      const rowSourceValues =
+        parseObject<Record<string, DocumentPropertyValue>>(
+          row.sourceValuesJson,
+        ) ?? {};
+      for (const field of args.writableFields ?? []) {
+        if (!rowLocalValues.has(field.localFieldKey)) continue;
+        const localValue = rowLocalValues.get(field.localFieldKey);
+        const baseValue = rowSourceValues[field.sourceFieldKey];
+        if (sameSourceFieldValue(localValue, baseValue)) continue;
+        fieldChanges.push({
+          propertyId: field.propertyId,
+          propertyName: field.sourceFieldLabel,
+          localFieldKey: field.localFieldKey,
+          sourceFieldKey: field.sourceFieldKey,
+          currentValue: (baseValue ?? null) as DocumentPropertyValue,
+          proposedValue: localValue as DocumentPropertyValue,
+        });
+      }
+    }
+    if (fieldChanges.length === 0) continue;
+    // Skip if this row already has a live (non-rejected/applied) stored outbound
+    // autosave change-set — the stored one is what's being reviewed/pushed.
+    const matchesStoredChange = args.storedChangeSets.some((changeSet) => {
       if (
         changeSet.direction !== "outbound" ||
         changeSet.documentId !== row.documentId ||
@@ -475,14 +529,16 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       ) {
         return false;
       }
-      return changeSet.fieldChanges.some(
-        (fieldChange) =>
-          fieldChange.localFieldKey === "title" &&
-          fieldChange.currentValue === sourceTitle &&
-          fieldChange.proposedValue === localTitle,
+      return changeSet.fieldChanges.some((stored) =>
+        fieldChanges.some(
+          (change) =>
+            change.localFieldKey === stored.localFieldKey &&
+            sameSourceFieldValue(change.currentValue, stored.currentValue) &&
+            sameSourceFieldValue(change.proposedValue, stored.proposedValue),
+        ),
       );
     });
-    if (matchingStoredChange) continue;
+    if (matchesStoredChange) continue;
 
     const now = new Date().toISOString();
     pending.push({
@@ -494,7 +550,10 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       state: "pending_push",
       pushMode: "autosave",
       localOnly: true,
-      summary: `Pending local Builder CMS title change for "${localTitle}".`,
+      summary:
+        fieldChanges.length === 1 && fieldChanges[0]?.localFieldKey === "title"
+          ? `Pending local Builder CMS title change for "${localTitle}".`
+          : `Pending local Builder CMS changes for "${localTitle || sourceTitle}".`,
       fieldChanges,
       bodyChange: null,
       riskLevel: "low",

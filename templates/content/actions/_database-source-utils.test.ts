@@ -200,6 +200,75 @@ describe("database source helpers", () => {
     });
   });
 
+  it("detects a changed mapped property field on an existing row (not just title)", () => {
+    const [changeSet] = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey: "Same title",
+          sourceValuesJson: JSON.stringify({ "data.body": "old body" }),
+        },
+      ],
+      documentTitleById: new Map([["doc-1", "Same title"]]),
+      storedChangeSets: [],
+      localValuesByDocument: new Map([
+        ["doc-1", new Map([["prop-body", "new body"]])],
+      ]),
+      writableFields: [
+        {
+          propertyId: "prop-body",
+          localFieldKey: "prop-body",
+          sourceFieldKey: "data.body",
+          sourceFieldLabel: "Body",
+        },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(changeSet).toMatchObject({
+      direction: "outbound",
+      fieldChanges: [
+        {
+          localFieldKey: "prop-body",
+          sourceFieldKey: "data.body",
+          currentValue: "old body",
+          proposedValue: "new body",
+        },
+      ],
+    });
+  });
+
+  it("does NOT diff a mapped field whose local value matches the source baseline", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey: "Same title",
+          sourceValuesJson: JSON.stringify({ "data.body": "same body" }),
+        },
+      ],
+      documentTitleById: new Map([["doc-1", "Same title"]]),
+      storedChangeSets: [],
+      localValuesByDocument: new Map([
+        ["doc-1", new Map([["prop-body", "same body"]])],
+      ]),
+      writableFields: [
+        {
+          propertyId: "prop-body",
+          localFieldKey: "prop-body",
+          sourceFieldKey: "data.body",
+          sourceFieldLabel: "Body",
+        },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+    expect(pending).toHaveLength(0);
+  });
+
   it("creates a create_draft change-set for a new local row not linked to Builder", () => {
     const pending = buildBuilderLocalOutboundChangeSets({
       source: { sourceType: "builder-cms" },
