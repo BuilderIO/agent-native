@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.76.11
+
+### Patch Changes
+
+- b6701ee: Improve localization coverage by localizing framework error screens and docs UI surfaces, and add a baseline-aware i18n guard that fails on new raw visible UI strings.
+
 ## 0.76.10
 
 ### Patch Changes
