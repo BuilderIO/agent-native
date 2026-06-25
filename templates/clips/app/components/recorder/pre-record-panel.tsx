@@ -353,10 +353,6 @@ export function PreRecordPanel({
     setCameraBlur(value);
     saveRecorderPreferences({ cameraBlur: value });
   }, []);
-  const chooseCameraBlurRadius = useCallback((value: number) => {
-    setCameraBlurRadius(value);
-    saveRecorderPreferences({ cameraBlurRadius: value });
-  }, []);
 
   const requestMicrophoneChoices = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -889,9 +885,15 @@ export function PreRecordPanel({
                         step={1}
                         disabled={busy}
                         onValueChange={(value) =>
-                          chooseCameraBlurRadius(
+                          setCameraBlurRadius(
                             value[0] ?? DEFAULT_CAMERA_BLUR_RADIUS,
                           )
+                        }
+                        onValueCommit={(value) =>
+                          saveRecorderPreferences({
+                            cameraBlurRadius:
+                              value[0] ?? DEFAULT_CAMERA_BLUR_RADIUS,
+                          })
                         }
                         aria-label="Background blur intensity"
                         className="flex-1"

@@ -190,26 +190,18 @@ export async function createBackgroundBlurStream(
   }
 
   let lastTimestamp = -1;
+  let lastSegAt = -Infinity;
+  let haveMask = false;
+  const segIntervalMs = 1000 / segFps;
 
-  const drawFrame = () => {
-    const video = hidden.video;
-    if (!positive(video.videoWidth) || !positive(video.videoHeight)) return;
-
-    if (out.width !== video.videoWidth) out.width = video.videoWidth;
-    if (out.height !== video.videoHeight) out.height = video.videoHeight;
-    const outW = out.width;
-    const outH = out.height;
-
-    // Match the downscaled segmentation input to the source aspect ratio.
+  // Re-segment into maskCanvas. Runs at segFps; on failure the previous mask is
+  // kept rather than dropping to an un-blurred frame.
+  const updateMask = (video: HTMLVideoElement) => {
     const scale = SEG_MAX_DIM / Math.max(video.videoWidth, video.videoHeight);
     const segW = Math.max(1, Math.round(video.videoWidth * scale));
     const segH = Math.max(1, Math.round(video.videoHeight * scale));
     if (segInput.width !== segW) segInput.width = segW;
     if (segInput.height !== segH) segInput.height = segH;
-
-    let mask: Float32Array | null = null;
-    let maskW = segW;
-    let maskH = segH;
     try {
       segCtx.drawImage(video, 0, 0, segW, segH);
       const timestamp = Math.max(
@@ -220,34 +212,30 @@ export async function createBackgroundBlurStream(
       const result = segmenter.segmentForVideo(segInput, timestamp);
       const confidence = result.confidenceMasks?.[0];
       if (confidence) {
-        maskW = confidence.width;
-        maskH = confidence.height;
-        // Copy the values out before close() frees the underlying buffer.
-        mask = Float32Array.from(confidence.getAsFloat32Array());
+        const maskW = confidence.width;
+        const maskH = confidence.height;
+        const values = confidence.getAsFloat32Array();
+        if (maskCanvas.width !== maskW) maskCanvas.width = maskW;
+        if (maskCanvas.height !== maskH) maskCanvas.height = maskH;
+        const image = maskCtx.createImageData(maskW, maskH);
+        for (let i = 0; i < values.length; i++) {
+          image.data[i * 4 + 3] = Math.round(values[i] * 255);
+        }
+        maskCtx.putImageData(image, 0, 0);
+        haveMask = true;
       }
       result.close();
     } catch {
-      mask = null;
+      // keep the previous mask
     }
+  };
 
-    if (!mask) {
-      // No usable mask this frame: show the sharp camera rather than a frozen
-      // or fully blurred frame.
+  // Composite blurred background + sharp foreground (or raw until a first mask).
+  const composite = (video: HTMLVideoElement, outW: number, outH: number) => {
+    if (!haveMask) {
       outCtx.drawImage(video, 0, 0, outW, outH);
       return;
     }
-
-    // Confidence (0..1 foreground probability) → alpha mask image.
-    if (maskCanvas.width !== maskW) maskCanvas.width = maskW;
-    if (maskCanvas.height !== maskH) maskCanvas.height = maskH;
-    const image = maskCtx.createImageData(maskW, maskH);
-    const data = image.data;
-    for (let i = 0; i < mask.length; i++) {
-      data[i * 4 + 3] = Math.round(mask[i] * 255);
-    }
-    maskCtx.putImageData(image, 0, 0);
-
-    // Sharp foreground = camera punched out by the (upscaled, smoothed) mask.
     if (fg.width !== outW) fg.width = outW;
     if (fg.height !== outH) fg.height = outH;
     fgCtx.globalCompositeOperation = "source-over";
@@ -258,15 +246,30 @@ export async function createBackgroundBlurStream(
     fgCtx.drawImage(maskCanvas, 0, 0, outW, outH);
     fgCtx.globalCompositeOperation = "source-over";
 
-    // Blurred background, then the sharp foreground on top.
     outCtx.filter = `blur(${blurPx}px)`;
     outCtx.drawImage(video, 0, 0, outW, outH);
     outCtx.filter = "none";
     outCtx.drawImage(fg, 0, 0);
   };
 
+  // Composite every tick (capture rate) for smooth motion; re-segment only at
+  // segFps, reusing the last mask in between.
+  const drawFrame = () => {
+    const video = hidden.video;
+    if (!positive(video.videoWidth) || !positive(video.videoHeight)) return;
+    if (out.width !== video.videoWidth) out.width = video.videoWidth;
+    if (out.height !== video.videoHeight) out.height = video.videoHeight;
+
+    const now = performance.now();
+    if (now - lastSegAt >= segIntervalMs) {
+      updateMask(video);
+      lastSegAt = now;
+    }
+    composite(video, out.width, out.height);
+  };
+
   const stream = out.captureStream(CAPTURE_FPS);
-  const minFrameMs = 1000 / segFps;
+  const minFrameMs = 1000 / CAPTURE_FPS;
 
   // Worker-driven timer so the loop keeps running at full rate in background
   // tabs (rAF is throttled to ~1fps when hidden). Falls back to rAF when blob:

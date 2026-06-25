@@ -29,17 +29,22 @@ function copyMediapipeWasm(): Plugin {
   return {
     name: "clips-copy-mediapipe-wasm",
     buildStart() {
-      const wasmSrc = path.join(
-        path.dirname(_require.resolve("@mediapipe/tasks-vision")),
-        "wasm",
-      );
-      const wasmDest = path.resolve(
-        import.meta.dirname,
-        "public/mediapipe/wasm",
-      );
-      fs.mkdirSync(wasmDest, { recursive: true });
-      for (const file of MEDIAPIPE_WASM_FILES) {
-        fs.copyFileSync(path.join(wasmSrc, file), path.join(wasmDest, file));
+      try {
+        const wasmSrc = path.join(
+          path.dirname(_require.resolve("@mediapipe/tasks-vision")),
+          "wasm",
+        );
+        const wasmDest = path.resolve(
+          import.meta.dirname,
+          "public/mediapipe/wasm",
+        );
+        fs.mkdirSync(wasmDest, { recursive: true });
+        for (const file of MEDIAPIPE_WASM_FILES) {
+          fs.copyFileSync(path.join(wasmSrc, file), path.join(wasmDest, file));
+        }
+      } catch (err) {
+        // Don't fail the build — camera blur degrades to recording un-blurred.
+        this.warn(`could not copy MediaPipe WASM assets: ${err}`);
       }
     },
   };

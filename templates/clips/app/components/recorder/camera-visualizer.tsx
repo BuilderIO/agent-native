@@ -137,6 +137,9 @@ export function CameraVisualizer({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const blurHandleRef = useRef<CameraBlurHandle | null>(null);
+  // Bumped per attachPreview() so a stale segmenter build (blur toggled mid-load)
+  // bails instead of clobbering the preview.
+  const attachGenRef = useRef(0);
   const blurRadiusRef = useRef(blurRadius);
   const runIdRef = useRef(0);
   const previousDeviceIdRef = useRef(deviceId);
@@ -164,40 +167,37 @@ export function CameraVisualizer({
     clearVideo();
   }, [clearVideo]);
 
-  // Bind either the raw camera or its background-blurred derivative to the
-  // <video>, depending on the current `blur` setting. The blur pipeline reads
-  // from the raw test stream, so the preview matches what recording will bake
-  // in. Guarded by `runId` so a stale async build can't clobber a newer run.
-  const attachPreview = useCallback(
-    async (runId: number) => {
-      const raw = streamRef.current;
-      const video = videoRef.current;
-      if (!raw || !video) return;
+  // Bind the raw camera or its blurred derivative to the <video> per the current
+  // `blur` setting, so the preview matches what recording bakes in. Each call
+  // claims a generation and bails if a newer attach superseded it during an await.
+  const attachPreview = useCallback(async () => {
+    const gen = ++attachGenRef.current;
+    const raw = streamRef.current;
+    const video = videoRef.current;
+    if (!raw || !video) return;
 
-      let display: MediaStream = raw;
-      if (blur) {
-        // Rebuild from scratch so a previous handle never leaks.
-        blurHandleRef.current?.cleanup();
-        blurHandleRef.current = null;
-        const handle = await createBackgroundBlurStream(raw, {
-          blurPx: blurRadiusRef.current,
-        });
-        if (runIdRef.current !== runId || streamRef.current !== raw) {
-          handle.cleanup();
-          return;
-        }
-        blurHandleRef.current = handle;
-        display = handle.stream;
-      } else {
-        blurHandleRef.current?.cleanup();
-        blurHandleRef.current = null;
+    let display: MediaStream = raw;
+    if (blur) {
+      blurHandleRef.current?.cleanup();
+      blurHandleRef.current = null;
+      const handle = await createBackgroundBlurStream(raw, {
+        blurPx: blurRadiusRef.current,
+      });
+      if (gen !== attachGenRef.current || streamRef.current !== raw) {
+        handle.cleanup();
+        return;
       }
+      blurHandleRef.current = handle;
+      display = handle.stream;
+    } else {
+      blurHandleRef.current?.cleanup();
+      blurHandleRef.current = null;
+    }
 
-      if (video.srcObject !== display) video.srcObject = display;
-      await video.play().catch(() => {});
-    },
-    [blur],
-  );
+    if (gen !== attachGenRef.current) return;
+    if (video.srcObject !== display) video.srcObject = display;
+    await video.play().catch(() => {});
+  }, [blur]);
 
   const stopTest = useCallback(() => {
     runIdRef.current += 1;
@@ -266,7 +266,7 @@ export function CameraVisualizer({
       }
 
       streamRef.current = stream;
-      await attachPreview(runId);
+      await attachPreview();
       // Re-check after the async attach so a newer startTest can't be clobbered.
       if (runIdRef.current !== runId) {
         stopCurrent();
@@ -338,19 +338,17 @@ export function CameraVisualizer({
     };
   }, [status]);
 
-  // Toggling blur while the test is live swaps the preview source in place,
-  // without restarting the camera. Skips the initial mount (startTest already
-  // binds with the right setting).
+  // Toggle blur while live: swap the preview source in place (startTest already
+  // binds the initial value, so skip mount).
   useEffect(() => {
     if (previousBlurRef.current === blur) return;
     previousBlurRef.current = blur;
     if (status !== "live" && status !== "starting") return;
     if (!streamRef.current) return;
-    void attachPreview(runIdRef.current);
+    void attachPreview();
   }, [blur, status, attachPreview]);
 
-  // Dragging the radius slider updates the active blur pipeline in place,
-  // without rebuilding the segmenter.
+  // Slider drags adjust the live pipeline without rebuilding the segmenter.
   useEffect(() => {
     blurRadiusRef.current = blurRadius;
     blurHandleRef.current?.setBlurPx(blurRadius);
