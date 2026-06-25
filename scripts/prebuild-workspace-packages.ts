@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
 type PrebuildMode = "dev" | "postinstall";
@@ -13,16 +13,68 @@ interface PackageTarget {
   tsBuildInfoFiles?: string[];
 }
 
-function exportedDistOutputs(packageJsonPath: string): string[] {
-  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+const sourceExtensions = [".ts", ".tsx", ".mts", ".cts"];
+
+function wildcardDistOutputs(packageDir: string, exportPath: string): string[] {
+  const firstStar = exportPath.indexOf("*");
+  if (firstStar === -1 || exportPath.indexOf("*", firstStar + 1) !== -1) {
+    return [];
+  }
+
+  const distPrefix = exportPath.slice(0, firstStar);
+  const distSuffix = exportPath.slice(firstStar + 1);
+  if (!distPrefix.startsWith("./dist/") || distSuffix !== ".js") return [];
+
+  const sourceDir = path.join(
+    packageDir,
+    distPrefix.replace("./dist/", "src/"),
+  );
+  if (!existsSync(sourceDir)) return [];
+
+  const outputs: string[] = [];
+  for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+
+    const sourceName = entry.name;
+    if (
+      sourceName.endsWith(".d.ts") ||
+      sourceName.includes(".spec.") ||
+      sourceName.includes(".test.")
+    ) {
+      continue;
+    }
+
+    const extension = sourceExtensions.find((candidate) =>
+      sourceName.endsWith(candidate),
+    );
+    if (!extension) continue;
+
+    outputs.push(
+      `${distPrefix.slice(2)}${sourceName.slice(0, -extension.length)}${distSuffix}`,
+    );
+  }
+
+  return outputs;
+}
+
+function exportedDistOutputs(packageDir: string): string[] {
+  const packageJson = JSON.parse(
+    readFileSync(path.join(packageDir, "package.json"), "utf8"),
+  ) as {
     exports?: unknown;
   };
   const outputs = new Set<string>();
 
   function collect(value: unknown): void {
     if (typeof value === "string") {
-      if (value.startsWith("./dist/") && !value.includes("*")) {
-        outputs.add(value.slice(2));
+      if (value.startsWith("./dist/")) {
+        if (value.includes("*")) {
+          for (const output of wildcardDistOutputs(packageDir, value)) {
+            outputs.add(output);
+          }
+        } else {
+          outputs.add(value.slice(2));
+        }
       }
       return;
     }
@@ -56,7 +108,7 @@ const targets: PackageTarget[] = [
     name: "@agent-native/core",
     dir: "packages/core",
     expectedOutputs: [
-      ...exportedDistOutputs("packages/core/package.json"),
+      ...exportedDistOutputs("packages/core"),
       "dist/cli/index.js",
     ],
     tsBuildInfoFiles: [
@@ -94,7 +146,7 @@ const targets: PackageTarget[] = [
     id: "scheduling",
     name: "@agent-native/scheduling",
     dir: "packages/scheduling",
-    expectedOutputs: exportedDistOutputs("packages/scheduling/package.json"),
+    expectedOutputs: exportedDistOutputs("packages/scheduling"),
     tsBuildInfoFiles: [
       "node_modules/.cache/tsbuildinfo/scheduling.tsbuildinfo",
     ],
@@ -110,7 +162,7 @@ const targets: PackageTarget[] = [
     id: "dispatch",
     name: "@agent-native/dispatch",
     dir: "packages/dispatch",
-    expectedOutputs: exportedDistOutputs("packages/dispatch/package.json"),
+    expectedOutputs: exportedDistOutputs("packages/dispatch"),
     tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/dispatch.tsbuildinfo"],
   },
 ];
