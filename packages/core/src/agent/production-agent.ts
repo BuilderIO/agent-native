@@ -3872,6 +3872,14 @@ export function createProductionAgentHandler(
   };
 
   return defineEventHandler(async (event) => {
+    // Diagnostic-only setup-timing instrumentation. Captures wall-clock offsets
+    // from handler entry through the work done BEFORE startRun so a slow pre-run
+    // setup phase is visible in the run diagnostics. Never alters control flow.
+    const setupT0 = Date.now();
+    const setupMarks: Record<string, number> = {};
+    const setupMark = (k: string) => {
+      setupMarks[k] = Date.now() - setupT0;
+    };
     if (getMethod(event) !== "POST") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -3912,6 +3920,7 @@ export function createProductionAgentHandler(
       scope,
       trackInRunsTray,
     } = body;
+    setupMark("bodyParsed");
 
     // Durable-background marker. Present ONLY when this handler was re-entered
     // as the Netlify background worker via the `_process-run` self-dispatch
@@ -4154,6 +4163,7 @@ export function createProductionAgentHandler(
       });
     }
 
+    setupMark("prepDone");
     // Run all independent pre-send steps in parallel. Each of these hits
     // the DB or invokes an action; running them sequentially was the
     // single biggest contributor to pre-LLM latency.
@@ -4165,6 +4175,7 @@ export function createProductionAgentHandler(
 
     let systemPromptError: any = null;
     const systemPromptPromise = (async (): Promise<string> => {
+      const sysPromptStart = Date.now();
       try {
         return typeof options.systemPrompt === "function"
           ? await options.systemPrompt(event)
@@ -4172,10 +4183,13 @@ export function createProductionAgentHandler(
       } catch (error) {
         systemPromptError = error;
         return "";
+      } finally {
+        setupMarks.sysPromptMs = Date.now() - sysPromptStart;
       }
     })();
 
     const screenContextPromise = (async (): Promise<string> => {
+      const screenStart = Date.now();
       try {
         const viewScreenAction = resolvedActions["view-screen"];
         if (viewScreenAction) {
@@ -4205,6 +4219,8 @@ export function createProductionAgentHandler(
         }
       } catch {
         // DB not ready or no navigation state — skip silently
+      } finally {
+        setupMarks.screenMs = Date.now() - screenStart;
       }
       return "";
     })();
@@ -4401,6 +4417,7 @@ export function createProductionAgentHandler(
       loopSettingsPromise,
       enrichedMessagePromise,
     ]);
+    setupMark("ctxAll");
 
     if (systemPromptError) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -4428,6 +4445,7 @@ export function createProductionAgentHandler(
       availableRequestTools,
       options.initialToolNames,
     );
+    setupMark("actions");
     const requestSystemPrompt =
       requestMode === "plan"
         ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
@@ -4538,6 +4556,7 @@ export function createProductionAgentHandler(
         // Keep the body-derived messages — never drop the run.
       }
     }
+    setupMark("depsThread");
 
     // Persist the user's turn exactly once. The foreground POST does this
     // before dispatching; the background worker must NOT repeat it (it re-enters
@@ -4947,6 +4966,16 @@ export function createProductionAgentHandler(
       await updateRunHeartbeat(runId).catch(() => {});
     }
 
+    // DIAGNOSTIC-ONLY: build the pre-startRun setup-timing breakdown now (so the
+    // marks reflect the work done BEFORE the loop), but EMIT it from inside
+    // startRun's callback below — the run row does not exist until startRun
+    // inserts it, so a pre-startRun write would no-op on the inline path.
+    setupMark("preStart");
+    const setupDetail =
+      Object.entries(setupMarks)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(" ") + ` total=${Date.now() - setupT0}`;
+
     startRun(
       runId,
       effectiveThreadId,
@@ -4960,11 +4989,25 @@ export function createProductionAgentHandler(
 
         // DIAGNOSTIC: the agent loop body actually started running. For a
         // background worker, a run that is claimed but never reaches this stage
-        // died between claiming and loop start. Best-effort, background only.
+        // died between claiming and loop start. The pre-startRun setup-timing
+        // breakdown rides along here so it persists now that the run row exists
+        // (startRun inserted it), WITHOUT adding a separate DB hop to the
+        // run-start path: on the worker it is folded into this same
+        // already-awaited worker_started write (one hop, correctly ordered, no
+        // clobber); on the inline path there is no later diag stage to overwrite,
+        // so it is fire-and-forget to keep run-start non-blocking. Best-effort.
         if (isBackgroundWorker) {
-          await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerStarted).catch(
-            () => {},
-          );
+          await recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.workerStarted,
+            setupDetail,
+          ).catch(() => {});
+        } else {
+          void recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.setupTimings,
+            setupDetail,
+          ).catch(() => {});
         }
 
         // Notify listeners that a run has started (used by agent teams)
