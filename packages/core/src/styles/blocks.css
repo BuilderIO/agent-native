@@ -310,6 +310,15 @@
   margin-bottom: 0.75rem;
 }
 
+.an-file-tree-note {
+  display: -webkit-box;
+  overflow: hidden;
+  text-align: start;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 /* Canonical document body / lede text size. */
 .plan-doc-body {
   font-size: 1.0625rem;
