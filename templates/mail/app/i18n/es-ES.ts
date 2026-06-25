@@ -1,0 +1,63 @@
+const messages = {
+  agent: {
+    emptyState: "Preguntame cualquier cosa sobre tus correos",
+    suggestionSummarize: "Resume mis correos no leidos",
+    suggestionReplies: "Que necesita mi respuesta hoy?",
+    suggestionWidget: "Crea un widget personalizado para mi bandeja",
+  },
+  settings: {
+    openAgentSettings: "Abrir ajustes del agente",
+    agentDescription:
+      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
+    agentTitle: "Ajustes del agente",
+    title: "Configuracion",
+    general: "General",
+    generalDescription: "Idioma y preferencias de cuenta para Mail.",
+    languageTitle: "Idioma",
+    languageDescription:
+      "Elige el idioma de la interfaz para esta cuenta. Mail lo recuerda en todos tus dispositivos.",
+    languageLabel: "Idioma de la interfaz",
+    whatsNew: "Novedades",
+    whatsNewDescription:
+      "Cambios recientes para usuarios en Agent-Native Mail.",
+    drafting: "Redaccion",
+    automations: "Automatizaciones",
+    gmailFilters: "Filtros de Gmail",
+    aliases: "Alias",
+    tracking: "Seguimiento",
+    slack: "Slack",
+    team: "Equipo",
+  },
+  notFound: {
+    message: "Página no encontrada",
+    goToInbox: "Ir a la bandeja de entrada",
+  },
+  commandPalette: {
+    placeholder: "Escribe un comando o pregunta a la IA...",
+    actions: "Acciones",
+    compose: "Redactar nuevo correo",
+    reply: "Responder al hilo",
+    snooze: "Posponer correo",
+    search: "Buscar correos",
+    refresh: "Actualizar bandeja",
+    reportSpam: "Marcar como spam",
+    reportSpamBlock: "Denunciar spam y bloquear remitente",
+    muteThread: "Silenciar hilo",
+    navigate: "Navegar",
+    goToInbox: "Ir a la bandeja de entrada",
+    goToStarred: "Ir a destacados",
+    goToSent: "Ir a enviados",
+    goToDrafts: "Ir a borradores",
+    goToArchive: "Ir al archivo",
+    goToTrash: "Ir a papelera",
+    privacy: "Privacidad",
+    imagesShowAll: "Imagenes: mostrar todas",
+    imagesBlockTrackers: "Imagenes: bloquear rastreadores conocidos",
+    imagesBlockAll: "Imagenes: bloquear todas las imagenes remotas",
+    appearance: "Apariencia",
+    toggleLight: "Activar modo claro",
+    toggleDark: "Activar modo oscuro",
+  },
+};
+
+export default messages;

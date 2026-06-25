@@ -567,7 +567,7 @@ export default function ShareRoute() {
             shareId ? (
               <Button asChild size="sm">
                 <a href={buildSignInHref(`/r/${shareId}`)} className="gap-1.5">
-                  <IconLogin2 className="h-4 w-4" />
+                  <IconLogin2 className="h-4 w-4 rtl:-scale-x-100" />
                   Sign in
                 </a>
               </Button>
@@ -642,7 +642,7 @@ export default function ShareRoute() {
             {message}
           </p>
           {isFailure && detail && canManageStorage ? (
-            <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-left shadow-sm">
+            <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-start shadow-sm">
               <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Details
               </div>
@@ -675,14 +675,14 @@ export default function ShareRoute() {
             {!session && isFailure ? (
               <Button asChild size="sm">
                 <a href={signInHref} className="gap-1.5">
-                  <IconLogin2 className="h-4 w-4" />
+                  <IconLogin2 className="h-4 w-4 rtl:-scale-x-100" />
                   Sign in to finish
                 </a>
               </Button>
             ) : !session && !sessionLoading && !isFailure ? (
               <Button asChild variant="ghost" size="sm">
                 <a href={signInHref} className="gap-1.5">
-                  <IconLogin2 className="h-4 w-4" />
+                  <IconLogin2 className="h-4 w-4 rtl:-scale-x-100" />
                   Sign in if this is yours
                 </a>
               </Button>
@@ -724,7 +724,7 @@ export default function ShareRoute() {
               onClick={() => navigate("/")}
               aria-label="Back to home"
             >
-              <IconArrowLeft className="h-4 w-4" />
+              <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
             </Button>
           ) : null}
           <div className="min-w-0 flex-1">
@@ -906,7 +906,7 @@ export default function ShareRoute() {
         </div>
       </div>
 
-      <aside className="flex min-h-[420px] w-full shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-l lg:border-t-0">
+      <aside className="flex min-h-[420px] w-full shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-s lg:border-t-0">
         <Tabs defaultValue="agent" className="flex h-full flex-col">
           <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
             <TabsTrigger value="agent" className="text-xs">
@@ -915,7 +915,7 @@ export default function ShareRoute() {
             <TabsTrigger value="comments" className="text-xs gap-1">
               Comments
               {comments.length > 0 ? (
-                <span className="ml-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
+                <span className="ms-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
                   {comments.length}
                 </span>
               ) : null}

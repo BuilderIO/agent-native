@@ -13,6 +13,7 @@ import {
   actionsToEngineTools,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   resolveAgentOwnerEmail,
+  resolveBackgroundDispatchOutcome,
   resolveSkillReferenceContent,
   runAgentLoop,
   shouldChainBackgroundContinuation,
@@ -4063,5 +4064,92 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         continuationCount: MAX_BACKGROUND_RUN_CONTINUATIONS - 1,
       }),
     ).toBe(true);
+  });
+});
+
+describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
+  // Deterministic clock so the grace loop terminates without real time: each
+  // now() call advances 10ms; with graceMs=25 the loop polls ~3 times.
+  function makeClock() {
+    let t = 0;
+    return () => (t += 10);
+  }
+  const base = {
+    runId: "run-x",
+    graceMs: 25,
+    pollIntervalMs: 5,
+    sleep: async () => {},
+  };
+
+  it("202 + worker claims within grace -> stream, no inline claim", async () => {
+    const claim = vi.fn();
+    const readClaim = vi
+      .fn()
+      .mockResolvedValueOnce({ dispatchMode: "background", status: "running" })
+      .mockResolvedValueOnce({
+        dispatchMode: "background-processing",
+        status: "running",
+      });
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({ action: "stream" });
+    expect(claim).not.toHaveBeenCalled();
+  });
+
+  it("202 + no claim within grace -> foreground claims and runs inline", async () => {
+    const readClaim = vi
+      .fn()
+      .mockResolvedValue({ dispatchMode: "background", status: "running" });
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "worker-never-claimed",
+    });
+    expect(claim).toHaveBeenCalledWith("run-x");
+  });
+
+  it("delayed worker wins the claim race after grace -> subscribe (no double-run)", async () => {
+    const readClaim = vi
+      .fn()
+      .mockResolvedValue({ dispatchMode: "background", status: "running" });
+    const claim = vi.fn().mockResolvedValue(false);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({ action: "subscribe" });
+  });
+
+  it("fast dispatch failure -> inline without polling for a claim", async () => {
+    const readClaim = vi.fn();
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: false,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({ action: "inline", reason: "dispatch-failed" });
+    expect(readClaim).not.toHaveBeenCalled();
   });
 });

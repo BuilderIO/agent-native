@@ -1,0 +1,147 @@
+---
+title: "التدويل"
+description: "قم بترجمة تطبيقات Agent Native باستخدام كتالوجات محلية مشتركة، ومنتقي اللغة، ولغة احتياطية للمتصفح، ومحتوى المستندات المدرك للغة المحلية."
+---
+
+# التدويل
+
+يمكن لتطبيقات Agent Native توطين إطار العمل والنموذج UI من خلال
+وقت تشغيل `@agent-native/core/client/i18n`. يقوم الإطار بتخزين
+اختيار اللغة في إعدادات SQL، يعرضها كـ actions، ويعود إلى
+الإنجليزية عندما لا يترجم التطبيق سلسلة بعد.
+
+## وقت التشغيل
+
+استخدم الموفر من خلال `AppProviders`:
+
+```tsx
+import { AppProviders, getLocaleInitScript } from "@agent-native/core/client";
+import { i18nCatalog } from "./i18n";
+
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+<script
+  data-agent-native-locale-init
+  dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+/>;
+
+<AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+  <Outlet />
+</AppProviders>;
+```
+
+يقوم `getLocaleInitScript()` بتعيين `lang` الأولي و`dir` و
+`window.__AGENT_NATIVE_LOCALE__` قبل هيدرات React. يمكن أن تكون مسارات SSR العامة
+اتصل بـ `resolveLocaleFromRequest()` من `@agent-native/core/server` وقم بتمرير
+تم حل الإعدادات المحلية/الكتالوج في هذا البرنامج النصي لتجنب عدم تطابق الماء.
+
+## الكتالوجات
+
+يحتفظ كل قالب مترجم بالكتالوجات ضمن `app/i18n/`:
+
+```ts
+// app/i18n/index.ts
+import enUS from "./en-US";
+import type { AgentNativeI18nCatalog } from "@agent-native/core/client";
+
+export const i18nCatalog = {
+  sourceLocale: "en-US",
+  messages: enUS,
+  loadMessages: async (locale) => {
+    switch (locale) {
+      case "zh-CN":
+        return (await import("./zh-CN")).default;
+      default:
+        return null;
+    }
+  },
+} satisfies AgentNativeI18nCatalog;
+```
+
+حزمة `en-US` دائمًا. يتم استيراد الكتالوجات غير الإنجليزية بشكل ديناميكي للمستخدمين فقط
+قم بتنزيل اللغة النشطة. الرموز المحلية المدعومة هي `en-US`، `zh-CN`،
+`es-ES`، و`fr-FR`، و`de-DE`، و`ja-JP`، و`ko-KR`، و`pt-BR`، و`hi-IN`، و`ar-SA`.
+
+## UI
+
+استخدم `useT()` لسلاسل الواجهة ثم ضع `<LanguagePicker />` على التطبيق
+صفحة `/settings`. يجب أن تعرض تطبيقات الشريط الجانبي **الإعدادات** في الشريط الجانبي للتطبيق؛
+رمز لغة الرأس هو مجرد اختصار.
+
+```tsx
+import {
+  LanguagePicker,
+  openAgentSettings,
+  useT,
+} from "@agent-native/core/client";
+
+function SettingsPage() {
+  const t = useT();
+  return (
+    <>
+      <h2>{t("settings.languageTitle")}</h2>
+      <LanguagePicker label={t("settings.languageLabel")} />
+
+      <h2>{t("settings.agentTitle")}</h2>
+      <p>{t("settings.agentDescription")}</p>
+      <button type="button" onClick={() => openAgentSettings()}>
+        {t("settings.openAgentSettings")}
+      </button>
+    </>
+  );
+}
+```
+
+يجب أن يفتح عنصر التحكم "إعدادات الوكيل" علامة تبويب إعدادات الشريط الجانبي الصحيح للوكيل
+للنموذج، ومفتاح API، والتشغيل الآلي، والصوت، وعناصر التحكم الأخرى على مستوى إطار العمل.
+قد تقوم التطبيقات بتكرار إعدادات إطار العمل عالية القيمة في صفحة الإعدادات الخاصة بها
+عندما يكون الإعداد مركزيًا في التطبيق، ولكن تظل علامة تبويب إعدادات الشريط الجانبي هي
+مصدر الحقيقة.
+
+استخدم `useFormatters()` للتواريخ والأرقام والوقت النسبي والقوائم. لا تضع
+تنسيق التاريخ/الأرقام الحساس للإعدادات المحلية داخل سلاسل الترجمة.
+
+## محتوى موقع المستندات {#docs-site-content}
+
+تستخدم صفحات المستندات العامة نفس الموفر الأساسي، ولكن مع
+`persistPreference={false}` لذلك تستخدم حركة مرور المستندات المجهولة localStorage و
+لغة المتصفح بدلاً من إعدادات SQL actions. يبقى المصدر الإنجليزي في
+`packages/core/docs/content/*.md`. يتم بث تجاوزات الصفحة المترجمة بجوارها ضمن
+`packages/core/docs/content/locales/<locale>/<slug>.md`.
+
+استخدم نفس الرموز المحلية BCP-47 مثل كتالوجات التطبيقات. احتفظ بنفس سبيكة
+مصدر باللغة الإنجليزية، حافظ على نقاط الارتساء الثابتة باستخدام `{#anchor}` في العناوين المترجمة،
+وترك المسارات وأسماء الإجراءات وحقول البروتوكول ومتغيرات env وأسماء الموفرين
+غير مترجم. إذا لم تكن اللغة تحتوي على Markdown مترجمة لصفحة ما، فإن موقع المستندات
+يعود إلى اللغة الإنجليزية لتلك الصفحة مع الاستمرار في ترجمة التنقل وchrome.
+
+قد يحتوي Docs Markdown على كتل مرئية منظمة `an-*`. ترجم حقول النص الظاهرة للمستخدم عندما يكون ذلك منطقياً، مثل عناوين file-tree و `entries[].note`، ونصوص callout، و labels الخاصة بال tabs، و labels/notes في annotated-code. اترك المعرفات الثابتة كما هي: filenames و paths و env vars و route strings و action names و language tags و code snippets و JSON keys و protocol names.
+
+## Actions والإصرار
+
+يرث كل تطبيق:
+
+- `get-localization-preference` - اقرأ `{ locale }` للمستخدم الحالي
+- `set-localization-preference` - قم بتعيين `"system"` أو لغة محلية مدعومة
+
+تتواجد القيمة الدائمة في إعدادات SQL على نطاق المستخدم ضمن `localization`.
+يستخدم `localStorage` فقط للترطيب المسبق والاحتياطي المجهول. النشط
+يتم عكس اللغة المحلية في حالة التطبيق كسياق محيط حتى يتمكن الوكلاء من رؤيتها
+لغة الواجهة الحالية.
+
+## حارس
+
+تشغيل:
+
+```bash
+pnpm guard:i18n-catalogs
+```
+
+يتحقق الحارس من أسماء الملفات المحلية المدعومة، وتكافؤ المفاتيح، وتكافؤ العناصر النائبة،
+المفاتيح القديمة، وفئات الجمع CLDR من خلال `Intl.PluralRules`. يقوم بالفحص
+البنية، وليس جودة الترجمة؛ لا تزال السلاسل عالية الوضوح بحاجة إلى الإنسان
+مراجعة.
+
+لا تترجم المعرفات الثابتة مثل أسماء الإجراءات والمسارات وقيم التعداد
+مفاتيح حالة التطبيق، أو قيم قاعدة البيانات، أو حقول البروتوكول، أو أسماء env var، أو الموفر
+الأسماء.

@@ -1,0 +1,63 @@
+const messages = {
+  agent: {
+    emptyState: "اسألني أي شيء عن رسائلك",
+    suggestionSummarize: "لخص رسائلي غير المقروءة",
+    suggestionReplies: "ما الذي يحتاج إلى ردي اليوم؟",
+    suggestionWidget: "أنشئ لي ويدجت مخصصا لصندوق الوارد",
+  },
+  settings: {
+    openAgentSettings: "فتح إعدادات الوكيل",
+    agentDescription:
+      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    agentTitle: "إعدادات الوكيل",
+    title: "الإعدادات",
+    general: "عام",
+    generalDescription: "اللغة وتفضيلات مستوى الحساب في Mail.",
+    languageTitle: "اللغة",
+    languageDescription:
+      "اختر لغة الواجهة لهذا الحساب. يتذكر Mail اختيارك عبر الأجهزة.",
+    languageLabel: "لغة الواجهة",
+    whatsNew: "ما الجديد",
+    whatsNewDescription:
+      "التغييرات الأخيرة الموجهة للمستخدمين في Agent-Native Mail.",
+    drafting: "الكتابة",
+    automations: "الأتمتة",
+    gmailFilters: "فلاتر Gmail",
+    aliases: "الأسماء المستعارة",
+    tracking: "التتبع",
+    slack: "Slack",
+    team: "الفريق",
+  },
+  notFound: {
+    message: "الصفحة غير موجودة",
+    goToInbox: "الانتقال إلى الوارد",
+  },
+  commandPalette: {
+    placeholder: "اكتب أمرا أو اسأل الذكاء الاصطناعي...",
+    actions: "الإجراءات",
+    compose: "إنشاء بريد جديد",
+    reply: "الرد على المحادثة",
+    snooze: "تأجيل البريد",
+    search: "البحث في البريد",
+    refresh: "تحديث الوارد",
+    reportSpam: "الإبلاغ عن بريد مزعج",
+    reportSpamBlock: "الإبلاغ عن بريد مزعج وحظر المرسل",
+    muteThread: "كتم المحادثة",
+    navigate: "التنقل",
+    goToInbox: "الانتقال إلى الوارد",
+    goToStarred: "الانتقال إلى المميزة",
+    goToSent: "الانتقال إلى المرسلة",
+    goToDrafts: "الانتقال إلى المسودات",
+    goToArchive: "الانتقال إلى الأرشيف",
+    goToTrash: "الانتقال إلى المهملات",
+    privacy: "الخصوصية",
+    imagesShowAll: "الصور: إظهار الكل",
+    imagesBlockTrackers: "الصور: حظر أدوات التتبع المعروفة",
+    imagesBlockAll: "الصور: حظر كل الصور البعيدة",
+    appearance: "المظهر",
+    toggleLight: "تبديل الوضع الفاتح",
+    toggleDark: "تبديل الوضع الداكن",
+  },
+};
+
+export default messages;

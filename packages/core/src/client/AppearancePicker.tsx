@@ -59,7 +59,7 @@ export function AppearancePicker({
                     style={{ background: preset.swatch }}
                   />
                   {active && (
-                    <span className="pointer-events-none absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-border bg-background">
+                    <span className="pointer-events-none absolute -end-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-border bg-background">
                       <IconCheck
                         className="h-3 w-3 text-foreground"
                         stroke={3}

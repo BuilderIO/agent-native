@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import {
   AgentToggleButton,
+  LanguagePicker,
   NotificationsBell,
 } from "@agent-native/core/client";
 
@@ -41,6 +42,7 @@ export function Header({ sidebarTrigger }: HeaderProps) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
+        <LanguagePicker variant="icon" />
         <NotificationsBell />
         <AgentToggleButton />
       </div>

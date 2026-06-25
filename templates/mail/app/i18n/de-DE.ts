@@ -1,0 +1,63 @@
+const messages = {
+  agent: {
+    emptyState: "Frag mich alles zu deinen E-Mails",
+    suggestionSummarize: "Fasse meine ungelesenen E-Mails zusammen",
+    suggestionReplies: "Was braucht heute meine Antwort?",
+    suggestionWidget: "Baue ein eigenes Widget fur meinen Posteingang",
+  },
+  settings: {
+    openAgentSettings: "Agent-Einstellungen öffnen",
+    agentDescription:
+      "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
+    agentTitle: "Agent-Einstellungen",
+    title: "Einstellungen",
+    general: "Allgemein",
+    generalDescription: "Sprache und kontoweite Einstellungen fur Mail.",
+    languageTitle: "Sprache",
+    languageDescription:
+      "Wahle die Sprache der Oberflache fur dieses Konto. Mail merkt sie sich gerateubergreifend.",
+    languageLabel: "Sprache der Oberflache",
+    whatsNew: "Neuigkeiten",
+    whatsNewDescription:
+      "Aktuelle nutzerseitige Anderungen in Agent-Native Mail.",
+    drafting: "Entwurfe",
+    automations: "Automatisierungen",
+    gmailFilters: "Gmail-Filter",
+    aliases: "Aliasse",
+    tracking: "Tracking",
+    slack: "Slack",
+    team: "Team",
+  },
+  notFound: {
+    message: "Seite nicht gefunden",
+    goToInbox: "Zum Posteingang",
+  },
+  commandPalette: {
+    placeholder: "Befehl eingeben oder KI fragen...",
+    actions: "Aktionen",
+    compose: "Neue E-Mail verfassen",
+    reply: "Auf Thread antworten",
+    snooze: "E-Mail zurückstellen",
+    search: "E-Mails suchen",
+    refresh: "Posteingang aktualisieren",
+    reportSpam: "Als Spam melden",
+    reportSpamBlock: "Spam melden und Absender blockieren",
+    muteThread: "Thread stummschalten",
+    navigate: "Navigieren",
+    goToInbox: "Zum Posteingang",
+    goToStarred: "Zu Markierten",
+    goToSent: "Zu Gesendet",
+    goToDrafts: "Zu Entwurfen",
+    goToArchive: "Zum Archiv",
+    goToTrash: "Zum Papierkorb",
+    privacy: "Datenschutz",
+    imagesShowAll: "Bilder: alle anzeigen",
+    imagesBlockTrackers: "Bilder: bekannte Tracker blockieren",
+    imagesBlockAll: "Bilder: alle externen Bilder blockieren",
+    appearance: "Darstellung",
+    toggleLight: "Hellen Modus umschalten",
+    toggleDark: "Dunklen Modus umschalten",
+  },
+};
+
+export default messages;

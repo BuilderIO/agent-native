@@ -1,0 +1,63 @@
+const messages = {
+  settings: {
+    title: "設定",
+    description: "このアプリの言語とワークスペース設定。",
+    languageTitle: "言語",
+    languageDescription:
+      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
+    languageLabel: "インターフェース言語",
+    workspaceTitle: "ワークスペース",
+    workspaceDescription:
+      "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
+    openTeamSettings: "チーム設定を開く",
+    openResourceSettings: "リソース設定を開く",
+    agentTitle: "エージェント設定",
+    agentDescription:
+      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
+    openAgentSettings: "エージェント設定を開く",
+  },
+  chat: {
+    archiveChat: "Archive Chat",
+    archiveFailed: "Archive Failed",
+    chats: "Chats",
+    composerPlaceholder: "Ask the agent...",
+    emptyState: "Ask me anything",
+    heroDescription: "Ask the agent to inspect, explain, or change this app.",
+    heroTitle: "How can I help?",
+    inspectEmptyState: "Ask me anything about this app",
+    inspectSuggestionAction: "Show available actions",
+    inspectSuggestionCapabilities: "What can this app do?",
+    inspectSuggestionHello: "Help me get started",
+    newChat: "New Chat",
+    optionsFor: "Options For",
+    pinChat: "Pin Chat",
+    renameChat: "Rename Chat",
+    renameFailed: "Rename Failed",
+    renameThread: "Rename Thread",
+    suggestionActions: "Show me the available actions",
+    suggestionCapabilities: "What can this app do?",
+    suggestionCustomize: "Help me customize this app",
+    unpinChat: "Unpin Chat",
+  },
+  navigation: {
+    chat: "チャット",
+    collapseSidebar: "Collapse Sidebar",
+    database: "データベース",
+    expandSidebar: "Expand Sidebar",
+    extensions: "拡張機能",
+    navigation: "ナビゲーション",
+    navigationDescription: "メインナビゲーション",
+    observability: "可観測性",
+    openNavigation: "ナビゲーションを開く",
+    settings: "設定",
+    team: "チーム",
+  },
+  root: {
+    commandActions: "操作",
+    commandAppearance: "外観",
+    commandSearch: "検索",
+    toggleTheme: "テーマを切り替え",
+  },
+};
+
+export default messages;

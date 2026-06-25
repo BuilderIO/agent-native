@@ -2,8 +2,8 @@ import fs from "fs";
 import path from "path";
 import { createRequire } from "module";
 import { reactRouter } from "@react-router/dev/vite";
-import { defineConfig } from "@agent-native/core/vite";
-import type { Plugin } from "vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig, type Plugin } from "vite";
 
 const _require = createRequire(import.meta.url);
 const ffmpegDir = path.resolve(
@@ -11,13 +11,9 @@ const ffmpegDir = path.resolve(
   "../..",
 );
 
-// The camera background-blur feature loads the MediaPipe vision WASM runtime
-// from our own origin at `/mediapipe/wasm/*` (see `app/lib/camera-blur.ts`).
-// Rather than commit ~21MB of binaries, copy them out of the installed,
-// lockfile-verified `@mediapipe/tasks-vision` package at build/dev start. The
-// destination is gitignored. The small segmentation model is vendored in
-// `public/mediapipe/` directly. `buildStart` runs for both `vite dev` and
-// `vite build`, so the assets are always present before anything is served.
+// Self-host the MediaPipe WASM at /mediapipe/wasm by copying it out of the
+// installed package at dev/build start, rather than committing ~21MB or loading
+// from a CDN. Gitignored; the small model is vendored in public/mediapipe/.
 const MEDIAPIPE_WASM_FILES = [
   "vision_wasm_internal.js",
   "vision_wasm_internal.wasm",
@@ -51,11 +47,16 @@ function copyMediapipeWasm(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [reactRouter(), copyMediapipeWasm()],
-  // shiki only runs in AssistantChat's useEffect — keep it out of the
-  // CF Pages Functions bundle (25 MiB limit).
-  ssrStubs: ["shiki"],
-  fsAllow: [ffmpegDir],
+  plugins: [
+    reactRouter(),
+    agentNative({
+      // shiki only runs in AssistantChat's useEffect — keep it out of the
+      // CF Pages Functions bundle (25 MiB limit).
+      ssrStubs: ["shiki"],
+      fsAllow: [ffmpegDir],
+    }),
+    copyMediapipeWasm(),
+  ],
   optimizeDeps: {
     exclude: ["@ffmpeg/ffmpeg", "@ffmpeg/util"],
   },

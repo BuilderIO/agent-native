@@ -189,6 +189,22 @@ Three rules of thumb:
 </script>
 ```
 
+The same store is also available through authenticated framework routes when
+another logged-in client needs to read or update the data an extension uses:
+
+| Method   | Path                                                              | Role required           |
+| -------- | ----------------------------------------------------------------- | ----------------------- |
+| `GET`    | `/_agent-native/extensions/data/:extensionId/:collection`         | viewer                  |
+| `POST`   | `/_agent-native/extensions/data/:extensionId/:collection`         | editor, admin, or owner |
+| `DELETE` | `/_agent-native/extensions/data/:extensionId/:collection/:itemId` | editor, admin, or owner |
+
+Use `?scope=user`, `?scope=org`, or `?scope=all` on reads. Writes accept JSON
+like `{ "id": "item-1", "scope": "org", "data": { "title": "Team note" } }`.
+These endpoints use the caller's normal app session and the extension's sharing
+roles; they are not a public or server-to-server API key surface. If you need
+third-party ingestion, define a template action or route with its own scoped key
+model, like Analytics does for `/track`.
+
 External APIs go through `extensionFetch`, which proxies the call server-side and substitutes secrets via the `${keys.NAME}` template:
 
 ```html

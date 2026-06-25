@@ -2349,7 +2349,6 @@ export function AddProperty({
     },
   });
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
   const [typeQuery, setTypeQuery] = useState("");
   const filteredPropertyTypes = filterDocumentPropertyTypes(typeQuery);
   const firstFilteredPropertyType = filteredPropertyTypes[0] ?? null;
@@ -2377,19 +2376,18 @@ export function AddProperty({
         }),
     }))
     .filter((group) => group.fields.length > 0);
-  const addPropertyNameInputRef = useRef<HTMLInputElement>(null);
+  const addPropertySearchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const frame = requestAnimationFrame(() => {
-      addPropertyNameInputRef.current?.focus();
-      addPropertyNameInputRef.current?.select();
+      addPropertySearchInputRef.current?.focus();
+      addPropertySearchInputRef.current?.select();
     });
     return () => cancelAnimationFrame(frame);
   }, [open]);
 
   function closeAddPropertyPicker() {
-    setName("");
     setTypeQuery("");
     setOpen(false);
   }
@@ -2398,7 +2396,7 @@ export function AddProperty({
     const label = DOCUMENT_PROPERTY_TYPE_LABELS[type];
     await configure.mutateAsync({
       documentId,
-      name: name.trim() || label,
+      name: label,
       type,
       options: defaultPropertyOptions(type),
     });
@@ -2445,23 +2443,11 @@ export function AddProperty({
         className="w-80 p-2"
       >
         <div className="grid gap-2">
-          <Input
-            ref={addPropertyNameInputRef}
-            aria-label="New property name"
-            autoFocus
-            value={name}
-            placeholder="Property name"
-            onChange={(event) => setName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                closeAddPropertyPicker();
-              }
-            }}
-          />
           <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
             <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
             <Input
+              ref={addPropertySearchInputRef}
+              autoFocus
               value={typeQuery}
               placeholder="Search property types"
               aria-label="Search property types"

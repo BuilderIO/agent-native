@@ -51,6 +51,7 @@
     "guard:no-generated-artifacts": "node scripts/guard-no-generated-artifacts.mjs",
     "guard:extension-no-public": "node scripts/guard-extension-no-public.mjs",
     "guard:no-one-off-mcp-app-html": "node scripts/guard-no-one-off-mcp-app-html.mjs",
+    "guard:i18n-catalogs": "tsx scripts/guard-i18n-catalogs.ts",
     "guard:plan-marketplace": "tsx scripts/sync-plan-marketplace.ts --check",
     "guard:no-error-string-returns": "node scripts/guard-no-error-string-returns.mjs",
     "guard:no-action-twin-routes": "node scripts/guard-no-action-twin-routes.mjs",

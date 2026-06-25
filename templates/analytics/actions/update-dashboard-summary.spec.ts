@@ -75,6 +75,10 @@ describe("update-dashboard proof-of-done summary", () => {
     mocks.seedFromText.mockClear();
   });
 
+  it("is exposed to the dashboard editor's browser action client", () => {
+    expect(updateDashboard.http).toEqual({ method: "POST" });
+  });
+
   it("returns panelCount + summary on a full config replace", async () => {
     const result: any = await updateDashboard.run({
       dashboardId: "weekly",
