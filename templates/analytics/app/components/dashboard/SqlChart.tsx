@@ -851,6 +851,11 @@ export function SqlChart({
   const isSection = panel.chartType === "section";
   const shouldQuery = !isSection && loadData;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
+  const queryIdentity = `${panel.id}\n${panel.source}\n${sql}`;
+  const [loadedQueryIdentity, setLoadedQueryIdentity] = useState<string | null>(
+    null,
+  );
+  const queryEnabled = shouldQuery && loadedQueryIdentity !== queryIdentity;
   const {
     data: result,
     isFetching,
@@ -861,11 +866,24 @@ export function SqlChart({
     sql,
     panel.source,
     // Skip the query for section panels — they are pure layout with no data.
-    { enabled: shouldQuery },
+    {
+      enabled: queryEnabled,
+      refetchOnMount: false,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+    },
   );
 
   const rawRows = result?.rows ?? [];
   const error = result?.error;
+
+  useEffect(() => {
+    if (!shouldQuery || !result || isFetching || isLoading) return;
+    setLoadedQueryIdentity((current) =>
+      current === queryIdentity ? current : queryIdentity,
+    );
+  }, [isFetching, isLoading, queryIdentity, result, shouldQuery]);
+
   const handleRefresh = useCallback(async () => {
     await refetch();
   }, [refetch]);

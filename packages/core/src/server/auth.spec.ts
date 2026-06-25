@@ -365,6 +365,15 @@ describe("server/auth", () => {
       )?.[1];
       const previewOrigin =
         "https://940ebc5a83164aa6a37dde445e494f3a-electric-cliff-2caez1jb.builderio.xyz";
+      const firstTouch = encodeURIComponent(
+        JSON.stringify({
+          ref: "docs",
+          via: "owner_123",
+          utm_source: "newsletter",
+          landing_path: "/docs/actions",
+          landing_referrer: "https://example.com/post",
+        }),
+      );
 
       const result = await authUrlHandler(
         createMockEvent({
@@ -376,6 +385,7 @@ describe("server/auth", () => {
             host: "agent-workspace.builder.io",
             "x-forwarded-proto": "https",
             referer: `${previewOrigin}/?builder.preview=interact`,
+            cookie: `an_ft=${firstTouch}`,
           },
         }),
       );
@@ -388,6 +398,13 @@ describe("server/auth", () => {
       expect(state.returnUrl).toBe(
         `${previewOrigin}/dispatch?builder.preview=interact`,
       );
+      expect(state.signupAttribution).toEqual({
+        referral_source: "docs",
+        referrer_user: "owner_123",
+        utm_source: "newsletter",
+        first_touch_path: "/docs/actions",
+        landing_referrer: "https://example.com/post",
+      });
 
       const rejected = await authUrlHandler(
         createMockEvent({
@@ -3448,6 +3465,69 @@ describe("server/auth", () => {
           utm_source: "social",
           first_touch_path: "/p/example",
           landing_referrer: "t.co",
+        },
+      });
+    });
+
+    it("tracks Google OAuth signup with signed state attribution when callback cookies are absent", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_NAME", "plan");
+
+      const mockExecute = vi.fn(async (query: { sql?: string } | string) => {
+        const sql = typeof query === "string" ? query : query.sql || "";
+        if (/SELECT 1 FROM sessions WHERE email = \?/i.test(sql)) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const trackSignupEvent = vi.fn(async () => {});
+      const hasBetterAuthUserEmail = vi.fn(async () => false);
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(),
+        getBetterAuthSync: vi.fn(),
+        hasBetterAuthUserEmail,
+        trackSignupEvent,
+      }));
+
+      const { createOAuthSession } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        headers: { "x-forwarded-proto": "https" },
+      });
+
+      await createOAuthSession(event, "user@gmail.com", {
+        hasProductionSession: false,
+        desktop: true,
+        trackSignup: {
+          authProvider: "google",
+          authUserId: "google-user-1",
+          name: "Google User",
+          attribution: {
+            referral_source: "docs",
+            referrer_user: "owner_123",
+            utm_source: "newsletter",
+            first_touch_path: "/docs/actions",
+          },
+        },
+      });
+
+      expect(trackSignupEvent).toHaveBeenCalledWith({
+        authProvider: "google",
+        authUserId: "google-user-1",
+        email: "user@gmail.com",
+        name: "Google User",
+        attribution: {
+          referral_source: "docs",
+          referrer_user: "owner_123",
+          utm_source: "newsletter",
+          first_touch_path: "/docs/actions",
         },
       });
     });

@@ -340,7 +340,7 @@ export default flatRoutes() satisfies RouteConfig;
 }
 
 function entryServerTsx(): string {
-  return `import type { AppLoadContext, EntryContext } from "react-router";
+  return `import type { EntryContext, RouterContextProvider } from "react-router";
 import { ServerRouter } from "react-router";
 import ReactDOMServer from "react-dom/server.browser";
 const { renderToReadableStream } = ReactDOMServer;
@@ -354,7 +354,7 @@ export default async function handleRequest(
   responseStatusCode: number,
   responseHeaders: Headers,
   routerContext: EntryContext,
-  _loadContext: AppLoadContext,
+  _loadContext: RouterContextProvider,
 ) {
   if (request.method.toUpperCase() === "HEAD") {
     return new Response(null, {

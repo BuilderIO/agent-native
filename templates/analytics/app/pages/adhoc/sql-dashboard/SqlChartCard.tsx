@@ -62,8 +62,9 @@ export function SqlChartCard({
   onSaveSql,
   editable = true,
 }: SqlChartCardProps) {
+  const canDrag = editable && panel.chartType !== "section";
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } =
-    useDraggable({ id: panel.id, disabled: !editable });
+    useDraggable({ id: panel.id, disabled: !canDrag });
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -187,20 +188,22 @@ export function SqlChartCard({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    ref={setActivatorNodeRef}
-                    className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
-                    aria-label="Drag to reorder"
-                    {...attributes}
-                    {...listeners}
-                  >
-                    <IconGripVertical className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Drag to reorder</TooltipContent>
-              </Tooltip>
+              {canDrag ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      ref={setActivatorNodeRef}
+                      className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+                      aria-label="Drag to reorder"
+                      {...attributes}
+                      {...listeners}
+                    >
+                      <IconGripVertical className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Drag to reorder</TooltipContent>
+                </Tooltip>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -338,7 +341,7 @@ export function SqlChartCard({
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
-            {editable ? (
+            {canDrag ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button

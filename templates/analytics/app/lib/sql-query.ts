@@ -62,7 +62,11 @@ export function useSqlQuery(
   source: DataSourceType,
   options?: {
     enabled?: boolean;
-    refetchInterval?: number;
+    refetchInterval?: number | false;
+    refetchOnMount?: boolean | "always";
+    refetchOnReconnect?: boolean | "always";
+    refetchOnWindowFocus?: boolean | "always";
+    staleTime?: number;
   },
 ) {
   return useQuery<SqlQueryResult>({
@@ -70,6 +74,9 @@ export function useSqlQuery(
     queryFn: ({ signal }) => executeSqlQuery(sql, source, signal),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
-    staleTime: 5 * 60 * 1000,
+    refetchOnMount: options?.refetchOnMount ?? false,
+    refetchOnReconnect: options?.refetchOnReconnect ?? false,
+    refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
+    staleTime: options?.staleTime ?? 5 * 60 * 1000,
   });
 }

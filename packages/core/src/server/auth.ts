@@ -104,6 +104,7 @@ import {
   isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
+import { signupAttributionFromCookieHeader } from "./attribution.js";
 import { captureAuthError } from "./sentry.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
@@ -2545,6 +2546,9 @@ async function mountBetterAuthRoutes(
               })
             : "/";
         const returnUrl = validated !== "/" ? validated : undefined;
+        const signupAttribution = signupAttributionFromCookieHeader(
+          getHeader(event, "cookie") ?? null,
+        );
         const state = encodeOAuthState({
           redirectUri,
           desktop,
@@ -2552,6 +2556,7 @@ async function mountBetterAuthRoutes(
           app: getOAuthStateAppId(),
           returnUrl,
           flowId,
+          signupAttribution,
         });
         logGoogleOAuthDebug(event, "auth-url", {
           flowId,
@@ -2606,10 +2611,11 @@ async function mountBetterAuthRoutes(
         try {
           const query = getQuery(event);
           const code = query.code as string;
-          const { redirectUri, desktop, returnUrl, flowId } = decodeOAuthState(
-            query.state as string | undefined,
-            getAppUrl(event, "/_agent-native/google/callback"),
-          );
+          const { redirectUri, desktop, returnUrl, flowId, signupAttribution } =
+            decodeOAuthState(
+              query.state as string | undefined,
+              getAppUrl(event, "/_agent-native/google/callback"),
+            );
           callbackFlowId = flowId;
           callbackDesktop = desktop ?? false;
           logGoogleOAuthDebug(event, "callback-start", {
@@ -2729,6 +2735,7 @@ async function mountBetterAuthRoutes(
               authProvider: "google",
               authUserId: typeof user.id === "string" ? user.id : undefined,
               name: typeof user.name === "string" ? user.name : undefined,
+              attribution: signupAttribution,
             },
           });
           logGoogleOAuthDebug(event, "callback-session-created", {

@@ -10,6 +10,17 @@ describe("FileTreeBlock", () => {
   let container: HTMLDivElement;
   let root: Root;
 
+  const restoreElementSizeDescriptor = (
+    property: "scrollWidth" | "clientWidth",
+    descriptor: PropertyDescriptor | undefined,
+  ) => {
+    if (descriptor) {
+      Object.defineProperty(HTMLElement.prototype, property, descriptor);
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, property);
+    }
+  };
+
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
@@ -116,7 +127,47 @@ describe("FileTreeBlock", () => {
     );
     expect(note?.className).toContain("truncate");
     expect(note?.getAttribute("title")).toBeNull();
-    expect(note?.getAttribute("data-state")).toBe("closed");
+    expect(note?.getAttribute("data-state")).toBeNull();
+  });
+
+  it("only wires the note tooltip when text is truncated", async () => {
+    const scrollWidth = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollWidth",
+    );
+    const clientWidth = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientWidth",
+    );
+
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+      configurable: true,
+      get: () => 240,
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get: () => 80,
+    });
+
+    try {
+      renderFileTree([
+        { path: "AGENTS.md", note: "Always-on agent instructions." },
+      ]);
+
+      await act(async () => {});
+
+      const fileRow = container.querySelector('[data-file-path="AGENTS.md"]');
+      const note = Array.from(fileRow?.querySelectorAll("span") ?? []).find(
+        (span) => span.textContent === "Always-on agent instructions.",
+      );
+
+      expect(note?.className).toContain("truncate");
+      expect(note?.getAttribute("title")).toBeNull();
+      expect(note?.getAttribute("data-state")).toBe("closed");
+    } finally {
+      restoreElementSizeDescriptor("scrollWidth", scrollWidth);
+      restoreElementSizeDescriptor("clientWidth", clientWidth);
+    }
   });
 
   it("flags data-files-expanded only while focused with an open file", () => {
