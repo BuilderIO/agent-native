@@ -16,11 +16,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import messages from "@/i18n/en-US";
 
 import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
-  return [{ title: "Settings - Forms" }];
+  return [{ title: messages.routeTitles.settingsForms }];
 }
 
 export default function SettingsRoute() {

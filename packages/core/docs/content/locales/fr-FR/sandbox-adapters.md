@@ -42,7 +42,7 @@ En gardant le contrat étroit, un adaptateur distant hérite de la même posture
 
 ```an-diagram title="Le parent garde les secrets ; l'adaptateur exécute uniquement du code" summary="run-code construit le module et exécute le pont de bouclage ; l'adaptateur reçoit un module non secret + limites et renvoie stdout/stderr/exit."
 {
-  "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>Parent process</strong><small class=\"diagram-muted\">builds module · loopback bridge · env scrub · output format</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">local child · Docker · remote · durable</small></div></div>",
+  "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>Processus parent</strong><small class=\"diagram-muted\">construit le module · pont loopback · nettoyage env · format de sortie</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">processus enfant local · Docker · distant · durable</small></div></div>",
   "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -135,7 +135,7 @@ registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 Sélectionne un adaptateur intégré par identifiant. Actuellement, seul le `local` (valeur par défaut) est câblé ; les valeurs inconnues reviennent au niveau local plutôt que d'échouer l'exécution.
 
 ```bash
-AGENT_NATIVE_SANDBOX=local   # the default — explicit
+AGENT_NATIVE_SANDBOX=local   # la valeur par défaut - explicite
 ```
 
 ### `registerSandboxAdapter()` {#register}

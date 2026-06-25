@@ -1,7 +1,9 @@
 import { Outlet } from "react-router";
 
+import { messagesByLocale } from "@/i18n-data";
+
 export function meta() {
-  return [{ title: "Brand Kits - Assets" }];
+  return [{ title: messagesByLocale["en-US"].routeTitles.brandKits }];
 }
 
 // Layout for the Brand Kits section. The list lives in `brand-kits._index.tsx`

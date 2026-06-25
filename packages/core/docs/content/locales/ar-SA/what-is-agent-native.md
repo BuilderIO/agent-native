@@ -52,7 +52,7 @@ Agent-native هو وسيلة لبناء البرامج حيث يكون وكيل 
 
 ```an-diagram title="مبدأ السلم" summary="تتوقف معظم الفرق عند الدرجة 1 أو 2. ويتم تحديد Agent-native في الدرجة 3 — وهو تطبيق حقيقي ووكيل حقيقي على سطح عمل مشترك واحد."
 {
-  "html": "<div class=\"diagram-ladder\"><div class=\"diagram-card rung rung-3\"><span class=\"diagram-pill accent\">Rung 3 · agent-native</span><strong>Agent + UI as equal partners</strong><small class=\"diagram-muted\">One action surface. Every agent tool is also a button; every button runs the same logic the agent uses.</small></div><div class=\"diagram-card rung rung-2\"><span class=\"diagram-pill\">Rung 2</span><strong>A chat with tools</strong><small class=\"diagram-muted\">The agent can act — but it is still just a chat window. No dashboards, lists, or shortcuts.</small></div><div class=\"diagram-card rung rung-1\"><span class=\"diagram-pill warn\">Rung 1</span><strong>A single LLM call</strong><small class=\"diagram-muted\">Prompt in, string out. Impressive in a demo; breaks the moment reality gets messy.</small></div></div>",
+  "html": "<div class=\"diagram-ladder\"><div class=\"diagram-card rung rung-3\"><span class=\"diagram-pill accent\">الدرجة 3 · agent-native</span><strong>الوكيل + الواجهة كشريكين متساويين</strong><small class=\"diagram-muted\">One action surface. Every agent tool is also a button; every button runs the same logic the agent uses.</small></div><div class=\"diagram-card rung rung-2\"><span class=\"diagram-pill\">الدرجة 2</span><strong>دردشة مع أدوات</strong><small class=\"diagram-muted\">يمكن للوكيل التصرف — لكنه لا يزال مجرد نافذة دردشة. لا توجد لوحات معلومات أو قوائم أو اختصارات.</small></div><div class=\"diagram-card rung rung-1\"><span class=\"diagram-pill warn\">الدرجة 1</span><strong>استدعاء LLM واحد</strong><small class=\"diagram-muted\">Prompt in, string out. Impressive in a demo; breaks the moment reality gets messy.</small></div></div>",
   "css": ".diagram-ladder{display:flex;flex-direction:column;gap:14px}.diagram-ladder .rung{display:flex;flex-direction:column;gap:6px;padding:16px 18px}.diagram-ladder .rung-2{margin-inline-end:48px}.diagram-ladder .rung-1{margin-inline-end:96px}"
 }
 ```
@@ -91,7 +91,7 @@ Agent-native هو وسيلة لبناء البرامج حيث يكون وكيل 
 
 ```an-diagram title="نظام واحد، طريقتان للدخول" summary="يكتب الوكيل وواجهة المستخدم نفس الإجراءات ونفس قاعدة البيانات. مهما فعل أحدهما يرى الآخر."
 {
-  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">clicks, forms, shortcuts</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">natural language · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">قاعدة بيانات SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">UI updates live</div></div>",
+  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">نقرات، نماذج، اختصارات</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">لغة طبيعية · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">قاعدة بيانات SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">تتحدث الواجهة مباشرة</div></div>",
   "css": ".diagram-parity{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-parity .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-parity .diagram-arrow{font-size:22px;line-height:1}.diagram-parity .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -165,9 +165,9 @@ Agent-native هو وسيلة لبناء البرامج حيث يكون وكيل 
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread\",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app's server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});",
   "annotations": [
-    { "lines": "5", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this as a tool." },
+    { "lines": "5", "label": "سطح الأداة", "note": "`description` هو ما يقرأه الوكيل ليقرر متى يتم استدعاء هذا كأداة." },
     { "lines": "6", "label": "عقد typed", "note": "يقوم zod `schema` واحد بالتحقق من الإدخال من **كل** سطح — agent وواجهة المستخدم وHTTP وMCP وA2A." },
-    { "lines": "7-10", "label": "One implementation", "note": "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this." }
+    { "lines": "7-10", "label": "تنفيذ واحد", "note": "جسد `run` هو المصدر الوحيد للحقيقة. يقوم كل من الزر UI وأداة الوكيل بتنفيذ هذا بالضبط." }
   ]
 }
 ```

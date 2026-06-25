@@ -20,6 +20,7 @@ import {
   trackEvent,
   type Template,
 } from "../components/TemplateCard";
+import enUS from "../i18n/en-US";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
 function findTemplate(slug: string | undefined) {
@@ -41,13 +42,18 @@ export const meta = ({ params }: { params: { slug?: string } }) => {
   const template = findTemplate(params.slug);
   if (!template) {
     return withDefaultSocialImage([
-      { title: "Template Not Found — Agent-Native" },
+      { title: enUS.templateDetail.notFoundMetaTitle },
     ]);
   }
+  const templateCopy =
+    enUS.templates[template.slug as keyof typeof enUS.templates];
   return withTemplateSocialImage(
     [
       { title: `Agent-Native ${template.name} Template` },
-      { name: "description", content: template.description },
+      {
+        name: "description",
+        content: templateCopy.description,
+      },
     ],
     template.name,
   );

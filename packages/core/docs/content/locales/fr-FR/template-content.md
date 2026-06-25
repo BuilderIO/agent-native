@@ -14,7 +14,7 @@ résultat, que vous le fassiez vous-même ou que vous le demandiez.
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Q3 Roadmap</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>Engineering wiki</span><span class='wf-pill'>Reading list</span><span class='wf-pill'>Weekly sync</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Roadmap</h1><div style='flex:1'></div><button>Partager</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>Launch goals</h2><p style='margin:0'>Ship the onboarding flow, reduce setup time, and document owner handoffs.</p><div class='wf-box'>At a glance · owner, window, status</div><div class='wf-box'>Top objectives</div><div class='wf-box'>Workstreams table</div></div></main></div>"
+  "html": "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Feuille de route T3</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>Wiki ingénierie</span><span class='wf-pill'>Liste de lecture</span><span class='wf-pill'>Synchronisation hebdomadaire</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Feuille de route T3</h1><div style='flex:1'></div><button>Partager</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>Objectifs de lancement</h2><p style='margin:0'>Livrer le parcours d’onboarding, réduire le temps de configuration et documenter les relais de propriétaire.</p><div class='wf-box'>En bref · propriétaire, fenêtre, statut</div><div class='wf-box'>Objectifs principaux</div><div class='wf-box'>Tableau des chantiers</div></div></main></div>"
 }
 ```
 
@@ -22,7 +22,7 @@ Lorsque vous ouvrez l'application, vous verrez une arborescence de pages à côt
 
 ```an-diagram title="Un document, plusieurs éditeurs" summary="Vous et l’agent écrivez tous les deux via le même pipeline Yjs. SQL est le magasin canonique ; les fichiers locaux et Notion sont des surfaces de synchronisation facultatives."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">You type<br><small class=\"diagram-muted\">slash menu, toolbar</small></div><div class=\"diagram-node\">Agent edits<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">live, conflict-free merge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">canonical SQL store</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Local .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Notion pages<br><small class=\"diagram-muted\">pull · push</small></div></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Vous saisissez<br><small class=\"diagram-muted\">menu slash, barre d’outils</small></div><div class=\"diagram-node\">Modifications par l’agent<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">en direct, fusion sans conflit</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">stockage SQL canonique</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Fichiers locaux .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Pages Notion<br><small class=\"diagram-muted\">pull · push</small></div></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -257,7 +257,7 @@ Neuf tables, toutes définies dans `server/db/schema.ts` :
 - **`document_property_values`** — valeurs de propriété par document (`property_id` → `value_json`).
 - **`document_shares`** – subventions par utilisateur et par organisation créées via `createSharesTable`.
 
-```an-schema title="Content data model" summary="Nine tables in server/db/schema.ts. documents is the page tree; the rest hang off it for versions, comments, Notion sync, inline databases, and sharing."
+```an-schema title="Modèle de données Content" summary="Neuf tables dans server/db/schema.ts. documents est l’arborescence des pages ; le reste s’y rattache pour les versions, commentaires, synchronisation Notion, bases inline et partage."
 {
   "entities": [
     {
@@ -272,7 +272,7 @@ Neuf tables, toutes définies dans `server/db/schema.ts` :
         { "name": "icon", "type": "string", "nullable": true },
         { "name": "position", "type": "int", "note": "sibling ordering" },
         { "name": "is_favorite", "type": "bool" },
-        { "name": "visibility", "type": "enum", "note": "private | org | public" },
+        { "name": "visibility", "type": "enum", "note": "privé | org | publique" },
         { "name": "owner_email", "type": "string" },
         { "name": "org_id", "type": "id", "nullable": true }
       ]
@@ -280,7 +280,7 @@ Neuf tables, toutes définies dans `server/db/schema.ts` :
     {
       "id": "document_versions",
       "name": "document_versions",
-      "note": "Full title/content snapshots for version history",
+      "note": "Instantanés complets de title/content pour l'historique des versions",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -291,7 +291,7 @@ Neuf tables, toutes définies dans `server/db/schema.ts` :
     {
       "id": "document_comments",
       "name": "document_comments",
-      "note": "Threaded comments with quoted-text anchors",
+      "note": "Commentaires dans le fil de discussion avec ancres de texte cité",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -299,13 +299,13 @@ Neuf tables, toutes définies dans `server/db/schema.ts` :
         { "name": "parent_id", "type": "id", "fk": "document_comments.id", "nullable": true },
         { "name": "quoted_text", "type": "string", "nullable": true },
         { "name": "resolved", "type": "bool" },
-        { "name": "notion_comment_id", "type": "string", "nullable": true, "note": "bidirectional Notion sync" }
+        { "name": "notion_comment_id", "type": "string", "nullable": true, "note": "synchronisation bidirectionnelle Notion" }
       ]
     },
     {
       "id": "document_sync_links",
       "name": "document_sync_links",
-      "note": "One row per Notion-linked document",
+      "note": "Une ligne par document lié à Notion",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -317,7 +317,7 @@ Neuf tables, toutes définies dans `server/db/schema.ts` :
     {
       "id": "content_databases",
       "name": "content_databases",
-      "note": "Inline database objects attached to a document",
+      "note": "Objets de base de données en ligne attachés à un document",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -338,7 +338,7 @@ Neuf tables, toutes définies dans `server/db/schema.ts` :
     {
       "id": "document_property_definitions",
       "name": "document_property_definitions",
-      "note": "Column definitions for inline databases",
+      "note": "Définitions de colonnes pour les bases de données en ligne",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "name", "type": "string" },
@@ -350,7 +350,7 @@ Neuf tables, toutes définies dans `server/db/schema.ts` :
     {
       "id": "document_property_values",
       "name": "document_property_values",
-      "note": "Per-document property values",
+      "note": "Valeurs des propriétés par document",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -366,7 +366,7 @@ Neuf tables, toutes définies dans `server/db/schema.ts` :
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
         { "name": "principal", "type": "string" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+        { "name": "role", "type": "enum", "note": "spectateur | éditeur | administrateur" }
       ]
     }
   ],
@@ -374,7 +374,7 @@ Neuf tables, toutes définies dans `server/db/schema.ts` :
     { "from": "documents", "to": "documents", "kind": "1-n", "label": "has children" },
     { "from": "documents", "to": "document_versions", "kind": "1-n", "label": "has snapshots" },
     { "from": "documents", "to": "document_comments", "kind": "1-n", "label": "has comments" },
-    { "from": "documents", "to": "document_sync_links", "kind": "1-1", "label": "links to Notion" },
+    { "from": "documents", "to": "document_sync_links", "kind": "1-1", "label": "liens vers Notion" },
     { "from": "documents", "to": "content_databases", "kind": "1-n", "label": "hosts databases" },
     { "from": "content_databases", "to": "content_database_items", "kind": "1-n", "label": "has rows" },
     { "from": "document_property_definitions", "to": "document_property_values", "kind": "1-n", "label": "has values" },

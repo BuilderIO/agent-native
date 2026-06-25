@@ -10,7 +10,7 @@ Forms 是一个代理原生表单构建器。描述您想要的表单，在编�
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Beta 注册</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>分享</button><button class='primary'>取消发布</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>编辑</span><span class='wf-pill'>结果 187</span><span class='wf-pill'>设置</span><span class='wf-pill'>集成</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>Beta 注册</h2><p class='wf-muted' style='margin:0'>Reserve a spot in the upcoming private beta cohort.</p><div class='wf-card'><strong>姓名</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>工作邮箱</strong><input value='you@company.com'/></div><div class='wf-card'><strong>你的角色</strong><input value='Select...'/></div><div class='wf-card'><strong>团队规模</strong><input value='Select...'/></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Beta 注册</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>分享</button><button class='primary'>取消发布</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>编辑</span><span class='wf-pill'>结果 187</span><span class='wf-pill'>设置</span><span class='wf-pill'>集成</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>Beta 注册</h2><p class='wf-muted' style='margin:0'>预留即将开始的私密 beta 名额。</p><div class='wf-card'><strong>姓名</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>工作邮箱</strong><input value='you@company.com'/></div><div class='wf-card'><strong>你的角色</strong><input value='Select...'/></div><div class='wf-card'><strong>团队规模</strong><input value='Select...'/></div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ Forms 是一个代理原生表单构建器。描述您想要的表单，在编�
 
 ```an-diagram title="构建、发布、收集" summary="代理和可视化编辑器编辑一个 SQL-backed 表单定义。公共填写页面未经身份验证，提交内容将通过服务器端路由到您的目的地。"
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Agent prompt<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">Visual editor<br><small class=\"diagram-muted\">labels, validation, order</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">fields JSON, settings JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL via Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Public fill page<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / Sheets</small></div></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">代理提示词<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">可视化编辑器<br><small class=\"diagram-muted\">标签、校验、顺序</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">字段 JSON，设置 JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">通过 Drizzle 使用 SQL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">公开填写页<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / 表格</small></div></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -94,7 +94,7 @@ npx @agent-native/core@latest create my-platform
 
 `fields` 和 `settings` JSON 形状在 `templates/forms/shared/types.ts`（`FormField`、`FormSettings`）中定义。在任何数据通过 `toPublicFormSettings` 到达公共填充页面之前，所有者私有设置（例如集成 Webhook URL 和允许的来源）都会被删除。
 
-```an-schema title="Forms data model" summary="Three tables. Fields and integrations are JSON columns on forms, so the agent's edits are surgical patches rather than cross-table row changes."
+```an-schema title="表单数据模型" summary="三张桌子。字段和集成是表单上的 JSON 列，因此代理的编辑是外科手术补丁，而不是跨表行更改。"
 {
   "entities": [
     {
@@ -106,9 +106,9 @@ npx @agent-native/core@latest create my-platform
         { "name": "title", "type": "string" },
         { "name": "description", "type": "string", "nullable": true },
         { "name": "slug", "type": "string", "note": "unique; public URL" },
-        { "name": "fields", "type": "json", "note": "FormField[] — all field types" },
-        { "name": "settings", "type": "json", "note": "FormSettings — integrations, etc." },
-        { "name": "status", "type": "enum", "note": "draft | published | closed" },
+        { "name": "fields", "type": "json", "note": "FormField[] — 所有字段类型" },
+        { "name": "settings", "type": "json", "note": "FormSettings — 集成等" },
+        { "name": "status", "type": "enum", "note": "草稿|发表 |关闭" },
         { "name": "deleted_at", "type": "datetime", "nullable": true, "note": "soft delete" },
         { "name": "owner_email", "type": "string" },
         { "name": "org_id", "type": "id", "nullable": true }
@@ -117,7 +117,7 @@ npx @agent-native/core@latest create my-platform
     {
       "id": "responses",
       "name": "responses",
-      "note": "One submission per row",
+      "note": "每行一次提交",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "form_id", "type": "id", "fk": "forms.id" },
@@ -130,12 +130,12 @@ npx @agent-native/core@latest create my-platform
     {
       "id": "form_shares",
       "name": "form_shares",
-      "note": "Framework shares table — principals to roles per form",
+      "note": "框架份额表——每个表格的角色原则",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "form_id", "type": "id", "fk": "forms.id" },
         { "name": "principal", "type": "string", "note": "user or org" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+        { "name": "role", "type": "enum", "note": "观众|编辑|行政" }
       ]
     }
   ],

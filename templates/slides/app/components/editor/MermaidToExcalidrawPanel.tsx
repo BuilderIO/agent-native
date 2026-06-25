@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconTransform, IconLoader2 } from "@tabler/icons-react";
 import { useState, useCallback } from "react";
 
@@ -12,6 +13,7 @@ export function MermaidToExcalidrawPanel({
   onConvert,
   onCancel,
 }: MermaidToExcalidrawPanelProps) {
+  const t = useT();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -47,7 +49,7 @@ export function MermaidToExcalidrawPanel({
   return (
     <div className="p-3 space-y-3">
       <div className="text-xs text-muted-foreground">
-        Convert this mermaid diagram to an editable Excalidraw drawing?
+        {t("raw.mermaidConvertPrompt")}
       </div>
       <pre className="text-[10px] text-muted-foreground bg-muted rounded p-2 max-h-24 overflow-auto">
         {mermaidDefinition.slice(0, 300)}

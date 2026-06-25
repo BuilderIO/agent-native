@@ -48,7 +48,7 @@ vers des lignes SQL ou des fichiers locaux.
 
 ```an-diagram title="Mêmes actions, deux sources de vérité" summary="L'interface utilisateur et l'agent appellent des actions identiques dans les deux modes. La couche d'action décide si chaque appel est résolu en lignes SQL ou en fichiers de dépôt."
 {
-  "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">Content UI</div><div class=\"diagram-node\">Agent + actions<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">Database mode</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">hosted · sharing · comments · history</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">Git review · coding-agent edits</small></div></div></div>",
+  "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">UI de contenu</div><div class=\"diagram-node\">Agent et actions applicatives<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">Mode base de données</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">hébergé · partage · commentaires · historique</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">revue Git · éditions agent de code</small></div></div></div>",
   "css": ".diagram-mode{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mode .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mode .diagram-arrow{font-size:22px;line-height:1}.diagram-mode .resolve{display:flex;gap:12px;flex-wrap:wrap}.diagram-mode .diagram-panel{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
 }
 ```
@@ -165,13 +165,13 @@ le document modifiable :
 
 ```mdx
 ---
-title: "Getting Started"
+title: "Commencer"
 icon: "sparkles"
 isFavorite: true
 updatedAt: "2026-06-12T20:00:00.000Z"
 ---
 
-# Getting Started
+# Commencer
 
 Use <FrameworkTabs value="react" /> to show framework-specific code.
 ```
@@ -251,10 +251,10 @@ Utilisez-le ensuite à partir de n'importe quel fichier MDX local :
 
 ```mdx
 ---
-title: "Launch Notes"
+title: "Notes de lancement"
 ---
 
-# Launch Notes
+# Notes de lancement
 
 <ImpactCounter label="wins" />
 ```

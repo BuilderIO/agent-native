@@ -10,7 +10,7 @@ Design은 에이전트 기반 HTML 프로토타이핑 스튜디오입니다. 에
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Product launch page</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Generated HTML prototype</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Make the hero denser and the CTA clearer.</span><div style='flex:1'></div><button class='primary'>Apply revision</button></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>제품 출시 페이지</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>생성된 HTML 프로토타입</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>히어로를 더 밀도 있게 만들고 CTA를 더 명확하게 하세요.</span><div style='flex:1'></div><button class='primary'>수정 적용</button></div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ Design은 에이전트 기반 HTML 프로토타이핑 스튜디오입니다. 에
 
 ```an-diagram title="하나의 아티팩트, 번역 없음" summary="에이전트는 독립형 Alpine/Tailwind HTML을 생성합니다. iframe, 편집 가능한 소스 및 모든 내보내기는 모두 동일한 파일을 읽습니다. 연결된 디자인 시스템은 각 패스에 토큰을 공급합니다."
 {
-  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">프롬프트<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">Design system</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Agent generate</span><small class=\"diagram-muted\">standalone HTML / JSX files</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">tweak knobs · Cmd+I refine</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · handoff</small></div></div>",
+  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">프롬프트<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">디자인 시스템</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">에이전트 생성</span><small class=\"diagram-muted\">독립형 HTML / JSX 파일</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">노브 조정 · Cmd+I로 다듬기</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · 핸드오프</small></div></div>",
   "css": ".diagram-design{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-design .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-design .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-design .diagram-arrow{font-size:20px;line-height:1}.diagram-design .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -85,7 +85,7 @@ pnpm dev
 | `design_systems`                         | 재사용 가능한 브랜드 토큰 — `data`(색상/타이포그래피/간격), `assets`, `custom_instructions` 및 `is_default` 플래그                   |
 | `design_shares` / `design_system_shares` | 프레임워크는 주체(사용자 또는 조직)를 역할(뷰어, 편집자, 관리자)에 매핑하는 테이블을 공유합니다.                                     |
 
-```an-schema title="Design data model" summary="A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
+```an-schema title="설계 데이터 모델" summary="디자인은 해당 파일과 버전이 지정된 스냅샷을 소유하고 선택적으로 재사용 가능한 디자인 시스템을 연결합니다. 디자인과 시스템 모두 소유 가능하며 각각 프레임워크 공유 테이블이 있습니다."
 {
   "entities": [
     { "id": "designs", "name": "designs", "note": "A design project (ownable)", "fields": [
@@ -96,13 +96,13 @@ pnpm dev
       { "name": "data", "type": "json", "note": "starts as {}" },
       { "name": "design_system_id", "type": "id", "fk": "design_systems.id", "nullable": true }
     ] },
-    { "id": "files", "name": "design_files", "note": "Files in a design", "fields": [
+    { "id": "files", "name": "design_files", "note": "디자인의 파일", "fields": [
       { "name": "design_id", "type": "id", "fk": "designs.id" },
       { "name": "filename", "type": "text" },
       { "name": "content", "type": "text" },
       { "name": "file_type", "type": "text", "note": "defaults to html" }
     ] },
-    { "id": "versions", "name": "design_versions", "note": "History / rollback", "fields": [
+    { "id": "versions", "name": "design_versions", "note": "기록/롤백", "fields": [
       { "name": "design_id", "type": "id", "fk": "designs.id" },
       { "name": "snapshot", "type": "json" },
       { "name": "label", "type": "text", "nullable": true }
@@ -114,11 +114,11 @@ pnpm dev
       { "name": "custom_instructions", "type": "text", "nullable": true },
       { "name": "is_default", "type": "boolean" }
     ] },
-    { "id": "design_shares", "name": "design_shares", "note": "Framework shares table", "fields": [
+    { "id": "design_shares", "name": "design_shares", "note": "프레임워크 공유 테이블", "fields": [
       { "name": "design_id", "type": "id", "fk": "designs.id" },
       { "name": "role", "type": "text", "note": "viewer / editor / admin" }
     ] },
-    { "id": "system_shares", "name": "design_system_shares", "note": "Framework shares table", "fields": [
+    { "id": "system_shares", "name": "design_system_shares", "note": "프레임워크 공유 테이블", "fields": [
       { "name": "design_system_id", "type": "id", "fk": "design_systems.id" },
       { "name": "role", "type": "text", "note": "viewer / editor / admin" }
     ] }

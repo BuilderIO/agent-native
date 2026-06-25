@@ -42,7 +42,7 @@ Agent-Native에는 좁은 뒤에 있는 문제를 고려하는 두 개의 어댑
 
 ```an-diagram title="부모는 비밀을 유지합니다. 어댑터는 코드만 실행합니다." summary="실행 코드는 모듈을 빌드하고 루프백 브리지를 실행합니다. 어댑터는 비밀이 아닌 모듈 + 제한을 수신하고 stdout/stderr/exit을 반환합니다."
 {
-  "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>Parent process</strong><small class=\"diagram-muted\">builds module · loopback bridge · env scrub · output format</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">local child · Docker · remote · durable</small></div></div>",
+  "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>부모 프로세스</strong><small class=\"diagram-muted\">모듈 빌드 · loopback 브리지 · env 정리 · 출력 형식</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">로컬 자식 · Docker · 원격 · 지속</small></div></div>",
   "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -135,7 +135,7 @@ registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 ID별로 내장 어댑터를 선택합니다. 현재는 `local`(기본값)만 연결되어 있습니다. 알 수 없는 값은 실행에 실패하지 않고 로컬로 대체됩니다.
 
 ```bash
-AGENT_NATIVE_SANDBOX=local   # the default — explicit
+AGENT_NATIVE_SANDBOX=local   # 기본값 - 명시적
 ```
 
 ### `registerSandboxAdapter()` {#register}

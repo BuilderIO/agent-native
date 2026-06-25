@@ -81,7 +81,7 @@ const task = await spawnTask({
 });
 ```
 
-لن تستدعي معظم أكواد التطبيق هذا مباشرة - حيث يقوم إطار العمل بذلك تحت غطاء `@mentions` ولأداة `agent-teams`. يمكنك الوصول إلى `spawnTask()` فقط عندما تقوم بتوصيل نقطة دخول جديدة (على سبيل المثال، زر يبدأ مهمة خلفية تعمل كوكيل فرعي).
+لن تستدعي معظم أكواد التطبيق هذا مباشرة - حيث يقوم إطار العمل بذلك تحت غطاء `@mentions` ولأداة `agent-teams`. يمكنك الوصول إلى `spawnTask()` فقط عندما تقوم بتوصيل نقطة دخول جديدة (على سبيل المثال, زر يبدأ مهمة خلفية تعمل كوكيل فرعي).
 
 ## دورة حياة المهمة {#lifecycle}
 
@@ -92,7 +92,7 @@ const task = await spawnTask({
 }
 ```
 
-في أي وقت، يمكن للوكيل الأصلي استئناف الوكيل الفرعي من خلال المتابعة عبر `sendToTask(taskId, message)`. إذا كانت أخطاء الوكيل الفرعي، فإن `markTaskErrored(taskId, reason)` يسجل الفشل ويظهره للمستخدم.
+في أي وقت، يمكن للوكيل الأصلي استئناف الوكيل الفرعي من خلال المتابعة عبر `sendToTask(taskId, message)`. إذا كانت أخطاء الوكيل الفرعي, فإن `markTaskErrored(taskId, reason)` يسجل الفشل ويظهره للمستخدم.
 
 ميزة المراسلة ثنائية الاتجاه متينة. تتم متابعات الوالدين لتشغيل الوكلاء الفرعيين
 يتم تسليمها خلال دورة حياة المهمة؛ إذا لم يتمكن الوكيل الفرعي من استهلاكها في
@@ -140,7 +140,7 @@ interface AgentTask {
 
 ```an-diagram title="حارس عمق التفويض (الغطاء الافتراضي 2)" summary="قد يؤدي كل مستوى إلى ظهور مستوى أعمق حتى الغطاء؛ تفرخ الماضي تم رفضه من جانب الخادم."
 {
-  "html": "<div class=\"at-depth\"><div class=\"diagram-card ok\"><span class=\"diagram-pill\">العمق 0</span><strong>دردشة على أعلى مستوى</strong><small class=\"diagram-muted ok\">قد تفرخ &darr;</small></div><div class=\"diagram-card ok\"><span class=\"diagram-pill\">العمق 1</span><strong>Sub-agent</strong><small class=\"diagram-muted ok\">قد تفرخ &darr;</small></div><div class=\"diagram-card warn\"><span class=\"diagram-pill warn\">العمق 2</span><strong>الوكيل الفرعي للوكيل الفرعي</strong><small class=\"diagram-muted\">في الحد الأقصى &mdash; قد NOT تفرخ</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">العمق 3</span><strong>رفض</strong><small class=\"diagram-muted\">خطأ من جانب الخادم</small></div></div>",
+  "html": "<div class=\"at-depth\"><div class=\"diagram-card ok\"><span class=\"diagram-pill\">العمق 0</span><strong>دردشة على أعلى مستوى</strong><small class=\"diagram-muted ok\">قد ينشئ &darr;</small></div><div class=\"diagram-card ok\"><span class=\"diagram-pill\">العمق 1</span><strong>وكيل فرعي</strong><small class=\"diagram-muted ok\">قد ينشئ &darr;</small></div><div class=\"diagram-card warn\"><span class=\"diagram-pill warn\">العمق 2</span><strong>وكيل فرعي لوكيل فرعي</strong><small class=\"diagram-muted\">عند الحد الأقصى &mdash; لا يمكنه إنشاء المزيد</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">العمق 3</span><strong>مرفوض</strong><small class=\"diagram-muted\">خطأ من جانب الخادم</small></div></div>",
   "css": ".at-depth{display:flex;flex-direction:column;gap:8px}.at-depth .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.at-depth .rung-1,.at-depth .diagram-card:nth-child(2){margin-inline-start:24px}.at-depth .diagram-card:nth-child(3){margin-inline-start:48px}.at-depth .diagram-card:nth-child(4){margin-inline-start:72px}"
 }
 ```
@@ -159,7 +159,7 @@ interface AgentTask {
 | غير صالح / `>16` | تعود القيمة غير الصحيحة / السالبة / NaN إلى `2`؛ أي شيء أعلى من `16` يتم تثبيته على `16` لذا لا يمكن للخطأ المطبعي تعطيل الحماية مطلقًا. |
 
 ```bash
-AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # sub-agents allowed, but they can't sub-delegate
+AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # مسموح بالوكلاء الفرعيين، لكن لا يمكنهم التفويض من الباطن
 ```
 
 عندما يصل الوكيل الفرعي إلى الحد الأقصى أو أقل منه، يقوم إطار العمل بإدخال سطر في سياق وقت التشغيل الخاص به لإخباره بمدى عمقه وما إذا كان يمكنه تفويض المزيد، وبالتالي ينفق النموذج ميزانيته بشكل مناسب.

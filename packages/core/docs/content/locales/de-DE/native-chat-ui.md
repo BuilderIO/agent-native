@@ -1,17 +1,17 @@
 ---
-title: "Nativer Chat UI"
+title: "Nativer Chat-Oberfläche"
 description: "Aktionsdeklarierte native Chat-Renderer, wiederverwendbare DataTable-/DataChart-Ausgaben und wie BYO-Agentenlaufzeiten eine Verbindung zum Agent-Native-Chat herstellen sollten."
 ---
 
-# Nativer Chat UI
+# Nativer Chat-Oberfläche
 
-Nativer Chat UI ist der In-App-Rendering-Pfad für die Ausgabe von Erstanbieter-Agenten. Ein
+Nativer Chat-Oberfläche ist der In-App-Rendering-Pfad für die Ausgabe von Erstanbieter-Agenten. Ein
 Aktion gibt strukturiertes JSON zurück, die Chat-Laufzeit erkennt ein explizites Widget
 diskriminant, und `<AssistantChat>` rendert eine echte React-Komponente im
 Gespräch. Sie erstellen keinen Iframe oder ein einmaliges HTML-Artefakt für
 normaler App-Chat.
 
-Verwenden Sie den nativen Chat UI, wenn der Benutzer die Ausgabe dort überprüfen soll, wo sich der Agent befindet
+Verwenden Sie den nativen Chat-Oberfläche, wenn der Benutzer die Ausgabe dort überprüfen soll, wo sich der Agent befindet
 redet bereits: Abfrageergebnisse, Antworteinblicke, Setup-Zusammenfassungen,
 Genehmigungs-/Ablehnungskontrollen oder Links zu App-Ansichten. Verwenden Sie [MCP Apps](/docs/mcp-apps)
 wenn ein externer Host wie Claude, ChatGPT, Copilot oder Cursor rendern soll
@@ -19,7 +19,7 @@ eine Inline-Route aus Ihrer App.
 
 ```an-diagram title="Der native Renderpfad" summary="Eine Aktion gibt JSON zurück; die Laufzeit entspricht einer expliziten Widget-Diskriminante oder chatUI.renderer; AssistantChat mountet eine echte React-Komponente. Kein Iframe, keine HTML-Ausführung."
 {
-  "html": "<div class=\"diagram-render\"><div class=\"diagram-node\">Action runs<br><small class=\"diagram-muted\">returns structured JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Match</span><small class=\"diagram-muted\">explicit widget &middot; chatUI.renderer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;AssistantChat&gt;<br><small class=\"diagram-muted\">mounts a React widget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill ok\">DataTable</div><div class=\"diagram-pill ok\">DataChart</div><div class=\"diagram-pill ok\">DataInsights</div></div></div>",
+  "html": "<div class=\"diagram-render\"><div class=\"diagram-node\">Action läuft<br><small class=\"diagram-muted\">gibt strukturiertes JSON zurück</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Match</span><small class=\"diagram-muted\">explicit widget &middot; chatUI.renderer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;AssistantChat&gt;<br><small class=\"diagram-muted\">mountet ein React-Widget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill ok\">DataTable</div><div class=\"diagram-pill ok\">DataChart</div><div class=\"diagram-pill ok\">DataInsights</div></div></div>",
   "css": ".diagram-render{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-render .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-render .col{display:flex;flex-direction:column;gap:6px;padding:12px}.diagram-render .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -100,7 +100,7 @@ export default defineAction({
 ```an-callout
 {
   "tone": "success",
-  "body": "The renderer only takes over when the action declares `chatUI` **or** the result carries an explicit known `widget` discriminant. It never shape-infers arbitrary objects and never executes HTML or JavaScript from tool results — so a native widget can't become an injection vector."
+  "body": "Der Renderer übernimmt nur, wenn die Aktion `chatUI` deklariert **oder** das Ergebnis eine explizit bekannte `widget`-Diskriminante enthält. Es leitet niemals die Form beliebiger Objekte ab und führt niemals HTML oder JavaScript aus Werkzeugergebnissen aus – ein natives Widget kann also nicht zu einem Injektionsvektor werden."
 }
 ```
 
@@ -203,7 +203,7 @@ willkürliche Abfrageausführung hinter eingegebenem Lese-actions anstelle von r
 `AgentChatRuntime` ist der Bring-Your-Own-Agent-Vertrag für die Chat-Shell und
 Dieser Abschnitt ist seine kanonische Referenz. Es ermöglicht einen Agenten, den Sie woanders erstellt haben
 normalisierte Ereignisse in die Konversation UI von Agent-Native streamen und dabei die beibehalten
-Gemeinsamer Composer, Transkript-Rendering, Toolkarten, Genehmigungen, native Widgets,
+Gemeinsamer Verfassenr, Transkript-Rendering, Toolkarten, Genehmigungen, native Widgets,
 und das umgebende App-Layout. Der [Drop-in Agent](/docs/drop-in-agent#custom-chat-ui)
 Tutorial-Punkte hier für die Laufzeitgeschichte und [Component API](/docs/components#agent-chat-ui)
 listet jeden Connector und Adapter mit seinem Importpfad auf; Der Vertrag selbst ist
@@ -211,7 +211,7 @@ unten beschrieben.
 
 ```an-diagram title="Die BYO-Laufzeit behält die Agent-Native-Chat-Shell bei" summary="Ihr externer Agent streamt normalisierte Ereignisse über einen Connector; Agent-Native behält den Komponisten, das Transkript, die Werkzeugkarten, Genehmigungen und native Widgets."
 {
-  "html": "<div class=\"diagram-byo\"><div class=\"diagram-box\" data-rough>Your agent<br><small class=\"diagram-muted\">OpenAI &middot; Claude &middot; Vercel AI &middot; AG-UI &middot; HTTP</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">connector</span><small class=\"diagram-muted\">normalized message-* / tool-* events</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill\">&lt;AssistantChat runtime=&hellip; /&gt;</div><small class=\"diagram-muted\">composer &middot; transcript &middot; tool cards</small><small class=\"diagram-muted\">approvals &middot; native widgets</small></div></div>",
+  "html": "<div class=\"diagram-byo\"><div class=\"diagram-box\" data-rough>Dein Agent<br><small class=\"diagram-muted\">OpenAI &middot; Claude &middot; Vercel AI &middot; AG-UI &middot; HTTP</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">connector</span><small class=\"diagram-muted\">normalisierte message-* / tool-*-Events</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill\">&lt;AssistantChat runtime=&hellip; /&gt;</div><small class=\"diagram-muted\">composer &middot; transcript &middot; tool cards</small><small class=\"diagram-muted\">approvals &middot; native widgets</small></div></div>",
   "css": ".diagram-byo{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-byo .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-byo .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-byo .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

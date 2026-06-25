@@ -1,6 +1,4 @@
-import { useSendToAgentChat } from "@agent-native/core/client";
-import type { CreateInlineDatabaseResponse } from "@shared/api";
-import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
+import { useSendToAgentChat, useT } from "@agent-native/core/client";
 import {
   IconTypography,
   IconH1,
@@ -25,6 +23,7 @@ import {
 } from "@tabler/icons-react";
 import { Editor } from "@tiptap/react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
@@ -33,7 +32,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useCreateInlineContentDatabase } from "@/hooks/use-content-database";
+import { useCreateContentDatabase } from "@/hooks/use-content-database";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
@@ -67,6 +66,11 @@ interface CommandItem {
   shortcut?: string;
   icon: React.ElementType;
   action: (editor: Editor) => void | boolean | Promise<void>;
+}
+
+interface CommandTemplate extends Omit<CommandItem, "title" | "description"> {
+  titleKey: string;
+  descriptionKey: string;
 }
 
 export function setPlainTextBlock(editor: Editor) {
@@ -111,92 +115,69 @@ export function parseSlashCommandQuery(textBeforeCursor: string) {
   return textBeforeCursor.match(/^\s*\/([a-zA-Z0-9]*)$/)?.[1] ?? null;
 }
 
-function insertInlineDatabaseBlock(
-  editor: Editor,
-  block: CreateInlineDatabaseResponse["block"],
-) {
-  return editor
-    .chain()
-    .focus()
-    .insertContent({
-      type: "registryBlock",
-      attrs: {
-        blockType: "inline-database",
-        blockId: block.ownerBlockId,
-        title: null,
-        summary: null,
-        __raw: serializeRegistryBlockToMdx("inline-database", {
-          id: block.ownerBlockId,
-          data: block,
-        }),
-      },
-    })
-    .run();
-}
-
-const commands: CommandItem[] = [
+const commands: CommandTemplate[] = [
   {
-    title: "Text",
-    description: "Plain text block",
+    titleKey: "editor.slash.text",
+    descriptionKey: "editor.slash.textDescription",
     icon: IconTypography,
     action: setPlainTextBlock,
   },
   {
-    title: "Heading 1",
-    description: "Large heading",
+    titleKey: "editor.heading1",
+    descriptionKey: "editor.slash.heading1Description",
     shortcut: "#",
     icon: IconH1,
     action: (editor) =>
       editor.chain().focus().toggleHeading({ level: 1 }).run(),
   },
   {
-    title: "Heading 2",
-    description: "Medium heading",
+    titleKey: "editor.heading2",
+    descriptionKey: "editor.slash.heading2Description",
     shortcut: "##",
     icon: IconH2,
     action: (editor) =>
       editor.chain().focus().toggleHeading({ level: 2 }).run(),
   },
   {
-    title: "Heading 3",
-    description: "Small heading",
+    titleKey: "editor.heading3",
+    descriptionKey: "editor.slash.heading3Description",
     shortcut: "###",
     icon: IconH3,
     action: (editor) =>
       editor.chain().focus().toggleHeading({ level: 3 }).run(),
   },
   {
-    title: "Heading 4",
-    description: "Subheading",
+    titleKey: "editor.heading4",
+    descriptionKey: "editor.slash.heading4Description",
     shortcut: "####",
     icon: IconH4,
     action: (editor) =>
       editor.chain().focus().toggleHeading({ level: 4 }).run(),
   },
   {
-    title: "Bulleted list",
-    description: "Unordered list",
+    titleKey: "editor.slash.bulletedList",
+    descriptionKey: "editor.slash.bulletedListDescription",
     shortcut: "-",
     icon: IconList,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
-    title: "Numbered list",
-    description: "Ordered list",
+    titleKey: "editor.slash.numberedList",
+    descriptionKey: "editor.slash.numberedListDescription",
     shortcut: "1.",
     icon: IconListNumbers,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
-    title: "To-do list",
-    description: "Checklist items",
+    titleKey: "editor.slash.todoList",
+    descriptionKey: "editor.slash.todoListDescription",
     shortcut: "[]",
     icon: IconSquareCheck,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
   {
-    title: "Toggle",
-    description: "Notion-style toggle line",
+    titleKey: "editor.slash.toggle",
+    descriptionKey: "editor.slash.toggleDescription",
     shortcut: ">",
     icon: IconChevronRight,
     action: (editor) => {
@@ -213,22 +194,22 @@ const commands: CommandItem[] = [
     },
   },
   {
-    title: "Code Block",
-    description: "Code snippet",
+    titleKey: "editor.slash.codeBlock",
+    descriptionKey: "editor.slash.codeBlockDescription",
     shortcut: "```",
     icon: IconCode,
     action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
   },
   {
-    title: "Quote",
-    description: "Block quote",
+    titleKey: "editor.slash.quote",
+    descriptionKey: "editor.slash.quoteDescription",
     shortcut: '"',
     icon: QuoteCommandIcon,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
   {
-    title: "Callout",
-    description: "Highlighted info block",
+    titleKey: "editor.slash.callout",
+    descriptionKey: "editor.slash.calloutDescription",
     icon: IconInfoCircle,
     action: (editor) =>
       editor
@@ -242,15 +223,15 @@ const commands: CommandItem[] = [
         .run(),
   },
   {
-    title: "Divider",
-    description: "Horizontal rule",
+    titleKey: "editor.slash.divider",
+    descriptionKey: "editor.slash.dividerDescription",
     shortcut: "---",
     icon: IconMinus,
     action: (editor) => editor.chain().focus().setHorizontalRule().run(),
   },
   {
-    title: "Table",
-    description: "Add a table",
+    titleKey: "editor.slash.table",
+    descriptionKey: "editor.slash.tableDescription",
     icon: TableIcon,
     action: (editor) =>
       editor
@@ -262,65 +243,65 @@ const commands: CommandItem[] = [
 ];
 
 // "Turn into" commands — convert existing block, use set instead of toggle for headings
-const turnIntoCommands: CommandItem[] = [
+const turnIntoCommands: CommandTemplate[] = [
   {
-    title: "Text",
-    description: "Plain text block",
+    titleKey: "editor.slash.text",
+    descriptionKey: "editor.slash.textDescription",
     icon: IconTypography,
     action: setPlainTextBlock,
   },
   {
-    title: "Heading 1",
-    description: "Large heading",
+    titleKey: "editor.heading1",
+    descriptionKey: "editor.slash.heading1Description",
     shortcut: "#",
     icon: IconH1,
     action: (editor) => editor.chain().focus().setHeading({ level: 1 }).run(),
   },
   {
-    title: "Heading 2",
-    description: "Medium heading",
+    titleKey: "editor.heading2",
+    descriptionKey: "editor.slash.heading2Description",
     shortcut: "##",
     icon: IconH2,
     action: (editor) => editor.chain().focus().setHeading({ level: 2 }).run(),
   },
   {
-    title: "Heading 3",
-    description: "Small heading",
+    titleKey: "editor.heading3",
+    descriptionKey: "editor.slash.heading3Description",
     shortcut: "###",
     icon: IconH3,
     action: (editor) => editor.chain().focus().setHeading({ level: 3 }).run(),
   },
   {
-    title: "Heading 4",
-    description: "Subheading",
+    titleKey: "editor.heading4",
+    descriptionKey: "editor.slash.heading4Description",
     shortcut: "####",
     icon: IconH4,
     action: (editor) => editor.chain().focus().setHeading({ level: 4 }).run(),
   },
   {
-    title: "Bulleted list",
-    description: "Unordered list",
+    titleKey: "editor.slash.bulletedList",
+    descriptionKey: "editor.slash.bulletedListDescription",
     shortcut: "-",
     icon: IconList,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
-    title: "Numbered list",
-    description: "Ordered list",
+    titleKey: "editor.slash.numberedList",
+    descriptionKey: "editor.slash.numberedListDescription",
     shortcut: "1.",
     icon: IconListNumbers,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
-    title: "To-do list",
-    description: "Checklist items",
+    titleKey: "editor.slash.todoList",
+    descriptionKey: "editor.slash.todoListDescription",
     shortcut: "[]",
     icon: IconSquareCheck,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
   {
-    title: "Toggle",
-    description: "Collapsible block",
+    titleKey: "editor.slash.toggle",
+    descriptionKey: "editor.slash.collapsibleBlockDescription",
     shortcut: ">",
     icon: IconChevronRight,
     action: (editor) => {
@@ -345,22 +326,22 @@ const turnIntoCommands: CommandItem[] = [
     },
   },
   {
-    title: "Code Block",
-    description: "Code snippet",
+    titleKey: "editor.slash.codeBlock",
+    descriptionKey: "editor.slash.codeBlockDescription",
     shortcut: "```",
     icon: IconCode,
     action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
   },
   {
-    title: "Quote",
-    description: "Block quote",
+    titleKey: "editor.slash.quote",
+    descriptionKey: "editor.slash.quoteDescription",
     shortcut: '"',
     icon: QuoteCommandIcon,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
   {
-    title: "Callout",
-    description: "Highlighted info block",
+    titleKey: "editor.slash.callout",
+    descriptionKey: "editor.slash.calloutDescription",
     icon: IconInfoCircle,
     action: (editor) => {
       const { state } = editor;
@@ -389,11 +370,11 @@ export function SlashCommandMenu({
   documentId,
   notionPageId,
 }: SlashCommandMenuProps) {
+  const t = useT();
   const { send } = useSendToAgentChat();
+  const navigate = useNavigate();
   const createPage = useCreatePage();
-  const createInlineDatabase = useCreateInlineContentDatabase(
-    documentId ?? null,
-  );
+  const createDatabase = useCreateContentDatabase(documentId ?? null);
 
   const [isOpen, setIsOpen] = useState(false);
   const [isTurnInto, setIsTurnInto] = useState(false);
@@ -417,7 +398,7 @@ export function SlashCommandMenu({
       const trimmed = prompt.trim();
       if (!trimmed) return;
       if (!documentId) {
-        toast.error("No document selected");
+        toast.error(t("editor.noDocumentSelected"));
         return;
       }
       setGenerateOpen(false);
@@ -427,7 +408,7 @@ export function SlashCommandMenu({
         context: `The user is asking you to generate content for their document (id: ${documentId}). Use the update-document action to write the generated markdown content. Do NOT use db-exec or raw SQL - use \`update-document --id ${documentId} --content "..."\` (and \`--title\` if appropriate).${content ? `\n\nCurrent document content:\n${content}` : "\n\nThe document is currently empty."}`,
       });
     },
-    [documentId, editor, send],
+    [documentId, editor, send, t],
   );
 
   const getSelectionMenuPosition = useCallback(() => {
@@ -473,8 +454,8 @@ export function SlashCommandMenu({
   }, [editor]);
 
   const generateCommand: CommandItem = {
-    title: "Generate",
-    description: "Generate content with AI",
+    title: t("editor.slash.generate"),
+    description: t("editor.slash.generateDescription"),
     icon: IconWand,
     action: () => {
       openGeneratePopover(position);
@@ -482,8 +463,8 @@ export function SlashCommandMenu({
   };
 
   const imageCommand: CommandItem = {
-    title: "Image",
-    description: "Upload or embed image",
+    title: t("editor.slash.image"),
+    description: t("editor.slash.imageDescription"),
     icon: IconPhoto,
     action: (editor) => {
       editor
@@ -495,8 +476,8 @@ export function SlashCommandMenu({
   };
 
   const videoCommand: CommandItem = {
-    title: "Video",
-    description: "Upload or embed video",
+    title: t("editor.slash.video"),
+    description: t("editor.slash.videoDescription"),
     icon: IconVideo,
     action: (editor) => {
       editor
@@ -508,8 +489,8 @@ export function SlashCommandMenu({
   };
 
   const audioCommand: CommandItem = {
-    title: "Audio",
-    description: "Upload or embed audio",
+    title: t("editor.slash.audio"),
+    description: t("editor.slash.audioDescription"),
     icon: IconMusic,
     action: (editor) => {
       editor
@@ -521,12 +502,12 @@ export function SlashCommandMenu({
   };
 
   const pageCommand: CommandItem = {
-    title: "Page",
-    description: "Create a child page",
+    title: t("editor.slash.page"),
+    description: t("editor.slash.pageDescription"),
     icon: IconFileText,
     action: async () => {
       if (!documentId) {
-        toast.error("No document selected");
+        toast.error(t("editor.noDocumentSelected"));
         return;
       }
       await createPage(documentId);
@@ -534,28 +515,27 @@ export function SlashCommandMenu({
   };
 
   const databaseCommand: CommandItem = {
-    title: "Database",
-    description: "Inline database in this page",
+    title: t("editor.slash.database"),
+    description: t("editor.slash.databaseDescription"),
     icon: IconDatabase,
     action: async () => {
       if (!documentId) {
-        toast.error("No document selected");
+        toast.error(t("editor.noDocumentSelected"));
         return;
       }
-      const toastId = toast.loading("Creating inline database...");
+      const toastId = toast.loading(t("editor.creatingDatabase"));
       try {
-        const result = await createInlineDatabase.mutateAsync({
-          hostDocumentId: documentId,
-          title: "Untitled database",
+        const result = await createDatabase.mutateAsync({
+          parentId: documentId,
+          title: t("editor.untitledDatabase"),
         });
-        const inserted = insertInlineDatabaseBlock(editor, result.block);
-        if (!inserted) throw new Error("Editor rejected the database block.");
-        toast.success("Database created", { id: toastId });
+        navigate(`/page/${result.database.documentId}`, { flushSync: true });
+        toast.success(t("editor.databaseCreated"), { id: toastId });
       } catch (error) {
-        toast.error("Failed to create database", {
+        toast.error(t("editor.failedToCreateDatabase"), {
           id: toastId,
           description:
-            error instanceof Error ? error.message : "Something went wrong",
+            error instanceof Error ? error.message : t("empty.genericError"),
         });
       }
     },
@@ -578,14 +558,21 @@ export function SlashCommandMenu({
     () =>
       isTurnInto
         ? []
-        : (buildLocalComponentSlashItems(
-            localContentComponents,
-          ) as unknown as CommandItem[]),
-    [isTurnInto],
+        : (buildLocalComponentSlashItems(localContentComponents, {
+            description: t("editor.localMdxComponent"),
+          }) as unknown as CommandItem[]),
+    [isTurnInto, t],
   );
 
   const aiCommands = isTurnInto ? [] : [generateCommand];
-  const blockCommands = isTurnInto ? turnIntoCommands : commands;
+  const localizeCommand = (cmd: CommandTemplate): CommandItem => ({
+    ...cmd,
+    title: t(cmd.titleKey),
+    description: t(cmd.descriptionKey),
+  });
+  const blockCommands = (isTurnInto ? turnIntoCommands : commands).map(
+    localizeCommand,
+  );
   const pageCommands = isTurnInto ? [] : [pageCommand, databaseCommand];
   const mediaCommands = isTurnInto
     ? []
@@ -846,7 +833,9 @@ export function SlashCommandMenu({
             {filteredBlockCommands.length > 0 ? (
               <>
                 <div className="px-3 pt-1 pb-1 text-xs font-semibold text-muted-foreground">
-                  {isTurnInto ? "Turn into" : "Basic blocks"}
+                  {isTurnInto
+                    ? t("editor.slash.turnInto")
+                    : t("editor.slash.basicBlocks")}
                 </div>
                 {filteredBlockCommands.map(renderCommand)}
               </>
@@ -854,7 +843,7 @@ export function SlashCommandMenu({
             {filteredRegistryCommands.length > 0 ? (
               <>
                 <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
-                  Blocks
+                  {t("editor.slash.blocks")}
                 </div>
                 {filteredRegistryCommands.map(renderCommand)}
               </>
@@ -862,7 +851,7 @@ export function SlashCommandMenu({
             {filteredLocalComponentCommands.length > 0 ? (
               <>
                 <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
-                  Local components
+                  {t("editor.slash.localComponents")}
                 </div>
                 {filteredLocalComponentCommands.map(renderCommand)}
               </>
@@ -870,7 +859,7 @@ export function SlashCommandMenu({
             {filteredMediaCommands.length > 0 ? (
               <>
                 <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
-                  Media
+                  {t("editor.slash.media")}
                 </div>
                 {filteredMediaCommands.map(renderCommand)}
               </>
@@ -878,7 +867,7 @@ export function SlashCommandMenu({
             {filteredPageCommands.length > 0 ? (
               <>
                 <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
-                  Pages
+                  {t("editor.slash.pages")}
                 </div>
                 {filteredPageCommands.map(renderCommand)}
               </>
@@ -911,7 +900,7 @@ export function SlashCommandMenu({
             <div className="p-4 pb-3">
               <p className="text-sm font-semibold flex items-center gap-1.5">
                 <IconWand size={14} className="text-muted-foreground" />
-                Generate with AI
+                {t("editor.generateWithAi")}
               </p>
               <textarea
                 ref={generateTextareaRef}
@@ -926,7 +915,7 @@ export function SlashCommandMenu({
                     setGenerateOpen(false);
                   }
                 }}
-                placeholder="Describe what to generate..."
+                placeholder={t("editor.describeWhatToGenerate")}
                 className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
                 rows={3}
               />
@@ -934,7 +923,7 @@ export function SlashCommandMenu({
             <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5">
               <span className="text-[11px] text-muted-foreground/70">
                 {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-                +Enter to submit
+                {t("editor.enterToSubmit")}
               </span>
               <button
                 className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"

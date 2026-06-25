@@ -46,7 +46,7 @@ await notify(
 
 ```an-diagram title="채널 및 심각도" summary="받은 편지함은 항상 켜져 있습니다. 웹훅에는 환경 변수가 필요합니다. 맞춤 채널은 시작 시 등록됩니다. 심각도는 배지 스타일을 결정하고 모든 채널에 전달됩니다."
 {
-  "html": "<div class=\"diagram-channels\"><div class=\"diagram-panel col\" data-rough><strong>Channels</strong><div class=\"diagram-box\" data-rough>inbox<br><small class=\"diagram-muted\">always on &mdash; part of the primitive</small></div><div class=\"diagram-box\" data-rough>webhook<br><small class=\"diagram-muted\">needs NOTIFICATIONS_WEBHOOK_URL</small></div><div class=\"diagram-box\" data-rough>custom<br><small class=\"diagram-muted\">registerNotificationChannel()</small></div></div><div class=\"diagram-panel col\" data-rough><strong>Severity drives the badge</strong><div class=\"sev-row\"><span class=\"diagram-pill\">info</span><span class=\"diagram-muted\">confirmations, FYI</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">warning</span><span class=\"diagram-muted\">look at soon</span></div><div class=\"sev-row\"><span class=\"diagram-pill accent\">critical</span><span class=\"diagram-muted\">needs immediate attention</span></div></div></div>",
+  "html": "<div class=\"diagram-channels\"><div class=\"diagram-panel col\" data-rough><strong>Channels</strong><div class=\"diagram-box\" data-rough>inbox<br><small class=\"diagram-muted\">always on &mdash; part of the primitive</small></div><div class=\"diagram-box\" data-rough>webhook<br><small class=\"diagram-muted\">needs NOTIFICATIONS_WEBHOOK_URL</small></div><div class=\"diagram-box\" data-rough>custom<br><small class=\"diagram-muted\">registerNotificationChannel()</small></div></div><div class=\"diagram-panel col\" data-rough><strong>심각도가 배지를 결정</strong><div class=\"sev-row\"><span class=\"diagram-pill\">info</span><span class=\"diagram-muted\">확인, FYI</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">warning</span><span class=\"diagram-muted\">look at soon</span></div><div class=\"sev-row\"><span class=\"diagram-pill accent\">critical</span><span class=\"diagram-muted\">needs immediate attention</span></div></div></div>",
   "css": ".diagram-channels{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}.diagram-channels .col{display:flex;flex-direction:column;gap:10px;padding:14px;min-width:240px}.diagram-channels .sev-row{display:flex;align-items:center;gap:10px}"
 }
 ```
@@ -155,11 +155,11 @@ core-routes 플러그인에 의해 `/_agent-native/notifications/*`에 마운트
 | `POST`   | `/_agent-native/notifications/read-all`             |
 | `DELETE` | `/_agent-native/notifications/:id`                  |
 
-```an-api title="List notifications" summary="The route behind listNotifications() — scoped to the authenticated session's email."
+```an-api title="알림 나열" summary="The route behind listNotifications() — scoped to the authenticated session's email."
 {
   "method": "GET",
   "path": "/_agent-native/notifications?unread=true&limit=50",
-  "summary": "List recent notifications for the current user",
+  "summary": "현재 사용자에 대한 최근 알림 나열",
   "auth": "Authenticated session; results are scoped to the session's email.",
   "params": [
     { "name": "unread", "in": "query", "type": "boolean", "required": false, "description": "When true, returns only unread notifications." },

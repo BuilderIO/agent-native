@@ -48,7 +48,7 @@ a filas SQL o archivos locales.
 
 ```an-diagram title="Mismas acciones, dos fuentes de verdad" summary="La interfaz de usuario y el agente llaman a acciones idénticas en ambos modos. La capa de acción decide si cada llamada se resuelve en SQL filas o archivos de repositorio."
 {
-  "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">Content UI</div><div class=\"diagram-node\">Agent + actions<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">Database mode</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">hosted · sharing · comments · history</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">Git review · coding-agent edits</small></div></div></div>",
+  "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">UI de contenido</div><div class=\"diagram-node\">Agente + acciones<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">Modo base de datos</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">alojado · compartir · comentarios · historial</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">revisión Git · ediciones del agente de código</small></div></div></div>",
   "css": ".diagram-mode{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mode .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mode .diagram-arrow{font-size:22px;line-height:1}.diagram-mode .resolve{display:flex;gap:12px;flex-wrap:wrap}.diagram-mode .diagram-panel{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
 }
 ```
@@ -165,13 +165,13 @@ el documento editable:
 
 ```mdx
 ---
-title: "Getting Started"
+title: "Empezando"
 icon: "sparkles"
 isFavorite: true
 updatedAt: "2026-06-12T20:00:00.000Z"
 ---
 
-# Getting Started
+# Empezando
 
 Use <FrameworkTabs value="react" /> to show framework-specific code.
 ```
@@ -251,10 +251,10 @@ Luego úselo desde cualquier archivo MDX local:
 
 ```mdx
 ---
-title: "Launch Notes"
+title: "Notas de lanzamiento"
 ---
 
-# Launch Notes
+# Notas de lanzamiento
 
 <ImpactCounter label="wins" />
 ```
@@ -375,7 +375,7 @@ Para Contenido, eso significa:
 - `delete-document` elimina el archivo local.
 - La búsqueda se ejecuta en los archivos locales configurados.
 
-Mover, renombrar y reordenar páginas de archivos locales desde Content UI no lo es
+Mover, renombrar y reordenar páginas de archivos locales desde UI de contenido no lo es
 aún es compatible. Realice esas operaciones en el espacio de trabajo o con un agente de codificación; el
 La barra lateral de contenido reflejará el árbol de archivos resultante.
 

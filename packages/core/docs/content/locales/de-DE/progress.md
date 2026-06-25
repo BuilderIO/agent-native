@@ -113,7 +113,7 @@ Wird durch das Core-Routes-Plugin bei `/_agent-native/runs/*` gemountet. **Schre
 | `GET`    | `/_agent-native/runs/:id`         |
 | `DELETE` | `/_agent-native/runs/:id`         |
 
-```an-api title="List active runs" method="GET" path="/_agent-native/runs"
+```an-api title="Aktive Läufe auflisten" method="GET" path="/_agent-native/runs"
 {
   "method": "GET",
   "path": "/_agent-native/runs",
@@ -182,7 +182,7 @@ event: run.progress.updated
 condition: "status is failed"
 mode: agentic
 ---
-Notify me that run {{runId}} has failed.
+Benachrichtigen me that run {{runId}} has failed.
 ```
 
 ## Wie es funktioniert {#internals}

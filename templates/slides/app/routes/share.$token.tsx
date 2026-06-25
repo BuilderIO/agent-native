@@ -2,6 +2,7 @@ import type { SharedDeckResponse } from "@shared/api";
 import type { LoaderFunctionArgs } from "react-router";
 import { useLoaderData } from "react-router";
 
+import messages from "@/i18n/en-US";
 import SharedPresentation from "@/pages/SharedPresentation";
 
 type LoaderData =
@@ -47,7 +48,7 @@ export async function loader({
 }
 
 export function meta() {
-  return [{ title: "Shared Presentation" }];
+  return [{ title: messages.raw.routeSharedTitle }];
 }
 
 export default function SharedPresentationRoute() {

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconZoomIn,
   IconZoomOut,
@@ -27,6 +28,7 @@ interface ZoomControlsProps {
 }
 
 export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
+  const t = useT();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -148,7 +150,7 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
             <IconMaximize className="w-3.5 h-3.5" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Fit to screen</TooltipContent>
+        <TooltipContent>{t("designEditor.fitToScreen")}</TooltipContent>
       </Tooltip>
     </div>
   );

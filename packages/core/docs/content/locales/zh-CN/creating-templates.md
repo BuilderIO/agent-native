@@ -69,7 +69,7 @@ npx @agent-native/core@latest create my-platform
 
 ```an-diagram title="模板的四个区域如何连接" summary="UI 和代理都通过相同的操作到达 SQL；应用程序状态和轮询同步使它们保持一致。"
 {
-  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React UI<br><small class=\"diagram-muted\">app/routes · components</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL via Drizzle<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">Polling sync</div></div>",
+  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React 界面<br><small class=\"diagram-muted\">app/routes · 组件</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">行动</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>通过 Drizzle 使用 SQL<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">轮询ing sync</div></div>",
   "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -137,9 +137,9 @@ export default runMigrations(
 
 在添加保存用户或组织数据的架构之前，请使用 [Database](/docs/database) 和 [Security](/docs/security) 文档。
 
-## 将操作定义为Actions {#actions}
+## 将操作定义为行动 {#actions}
 
-Actions 是应用行为的单一事实来源。代理将它们作为工具调用，前端通过钩子调用它们，其他应用程序可以通过 MCP/A2A 访问它们。
+行动 是应用行为的单一事实来源。代理将它们作为工具调用，前端通过钩子调用它们，其他应用程序可以通过 MCP/A2A 访问它们。
 
 ```an-annotated-code title="actions/create-project.ts"
 {
@@ -148,9 +148,9 @@ Actions 是应用行为的单一事实来源。代理将它们作为工具调用
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});",
   "annotations": [
     { "lines": "2", "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`." },
-    { "lines": "8", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this action as a tool." },
+    { "lines": "8", "label": "工具表面", "note": "`description` 是代理读取的内容，以决定何时将此操作作为工具调用。" },
     { "lines": "9-11", "label": "类型化契约", "note": "一个 zod `schema` 会验证来自代理、UI、HTTP、MCP 和 A2A 的输入。" },
-    { "lines": "18-19", "label": "Scoped write", "note": "Stamp `ownerEmail` / `orgId` from `ctx` so the row is correctly scoped for sharing and access checks." }
+    { "lines": "18-19", "label": "范围写入", "note": "从 `ctx` 标记 `ownerEmail` / `orgId`，以便该行正确地确定共享和访问检查的范围。" }
   ]
 }
 ```
@@ -278,21 +278,21 @@ export default defineAction({
 索引：
 
 ```markdown
-# My Template
+# 我的模板
 
 One workspace for projects, tasks, and notes.
 
-## Core Rules
+## 核心规则
 
-- Data lives in SQL via Drizzle. Use actions for all writes; schema is additive.
+- Data lives in 通过 Drizzle 使用 SQL. Use actions for all writes; schema is additive.
 - Use `view-screen` before acting on "this project" if the screen is unclear.
 
-## Application State
+## 应用状态
 
 - `navigation.view`: `home` | `project`
 - `navigation.projectId`: selected project on a project page
 
-## Actions
+## 行动
 
 | Action           | Purpose                  |
 | ---------------- | ------------------------ |
@@ -316,11 +316,11 @@ name: project-imports
 description: How to import projects from the legacy CSV export.
 ---
 
-# Project Imports
+# 项目进口
 
 Use this skill when the user uploads a legacy project CSV.
 
-## Rules
+## 规则
 
 - Validate required columns before creating rows.
 - Use `create-project` for each project so ownership and sync are correct.

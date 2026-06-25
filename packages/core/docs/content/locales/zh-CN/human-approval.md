@@ -20,8 +20,8 @@ description: "在高后果操作运行之前暂停代理 - defineAction 的 need
   "language": "ts",
   "code": "export default defineAction({\n  description: \"Send an email via Gmail.\",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});",
   "annotations": [
-    { "lines": "10", "label": "The whole gate", "note": "One flag. With it truthy and the call unapproved, the loop stops before `run` — the model never reaches the side effect on its own." },
-    { "lines": "11-13", "label": "run() is untouched", "note": "The handler stays the same. Approval is enforced by the loop around it, not by anything inside `run`." }
+    { "lines": "10", "label": "整个大门", "note": "一面旗帜。当它为真且调用未获批准时，循环会在 `run` 之前停止 - 模型本身永远不会达到副作用。" },
+    { "lines": "11-13", "label": "run() is untouched", "note": "处理程序保持不变。批准是由其周围的循环强制执行的，而不是由 `run` 内的任何内容强制执行。" }
   ]
 }
 ```
@@ -72,7 +72,7 @@ description: "在高后果操作运行之前暂停代理 - defineAction 的 need
 
 ```an-diagram title="审批中断" summary="门控调用会在 run() 触发之前暂停回合。批准重新发出携带呼叫密钥的回合；只有这样，副作用才会发生。"
 {
-  "html": "<div class=\"diagram-approve\"><div class=\"diagram-box\" data-rough>Agent calls send-email</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel warn\" data-rough><strong>Gate truthy, call not yet approved</strong><small class=\"diagram-muted\">loop emits tool_start + approval_required { tool, input, approvalKey }</small><span class=\"diagram-pill warn\">turn pauses &mdash; run() did NOT execute</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Human clicks Approve in chat<br><small class=\"diagram-muted\">client re-issues the turn with approvedToolCalls: [approvalKey]</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel ok\" data-rough><span class=\"diagram-pill ok\">Gate sees the key &rarr; run() executes &rarr; email sends</span></div></div>",
+  "html": "<div class=\"diagram-approve\"><div class=\"diagram-box\" data-rough>代理调用 send-email</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel warn\" data-rough><strong>Gate 为真，调用尚未批准</strong><small class=\"diagram-muted\">loop emits tool_start + approval_required { tool, input, approvalKey }</small><span class=\"diagram-pill warn\">turn pauses &mdash; run() did NOT execute</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>人在聊天中点击批准<br><small class=\"diagram-muted\">客户端用 approvedToolCalls: [approvalKey] 重新发起本轮</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel ok\" data-rough><span class=\"diagram-pill ok\">Gate sees the key &rarr; run() executes &rarr; email sends</span></div></div>",
   "css": ".diagram-approve{display:flex;flex-direction:column;align-items:center;gap:8px}.diagram-approve .diagram-panel{display:flex;flex-direction:column;gap:6px;align-items:center;padding:12px 16px;text-align:center}.diagram-approve .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

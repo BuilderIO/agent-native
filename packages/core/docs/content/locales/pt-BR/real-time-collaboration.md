@@ -38,7 +38,7 @@ O sistema de colaboração possui cinco camadas interligadas.
 
 ```an-diagram title="Cinco camadas interligadas" summary="Desde o CRDT na memória até o transporte que transporta atualizações entre pares – cada camada tem um trabalho."
 {
-  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; conflict-free merge, no coordinator</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; SQL canonical content</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; updatedAt-gated reconcile</span><small class=\"diagram-muted\">agent edits propagate via the SQL bump</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; Lead-client election</span><small class=\"diagram-muted\">exactly one tab applies the snapshot</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; SSE fast-path + polling</span><small class=\"diagram-muted\">~tens of ms, degrades to 2s poll anywhere</small></div></div>",
+  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; mesclagem sem conflitos, sem coordenador</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; Conteúdo canônico SQL</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; reconciliação controlada por updatedAt</span><small class=\"diagram-muted\">edições do agente se propagam pelo bump de SQL</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; Eleição do cliente líder</span><small class=\"diagram-muted\">exatamente uma aba aplica o snapshot</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; caminho rápido SSE + polling</span><small class=\"diagram-muted\">~dezenas de ms, degrada para polling de 2s em qualquer lugar</small></div></div>",
   "css": ".diagram-stack{display:flex;flex-direction:column;gap:8px}.diagram-stack .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
 }
 ```
@@ -102,7 +102,7 @@ Erros de rede usam espera exponencial com jitter, limitado a aproximadamente 15 
 
 ```an-diagram title="Dois caminhos de edição, uma mesclagem" summary="Fluxo de teclas humanas Y.Doc → servidor → SSE. As edições do agente passam por SQL: a ação é atualizada em, o cliente principal se reconcilia e a alteração entra novamente em Yjs."
 {
-  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">Human edit</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce ~80ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">Agent edit</span><div class=\"diagram-node\">Action writes SQL<br><small class=\"diagram-muted\">bumps updatedAt</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>Lead client<br><small class=\"diagram-muted\">setContent into Y.Doc</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
+  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">Edição humana</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce ~80 ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">Edição do agente</span><div class=\"diagram-node\">A ação escreve SQL<br><small class=\"diagram-muted\">atualiza updatedAt</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>Cliente líder<br><small class=\"diagram-muted\">setContent no Y.Doc</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
   "css": ".diagram-collab{display:flex;flex-direction:column;gap:14px}.diagram-collab .lane{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-collab .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -248,13 +248,13 @@ Todas as rotas de colaboração são montadas automaticamente em `/_agent-native
 A ação `edit-document` do modelo de conteúdo é a principal forma pela qual os agentes fazem alterações em documentos no modo colaborativo:
 
 ```bash
-# Single edit
+# Edição única
 pnpm action edit-document --id doc123 --find "old text" --replace "new text"
 
-# Batch edits
+# Edições em lote
 pnpm action edit-document --id doc123 --edits '[{"find":"old","replace":"new"}]'
 
-# Delete text
+# Excluir texto
 pnpm action edit-document --id doc123 --find "delete me" --replace ""
 ```
 
@@ -625,7 +625,7 @@ Propriedades principais:
 ```an-callout
 {
   "tone": "risk",
-  "body": "**Same-region simultaneous rewrite is last-write-wins.** If the agent rewrites a passage while a human has unsaved edits in the *exact same region*, the lead-client snapshot can clobber the in-flight human edit. Edits in different regions always merge cleanly via the CRDT. For structured documents, use granular server-side merge to sidestep this entirely."
+  "body": "**A reescrita simultânea na mesma região é last-write-wins.** Se o agente reescrever uma passagem enquanto um humano tiver edições não salvas na *exatamente a mesma região*, o instantâneo do cliente principal poderá atrapalhar a edição humana em andamento. As edições em regiões diferentes sempre são mescladas de forma limpa por meio do CRDT. Para documentos estruturados, use a mesclagem granular do lado do servidor para evitar isso completamente."
 }
 ```
 

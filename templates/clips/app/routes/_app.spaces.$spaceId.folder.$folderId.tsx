@@ -1,14 +1,17 @@
+import { useT } from "@agent-native/core/client";
 import { useMemo } from "react";
 import { useParams } from "react-router";
 
 import { LibraryGrid } from "@/components/library/library-grid";
 import { useFolders } from "@/hooks/use-library";
+import enMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: "Folder · Clips" }];
+  return [{ title: enMessages.clipsFinalRaw.folderPageTitle }];
 }
 
 export default function SpaceFolderRoute() {
+  const t = useT();
   const { spaceId, folderId } = useParams<{
     spaceId: string;
     folderId: string;
@@ -29,7 +32,7 @@ export default function SpaceFolderRoute() {
       spaceId={spaceId}
       folderId={folderId}
       emptyKind="folder"
-      title={folder?.name ?? "Folder"}
+      title={folder?.name ?? t("navigation.folder")}
     />
   );
 }

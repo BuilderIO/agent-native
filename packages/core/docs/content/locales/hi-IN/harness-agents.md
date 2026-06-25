@@ -215,7 +215,7 @@ any other agent run. Pass an already-created `session` instead of `createSession
 
 ```an-diagram title="मोड़ों, प्रक्रियाओं और तैनाती को फिर से शुरू करें" summary="प्रत्येक मोड़ एक अपारदर्शी बायोडेटा को SQL में अलग कर देता है; अगला चरण चैट इतिहास को दोबारा चलाने के बजाय इसे वापस createSession में फीड कर देता है।"
 {
-  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Turn N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opaque · SQL harness session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Turn N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
+  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>टर्न N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">अपारदर्शी · SQL harness सेशन</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>टर्न N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
   "css": ".diagram-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-resume .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -267,7 +267,7 @@ const last = await getLatestAgentHarnessSessionForThread(threadId);
 देशी विजेट के लिए `mcpApp` पेलोड), `approval-request`, `file-change`,
 `compaction`, `usage`, `error`, और `done`। क्योंकि टूल के परिणाम
 वही अनुवाद, क्रिया-घोषित मूल विजेट अभी भी प्रस्तुत होते हैं - देखें
-[Native Chat UI](/docs/native-chat-ui).
+[Native चैट UI](/docs/native-chat-ui).
 
 ## बैकग्राउंड रन और UI {#background-runs}
 
@@ -341,7 +341,7 @@ registerAgentHarness({
 
 ## संबंधित दस्तावेज़ {#related-docs}
 
-- [Native Chat UI](/docs/native-chat-ui) - `AgentChatRuntime` के साथ UI चैट के पीछे अपना एजेंट रखें।
+- [Native चैट UI](/docs/native-chat-ui) - `AgentChatRuntime` के साथ UI चैट के पीछे अपना एजेंट रखें।
 - [Agent Surfaces](/docs/agent-surfaces) - हेडलेस, चैट, साइडकार, या फुल-ऐप चुनें।
 - [Agent-Native Code UI](/docs/code-agents-ui) - पुन: प्रयोज्य कोडिंग कार्यक्षेत्र सतह।
 - [Custom Agents & Teams](/docs/agent-teams) - बैकग्राउंड रन और सब-एजेंट डेलिगेशन।

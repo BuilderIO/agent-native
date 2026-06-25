@@ -10,7 +10,7 @@ Ein agentengesteuerter E-Mail-Client. Verknüpfen Sie Ihr Gmail-Konto und der Ag
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Inbox 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='Search'></span><span data-icon='edit' aria-label='Compose'></span><span data-icon='bell' aria-label='Notify'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Priya Mehta</strong><span><strong>Q3 launch</strong> — final assets ready for review</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Acme Billing</strong><span>Your monthly invoice is ready</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Marcus Tang</span><span>Onboarding flow research findings</span><span>Yesterday</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR ready for review</span><span>Yesterday</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Issue ENG-1287 assigned to you</span><span>May 2</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>Weekly payments summary</span><span>Apr 29</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>New booking confirmed</span><span>Apr 28</span></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Posteingang 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='Suchen'></span><span data-icon='edit' aria-label='Verfassen'></span><span data-icon='bell' aria-label='Benachrichtigen'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Paula Meier</strong><span><strong>Q3-Launch</strong> — finale Assets bereit zur Prüfung</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Acme-Abrechnung</strong><span>Deine Monatsrechnung ist bereit</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Martin Tang</span><span>Onboarding-Ablauf research findings</span><span>Gestern</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR bereit zur Prüfung</span><span>Gestern</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Issue ENG-1287 dir zugewiesen</span><span>2. Mai</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>Wöchentliche Zahlungsübersicht</span><span>29. Apr.</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>Neue Buchung bestätigt</span><span>28. Apr.</span></div></div></div>"
 }
 ```
 
@@ -156,13 +156,13 @@ Wenn ein Google-Konto verbunden ist, werden E-Mails in Gmail gespeichert – die
 
 E-Mails, die durch API fließen, haben die Form `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`.
 
-```an-schema title="Mail SQL tables" summary="Email itself lives in Gmail. The SQL tables hold what Gmail doesn't: queued drafts, send-tracking events, and OAuth tokens. Settings and ephemeral state live in the settings and application_state stores."
+```an-schema title="Mail SQL Tabellen" summary="E-Mail selbst lebt in Gmail. Die SQL-Tabellen enthalten, was Gmail nicht enthält: Entwürfe in der Warteschlange, Sendeverfolgungsereignisse und OAuth-Tokens. Einstellungen und kurzlebiger Status sind in den Speichern „settings“ und „application_state“ gespeichert."
 {
   "entities": [
     {
       "id": "queued_email_drafts",
       "name": "queued_email_drafts",
-      "note": "Teammate/Slack-requested drafts awaiting owner review",
+      "note": "Teammate/Slack-requested-Entwürfe warten auf die Überprüfung durch den Eigentümer",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "assignedTo", "type": "string", "note": "org member who reviews/sends" },
@@ -174,7 +174,7 @@ E-Mails, die durch API fließen, haben die Form `{ id, threadId, from, to, cc, s
     {
       "id": "email_tracking",
       "name": "email_tracking",
-      "note": "Open-pixel events for sent messages",
+      "note": "Open-Pixel-Ereignisse für gesendete Nachrichten",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "messageId", "type": "string" },
@@ -184,7 +184,7 @@ E-Mails, die durch API fließen, haben die Form `{ id, threadId, from, to, cc, s
     {
       "id": "email_link_tracking",
       "name": "email_link_tracking",
-      "note": "Link-click events for sent messages",
+      "note": "Link-Klick-Ereignisse für gesendete Nachrichten",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "messageId", "type": "string", "fk": "email_tracking.messageId" },
@@ -195,7 +195,7 @@ E-Mails, die durch API fließen, haben die Form `{ id, threadId, from, to, cc, s
     {
       "id": "oauth_tokens",
       "name": "oauth_tokens",
-      "note": "Framework table — one row per connected Google account",
+      "note": "Rahmentabelle – eine Zeile pro verbundenem Google-Konto",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "provider", "type": "string", "note": "\"google\"" },

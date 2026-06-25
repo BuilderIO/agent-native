@@ -21,7 +21,7 @@ description: "يعد كل تطبيق أصلي للوكيل متعدد المست
 
 ```an-diagram title="عضوية المنظمة وعزلها" summary="ينضم المستخدمون إلى المؤسسات باسم owner/admin/member. يحمل كل صف قابل للتملك org_id للمستأجر الذي يمتلكه، ولا يتسرب أي صف عبر الحدود."
 {
-  "html": "<div class=\"mt-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Org A</span><small class=\"diagram-muted\">members: alice (owner), bob (member)</small><div class=\"diagram-box\">rows where org_id = A</div></div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Org B</span><small class=\"diagram-muted\">members: carol (owner)</small><div class=\"diagram-box\">rows where org_id = B</div></div></div><div class=\"mt-wall\" aria-hidden=\"true\"><span class=\"diagram-pill warn\">no cross-org reads</span></div>",
+  "html": "<div class=\"mt-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">المؤسسة A</span><small class=\"diagram-muted\">members: alice (owner), bob (member)</small><div class=\"diagram-box\">rows where org_id = A</div></div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">المؤسسة B</span><small class=\"diagram-muted\">members: carol (owner)</small><div class=\"diagram-box\">rows where org_id = B</div></div></div><div class=\"mt-wall\" aria-hidden=\"true\"><span class=\"diagram-pill warn\">no cross-org reads</span></div>",
   "css": ".mt-grid{display:flex;gap:16px;flex-wrap:wrap}.mt-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;flex:1;min-width:200px}.mt-wall{display:flex;justify-content:center;margin-top:12px}"
 }
 ```
@@ -43,7 +43,7 @@ description: "يعد كل تطبيق أصلي للوكيل متعدد المست
 }
 ```
 
-هذا هو نفس المسار المستخدم لتحديد النطاق لكل مستخدم. بالنسبة للميكانيكا على مستوى SQL، وعقد `ownableColumns()`، وحراس `accessFilter` / `resolveAccess` / `assertAccess`، راجع [Security → Data Scoping](/docs/security#data-scoping) - المصدر الوحيد للحقيقة لمسار تحديد النطاق.
+هذا هو نفس المسار المستخدم لتحديد النطاق لكل مستخدم. بالنسبة للميكانيكا على مستوى SQL، وعقد `ownableColumns()`، وحراس `accessFilter` / `resolveAccess` / `assertAccess`, راجع [Security → Data Scoping](/docs/security#data-scoping) - المصدر الوحيد للحقيقة لمسار تحديد النطاق.
 
 ## المستندات ذات الصلة {#related}
 

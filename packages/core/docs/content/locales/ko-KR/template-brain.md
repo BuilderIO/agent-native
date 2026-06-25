@@ -21,7 +21,7 @@ Brain은 승인된 Slack 채널, 클립 녹음, 그래놀라 팀 공간을 수�
 
 ```an-diagram title="출처에서 인용 답변까지" summary="Brain은 승인된 소스를 원시 캡처로 수집하고, 내구성 있는 메모리를 추출하고, 검토를 통해 이를 게이트화한 다음 인용으로 답변합니다."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Sources</span><small class=\"diagram-muted\">Slack · Granola · GitHub · Clips · webhooks</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Raw captures<br><small class=\"diagram-muted\">deduped, redacted</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Distill<br><small class=\"diagram-muted\">facts · decisions · processes</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Review</span><small class=\"diagram-muted\">sensitive / low-confidence queue</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Knowledge</span><small class=\"diagram-muted\">approved, atomic</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Ask</span><small class=\"diagram-muted\">cited answer</small></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Sources</span><small class=\"diagram-muted\">Slack · Granola · GitHub · Clips · webhooks</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>원시 캡처<br><small class=\"diagram-muted\">중복 제거됨, 수정됨</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Distill<br><small class=\"diagram-muted\">사실 · 결정 · 프로세스</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Review</span><small class=\"diagram-muted\">sensitive / low-confidence queue</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Knowledge</span><small class=\"diagram-muted\">승인됨, 원자적</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Ask</span><small class=\"diagram-muted\">cited answer</small></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px}.diagram-flow .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-flow .diagram-arrow{font-size:20px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -29,7 +29,7 @@ Brain은 승인된 Slack 채널, 클립 녹음, 그래놀라 팀 공간을 수�
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Ask company memory</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='Search'></span><strong style='flex:1'>Why did we choose usage pricing?</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>The team chose usage pricing after pilots showed seat counts undercounted automation value.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>Pricing RFC</span><span class='wf-pill'>Launch retro</span><span class='wf-pill'>Sales notes</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Source timeline</strong><div class='wf-box'>May 3 · Decision captured</div><div class='wf-box'>May 8 · Customer evidence added</div><div class='wf-box'>May 12 · Legal note approved</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>회사 메모리에 질문</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='검색'></span><strong style='flex:1'>왜 사용량 기반 가격을 선택했나요?</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>파일럿에서 좌석 수가 자동화 가치를 과소평가한다는 점이 드러난 뒤 팀은 사용량 기반 가격을 선택했습니다.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>가격 책정 RFC</span><span class='wf-pill'>출시 회고</span><span class='wf-pill'>영업 메모</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>소스 타임라인</strong><div class='wf-box'>5월 3일 · 결정 기록됨</div><div class='wf-box'>5월 8일 · 고객 증거 추가됨</div><div class='wf-box'>5월 12일 · 법무 메모 승인됨</div></div></div>"
 }
 ```
 
@@ -152,10 +152,10 @@ Brain의 스키마는 `templates/brain/server/db/schema.ts`에 있습니다. 테
 | `brain_sync_runs`        | 동기화 감사 로그 — 공급자, 상태, 통계 JSON, 오류, 시작/종료 타임스탬프                                                      |
 | `brain_ingest_queue`     | 백그라운드 증류 큐 — 작업, 상태, 우선순위, 재시도 횟수, `run_after`                                                         |
 
-```an-schema title="Brain data model" summary="Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
+```an-schema title="뇌 데이터 모델" summary="Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
 {
   "entities": [
-    { "id": "sources", "name": "brain_sources", "note": "Connector config", "fields": [
+    { "id": "sources", "name": "brain_sources", "note": "커넥터 구성", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "provider", "type": "text", "note": "slack / granola / github / clips / webhook" },
       { "name": "ingest_token_hash", "type": "text" },
@@ -165,14 +165,14 @@ Brain의 스키마는 `templates/brain/server/db/schema.ts`에 있습니다. 테
     { "id": "source_shares", "name": "brain_source_shares", "note": "viewer / editor / admin", "fields": [
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" }
     ] },
-    { "id": "captures", "name": "brain_raw_captures", "note": "Ingested raw payloads", "fields": [
+    { "id": "captures", "name": "brain_raw_captures", "note": "수집된 원시 페이로드", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" },
       { "name": "external_id", "type": "text", "note": "dedupe key" },
       { "name": "content_hash", "type": "text" },
       { "name": "kind", "type": "text" }
     ] },
-    { "id": "knowledge", "name": "brain_knowledge", "note": "Distilled atomic entries", "fields": [
+    { "id": "knowledge", "name": "brain_knowledge", "note": "증류된 원자 항목", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "kind", "type": "text", "note": "decision / fact / process" },
       { "name": "topic", "type": "text" },
@@ -183,19 +183,19 @@ Brain의 스키마는 `templates/brain/server/db/schema.ts`에 있습니다. 테
     { "id": "knowledge_shares", "name": "brain_knowledge_shares", "fields": [
       { "name": "knowledge_id", "type": "id", "fk": "brain_knowledge.id" }
     ] },
-    { "id": "proposals", "name": "brain_proposals", "note": "Pending review items", "fields": [
+    { "id": "proposals", "name": "brain_proposals", "note": "검토 항목 대기 중", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "op", "type": "text", "note": "create / update / archive" }
     ] },
     { "id": "proposal_shares", "name": "brain_proposal_shares", "fields": [
       { "name": "proposal_id", "type": "id", "fk": "brain_proposals.id" }
     ] },
-    { "id": "sync_runs", "name": "brain_sync_runs", "note": "Sync audit log", "fields": [
+    { "id": "sync_runs", "name": "brain_sync_runs", "note": "동기화 감사 로그", "fields": [
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" },
       { "name": "status", "type": "text" },
       { "name": "stats", "type": "json" }
     ] },
-    { "id": "ingest_queue", "name": "brain_ingest_queue", "note": "Background distillation queue", "fields": [
+    { "id": "ingest_queue", "name": "brain_ingest_queue", "note": "백그라운드 증류 대기열", "fields": [
       { "name": "operation", "type": "text" },
       { "name": "status", "type": "text" },
       { "name": "priority", "type": "int" },
@@ -259,11 +259,11 @@ Slack 또는 회의 상황과 같이 증류됩니다. 이것은 뇌 컨텍스트
 통화 기록, 고객 조사, 가져오기에 동일한 페이로드 형태 사용
 제한된 캡처를 생성할 수 있는 노트 또는 기타 소스
 
-```an-api title="Signed ingest webhook" summary="Clips and generic transcript/capture imports post a RawCapturePayload with a per-source bearer token."
+```an-api title="서명된 수집 웹훅" summary="클립 및 일반 transcript/capture 가져오기는 소스별 전달자 토큰과 함께 RawCapturePayload을 게시합니다."
 {
   "method": "POST",
   "path": "/api/_agent-native/brain/ingest",
-  "summary": "Import a raw capture from Clips or a generic source",
+  "summary": "Clips 또는 일반 소스에서 원시 캡처 가져오기",
   "auth": "Bearer <ingestToken> issued per source via its sourceKey",
   "request": {
     "contentType": "application/json",

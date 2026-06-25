@@ -17,7 +17,7 @@ description: "이메일/비밀번호, 소셜 공급자, 조직 및 MCP 보유자
 
 ```an-diagram title="세 가지 방법으로 하나의 세션" summary="브라우저 방문자, 프로그래밍 방식의 MCP 클라이언트 및 사용자 정의 공급자는 모두 다운스트림 범위 지정이 읽는 동일한 AuthSession을 확인합니다."
 {
-  "html": "<div class=\"auth-modes\"><div class=\"diagram-col\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Default</span><strong>Better Auth</strong><small class=\"diagram-muted\">email/password &middot; Google &middot; GitHub</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Remote MCP OAuth</span><strong>OAuth 2.1 + PKCE</strong><small class=\"diagram-muted\">Claude Code, ChatGPT connectors</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Custom</span><strong>getSession callback</strong><small class=\"diagram-muted\">Clerk &middot; Auth0 &middot; Firebase</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">AuthSession</span><small class=\"diagram-muted\">email &middot; orgId &middot; orgRole</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Request context &amp; data scoping</div></div>",
+  "html": "<div class=\"auth-modes\"><div class=\"diagram-col\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Default</span><strong>Better Auth</strong><small class=\"diagram-muted\">email/password &middot; Google &middot; GitHub</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Remote MCP OAuth</span><strong>OAuth 2.1 + PKCE</strong><small class=\"diagram-muted\">Claude Code, ChatGPT 커넥터</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Custom</span><strong>getSession callback</strong><small class=\"diagram-muted\">Clerk &middot; Auth0 &middot; Firebase</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">AuthSession</span><small class=\"diagram-muted\">email &middot; orgId &middot; orgRole</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Request context &amp; data scoping</div></div>",
   "css": ".auth-modes{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.auth-modes .diagram-col{display:flex;flex-direction:column;gap:10px}.auth-modes .diagram-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px}.auth-modes .diagram-arrow{font-size:22px;line-height:1}.auth-modes .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -103,12 +103,12 @@ AUTH_SKIP_EMAIL_VERIFICATION=1
 소셜 로그인을 활성화하려면 환경 변수를 설정하세요. Better Auth는 이를 자동으로 감지합니다:
 
 ```bash
-# Google OAuth
+# 구글 OAuth
 GOOGLE_SIGN_IN_CLIENT_ID=your-low-scope-sign-in-client-id
 GOOGLE_SIGN_IN_CLIENT_SECRET=your-low-scope-sign-in-client-secret
 
-# Backwards-compatible fallback, and provider OAuth credentials for templates
-# that connect to Google APIs such as Gmail or Calendar.
+# 이전 버전과 호환되는 대체 및 템플릿에 대한 공급자 OAuth 자격 증명
+# Gmail이나 캘린더 등 Google APIs에 연결됩니다.
 GOOGLE_CLIENT_ID=your-client-id
 GOOGLE_CLIENT_SECRET=your-client-secret
 
@@ -117,7 +117,7 @@ GITHUB_CLIENT_ID=your-client-id
 GITHUB_CLIENT_SECRET=your-client-secret
 ```
 
-`createGoogleAuthPlugin()`를 사용하는 템플릿은 'Google로 로그인' 페이지를 표시합니다. Google OAuth 콜백은 기본 앱에 대한 모바일 딥 링크를 자동으로 처리합니다.
+`createGoogleAuthPlugin()`를 사용하는 템플릿은 'Google로 로그인' 페이지를 표시합니다. 구글 OAuth 콜백은 기본 앱에 대한 모바일 딥 링크를 자동으로 처리합니다.
 
 일반용으로는 `GOOGLE_SIGN_IN_CLIENT_ID` / `GOOGLE_SIGN_IN_CLIENT_SECRET`를 선호합니다
 앱 로그인. 해당 클라이언트는 ID 범위만 요청해야 합니다. 유지
@@ -146,10 +146,10 @@ Google API 범위 또는 배포가 분할되지 않은 경우 레거시 대체
 `ACCESS_TOKEN` 및 `ACCESS_TOKENS`는 브라우저 인증이 아니며 앱을 비공개로 설정하지 않습니다. OAuth 흐름을 사용할 수 없는 MCP/connect 클라이언트에 대한 정적 전달자 자격 증명으로만 유지됩니다.
 
 ```bash
-# Single token
+# 단일 토큰
 ACCESS_TOKEN=my-secret-token
 
-# Multiple tokens
+# 다중 토큰
 ACCESS_TOKENS=token1,token2,token3
 ```
 
@@ -167,7 +167,7 @@ https://mail.agent-native.com/_agent-native/mcp
 
 ```an-diagram title="원격 MCP OAuth 핸드셰이크" summary="OAuth 가능 클라이언트는 MCP URL(챌린지, 검색, 동적 등록, PKCE 코드 교환)에서 부트스트랩합니다."
 {
-  "html": "<div class=\"mcp-flow\"><div class=\"diagram-node\">1 &middot; MCP request<br><small class=\"diagram-muted\">no token</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node warn\">2 &middot; 401 challenge<br><small class=\"diagram-muted\">WWW-Authenticate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">3 &middot; Discover metadata<br><small class=\"diagram-muted\">.well-known</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">4 &middot; Register client<br><small class=\"diagram-muted\">dynamic, public</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">5 &middot; Authorize + PKCE<br><small class=\"diagram-muted\">code exchange</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">6 &middot; Access + refresh<br><small class=\"diagram-muted\">audience-bound</small></div></div>",
+  "html": "<div class=\"mcp-flow\"><div class=\"diagram-node\">1 &middot; MCP request<br><small class=\"diagram-muted\">no token</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node warn\">2 &middot; 401 challenge<br><small class=\"diagram-muted\">WWW-Authenticate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">3 &middot; Discover metadata<br><small class=\"diagram-muted\">.well-known</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">4 &middot; Register client<br><small class=\"diagram-muted\">동적, 공개</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">5 &middot; Authorize + PKCE<br><small class=\"diagram-muted\">code exchange</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">6 &middot; Access + refresh<br><small class=\"diagram-muted\">audience-bound</small></div></div>",
   "css": ".mcp-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.mcp-flow .diagram-node{display:flex;flex-direction:column;gap:2px;padding:8px 12px}.mcp-flow .diagram-arrow{font-size:20px;line-height:1}"
 }
 ```
@@ -268,7 +268,7 @@ function MyComponent() {
 /_agent-native/sign-in?return=<same-origin-path>
 ```
 
-익명의 뷰어가 이 URL를 조회하면 프레임워크의 로그인 페이지가 제공됩니다. 로그인에 성공하면(토큰, 이메일/비밀번호 또는 Google OAuth 등 모든 흐름) 시청자는 302 `return`로 이동됩니다.
+익명의 뷰어가 이 URL를 조회하면 프레임워크의 로그인 페이지가 제공됩니다. 로그인에 성공하면(토큰, 이메일/비밀번호 또는 구글 OAuth 등 모든 흐름) 시청자는 302 `return`로 이동됩니다.
 
 `return` 매개변수는 **동일 출처 경로**로 검증됩니다. 네트워크 경로 참조(`//evil.com/...`), 절대 URL, `data:`/`javascript:` 체계 및 포함된 제어 문자는 모두 `/`로 대체됩니다. 검증된 경로는 입력에서 다시 에코되지 않고 URL 파서에서 재구성됩니다.
 
@@ -289,9 +289,9 @@ function SignInCta() {
 
 ### 북마크된 비공개 경로
 
-익명의 사용자가 `/dashboard`와 같은 개인 경로로 직접 이동하면 프레임워크는 이미 해당 URL에서 로그인 페이지를 제공합니다. 로그인에 성공하면 페이지가 다시 로드되고 사용자는 `/dashboard`에 도달합니다. 특별한 취급이 필요하지 않습니다. 이는 토큰, 이메일/비밀번호, **및** Google OAuth에 적용됩니다.
+익명의 사용자가 `/dashboard`와 같은 개인 경로로 직접 이동하면 프레임워크는 이미 해당 URL에서 로그인 페이지를 제공합니다. 로그인에 성공하면 페이지가 다시 로드되고 사용자는 `/dashboard`에 도달합니다. 특별한 취급이 필요하지 않습니다. 이는 토큰, 이메일/비밀번호, **및** 구글 OAuth에 적용됩니다.
 
-### 비하인드 스토리: Google OAuth
+### 비하인드 스토리: 구글 OAuth
 
 두 흐름(명시적 `/_agent-native/sign-in` 진입점 및 북마크된 경로 사례) 모두 OAuth 상태를 통해 반환 URL를 스레드합니다. 상태는 HMAC로 서명되어 있으므로 전송 중에 위조될 수 없습니다. 콜백에서 반환된 URL는 리디렉션 전에 동일 출처로 재검증되므로 유출된 서명 키는 여전히 공개 리디렉션 오라클로 전환될 수 없습니다.
 
@@ -321,8 +321,8 @@ const state = encodeOAuthState({
 | `AGENT_NATIVE_WORKSPACE`                | `1`는 작업 공간 모드에서 실행됩니다. 작업 공간 앱 전반에 걸쳐 하나의 공유 세션 영역입니다.                                                                                       |
 | `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | 자사 하위 도메인 전체에서 하나의 인증 데이터베이스를 공유하도록 `COOKIE_DOMAIN`로 설정                                                                                           |
 | `OAUTH_STATE_SECRET`                    | OAuth 상태 봉투용 전용 HMAC 키([Security — OAuth State Signing](/docs/security#oauth-state) 참조)                                                                                |
-| `GOOGLE_SIGN_IN_CLIENT_ID`              | 앱 로그인을 위해 선호되는 낮은 범위의 Google OAuth 클라이언트 ID                                                                                                                 |
-| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | 앱 로그인을 위해 선호되는 낮은 범위의 Google OAuth 비밀번호                                                                                                                      |
+| `GOOGLE_SIGN_IN_CLIENT_ID`              | 앱 로그인을 위해 선호되는 낮은 범위의 구글 OAuth 클라이언트 ID                                                                                                                   |
+| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | 앱 로그인을 위해 선호되는 낮은 범위의 구글 OAuth 비밀번호                                                                                                                        |
 | `GOOGLE_CLIENT_ID`                      | 기존 Google 로그인 대체 및 Google API 통합을 위한 공급자 OAuth 클라이언트 ID                                                                                                     |
 | `GOOGLE_CLIENT_SECRET`                  | 기존 Google 로그인 대체 및 Google API 통합을 위한 공급자 OAuth 비밀번호                                                                                                          |
 | `GITHUB_CLIENT_ID`                      | GitHub OAuth 활성화                                                                                                                                                              |

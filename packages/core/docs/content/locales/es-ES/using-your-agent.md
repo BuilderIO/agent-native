@@ -1,17 +1,17 @@
 ---
 title: "Usar su agente"
-description: "El ciclo diario de trabajar con el agente: ve lo que estás mirando, tú lo diriges, lo incrustas, lo hace UI-light y lo coedita."
+description: "El ciclo diario de trabajar con el agente: ve lo que estás mirando, tú lo diriges, lo incrustas, lo hace UI ligera y lo coedita."
 ---
 
 # Usando a su agente
 
 La idea que define el agente nativo es que el agente y el UI son **socios iguales**; consulte [What Is Agent-Native?](/docs/what-is-agent-native) para conocer el por qué. Esta sección trata sobre la otra mitad de esa promesa: cómo se siente trabajar realmente con el agente una vez que está acoplado junto a su aplicación.
 
-Hay una línea directa simple. El agente **ve** lo que estás viendo, tú lo **diriges** hacia lo que deseas, puedes **incrustarlo** en cualquier lugar, puedes hacerlo completamente **UI-light** cuando sea mejor y puedes **coeditar** los mismos documentos al mismo tiempo. Cada una de ellas es una página en esta sección.
+Hay una línea directa simple. El agente **ve** lo que estás viendo, tú lo **diriges** hacia lo que deseas, puedes **incrustarlo** en cualquier lugar, puedes hacerlo completamente **UI ligera** cuando sea mejor y puedes **coeditar** los mismos documentos al mismo tiempo. Cada una de ellas es una página en esta sección.
 
 ```an-diagram title="El bucle del día a día" summary="Cinco formas de trabajar con un agente acoplado: cada una es una página en esta sección."
 {
-  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>UI-light</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">Co-edit</span><small class=\"diagram-muted\">live, side by side</small></div></div>",
+  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>UI ligera</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">Coeditar</span><small class=\"diagram-muted\">en vivo, lado a lado</small></div></div>",
   "css": ".diagram-loop{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-loop .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px;flex:1}.diagram-loop .diagram-arrow{align-self:center;font-size:22px;line-height:1}"
 }
 ```
@@ -49,7 +49,7 @@ El agente no es una aplicación independiente a la que puedes acceder. Se envía
 → [**Drop-in Agent**](/docs/drop-in-agent): monta `<AgentPanel>`, `<AgentSidebar>` y `sendToAgentChat()` en cualquier aplicación React.
 → [**Agent Surfaces**](/docs/agent-surfaces): elija si el flujo de trabajo debe ser headless, chat primero, integrado o una aplicación completa.
 
-## Puedes ir a UI-light {#ui-light}
+## Puedes ir a UI ligera {#ui-light}
 
 No todas las aplicaciones necesitan un panel completo. Cuando el agente _es_ el producto, puede omitir la mayor parte del UI personalizado: abra la aplicación, solicite lo que desee y deje que el agente haga el resto. El agente todavía tiene su superficie de administración (historial, espacio de trabajo, configuración), pero la interacción principal es la conversación en lugar de los clics.
 
@@ -67,5 +67,5 @@ Cuando usted y el agente trabajan en el mismo documento, no se turnan. Con la co
 - [**Agent Mentions**](/docs/agent-mentions): dirígelo con menciones `@`
 - [**Voice Input**](/docs/voice-input): dirígelo hablando
 - [**Drop-in Agent**](/docs/drop-in-agent): incrustarlo en cualquier aplicación React
-- [**Pure-Agent Apps**](/docs/pure-agent-apps): pasa a UI-light cuando el agente es el producto
+- [**Pure-Agent Apps**](/docs/pure-agent-apps): pasa a UI ligera cuando el agente es el producto
 - [**Real-Time Collaboration**](/docs/real-time-collaboration): coeditar el mismo documento juntos

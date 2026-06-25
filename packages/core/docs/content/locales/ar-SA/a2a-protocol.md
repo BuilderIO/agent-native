@@ -119,11 +119,11 @@ _(قد يختلف الإصدار؛ احصل على البطاقة المباشر
 | `tasks/get`      | جلب مهمة حسب المعرف - يُستخدم لاستقصاء مهمة غير متزامنة حتى اكتمالها                                  | `id`                          |
 | `tasks/cancel`   | إلغاء مهمة قيد التشغيل                                                                                | `id`                          |
 
-```an-api title="Primary A2A endpoint" summary="All JSON-RPC methods are POSTed here. message/send shown."
+```an-api title="نقطة النهاية الأساسية A2A" summary="جميع أساليب JSON-RPC منشورة هنا. message/send معروض."
 {
   "method": "POST",
   "path": "/_agent-native/a2a",
-  "summary": "Send a message and wait for the completed task",
+  "summary": "أرسل رسالة وانتظر اكتمال المهمة",
   "description": "JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `tasks/cancel`. Pass `async: true` to return immediately in `working` state and poll with `tasks/get`.",
   "auth": "JWT bearer signed with A2A_SECRET (or legacy apiKeyEnv static token)",
   "params": [

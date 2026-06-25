@@ -10,7 +10,7 @@ description: "تقويم مدعوم من الوكيل مع مزامنة Google C
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>May 3-9, 2026</strong><div style='flex:1'></div><button class='primary'>New Event</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>Sun 3</strong><strong>Mon 4</strong><strong>Tue 5</strong><strong>Wed 6</strong><strong>Thu 7</strong><strong>Fri 8</strong><strong>Sat 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>All-hands</div><div class='wf-box'>Eng standup</div><div class='wf-box'>Eng standup</div><div class='wf-box'>Eng standup</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>Design review</div><div></div><div class='wf-box'>Design crit</div><div class='wf-box'>Roadmap</div><div class='wf-box'>Friday demo</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>Focus block</div><div></div><div></div><div class='wf-box'>All-hands</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>Skip-level</div><div></div><div></div><div></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>3-9 مايو 2026</strong><div style='flex:1'></div><button class='primary'>حدث جديد</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>الأحد 3</strong><strong>الاثنين 4</strong><strong>الثلاثاء 5</strong><strong>الأربعاء 6</strong><strong>الخميس 7</strong><strong>الجمعة 8</strong><strong>السبت 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>اجتماع عام</div><div class='wf-box'>اجتماع هندسي يومي</div><div class='wf-box'>اجتماع هندسي يومي</div><div class='wf-box'>اجتماع هندسي يومي</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>مراجعة التصميم</div><div></div><div class='wf-box'>نقد التصميم</div><div class='wf-box'>Roadmap</div><div class='wf-box'>عرض الجمعة</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>كتلة تركيز</div><div></div><div></div><div class='wf-box'>اجتماع عام</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>اجتماع تخطي المستوى</div><div></div><div></div><div></div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ description: "تقويم مدعوم من الوكيل مع مزامنة Google C
 
 ```an-diagram title="كيف يتدفق طلب الجدولة" summary="سواء قمت بالنقر فوق التقويم أو سؤال الوكيل، تتم قراءة نفس الإجراءات مباشرة من Google Calendar ثم يتم إعادة كتابتها إلى نفس العرض."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">You click<br><small class=\"diagram-muted\">drag, toolbar, shortcuts</small></div><div class=\"diagram-node\">أنت تسأل الوكيل<br><small class=\"diagram-muted\">\"find a 1-hour slot next week\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-events · check-availability · create-event</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Google Calendar<br><small class=\"diagram-muted\">live, multi-account</small></div><div class=\"diagram-box\">SQL<br><small class=\"diagram-muted\">bookings · availability</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">Calendar view updates live</div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">تنقر<br><small class=\"diagram-muted\">السحب، شريط الأدوات، الاختصارات</small></div><div class=\"diagram-node\">أنت تسأل الوكيل<br><small class=\"diagram-muted\">\"find a 1-hour slot next week\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-events · check-availability · create-event</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Google Calendar<br><small class=\"diagram-muted\">مباشر، متعدد الحسابات</small></div><div class=\"diagram-box\">SQL<br><small class=\"diagram-muted\">الحجوزات · التوفر</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">تتحدث طريقة عرض التقويم مباشرة</div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -111,7 +111,7 @@ pnpm dev
 - `booking_slug_redirects` — يتذكر الارتباطات الثابتة القديمة عند إعادة تسمية الرابط حتى تستمر URL العامة الموجودة في العمل.
 - `booking_link_shares` — مشاركة المنح لروابط الحجز.
 
-```an-schema title="Calendar data model" summary="Only non-event data is stored locally — events live in Google Calendar. Booking links use ownableColumns so the sharing system applies."
+```an-schema title="Calendar نموذج البيانات" summary="يتم تخزين البيانات غير المتعلقة بالحدث محليًا فقط - الأحداث مباشرة في Google Calendar. تستخدم روابط الحجز أعمدة خاصة بها بحيث يتم تطبيق نظام المشاركة."
 {
   "entities": [
     {
@@ -126,7 +126,7 @@ pnpm dev
         { "name": "duration", "type": "int", "note": "primary duration in minutes" },
         { "name": "durations", "type": "json", "nullable": true, "note": "alternative durations" },
         { "name": "customFields", "type": "json", "nullable": true },
-        { "name": "conferencing", "type": "string", "note": "Google Meet / Zoom / custom" },
+        { "name": "conferencing", "type": "string", "note": "Google لقاء / تكبير / مخصص" },
         { "name": "color", "type": "string", "nullable": true },
         { "name": "isActive", "type": "bool", "note": "pause without deleting" }
       ]
@@ -134,7 +134,7 @@ pnpm dev
     {
       "id": "bookings",
       "name": "bookings",
-      "note": "Confirmed appointments from public booking pages",
+      "note": "تم تأكيد المواعيد من صفحات الحجز العامة",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "slug", "type": "string", "fk": "booking_links.slug" },
@@ -146,13 +146,13 @@ pnpm dev
         { "name": "customFields", "type": "json", "nullable": true, "note": "custom field responses" },
         { "name": "meetingLink", "type": "string", "nullable": true },
         { "name": "cancelToken", "type": "string", "note": "powers /booking/manage/{token}" },
-        { "name": "status", "type": "enum", "note": "confirmed | cancelled" }
+        { "name": "status", "type": "enum", "note": "مؤكد | تم الإلغاء" }
       ]
     },
     {
       "id": "booking_slug_redirects",
       "name": "booking_slug_redirects",
-      "note": "Keeps old public URLs working after a link is renamed",
+      "note": "يحافظ على عمل عناوين URL العامة القديمة بعد إعادة تسمية الرابط",
       "fields": [
         { "name": "oldSlug", "type": "string", "pk": true },
         { "name": "linkId", "type": "id", "fk": "booking_links.id" }
@@ -161,12 +161,12 @@ pnpm dev
     {
       "id": "booking_link_shares",
       "name": "booking_link_shares",
-      "note": "Share grants for booking links",
+      "note": "مشاركة المنح لروابط الحجز",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "linkId", "type": "id", "fk": "booking_links.id" },
         { "name": "principal", "type": "string", "note": "user or org" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+        { "name": "role", "type": "enum", "note": "عارض | محرر | admin" }
       ]
     }
   ],

@@ -21,7 +21,7 @@ embedded sidecar, or as a full app screen, see [Agent Surfaces](/docs/agent-surf
 
 ```an-diagram title="하나의 정의, 7명의 소비자" summary="단일 defineAction()은 하나의 검증된 스키마와 하나의 run() 본문을 사용하여 에이전트, UI, HTTP, MCP, A2A 및 CLI 등 모든 표면으로 확장됩니다."
 {
-  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agent tool<br><small class=\"diagram-muted\">JSON Schema in context</small></div><div class=\"diagram-node\">React hooks<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">imperative client</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP tool<br><small class=\"diagram-muted\">external hosts</small></div><div class=\"diagram-node\">A2A tool<br><small class=\"diagram-muted\">other agent-native apps</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
+  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), 한 번만 정의</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">에이전트 도구<br><small class=\"diagram-muted\">컨텍스트의 JSON Schema</small></div><div class=\"diagram-node\">React 훅<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">명령형 클라이언트</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP 도구<br><small class=\"diagram-muted\">외부 호스트</small></div><div class=\"diagram-node\">A2A 도구<br><small class=\"diagram-muted\">다른 agent-native 앱</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
   "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
 }
 ```
@@ -155,7 +155,7 @@ export default defineAction({
   "method": "GET",
   "path": "/_agent-native/actions/get-lead",
   "summary": "모든 action은 여기에 자동으로 마운트됩니다. 파일 이름이 action 이름입니다.",
-  "description": "기본값은 POST입니다. `http: { method: \"GET\" }`는 이를 GET으로 만듭니다. React hooks와 `callAction`은 `http.path` override와 관계없이 항상 이름으로 이 경로를 호출합니다.",
+  "description": "기본값은 POST입니다. `http: { method: \"GET\" }`는 이를 GET으로 만듭니다. React 훅와 `callAction`은 `http.path` override와 관계없이 항상 이름으로 이 경로를 호출합니다.",
   "auth": "세션 쿠키; 프론트엔드 호출에는 `X-Agent-Native-Frontend: 1`이 포함됩니다",
   "params": [
     { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET 인수는 query params로 도착하고 POST 인수는 JSON body로 도착합니다." }
@@ -434,7 +434,7 @@ export default defineAction({
 
 내장 판별자는 `"data-table"`, `"data-chart"` 및
 `"data-insights"`, 서버 안전 빌더 및 스키마 포함
-`@agent-native/core/data-widgets`. [Native Chat UI](/docs/native-chat-ui) 참조
+`@agent-native/core/data-widgets`. [Native 채팅 UI](/docs/native-chat-ui) 참조
 전체 결과 계약 및 BYO 런타임 지침
 같은 행동이 어떻게 유지될 수 있는지에 대한 [Agent Surfaces](/docs/agent-surfaces)
 헤드리스, 채팅에서 렌더링 또는 전체 화면으로 확장

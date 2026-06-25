@@ -26,7 +26,7 @@ PR Visual Recap 是一个 GitHub 操作，它将每个拉取请求转变为**可
 
 ```an-diagram title="每次 PR 推送都会发生什么" summary="有界差异为真正的编码代理提供信息，该代理编写了回顾；工作流程会对其进行屏幕截图并插入一条粘性评论。"
 {
-  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">PR push<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Coding agent<br><small class=\"diagram-muted\">Claude Code / Codex reads diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Headless Chrome<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">One sticky PR comment<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
+  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">PR 推送<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">编码 Agent<br><small class=\"diagram-muted\">Claude Code / Codex 读取 diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">无头 Chrome<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">一条置顶 PR 评论<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
   "css": ".diagram-recap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-recap .diagram-arrow{font-size:20px;line-height:1}.diagram-recap .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-recap .diagram-foot{flex-basis:100%;margin-top:10px;font-size:13px}"
 }
 ```
@@ -159,7 +159,7 @@ npx @agent-native/core@latest recap setup
 
 ```an-diagram title="分叉 PR 同意门" summary="默认情况下，分叉 PR 没有任何秘密；受信任的作者自动运行，外部贡献者需要新的维护者回顾标签。"
 {
-  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">Fork PR opened<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Trusted author</span><small class=\"diagram-muted\">OWNER, MEMBER, or COLLABORATOR runs automatically</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Outside contributor</span><small class=\"diagram-muted\">maintainer reviews diff, then applies <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Gate checks<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Recap runs<br><small class=\"diagram-muted\">base-repo code only · fork diff is text input</small></div></div>",
+  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">Fork PR 已打开<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">可信作者</span><small class=\"diagram-muted\">OWNER、MEMBER 或 COLLABORATOR 自动运行</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">外部贡献者</span><small class=\"diagram-muted\">维护者审核 diff 后再应用 <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">门禁检查<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">回顾运行<br><small class=\"diagram-muted\">仅基础 repo 代码 · fork diff 作为文本输入</small></div></div>",
   "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-arrow{font-size:20px;line-height:1}.diagram-fork .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}"
 }
 ```
@@ -272,15 +272,15 @@ npx @agent-native/core@latest plan local serve --dir plans/pr-123-visual-recap -
 每个非空白、非注释行都是一个 **文字子字符串** 或 **`/regex/flags`** 模式：
 
 ```
-# Lines starting with # are comments.
+# 以 # 开头的行是注释。
 
-# Literal substring — any diff line containing this string is allowed.
+# 文字子字符串 — 允许包含该字符串的任何 diff 行。
 sk-test-fixture1234567890abcdef
 
 # Regex pattern — written as /pattern/flags (JS syntax).
 /^.STRIPE_KEY=sk-test-/i
 
-# Another literal.
+# 又一个字面意思。
 EXAMPLE_API_KEY=placeholder-value
 ```
 
@@ -315,10 +315,10 @@ EXAMPLE_API_KEY=placeholder-value
 ```yaml
 name: PR Visual Recap
 
-# Thin caller — the full workflow logic lives in BuilderIO/agent-native.
-# Fixes and improvements reach this repo automatically on each run.
-# To pin a specific version for reproducibility replace '@main' with a
-# tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
+# 瘦调用者 — 完整的工作流逻辑位于 BuilderIO/agent-native 中。
+# 修复和改进会在每次运行时自动到达此存储库。
+# 要固定特定版本以实现可重复性，请将 '@main' 替换为
+# 标签或 SHA、e.g。 '@<x2/>' 或 '@abc1234'。
 
 on:
   pull_request:
@@ -351,10 +351,10 @@ jobs:
 ### 通过CLI安装
 
 ```bash
-# Write the thin caller instead of the full copy:
+# 编写瘦调用者而不是完整副本：
 npx @agent-native/core@latest recap setup --reusable
 
-# Or with a pinned ref for reproducibility:
+# 或者使用固定参考来实现可重复性：
 npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
 ```
 

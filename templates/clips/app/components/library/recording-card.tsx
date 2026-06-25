@@ -1,3 +1,4 @@
+import { useFormatters, useT } from "@agent-native/core/client";
 import {
   IconDots,
   IconLock,
@@ -8,6 +9,7 @@ import {
   IconFolder,
   IconArchive,
   IconTrash,
+  IconEdit,
   IconCheck,
   IconAlertTriangle,
 } from "@tabler/icons-react";
@@ -36,21 +38,6 @@ function formatDuration(ms: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function formatRelative(iso: string): string {
-  const date = new Date(iso);
-  const now = Date.now();
-  const diff = (date.getTime() - now) / 1000;
-  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-  const abs = Math.abs(diff);
-  if (abs < 60) return rtf.format(Math.round(diff), "second");
-  if (abs < 3600) return rtf.format(Math.round(diff / 60), "minute");
-  if (abs < 86400) return rtf.format(Math.round(diff / 3600), "hour");
-  if (abs < 604800) return rtf.format(Math.round(diff / 86400), "day");
-  if (abs < 2629800) return rtf.format(Math.round(diff / 604800), "week");
-  if (abs < 31557600) return rtf.format(Math.round(diff / 2629800), "month");
-  return rtf.format(Math.round(diff / 31557600), "year");
-}
-
 function PrivacyIcon({
   visibility,
   className,
@@ -72,8 +59,10 @@ interface RecordingCardProps {
   onToggleSelect?: (id: string) => void;
   onShare?: (rec: RecordingSummary) => void;
   onMove?: (rec: RecordingSummary) => void;
+  onRename?: (rec: RecordingSummary) => void;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
+  canRenameTitle?: boolean;
 }
 
 export function RecordingCard({
@@ -83,20 +72,31 @@ export function RecordingCard({
   onToggleSelect,
   onShare,
   onMove,
+  onRename,
   onArchive,
   onTrash,
+  canRenameTitle = false,
 }: RecordingCardProps) {
   const navigate = useNavigate();
+  const t = useT();
+  const { formatDate, formatRelativeTime } = useFormatters();
   const [hovered, setHovered] = useState(false);
 
   const duration = useMemo(
     () => formatDuration(recording.durationMs),
     [recording.durationMs],
   );
-  const relative = useMemo(
-    () => formatRelative(recording.createdAt),
-    [recording.createdAt],
-  );
+  const relative = useMemo(() => {
+    const date = new Date(recording.createdAt);
+    const diff = (date.getTime() - Date.now()) / 1000;
+    const abs = Math.abs(diff);
+    if (abs < 60) return formatRelativeTime(Math.round(diff), "second");
+    if (abs < 3600) return formatRelativeTime(Math.round(diff / 60), "minute");
+    if (abs < 86400) return formatRelativeTime(Math.round(diff / 3600), "hour");
+    if (abs < 604800)
+      return formatRelativeTime(Math.round(diff / 86400), "day");
+    return formatDate(date);
+  }, [formatDate, formatRelativeTime, recording.createdAt]);
   const waitingForStorage = isStorageSetupFailureReason(
     recording.failureReason,
   );
@@ -242,17 +242,18 @@ export function RecordingCard({
               <div className="min-w-0 flex-1">
                 <div className="text-[11px] font-medium text-foreground">
                   {waitingForStorage
-                    ? "Waiting for storage"
+                    ? t("clipsFinalRaw.waitingForStorage")
                     : nativeUploadPaused
-                      ? "Saved locally"
-                      : "Upload failed"}
+                      ? t("clipsFinalRaw.savedLocally")
+                      : t("clipsFinalRaw.uploadFailed")}
                 </div>
                 <div className="line-clamp-2 text-[10px] leading-snug text-muted-foreground">
                   {waitingForStorage
-                    ? "Open to connect storage and finish saving."
+                    ? t("clipsFinalRaw.connectStorageToFinish")
                     : nativeUploadPaused
-                      ? "Retry from the Clips menu; no need to re-record."
-                      : (recording.failureReason ?? "Remove this failed clip.")}
+                      ? t("clipsFinalRaw.retryFromClipsMenu")
+                      : (recording.failureReason ??
+                        t("clipsFinalRaw.removeFailedClip"))}
                 </div>
               </div>
               {!waitingForStorage && (
@@ -261,7 +262,7 @@ export function RecordingCard({
                   onClick={handleRemoveFailed}
                   className="rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground hover:bg-accent"
                 >
-                  Remove
+                  {t("clipsFinalRaw.remove")}
                 </button>
               )}
             </div>
@@ -276,9 +277,10 @@ export function RecordingCard({
             <EditableRecordingTitle
               recordingId={recording.id}
               title={recording.title}
+              canEdit={canRenameTitle}
               displayTitle={
                 isDefaultTitle(recording.title)
-                  ? "Untitled Clip"
+                  ? t("editableTitle.untitled")
                   : recording.title
               }
               showPendingSkeleton={isDefaultTitle(recording.title)}
@@ -294,7 +296,9 @@ export function RecordingCard({
               <span className="capitalize">{recording.visibility}</span>
               <span>•</span>
               <span>
-                {recording.viewCount} view{recording.viewCount === 1 ? "" : "s"}
+                {t("clipsFinalRaw.viewsCount", {
+                  count: recording.viewCount,
+                })}
               </span>
               <span>•</span>
               <span>{relative}</span>
@@ -305,7 +309,7 @@ export function RecordingCard({
             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
               <button
                 className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-label="Recording menu"
+                aria-label={t("clipsFinalRaw.recordingMenu")}
               >
                 <IconDots className="h-4 w-4" />
               </button>
@@ -315,26 +319,39 @@ export function RecordingCard({
               onClick={(e) => e.stopPropagation()}
             >
               <DropdownMenuItem onSelect={() => onShare?.(recording)}>
-                <IconShare className="h-4 w-4 me-2" /> Share
+                <IconShare className="h-4 w-4 me-2" />{" "}
+                {t("recordingPage.share")}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onMove?.(recording)}>
-                <IconFolder className="h-4 w-4 me-2" /> Move to folder
+                <IconFolder className="h-4 w-4 me-2" />{" "}
+                {t("clipsFinalRaw.moveToFolder")}
               </DropdownMenuItem>
+              {onRename ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => onRename(recording)}>
+                    <IconEdit className="h-4 w-4 me-2" />{" "}
+                    {t("folderTree.rename")}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
               <DropdownMenuSeparator />
               {recording.archivedAt ? (
                 <DropdownMenuItem onSelect={() => onArchive?.(recording)}>
-                  <IconCheck className="h-4 w-4 me-2" /> Unarchive
+                  <IconCheck className="h-4 w-4 me-2" />{" "}
+                  {t("clipsFinalRaw.unarchive")}
                 </DropdownMenuItem>
               ) : (
                 <DropdownMenuItem onSelect={() => onArchive?.(recording)}>
-                  <IconArchive className="h-4 w-4 me-2" /> Archive
+                  <IconArchive className="h-4 w-4 me-2" />{" "}
+                  {t("navigation.archive")}
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem
                 onSelect={() => onTrash?.(recording)}
                 className="text-destructive focus:text-destructive"
               >
-                <IconTrash className="h-4 w-4 me-2" /> Delete
+                <IconTrash className="h-4 w-4 me-2" /> {t("folderTree.delete")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

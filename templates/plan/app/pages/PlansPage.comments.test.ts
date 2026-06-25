@@ -1009,9 +1009,8 @@ describe("plan comment thread UI model", () => {
     expect(prompt).toMatchObject({
       kind: "invitation",
       invitationId: "invite_1",
-      buttonLabel: "Accept invite",
-      message:
-        "You already have an invite to Builder.io. Accept it to open this plan.",
+      organizationName: "Builder.io",
+      invitedBy: "Milos",
     });
   });
 
@@ -1038,9 +1037,8 @@ describe("plan comment thread UI model", () => {
     expect(prompt).toMatchObject({
       kind: "domain",
       organizationId: "org_builder",
-      buttonLabel: "Join Builder.io",
-      message:
-        "Your @builder.io email can join Builder.io. Join it to open this plan.",
+      organizationName: "Builder.io",
+      domain: "builder.io",
     });
   });
 

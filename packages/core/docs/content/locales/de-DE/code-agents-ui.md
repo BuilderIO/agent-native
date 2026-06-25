@@ -23,11 +23,11 @@ Es gibt drei Ebenen:
 
 - **CLI**: `npx @agent-native/core@latest` und `npx @agent-native/core@latest code` starten, fortsetzen, prüfen und stoppen Läufe.
 - **Desktop**: Die Registerkarte „Code“ in der linken Seitenleiste fügt nativen Terminalstart, App-Webansichten und Desktop-Deep-Links hinzu, während dasselbe Ausführungsmodell verwendet wird.
-- **Shared UI**: `@agent-native/code-agents-ui` rendert die wiederverwendbare React-Oberfläche.
+- **Gemeinsame UI**: `@agent-native/code-agents-ui` rendert die wiederverwendbare React-Oberfläche.
 
 ```an-diagram title="Drei Schichten über einem Run Store" summary="CLI, Desktop und die gemeinsame Benutzeroberfläche sind unterschiedliche Oberflächen über denselben dateigestützten Ausführungsspeicher und Executor; Hosts passen es über den CodeAgentsHost-Vertrag an."
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-row\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">CLI</span><small class=\"diagram-muted\">start · resume · status · stop</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Desktop</span><small class=\"diagram-muted\">native terminal · webviews · deep links</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Teilend UI</span><small class=\"diagram-muted\">@agent-native/code-agents-ui</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill\">CodeAgentsHost</span><small class=\"diagram-muted\">host contract</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>File-backed run store + executor<br><small class=\"diagram-muted\">@agent-native/core/code-agents</small></div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-row\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">CLI</span><small class=\"diagram-muted\">starten · fortsetzen · Status · stoppen</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Desktop</span><small class=\"diagram-muted\">natives Terminal · Webviews · Deep Links</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Teilend UI</span><small class=\"diagram-muted\">@agent-native/code-agents-ui</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill\">CodeAgentsHost</span><small class=\"diagram-muted\">host contract</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Dateibasierter Run-Store + Executor<br><small class=\"diagram-muted\">@agent-native/core/code-agents</small></div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px;align-items:center}.diagram-layers .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-layers .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.diagram-layers .diagram-arrow{font-size:22px;line-height:1}.diagram-layers .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -252,11 +252,11 @@ Agent-Native-Code verwendet dasselbe `AgentComposerFrame` + `PromptComposer` /
 Framework-Agent-Seitenleiste. Verzweigen Sie kein separates
 Textbereich, Codierungstool-Auswahl, Upload-Auswahl, Sprachschaltfläche, Modellauswahl oder Enter-to-Submit
 Implementierung für Code-ähnliche Oberflächen. Wenn ein Host ein zusätzliches Steuerelement benötigt, übergeben Sie
-es über die freigegebenen Composer-Erweiterungspunkte, also die Seitenleiste, Code UI und
+es über die freigegebenen Verfassenr-Erweiterungspunkte, also die Seitenleiste, Code UI und
 Brain-Chat behält das gleiche Interaktionsmodell und Gesichtsfeld bei.
 
 Die Ask-Route von Brain verwendet `AgentChatSurface`, das bereits von
-Standard-Sidebar-Composer. Der Code verwendet `PromptComposer` direkt, weil der Host
+Standard-Sidebar-Verfassenr. Der Code verwendet `PromptComposer` direkt, weil der Host
 ist für die Lauferstellung, die Transkripte und die Nachbereitung verantwortlich.
 
 ## Gemeinsame Codierungstools
@@ -276,7 +276,7 @@ gemeinsamer Code UI kann Slots hinzufügen für:
 - Die ausgewählten CWD-, Projektauswahl- und Ausführungsmetadaten.
 - Angebote, die nur für Gastgeber gelten, z. B. das Öffnen eines Terminals.
 
-Alles andere bleibt im gemeinsamen Composer: Anhänge, Referenzen, Schrägstriche und
+Alles andere bleibt im gemeinsamen Verfassenr: Anhänge, Referenzen, Schrägstriche und
 Fertigkeit Einfügen, Umgang mit eingefügtem Text, Sprachdiktat, Entwürfe, Tastatur
 Verknüpfungen und Übermittlungssemantik.
 
@@ -322,7 +322,7 @@ Wenn der Host `listCodePacks` implementiert, zeigt der gemeinsam genutzte UI Pro
 Erstellen Sie keine separate Slash-Befehls-Registrierung für einen neuen Code-Host. Projekt
 Befehle und skills werden von `.agents/commands/*.md` und
 `.agents/skills/*/SKILL.md`; Der UI sollte diese Pakete rendern und Eingabeaufforderungen einfügen
-über den Shared Composer.
+über den Shared Verfassenr.
 
 ## Background Agent Run-Manager
 
@@ -375,18 +375,18 @@ Die Verbindung ist nur ausgehend vom Desktop:
 
 ```an-diagram title="Remote Dispatch ist nur ausgehend" summary="Mobile kommuniziert nie direkt mit dem Desktop. Desktop fragt Dispatch lange ab, beansprucht Befehle, steuert den lokalen Ausführungsspeicher und spiegelt die Ergebnisse zurück."
 {
-  "html": "<div class=\"diagram-remote\"><div class=\"diagram-node\" data-rough>Mobile / Telegram<br><small class=\"diagram-muted\">/code · sessions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Dispatch relay<br><small class=\"diagram-muted\">hosts · runs · transcript</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-node\" data-rough>Desktop<br><small class=\"diagram-muted\">long-polls · claims · drives run store</small></div></div>",
+  "html": "<div class=\"diagram-remote\"><div class=\"diagram-node\" data-rough>Mobil / Telegram<br><small class=\"diagram-muted\">/code · Sitzungen</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Dispatch-Relay<br><small class=\"diagram-muted\">Hosts · Läufe · Transkript</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-node\" data-rough>Desktop<br><small class=\"diagram-muted\">Long-Polls · Claims · steuert Run-Store</small></div></div>",
   "css": ".diagram-remote{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-remote .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
 
 Die kanonischen Remote-Relay-Endpunkte sind:
 
-```an-api title="Desktop claims queued work"
+```an-api title="Desktop beansprucht Arbeit in der Warteschlange"
 {
   "method": "POST",
   "path": "/_agent-native/integrations/remote/poll",
-  "summary": "Desktop long-polls the relay to claim enqueued commands",
+  "summary": "Der Desktop fragt das Relay lange ab, um in der Warteschlange befindliche Befehle abzurufen",
   "description": "Outbound-only from a paired Desktop host. Desktop authenticates with its device token and claims work that mobile or Telegram enqueued.",
   "auth": "Desktop device token",
   "responses": [

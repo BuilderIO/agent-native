@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client";
+import { appBasePath, useT } from "@agent-native/core/client";
 import {
   IconShare2,
   IconCopy,
@@ -29,6 +29,7 @@ interface ShareDialogProps {
 }
 
 export default function ShareDialog({ deck, children }: ShareDialogProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -50,7 +51,7 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || "Failed to create share link");
+        throw new Error(err.error || t("share.createFailed"));
       }
 
       const data = await res.json();
@@ -88,8 +89,8 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
       >
         {showCloudUpgrade || isLocal ? (
           <CloudUpgrade
-            title="Share Presentation"
-            description="To share presentations publicly, connect a cloud database so your slides can be accessed from anywhere."
+            title={t("share.title")}
+            description={t("share.cloudUpgradeDescription")}
             onClose={() => {
               setShowCloudUpgrade(false);
               setOpen(false);
@@ -100,11 +101,10 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
             <div className="mb-3">
               <div className="text-foreground flex items-center gap-2 text-sm font-semibold">
                 <IconShare2 className="w-4 h-4 text-[#609FF8]" />
-                Share Presentation
+                {t("share.title")}
               </div>
               <div className="text-muted-foreground text-xs mt-0.5">
-                Create a shareable link for "{deck.title}". Only this
-                presentation will be accessible — no other decks.
+                {t("share.description", { title: deck.title })}
               </div>
             </div>
 
@@ -113,22 +113,23 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
                 <>
                   <div className="bg-muted/50 rounded-lg p-3 border border-border">
                     <h4 className="text-sm font-medium text-foreground/90 mb-2">
-                      What gets shared:
+                      {t("share.whatGetsShared")}
                     </h4>
                     <ul className="text-xs text-muted-foreground space-y-1">
                       <li>
-                        - Slide content and layouts ({deck.slides.length}{" "}
-                        slides)
+                        {t("share.slideContent", {
+                          count: deck.slides.length,
+                        })}
                       </li>
-                      <li>- Presentation view (fullscreen)</li>
+                      <li>{t("share.presentationView")}</li>
                     </ul>
                     <h4 className="text-sm font-medium text-foreground/90 mt-3 mb-2">
-                      What stays private:
+                      {t("share.whatStaysPrivate")}
                     </h4>
                     <ul className="text-xs text-muted-foreground space-y-1">
-                      <li>- Speaker notes</li>
-                      <li>- Other presentations</li>
-                      <li>- Editing access</li>
+                      <li>{t("share.speakerNotes")}</li>
+                      <li>{t("share.otherPresentations")}</li>
+                      <li>{t("share.editingAccess")}</li>
                     </ul>
                   </div>
 
@@ -146,12 +147,12 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
                     {loading ? (
                       <>
                         <IconLoader2 className="w-4 h-4 animate-spin" />
-                        Creating link...
+                        {t("share.creatingLink")}
                       </>
                     ) : (
                       <>
                         <IconShare2 className="w-4 h-4" />
-                        Create Share Link
+                        {t("share.createShareLink")}
                       </>
                     )}
                   </button>
@@ -169,7 +170,7 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
                         <button
                           onClick={handleCopy}
                           className="flex-shrink-0 p-2 rounded-lg bg-accent hover:bg-accent border border-border transition-colors"
-                          aria-label="Copy link"
+                          aria-label={t("share.copyLink")}
                         >
                           {copied ? (
                             <IconCheck className="w-4 h-4 text-green-400" />
@@ -178,7 +179,7 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
                           )}
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent>Copy link</TooltipContent>
+                      <TooltipContent>{t("share.copyLink")}</TooltipContent>
                     </Tooltip>
                   </div>
 
@@ -189,11 +190,11 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
                     className="flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg bg-accent hover:bg-accent border border-border text-foreground/70 text-sm transition-colors"
                   >
                     <IconExternalLink className="w-3.5 h-3.5" />
-                    Open shared link
+                    {t("share.openSharedLink")}
                   </a>
 
                   <p className="text-[11px] text-muted-foreground/70 text-center">
-                    Anyone with this link can view this presentation.
+                    {t("share.anyoneWithLink")}
                   </p>
                 </>
               )}

@@ -347,7 +347,7 @@ export function Sidebar({
                       <IconFolderPlus className="h-3.5 w-3.5" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>New folder</TooltipContent>
+                  <TooltipContent>{t("raw.folders.newFolder")}</TooltipContent>
                 </Tooltip>
               </div>
 
@@ -428,7 +428,7 @@ export function Sidebar({
                   {folders.length > 0 &&
                     uncategorizedCompositions.length === 0 && (
                       <p className="text-[10px] text-center text-muted-foreground/40">
-                        Drop here to remove from folder
+                        {t("raw.folders.dropToRemove")}
                       </p>
                     )}
                 </div>
@@ -503,7 +503,7 @@ export function Sidebar({
                       <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                         <IconClick className="w-3.5 h-3.5 text-green-400" />
                         <span className="text-xs font-medium">
-                          Cursor Interactions
+                          {t("raw.sidebar.cursorInteractions")}
                         </span>
                         <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                       </div>
@@ -524,7 +524,7 @@ export function Sidebar({
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                       <IconAdjustmentsHorizontal className="w-3.5 h-3.5 text-amber-400" />
                       <span className="text-xs font-medium">
-                        Animation Track
+                        {t("raw.sidebar.animationTrack")}
                       </span>
                       {selectedTrack && (
                         <span className="text-[9px] font-mono text-muted-foreground/60 ml-auto mr-2">
@@ -547,10 +547,10 @@ export function Sidebar({
                     ) : (
                       <div className="text-center py-6 px-4 bg-muted/30 rounded-lg border border-dashed border-border">
                         <p className="text-xs text-muted-foreground">
-                          Select a track to edit its properties
+                          {t("raw.sidebar.selectTrack")}
                         </p>
                         <p className="text-xs text-muted-foreground/60 mt-1">
-                          Click any track in the timeline below
+                          {t("raw.sidebar.clickAnyTrack")}
                         </p>
                       </div>
                     )}
@@ -596,7 +596,7 @@ export function Sidebar({
               </div>
             ) : (
               <div className="text-xs text-muted-foreground text-center py-8">
-                Select a composition to edit properties
+                {t("raw.sidebar.selectComposition")}
               </div>
             )}
           </TabsContent>

@@ -63,7 +63,7 @@ npx @agent-native/core@latest create my-agent --headless
 次に、作成したフォルダーからインストールします。
 
 ```bash
-cd my-agent # or my-app if you chose the Chat template
+cd my-agent # または、チャット テンプレートを選択した場合は my-app
 pnpm install
 ```
 
@@ -82,9 +82,9 @@ pnpm install
   "annotations": [
     { "lines": "5", "label": "ツール説明", "note": "エージェントは `description` を読み、いつツールとして呼び出すかを判断します。" },
     { "lines": "6-8", "label": "型付き契約", "note": "1 つの zod `schema` が、エージェント、UI、HTTP、MCP、A2A のすべての入力を検証します。" },
-    { "lines": "9", "label": "HTTP verb", "note": "Opt this action into an auto-mounted HTTP endpoint." },
-    { "lines": "10", "label": "Read-only", "note": "`readOnly` marks the action as safe to call without approval and cacheable for queries." },
-    { "lines": "11-13", "label": "One implementation", "note": "The `run` body is the single source of truth that every surface executes." }
+    { "lines": "9", "label": "HTTP 動詞", "note": "このアクションを自動マウントされる HTTP エンドポイントとして公開します。" },
+    { "lines": "10", "label": "読み取り専用", "note": "`readOnly` は、このアクションが承認なしで安全に呼び出せ、クエリとしてキャッシュ可能であることを示します。" },
+    { "lines": "11-13", "label": "単一の実装", "note": "`run` 本体は、すべてのサーフェスが実行する唯一の信頼できる実装です。" }
   ]
 }
 ```
@@ -123,7 +123,7 @@ pnpm dev
 
 ```an-diagram title="1 つのアクションであらゆる面に対応" summary="単一の defineAction ファイルは、追加の配線なしですべてのコンシューマに展開されます。"
 {
-  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Scheduled jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
+  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">チャット UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">スケジュール済みジョブ</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
   "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -138,7 +138,7 @@ pnpm dev
 ```an-callout
 {
   "tone": "info",
-  "body": "**Headless is still a real app.** The app-agent loop persists sessions, threads, runs, settings, and credentials in SQL — it is not a stateless prompt. You can add a UI later without touching your actions or state."
+  "body": "**ヘッドレスは依然として実際のアプリです。**アプリとエージェントのループは、セッション、スレッド、実行、設定、資格情報を SQL に保持します。これはステートレス プロンプトではありません。アクションや状態に手を加えずに、後から UI を追加できます。"
 }
 ```
 
@@ -165,7 +165,7 @@ export default function ChatRoute() {
   `useActionMutation()`.
 
 完全なコンポーネント セットについては、[Drop-in Agent](/docs/drop-in-agent) を参照してください。
-[Native Chat UI](/docs/native-chat-ui) はアクションの結果をテーブルとしてレンダリングします。
+[Native チャット UI](/docs/native-chat-ui) はアクションの結果をテーブルとしてレンダリングします。
 プレーンテキストの代わりにグラフと入力されたカード。
 
 **ヘッドレスで始めましたが、後で UI が必要ですか?** チャット テンプレートは UI オンランプです —
@@ -178,12 +178,12 @@ export default function ChatRoute() {
 
 ```text
 my-app/
-  actions/         # Agent-callable actions
-  app/             # React frontend (UI templates only; omitted when headless)
-  server/          # Nitro API server (routes, plugins)
-  AGENTS.md        # Always-on agent instructions
-  .agents/         # Skills the agent can pull in when relevant
-  data/app.db      # Local SQLite state when DATABASE_URL is unset
+  actions/         # エージェントが呼び出せるアクション
+  app/             # React フロントエンド（UI テンプレートのみ。headless では省略）
+  server/          # Nitro API サーバー（ルート、プラグイン）
+  AGENTS.md        # 常に適用されるエージェント指示
+  .agents/         # 必要に応じてエージェントが読み込むスキル
+  data/app.db      # DATABASE_URL 未設定時のローカル SQLite 状態
 ```
 
 ## 次にどこに行くか

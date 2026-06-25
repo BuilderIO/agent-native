@@ -29,7 +29,7 @@ description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여
 
 ```an-diagram title="마운트 모델" summary="<AgentSidebar>은 기존 레이아웃을 래핑합니다. 경로는 주요 영역에서 렌더링됩니다. 에이전트 패널이 그 옆에 마운트됩니다. <AgentPanel>은 래퍼가 없는 동일한 패널입니다."
 {
-  "html": "<div class=\"diagram-mount\"><div class=\"diagram-box sidebar\" data-rough><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><div class=\"inner\"><div class=\"diagram-node main\">Your app<br><small class=\"diagram-muted\">children: header + &lt;Outlet/&gt;</small></div><div class=\"diagram-node panel\">Agent panel<br><small class=\"diagram-muted\">chat &middot; CLI &middot; workspace</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card alt\"><span class=\"diagram-pill\">&lt;AgentPanel&gt;</span><small class=\"diagram-muted\">same panel, no wrapper &mdash; you own the layout</small></div></div>",
+  "html": "<div class=\"diagram-mount\"><div class=\"diagram-box sidebar\" data-rough><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><div class=\"inner\"><div class=\"diagram-node main\">귀하의 앱<br><small class=\"diagram-muted\">children: header + &lt;Outlet/&gt;</small></div><div class=\"diagram-node panel\">에이전트 패널<br><small class=\"diagram-muted\">chat &middot; CLI &middot; workspace</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card alt\"><span class=\"diagram-pill\">&lt;AgentPanel&gt;</span><small class=\"diagram-muted\">same panel, no wrapper &mdash; you own the layout</small></div></div>",
   "css": ".diagram-mount{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mount .sidebar{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-mount .inner{display:flex;gap:10px}.diagram-mount .main{flex:2}.diagram-mount .panel{flex:1}.diagram-mount .alt{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-mount .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -44,13 +44,13 @@ description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여
 {
   "filename": "app/root.tsx",
   "language": "tsx",
-  "code": "import { Outlet } from \"react-router\";\nimport { AgentSidebar, AgentToggleButton } from \"@agent-native/core/client\";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText=\"How can I help?\"\n      suggestions={[\n        \"Summarize my inbox\",\n        \"Draft a reply to the latest email\",\n        \"Show me yesterday's signup numbers\",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position=\"right\"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}",
+  "code": "import { Outlet } from \"react-router\";\nimport { AgentSidebar, AgentToggleButton } from \"@agent-native/core/client\";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText=\"무엇을 도와드릴까요?\"\n      suggestions={[\n        \"Summarize my inbox\",\n        \"Draft a reply to the latest email\",\n        \"Show me yesterday's signup numbers\",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position=\"right\"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}",
   "annotations": [
-    { "lines": "6", "label": "Wrapper", "note": "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area." },
-    { "lines": "8-12", "label": "Starter prompts", "note": "`suggestions` render as clickable chips on the empty chat." },
-    { "lines": "13", "label": "Context-aware chips", "note": "`dynamicSuggestions` merges screen-aware prompts (e.g. \"Summarize this selection\") with your static ones. On by default." },
-    { "lines": "18-20", "label": "Toggle button", "note": "Put `<AgentToggleButton />` anywhere in your header to open and close the panel." },
-    { "lines": "22-24", "label": "Your app", "note": "`<Outlet/>` (your routes) renders in the main area, untouched." }
+    { "lines": "6", "label": "래퍼", "note": "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area." },
+    { "lines": "8-12", "label": "시작 메시지", "note": "`suggestions` 빈 채팅에서 클릭 가능한 칩으로 렌더링됩니다." },
+    { "lines": "13", "label": "상황 인식 칩", "note": "`dynamicSuggestions` merges screen-aware prompts (e.g. \"Summarize this selection\") with your static ones. On by default." },
+    { "lines": "18-20", "label": "토글 버튼", "note": "Put `<AgentToggleButton />` anywhere in your header to open and close the panel." },
+    { "lines": "22-24", "label": "귀하의 앱", "note": "`<Outlet/>` (your routes) renders in the main area, untouched." }
   ]
 }
 ```
@@ -174,7 +174,7 @@ const { send, isGenerating } = useSendToAgentChat();
   `<AssistantChat runtime={...} />`. 커넥터
   (`createHttpAgentChatRuntime()` 및 OpenAI / Claude / Vercel AI / AG-UI
   도우미) 및 이벤트 계약은
-  [Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+  [Native 채팅 UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
 
 어떤 레이어를 선택하든 actions 및 SQL 지원 앱 상태를 계약으로 유지하세요.
 제품 UI에서 `/_agent-native/agent-chat`로 직접 게시하지 마세요. 만약

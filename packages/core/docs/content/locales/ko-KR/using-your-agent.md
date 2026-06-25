@@ -1,17 +1,17 @@
 ---
 title: "에이전트 사용"
-description: "에이전트와 함께 작업하는 일상적인 루프: 에이전트는 사용자가 보고 있는 것을 보고, 지시하고, 삽입하고, UI-light로 이동하고, 함께 공동 편집합니다."
+description: "에이전트와 함께 작업하는 일상적인 루프: 에이전트는 사용자가 보고 있는 것을 보고, 지시하고, 삽입하고, 가벼운 UI로 이동하고, 함께 공동 편집합니다."
 ---
 
 # 에이전트 사용
 
 에이전트 네이티브의 기본 아이디어는 에이전트와 UI가 **동등한 파트너**라는 것입니다. 그 이유는 [What Is Agent-Native?](/docs/what-is-agent-native)를 참조하세요. 이 섹션은 그 약속의 나머지 절반, 즉 앱 옆에 도킹된 에이전트와 실제로 작업하는 느낌에 관한 것입니다.
 
-간단한 통과선이 있습니다. 상담원은 귀하가 보고 있는 내용을 **보고** 원하는 방향으로 **지시**하고, 어디에든 **삽입**할 수 있으며, 더 적합할 때는 완전히 **UI-light**할 수 있으며, 동일한 문서를 동시에 **공동 편집**할 수 있습니다. 각각은 이 섹션의 페이지입니다.
+간단한 통과선이 있습니다. 상담원은 귀하가 보고 있는 내용을 **보고** 원하는 방향으로 **지시**하고, 어디에든 **삽입**할 수 있으며, 더 적합할 때는 완전히 **가벼운 UI**할 수 있으며, 동일한 문서를 동시에 **공동 편집**할 수 있습니다. 각각은 이 섹션의 페이지입니다.
 
 ```an-diagram title="일상적인 루프" summary="도킹된 에이전트로 작업하는 5가지 방법 - 각각이 이 섹션의 페이지입니다."
 {
-  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>UI-light</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">Co-edit</span><small class=\"diagram-muted\">live, side by side</small></div></div>",
+  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>가벼운 UI</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">공동 편집</span><small class=\"diagram-muted\">실시간, 나란히</small></div></div>",
   "css": ".diagram-loop{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-loop .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px;flex:1}.diagram-loop .diagram-arrow{align-self:center;font-size:22px;line-height:1}"
 }
 ```
@@ -49,7 +49,7 @@ description: "에이전트와 함께 작업하는 일상적인 루프: 에이전
 → [**Drop-in Agent**](/docs/drop-in-agent) — `<AgentPanel>`, `<AgentSidebar>` 및 `sendToAgentChat()`를 React 앱에 마운트합니다.
 → [**Agent Surfaces**](/docs/agent-surfaces) — 워크플로가 헤드리스, 채팅 우선, 내장형 또는 전체 앱인지 선택하세요.
 
-## UI-light로 갈 수 있습니다 {#ui-light}
+## 가벼운 UI로 갈 수 있습니다 {#ui-light}
 
 모든 앱에 전체 대시보드가 필요한 것은 아닙니다. 상담원이 제품인 경우 대부분의 맞춤 UI를 건너뛸 수 있습니다. 앱을 열고 원하는 것을 요청하면 상담원이 나머지 작업을 수행하게 됩니다. 에이전트에는 여전히 기록, 작업 공간, 설정 등 관리 영역이 있지만 주요 상호 작용은 클릭이 아닌 대화입니다.
 
@@ -67,5 +67,5 @@ description: "에이전트와 함께 작업하는 일상적인 루프: 에이전
 - [**Agent Mentions**](/docs/agent-mentions) — `@` 언급으로 지시
 - [**Voice Input**](/docs/voice-input) — 말로 지시
 - [**Drop-in Agent**](/docs/drop-in-agent) — 모든 React 앱에 삽입
-- [**Pure-Agent Apps**](/docs/pure-agent-apps) — 에이전트가 제품인 경우 UI-light로 이동
+- [**Pure-Agent Apps**](/docs/pure-agent-apps) — 에이전트가 제품인 경우 가벼운 UI로 이동
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — 동일한 문서를 함께 공동 편집

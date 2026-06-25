@@ -22,7 +22,7 @@ El estado del subagente persiste en la tabla `application_state` SQL (bajo `agen
 
 ```an-diagram title="Orquestador y especialistas" summary="El chat principal se delega en subagentes que se ejecutan en sus propios hilos y reportan como chips en línea."
 {
-  "html": "<div class=\"at-orc\"><div class=\"diagram-card main\"><span class=\"diagram-pill accent\">Main chat</span><small class=\"diagram-muted\">orchestrator &mdash; reads your request, delegates</small></div><div class=\"at-fan\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"at-subs\"><div class=\"diagram-box\">Code review<br><small class=\"diagram-muted\">own thread &amp; prompt</small></div><div class=\"diagram-box\">BigQuery analysis<br><small class=\"diagram-muted\">own tools</small></div><div class=\"diagram-box\">Email in voice<br><small class=\"diagram-muted\">own context</small></div></div></div><div class=\"diagram-pill\">each appears inline as a live chip &#8635;</div></div>",
+  "html": "<div class=\"at-orc\"><div class=\"diagram-card main\"><span class=\"diagram-pill accent\">Chat principal</span><small class=\"diagram-muted\">orchestrator &mdash; reads your request, delegates</small></div><div class=\"at-fan\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"at-subs\"><div class=\"diagram-box\">Revisión de código<br><small class=\"diagram-muted\">own thread &amp; prompt</small></div><div class=\"diagram-box\">Análisis de BigQuery<br><small class=\"diagram-muted\">own tools</small></div><div class=\"diagram-box\">Correo por voz<br><small class=\"diagram-muted\">own context</small></div></div></div><div class=\"diagram-pill\">each appears inline as a live chip &#8635;</div></div>",
   "css": ".at-orc{display:flex;flex-direction:column;align-items:center;gap:12px}.at-orc .diagram-card{padding:14px 18px;display:flex;flex-direction:column;gap:4px;align-items:center}.at-orc .at-fan{display:flex;flex-direction:column;align-items:center;gap:8px}.at-orc .diagram-arrow{font-size:22px}.at-orc .at-subs{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.at-orc .diagram-box{text-align:center}"
 }
 ```
@@ -140,7 +140,7 @@ El chat de nivel superior es el de profundidad `0`. Un subagente que genera es l
 
 ```an-diagram title="Guardia de profundidad de delegación (límite predeterminado 2)" summary="Cada nivel puede generar uno más profundo hasta el límite; un spawn pasado se rechaza en el lado del servidor."
 {
-  "html": "<div class=\"at-depth\"><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 0</span><strong>Top-level chat</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 1</span><strong>Sub-agent</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card warn\"><span class=\"diagram-pill warn\">depth 2</span><strong>Sub-agent's sub-agent</strong><small class=\"diagram-muted\">at the cap &mdash; may NOT spawn</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">depth 3</span><strong>Refused</strong><small class=\"diagram-muted\">server-side error</small></div></div>",
+  "html": "<div class=\"at-depth\"><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 0</span><strong>Chat de nivel superior</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 1</span><strong>Subagente</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card warn\"><span class=\"diagram-pill warn\">depth 2</span><strong>Subagente del subagente</strong><small class=\"diagram-muted\">at the cap &mdash; may NOT spawn</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">depth 3</span><strong>Refused</strong><small class=\"diagram-muted\">server-side error</small></div></div>",
   "css": ".at-depth{display:flex;flex-direction:column;gap:8px}.at-depth .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.at-depth .rung-1,.at-depth .diagram-card:nth-child(2){margin-inline-start:24px}.at-depth .diagram-card:nth-child(3){margin-inline-start:48px}.at-depth .diagram-card:nth-child(4){margin-inline-start:72px}"
 }
 ```
@@ -159,7 +159,7 @@ Anule el valor predeterminado en el momento de la implementación con `AGENT_NAT
 | no válido / `>16` | Un valor no entero/negativo/NaN vuelve a `2`; todo lo que esté por encima de `16` se fija en `16`, por lo que un error tipográfico nunca podrá desactivar la protección. |
 
 ```bash
-AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # sub-agents allowed, but they can't sub-delegate
+AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # Se permiten subagentes, pero no pueden subdelegar.
 ```
 
 Cuando un subagente está en el límite o por debajo de él, el marco inyecta una línea en su contexto de tiempo de ejecución que le indica qué tan profundo se encuentra y si puede delegar más, de modo que el modelo gaste su presupuesto de manera adecuada.

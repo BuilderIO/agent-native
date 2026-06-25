@@ -21,7 +21,7 @@ El puente del agente externo cierra el ciclo. Primero, conecta su propio agente 
 
 ```an-diagram title="El viaje de ida y vuelta del agente externo" summary="Un host externo llama a una herramienta a través de MCP; la aplicación devuelve un artefacto más un enlace Abrir. Al hacer clic en él, se resuelve la sesión del navegador y se enfoca el artefacto en la interfaz de usuario en ejecución; el enlace no tiene ningún estado privilegiado."
 {
-  "html": "<div class=\"xa-trip\"><div class=\"diagram-box\" data-rough>External host<br><small class=\"diagram-muted\">Claude &middot; ChatGPT &middot; Codex &middot; Cursor</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">MCP tool call</span><small class=\"diagram-muted\">e.g. <code>manage-draft</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>App produces artifact<br><small class=\"diagram-muted\">+ <code>Open in &lt;app&gt; &rarr;</code> deep link / MCP App</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>User clicks link</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill ok\"><code>/_agent-native/open</code></span><small class=\"diagram-muted\">resolves the <strong>browser</strong> session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Writes <code>navigate</code> app-state<br><small class=\"diagram-muted\">UI focuses the artifact</small></div></div>",
+  "html": "<div class=\"xa-trip\"><div class=\"diagram-box\" data-rough>Host externo<br><small class=\"diagram-muted\">Claude &middot; ChatGPT &middot; Codex &middot; Cursor</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Herramienta MCP call</span><small class=\"diagram-muted\">e.g. <code>manage-draft</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>La app produce un artefacto<br><small class=\"diagram-muted\">+ <code>Open in &lt;app&gt; &rarr;</code> deep link / MCP App</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>El usuario hace clic en el enlace</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill ok\"><code>/_agent-native/open</code></span><small class=\"diagram-muted\">resolves the <strong>browser</strong> session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Writes <code>navigate</code> app-state<br><small class=\"diagram-muted\">La UI enfoca el artefacto</small></div></div>",
   "css": ".xa-trip{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.xa-trip .center{display:flex;flex-direction:column;align-items:center;gap:4px}.xa-trip .diagram-arrow{font-size:22px;line-height:1}.xa-trip code{font-size:.85em}"
 }
 ```
@@ -31,7 +31,7 @@ La regla de identidad es la bisagra de seguridad: el enlace es solo `view` + ide
 ## ¿Qué ruta de agente necesitas? {#which-agent-path}
 
 - **Host externo MCP:** use esta página cuando Claude, ChatGPT, Codex, Cursor, OpenCode, GitHub Copilot/VS Code u otro host compatible con MCP llame a su aplicación nativa del agente alojado.
-- **Su propio tiempo de ejecución detrás del chat Agent-Native:** consulte [Agent Surfaces](/docs/agent-surfaces#byo-agent) y [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes) cuando un agente creado con otro marco debería impulsar `<AssistantChat runtime={...}>`.
+- **Su propio tiempo de ejecución detrás del chat Agent-Native:** consulte [Agent Surfaces](/docs/agent-surfaces#byo-agent) y [Native Interfaz de chat](/docs/native-chat-ui#byo-agent-runtimes) cuando un agente creado con otro marco debería impulsar `<AssistantChat runtime={...}>`.
 - **Su aplicación consume herramientas MCP:** consulte [MCP Clients](/docs/mcp-clients) cuando una aplicación nativa del agente necesita llamar a herramientas expuestas por otro servidor MCP.
 - **Otra aplicación o agente a través de A2A:** use [Agent Mentions](/docs/agent-mentions) y [A2A](/docs/a2a-protocol) cuando las aplicaciones nativas del agente deban descubrirse y delegarse entre sí.
 - **Subagentes personalizados locales:** use [Workspace](/docs/workspace) cuando desee perfiles de agente personalizados dentro del propio espacio de trabajo nativo del agente.
@@ -249,7 +249,7 @@ El servidor MCP ofrece un **catálogo compacto de forma predeterminada para cada
 
 ```an-diagram title="Dos niveles de catálogo" summary="Cada persona que llama obtiene el nivel compacto de forma predeterminada; la superficie completa de ~105 herramientas es solo opcional. La búsqueda de herramientas cierra la brecha para que nunca nada quede realmente oculto."
 {
-  "html": "<div class=\"xa-tiers\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill ok\">Compact / connector tier &middot; default</span><strong>~20&ndash;30 tools</strong><small class=\"diagram-muted\">Template-declared app actions + cross-app builtins (<code>list_apps</code>, <code>open_app</code>, <code>ask_app</code>, <code>create_embed_session</code>) + always-present <code>tool-search</code>.</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Full tier &middot; opt-in</span><strong>~105 tools</strong><small class=\"diagram-muted\">Explicit opt-in only: <code>--full-catalog</code> token or <code>AGENT_NATIVE_MCP_FULL_CATALOG=1</code>.</small></div></div><p class=\"diagram-muted note\"><code>tool-search</code> reaches any full-tier tool on demand &mdash; so the compact default keeps context small without hiding capability.</p>",
+  "html": "<div class=\"xa-tiers\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill ok\">Compact / connector tier &middot; default</span><strong>~20&ndash;30 tools</strong><small class=\"diagram-muted\">Template-declared app actions + cross-app builtins (<code>list_apps</code>, <code>open_app</code>, <code>ask_app</code>, <code>create_embed_session</code>) + always-present <code>tool-search</code>.</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Full tier &middot; opt-in</span><strong>~105 herramientas</strong><small class=\"diagram-muted\">Explicit opt-in only: <code>--full-catalog</code> token or <code>AGENT_NATIVE_MCP_FULL_CATALOG=1</code>.</small></div></div><p class=\"diagram-muted note\"><code>tool-search</code> reaches any full-tier tool on demand &mdash; so the compact default keeps context small without hiding capability.</p>",
   "css": ".xa-tiers{display:flex;align-items:stretch;gap:14px;flex-wrap:wrap}.xa-tiers .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;flex:1;min-width:240px}.xa-tiers .diagram-arrow{align-self:center;font-size:24px;line-height:1}.xa-tiers .note{flex-basis:100%;margin:4px 0 0;font-size:.85em}.xa-tiers code{font-size:.85em}"
 }
 ```
@@ -400,7 +400,7 @@ function composeDeepLink(draft: Record<string, string>): string {
   return buildDeepLink({
     app: "mail",
     view: "inbox",
-    compose: encodeComposeDraft(draft), // base64url JSON → compose-<id> draft
+    compose: encodeComposerDraft(draft), // base64url JSON → compose-<id> draft
   });
 }
 
@@ -442,7 +442,7 @@ Cuando el usuario hace clic en el enlace en cualquier navegador o vista web en l
 {
   "method": "GET",
   "path": "/_agent-native/open",
-  "summary": "Deep-link open route — focuses the browser UI on a record",
+  "summary": "Ruta abierta de enlace profundo: enfoca la interfaz de usuario del navegador en un registro",
   "description": "Resolves the browser session, writes a one-shot `navigate` application-state command scoped to that session, and 302-redirects to a safe same-origin path. Always build the URL with `buildDeepLink(...)`; never hand-format it. Can be disabled per app with `disableOpenRoute`.",
   "auth": "Browser session via `getSession`. The auth guard bypasses this exact path; if unauthenticated it serves login HTML at the same URL, and the form reload re-enters authenticated (no `?next=` plumbing).",
   "params": [

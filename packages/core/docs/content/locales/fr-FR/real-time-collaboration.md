@@ -38,7 +38,7 @@ Le système de collaboration comporte cinq couches imbriquées.
 
 ```an-diagram title="Cinq couches imbriquées" summary="Du CRDT en mémoire au transport qui transporte les mises à jour entre les pairs, chaque couche a une tâche."
 {
-  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; conflict-free merge, no coordinator</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; SQL canonical content</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; updatedAt-gated reconcile</span><small class=\"diagram-muted\">agent edits propagate via the SQL bump</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; Lead-client election</span><small class=\"diagram-muted\">exactly one tab applies the snapshot</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; SSE fast-path + polling</span><small class=\"diagram-muted\">~tens of ms, degrades to 2s poll anywhere</small></div></div>",
+  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; fusion sans conflit, sans coordinateur</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; Contenu canonique SQL</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; réconciliation contrôlée par updatedAt</span><small class=\"diagram-muted\">les modifications de l’agent se propagent via le bump SQL</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; Élection du client leader</span><small class=\"diagram-muted\">un seul onglet applique l’instantané</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; chemin rapide SSE + polling</span><small class=\"diagram-muted\">~quelques dizaines de ms, retombe sur un polling de 2 s partout</small></div></div>",
   "css": ".diagram-stack{display:flex;flex-direction:column;gap:8px}.diagram-stack .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
 }
 ```
@@ -86,7 +86,7 @@ Les événements de mise à jour de collaboration suivent deux chemins :
   (le même `EventSource` utilisé par `useDbSync`). Les événements de mise à jour de la collaboration arrivent
   de type push, généralement en dizaines de millisecondes. Bien que SSE soit en bonne santé,
   la boucle d'interrogation se détend à une cadence lente (~ 12 s par défaut).
-- **Polling fallback** — `/_agent-native/poll?since=N` est interrogé toutes les 2 s
+- **Sondageing fallback** — `/_agent-native/poll?since=N` est interrogé toutes les 2 s
   lorsque SSE n'est pas disponible. Cela permet à la collaboration de fonctionner sur n'importe quel déploiement
   cible — y compris les fonctions sans serveur où se trouvent les connexions persistantes
   des invocations impossibles et différentes peuvent gérer différentes requêtes.
@@ -102,7 +102,7 @@ Les erreurs réseau utilisent un intervalle exponentiel avec gigue, plafonné à
 
 ```an-diagram title="Deux chemins d'édition, un de fusion" summary="Les frappes humaines circulent Y.Doc → serveur → SSE. Les modifications de l'agent passent par SQL : l'action est déplacée vers updateAt, le client principal se réconcilie, puis la modification entre à nouveau dans Yjs."
 {
-  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">Human edit</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce ~80ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">Agent edit</span><div class=\"diagram-node\">Action writes SQL<br><small class=\"diagram-muted\">bumps updatedAt</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>Lead client<br><small class=\"diagram-muted\">setContent into Y.Doc</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
+  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">Modification humaine</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce ~80 ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">Modification agent</span><div class=\"diagram-node\">L’action écrit SQL<br><small class=\"diagram-muted\">met à jour updatedAt</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>Client principal<br><small class=\"diagram-muted\">setContent dans Y.Doc</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
   "css": ".diagram-collab{display:flex;flex-direction:column;gap:14px}.diagram-collab .lane{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-collab .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -227,7 +227,7 @@ Les modèles peuvent ajouter un système de commentaires avec des discussions en
 - Barre latérale des commentaires avec vue en fil de discussion et réponse UI
 - Résoudre/annuler la résolution des threads
 - Bouton **Envoyer à AI** : envoie le contexte du fil de commentaires au chat de l'agent via `sendToAgentChat()`
-- Agent actions : `list-comments`, `add-comment`
+- Action d’agents : `list-comments`, `add-comment`
 - Synchronisation des commentaires Notion : action `sync-notion-comments` pour tirer/pousser bidirectionnel
 
 ## Itinéraires de collaboration {#collab-routes}
@@ -248,13 +248,13 @@ Toutes les routes de collaboration sont montées automatiquement sous `/_agent-n
 L'action `edit-document` du modèle de contenu est le principal moyen utilisé par les agents pour apporter des modifications aux documents en mode collaboratif :
 
 ```bash
-# Single edit
+# Modification unique
 pnpm action edit-document --id doc123 --find "old text" --replace "new text"
 
-# Batch edits
+# Modifications par lots
 pnpm action edit-document --id doc123 --edits '[{"find":"old","replace":"new"}]'
 
-# Delete text
+# Supprimer le texte
 pnpm action edit-document --id doc123 --find "delete me" --replace ""
 ```
 
@@ -625,7 +625,7 @@ Propriétés clés :
 ```an-callout
 {
   "tone": "risk",
-  "body": "**Same-region simultaneous rewrite is last-write-wins.** If the agent rewrites a passage while a human has unsaved edits in the *exact same region*, the lead-client snapshot can clobber the in-flight human edit. Edits in different regions always merge cleanly via the CRDT. For structured documents, use granular server-side merge to sidestep this entirely."
+  "body": "**La réécriture simultanée dans la même région est la dernière écriture gagnante.** Si l'agent réécrit un passage alors qu'un humain a des modifications non enregistrées dans *exactement la même région*, l'instantané du client principal peut entraver la modification humaine en vol. Les modifications dans différentes régions fusionnent toujours proprement via le CRDT. Pour les documents structurés, utilisez la fusion granulaire côté serveur pour éviter complètement cela."
 }
 ```
 

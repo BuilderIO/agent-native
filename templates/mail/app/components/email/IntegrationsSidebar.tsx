@@ -57,7 +57,7 @@ type ProviderId = "apollo" | "hubspot" | "gong" | "pylon";
 interface IntegrationDef {
   id: ProviderId;
   name: string;
-  description: string;
+  descriptionKey: string;
   keyPlaceholder: string;
   helpUrl: string;
   helpSteps: string[];
@@ -68,7 +68,7 @@ const INTEGRATIONS: IntegrationDef[] = [
   {
     id: "apollo",
     name: "Apollo",
-    description: "Contact enrichment & company data",
+    descriptionKey: "mail.integrations.apolloDescription",
     keyPlaceholder: "Apollo API key...",
     helpUrl: "https://app.apollo.io/#/settings/integrations/api",
     helpSteps: [
@@ -105,7 +105,7 @@ const INTEGRATIONS: IntegrationDef[] = [
   {
     id: "hubspot",
     name: "HubSpot",
-    description: "CRM contacts, deals & tickets",
+    descriptionKey: "mail.integrations.hubspotDescription",
     keyPlaceholder: "HubSpot private app token...",
     helpUrl: "https://developers.hubspot.com/docs/api/private-apps",
     helpSteps: [
@@ -130,7 +130,7 @@ const INTEGRATIONS: IntegrationDef[] = [
   {
     id: "gong",
     name: "Gong",
-    description: "Recent calls & conversation intelligence",
+    descriptionKey: "mail.integrations.gongDescription",
     keyPlaceholder: "Gong API key or access_key:secret...",
     helpUrl: "https://app.gong.io/company/api",
     helpSteps: [
@@ -155,7 +155,7 @@ const INTEGRATIONS: IntegrationDef[] = [
   {
     id: "pylon",
     name: "Pylon",
-    description: "Support issues & account data",
+    descriptionKey: "mail.integrations.pylonDescription",
     keyPlaceholder: "Pylon API token...",
     helpUrl: "https://docs.usepylon.com/pylon-docs/developer/api",
     helpSteps: [
@@ -460,7 +460,7 @@ function IntegrationRow({
       <div className="flex-1 min-w-0">
         <p className="text-[12px] font-medium text-foreground/80">{def.name}</p>
         <p className="text-[10px] text-muted-foreground/70 truncate">
-          {def.description}
+          {t(def.descriptionKey)}
         </p>
       </div>
       {connected ? (
@@ -700,6 +700,7 @@ function IntegrationNotice({
 // ─── Apollo Section ─────────────────────────────────────────────────────────
 
 function ApolloSection({ email }: { email: string }) {
+  const t = useT();
   const { data: person, isLoading, error } = useApolloPerson(email);
 
   if (isLoading) return <SectionLoading />;
@@ -897,7 +898,7 @@ function ApolloSection({ email }: { email: string }) {
           <div className="h-px bg-border/30 mx-4" />
           <div className="px-4 py-3">
             <h4 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mb-2">
-              Experience
+              {t("mail.integrations.experience")}
             </h4>
             <div className="space-y-2">
               {person.employment_history.slice(0, 4).map((job, i) => (
@@ -921,6 +922,7 @@ function ApolloSection({ email }: { email: string }) {
 // ─── HubSpot Section ────────────────────────────────────────────────────────
 
 function HubSpotSection({ email }: { email: string }) {
+  const t = useT();
   const {
     data: contact,
     isLoading,
@@ -973,7 +975,7 @@ function HubSpotSection({ email }: { email: string }) {
         {contact.deals?.length > 0 && (
           <div className="mt-3">
             <p className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">
-              Deals
+              {t("mail.integrations.deals")}
             </p>
             {contact.deals.map((deal: any) => (
               <div key={deal.id} className="mb-1.5">
@@ -995,7 +997,7 @@ function HubSpotSection({ email }: { email: string }) {
         {contact.tickets?.length > 0 && (
           <div className="mt-3">
             <p className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">
-              Tickets
+              {t("mail.integrations.tickets")}
             </p>
             {contact.tickets.map((ticket: any) => (
               <div key={ticket.id} className="mb-1.5">
@@ -1018,6 +1020,7 @@ function HubSpotSection({ email }: { email: string }) {
 // ─── Gong Section ───────────────────────────────────────────────────────────
 
 function GongSection({ email }: { email: string }) {
+  const t = useT();
   const {
     data: calls,
     isLoading,
@@ -1042,7 +1045,10 @@ function GongSection({ email }: { email: string }) {
     <>
       <div className="h-px bg-border/30 mx-4" />
       <div className="px-4 py-3">
-        <SectionHeader logo={INTEGRATIONS[2].logo} label="Gong Calls" />
+        <SectionHeader
+          logo={INTEGRATIONS[2].logo}
+          label={t("mail.integrations.gongCalls")}
+        />
 
         <div className="space-y-2">
           {calls.map((call: any) => {

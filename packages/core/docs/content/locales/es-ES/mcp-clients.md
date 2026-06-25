@@ -22,7 +22,7 @@ Cada fuente se resuelve en un **administrador MCP** en tiempo de ejecución, y c
 
 ```an-diagram title="Dirección del cliente: muchas fuentes, un registro de herramientas" summary="Los archivos de configuración, el entorno y la interfaz de usuario en tiempo de ejecución se fusionan en el administrador MCP; sus herramientas aparecen con prefijo y se pueden buscar mediante herramientas junto con las acciones de su aplicación. Este es el espejo de la dirección del servidor."
 {
-  "html": "<div class=\"mcp-merge\"><div class=\"diagram-col sources\"><div class=\"diagram-box\" data-rough>Workspace <code>mcp.config.json</code><br><small class=\"diagram-muted\">shared across apps</small></div><div class=\"diagram-box\" data-rough>App-root <code>mcp.config.json</code><br><small class=\"diagram-muted\">per-app override</small></div><div class=\"diagram-box\" data-rough><code>MCP_SERVERS</code> env<br><small class=\"diagram-muted\">CI / production</small></div><div class=\"diagram-box\" data-rough>Remote via settings UI<br><small class=\"diagram-muted\">personal &amp; org scope</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">MCP manager</span><small class=\"diagram-muted\">merge &middot; hot-reload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col out\"><div class=\"diagram-node\">Agent tool registry<br><small class=\"diagram-muted\"><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small></div><div class=\"diagram-node\"><code>tool-search</code><br><small class=\"diagram-muted\">discover by intent</small></div></div></div>",
+  "html": "<div class=\"mcp-merge\"><div class=\"diagram-col sources\"><div class=\"diagram-box\" data-rough>Workspace <code>mcp.config.json</code><br><small class=\"diagram-muted\">compartido entre apps</small></div><div class=\"diagram-box\" data-rough>Raíz de la app <code>mcp.config.json</code><br><small class=\"diagram-muted\">sobrescritura por app</small></div><div class=\"diagram-box\" data-rough><code>MCP_SERVERS</code> env<br><small class=\"diagram-muted\">CI / producción</small></div><div class=\"diagram-box\" data-rough>Remoto desde la UI de ajustes<br><small class=\"diagram-muted\">personal &amp; org scope</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Gestor MCP</span><small class=\"diagram-muted\">merge &middot; hot-reload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col out\"><div class=\"diagram-node\">Herramienta del agente registry<br><small class=\"diagram-muted\"><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small></div><div class=\"diagram-node\"><code>tool-search</code><br><small class=\"diagram-muted\">descubrir por intención</small></div></div></div>",
   "css": ".mcp-merge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-merge .diagram-col{display:flex;flex-direction:column;gap:8px}.mcp-merge .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-merge .diagram-arrow{font-size:22px;line-height:1}.mcp-merge code{font-size:.85em}"
 }
 ```
@@ -108,9 +108,9 @@ La forma es pequeña: un mapa `servers` codificado por ID de servidor, donde cad
   "language": "jsonc",
   "code": "{\n  \"$schema\": \"https://agent-native.com/schema/mcp.config.json\",\n  \"servers\": {\n    \"claude-in-chrome\": {\n      \"command\": \"claude-in-chrome-mcp\",\n      \"args\": [],\n      \"env\": { \"LOG_LEVEL\": \"info\" }\n    },\n    \"filesystem\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem@latest\", \"/Users/me/projects\"]\n    }\n  }\n}",
   "annotations": [
-    { "lines": "3", "label": "Server id", "note": "The key becomes the tool prefix: this server's tools surface as `mcp__claude-in-chrome__*` in the agent's registry, so they can't collide with your template's actions." },
-    { "lines": "4-6", "label": "stdio launcher", "note": "`command` + `args` spawn a local binary. Stdio servers are intended for **local development** — they are a no-op in edge runtimes." },
-    { "lines": "6", "label": "Process env", "note": "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens." }
+    { "lines": "3", "label": "identificación del servidor", "note": "La clave se convierte en el prefijo de la herramienta: las herramientas de este servidor aparecen como `mcp__claude-in-chrome__*` en el registro del agente, por lo que no pueden colisionar con las acciones de su plantilla." },
+    { "lines": "4-6", "label": "stdio launcher", "note": "`command` + `args` generan un binario local. Los servidores Stdio están destinados al **desarrollo local**; no son operativos en los tiempos de ejecución perimetrales." },
+    { "lines": "6", "label": "entorno de proceso", "note": "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens." }
   ]
 }
 ```
@@ -131,7 +131,7 @@ Las herramientas están registradas en el registro de herramientas del agente co
 La configuración MCP se resuelve en este orden, el primer partido gana:
 
 1. **Raíz del espacio de trabajo `mcp.config.json`**: detectado a través de `agent-native.workspaceCore` en `package.json`. Compartido en todas las aplicaciones del espacio de trabajo.
-2. **App-root `mcp.config.json`**: anulación por aplicación si no desea que haya un servidor MCP disponible en cada aplicación.
+2. **Raíz de la app `mcp.config.json`**: anulación por aplicación si no desea que haya un servidor MCP disponible en cada aplicación.
 3. **`MCP_SERVERS` env var**: cadena JSON con la misma forma, para CI/producción donde un archivo no tiene sentido.
 
 ## Implementaciones de producción: `MCP_SERVERS` {#mcp-servers-env}
@@ -204,7 +204,7 @@ El envío es el centro convencional: ya coordina todas las aplicaciones.
 
 ```an-diagram title="Modelo de concentrador: una aplicación sirve servidores MCP de alcance organizativo" summary="Dispatch contiene los servidores MCP de ámbito de organización; las aplicaciones de consumo las extraen y combinan como mcp__hub_<orgId>_<name>__*. Solo se comparten las filas del ámbito de la organización: las credenciales personales permanecen intactas."
 {
-  "html": "<div class=\"mcp-hub\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Dispatch hub</span><small class=\"diagram-muted\">org-scope MCP servers</small><small class=\"diagram-muted\"><code>GET /mcp/hub/servers</code></small></div><div class=\"diagram-col arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div></div><div class=\"diagram-col consumers\"><div class=\"diagram-box\" data-rough>Mail<br><small class=\"diagram-muted\"><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small></div><div class=\"diagram-box\" data-rough>Clips<br><small class=\"diagram-muted\">pull + merge each ~60s</small></div></div></div><p class=\"diagram-muted note\">Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope) servers are never re-exposed.</p>",
+  "html": "<div class=\"mcp-hub\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Dispatch hub</span><small class=\"diagram-muted\">servidores MCP con alcance de organización</small><small class=\"diagram-muted\"><code>GET /mcp/hub/servers</code></small></div><div class=\"diagram-col arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div></div><div class=\"diagram-col consumers\"><div class=\"diagram-box\" data-rough>Mail<br><small class=\"diagram-muted\"><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small></div><div class=\"diagram-box\" data-rough>Clips<br><small class=\"diagram-muted\">pull + merge cada ~60 s</small></div></div></div><p class=\"diagram-muted note\">Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope) servers are never re-exposed.</p>",
   "css": ".mcp-hub{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-hub .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-hub .diagram-col{display:flex;flex-direction:column;gap:10px}.mcp-hub .arrows .diagram-arrow{font-size:22px;line-height:1}.mcp-hub .note{margin:8px 0 0;font-size:.85em}.mcp-hub code{font-size:.85em}"
 }
 ```
@@ -220,7 +220,7 @@ instrucciones y recursos de referencia. Agregue un recurso de espacio de trabajo
   "headers": {
     "Authorization": "Bearer ${keys.MCP_SERVER_TOKEN}"
   },
-  "description": "Shared MCP tools for workspace apps"
+  "description": "Shared Herramienta MCPs for workspace apps"
 }
 ```
 
@@ -285,7 +285,7 @@ Cada aplicación expone `GET /_agent-native/mcp/status` para herramientas e inco
 {
   "method": "GET",
   "path": "/_agent-native/mcp/status",
-  "summary": "MCP client status for tooling and onboarding",
+  "summary": "Estado del cliente MCP para herramientas e incorporación",
   "description": "Reports which configured servers connected, the total live tool count, the merged prefixed tool list, and any per-server connection errors. Use it to build \"detected — your agent can now drive X\" hints or to debug connection problems.",
   "responses": [
     {

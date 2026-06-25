@@ -13,13 +13,13 @@ Cada aplicativo nativo do agente consiste em três coisas trabalhando juntas:
 
 > **Agente** — IA autônoma que lê dados, grava dados, executa actions e modifica código. Personalizável com skills e instruções.
 >
-> **Aplicação** — A superfície do produto ao redor do agente. Inicialmente, isso pode ser apenas ação, bate-papo avançado, um pequeno plano de controle ou um React UI completo com painéis, fluxos e visualizações.
+> **Aplicação** — A superfície do produto ao redor do agente. Inicialmente, isso pode ser apenas ação, bate-papo avançado, um pequeno plano de controle ou um UI React completo com painéis, fluxos e visualizações.
 >
 > **Computador** — Banco de dados, navegador, execução de código. Os agentes trabalham diretamente com SQL e ferramentas integradas; Os servidores MCP são complementos opcionais, não a base.
 
 ```an-diagram title="Agente, aplicativo e computador" summary="Três camadas trabalhando juntas em um armazenamento SQL compartilhado. O agente e o aplicativo leem e gravam os mesmos dados."
 {
-  "html": "<div class=\"diagram-arch\"><div class=\"diagram-row\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads + writes data, runs actions, modifies code</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Application</span><small class=\"diagram-muted\">action-only, chat, control plane, or full React UI</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;&nbsp;&uarr;</div><div class=\"diagram-box\" data-rough>Computer<br><small class=\"diagram-muted\">banco de dados SQL · browser · code execution</small></div></div>",
+  "html": "<div class=\"diagram-arch\"><div class=\"diagram-row\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">lê e grava dados, executa ações, modifica código</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Application</span><small class=\"diagram-muted\">action-only, chat, control plane, or full UI React</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;&nbsp;&uarr;</div><div class=\"diagram-box\" data-rough>Computer<br><small class=\"diagram-muted\">banco de dados SQL · browser · code execution</small></div></div>",
   "css": ".diagram-arch{display:flex;flex-direction:column;align-items:center;gap:10px}.diagram-arch .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-arch .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:220px}.diagram-arch .diagram-arrow{font-size:20px;line-height:1}.diagram-arch .diagram-box{text-align:center;padding:12px 18px}"
 }
 ```
@@ -77,7 +77,7 @@ Um recurso com apenas UI é invisível para o agente. Um recurso UI completo com
 
 ## Dados em SQL {#data-in-sql}
 
-Todo o estado do aplicativo reside em um banco de dados SQL via Drizzle ORM. Os esquemas são independentes do provedor; os bancos de dados suportados, a configuração do `DATABASE_URL` e as regras de portabilidade residem no [Database](/docs/database).
+Todo o estado do aplicativo reside em um banco de dados SQL com Drizzle ORM. Os esquemas são independentes do provedor; os bancos de dados suportados, a configuração do `DATABASE_URL` e as regras de portabilidade residem no [Database](/docs/database).
 
 As lojas principais SQL são criadas automaticamente e estão disponíveis em todos os modelos:
 
@@ -86,22 +86,22 @@ As lojas principais SQL são criadas automaticamente e estão disponíveis em to
 - `oauth_tokens` — credenciais OAuth
 - `sessions` — sessões de autenticação
 
-```an-schema title="Core SQL stores" summary="Auto-created in every template — the agent and UI both read and write these."
+```an-schema title="Lojas principais SQL" summary="Criado automaticamente em cada modelo — o agente e UI leem e gravam estes."
 {
   "entities": [
-    { "id": "application_state", "name": "application_state", "note": "Ephemeral UI state the agent reads for context", "fields": [
-      { "name": "key", "type": "text", "pk": true, "note": "e.g. 'navigation'" },
-      { "name": "value", "type": "json", "note": "view, selection, drafts" }
+    { "id": "application_state", "name": "application_state", "note": "Efêmero UI estado que o agente lê para obter contexto", "fields": [
+      { "name": "key", "type": "text", "pk": true, "note": "por exemplo. 'navigation'" },
+      { "name": "value", "type": "json", "note": "visualização, seleção, rascunhos" }
     ] },
-    { "id": "settings", "name": "settings", "note": "Persistent key-value config", "fields": [
+    { "id": "settings", "name": "settings", "note": "Configuração de valor-chave persistente", "fields": [
       { "name": "key", "type": "text", "pk": true },
       { "name": "value", "type": "json" }
     ] },
-    { "id": "oauth_tokens", "name": "oauth_tokens", "note": "OAuth credentials", "fields": [
+    { "id": "oauth_tokens", "name": "oauth_tokens", "note": "OAuth credenciais", "fields": [
       { "name": "provider", "type": "text", "pk": true },
       { "name": "token", "type": "text" }
     ] },
-    { "id": "sessions", "name": "sessions", "note": "Auth sessions", "fields": [
+    { "id": "sessions", "name": "sessions", "note": "Sessões de autenticação", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "userId", "type": "text" }
     ] }
@@ -123,11 +123,11 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# Core actions for quick database inspection and one-off maintenance
+# Ações principais para inspeção rápida do banco de dados e manutenção pontual
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
 pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
-# Surgical find/replace on a large text column — sends a diff, not the whole value
+# Cirúrgico find/replace em uma coluna de texto grande — envia uma comparação, não o valor inteiro
 pnpm action db-patch --table documents --column content \
   --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
@@ -213,7 +213,7 @@ O fluxo é:
 
 ```an-diagram title="Fluxo de sincronização ao vivo" summary="Uma gravação de agente se torna uma renderização de UI sem atualização manual - SSE primeiro, pesquisando como substituto universal."
 {
-  "html": "<div class=\"diagram-sync\"><div class=\"diagram-node\">Agent action<br><small class=\"diagram-muted\">writes to DB</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Change event<br><small class=\"diagram-muted\">source: action / settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">useDbSync</span><small class=\"diagram-muted\">SSE &middot; poll fallback</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Query refetch<br><small class=\"diagram-muted\">render, no reload</small></div></div>",
+  "html": "<div class=\"diagram-sync\"><div class=\"diagram-node\">Ação do agente<br><small class=\"diagram-muted\">grava no DB</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Evento de alteração<br><small class=\"diagram-muted\">source: action / settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">useDbSync</span><small class=\"diagram-muted\">SSE &middot; poll fallback</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Refetch da consulta<br><small class=\"diagram-muted\">renderiza, sem recarregar</small></div></div>",
   "css": ".diagram-sync{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}.diagram-sync .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 14px}"
 }
 ```
@@ -288,7 +288,7 @@ Adotar o framework é valioso principalmente por causa do que você deixa de ter
 - **Uma ação = cada superfície.** Cada ação definida com `defineAction()` é simultaneamente uma ferramenta de agente, um gancho de frontend typesafe (`useActionQuery`/`useActionMutation`), um transporte HTTP de propriedade da estrutura, um comando CLI, uma ferramenta MCP para clientes externos e uma ferramenta A2A para outros aplicativos nativos de agente. Os metadados `link` e `mcpApp` opcionais adicionam links diretos e aplicativos MCP UI sem uma segunda implementação.
 - **Um espaço de trabalho completo por usuário.** Skills, `LEARNINGS.md` compartilhado, `memory/MEMORY.md` pessoal, `AGENTS.md`, subagentes personalizados, trabalhos agendados, servidores MCP conectados — todos com suporte de SQL, sem necessidade de caixa de desenvolvimento. Consulte [Workspace](/docs/workspace).
 - **Componentes React integrados.** `<AgentPanel />` e `<AgentSidebar />` renderizam chat + espaço de trabalho em qualquer lugar do seu aplicativo. Consulte [Drop-in Agent](/docs/drop-in-agent).
-- **Tempos de execução de bate-papo do agente BYO.** O mesmo bate-papo UI pode ser colocado sobre Agentes OpenAI, Respostas OpenAI, Agente Claude SDK, Vercel AI SDK, AG-UI ou seu próprio fluxo HTTP normalizado. Consulte [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes).
+- **Tempos de execução de bate-papo do agente BYO.** O mesmo bate-papo UI pode ser colocado sobre Agentes OpenAI, Respostas OpenAI, Agente Claude SDK, Vercel AI SDK, AG-UI ou seu próprio fluxo HTTP normalizado. Consulte [Native Interface de chat](/docs/native-chat-ui#byo-agent-runtimes).
 - **Sincronização ao vivo entre o agente e UI.** O mesmo processo grava fluxo imediatamente em `/_agent-native/events`; uma pesquisa leve mantém as gravações sem servidor, cron e entre processos convergentes. A mutação actions invalida automaticamente as consultas baseadas em ação, de modo que os registros criados pelo agente aparecem sem atualização manual. Veja [Live Sync](#polling-sync) abaixo.
 - **Auth, orgs, RBAC.** Better Auth com organizações/membros/funções está conectado para cada modelo. Consulte [Authentication](/docs/authentication).
 - **Reconhecimento de contexto.** O agente sempre sabe o que o usuário está vendo por meio da chave de estado do aplicativo `navigation`. Consulte [Context Awareness](/docs/context-awareness).
@@ -306,7 +306,7 @@ Para orientação detalhada sobre padrões específicos:
 - [What Is Agent-Native?](/docs/what-is-agent-native) — a visão e a filosofia
 - [Context Awareness](/docs/context-awareness) — estado de navegação, tela de visualização, comandos de navegação
 - [Skills Guide](/docs/skills-guide) — estrutura skills, domínio skills, criação de skills personalizado
-- [Native Chat UI](/docs/native-chat-ui) — tabelas declaradas por ação, gráficos e postura de tempo de execução BYO
+- [Native Interface de chat](/docs/native-chat-ui) — tabelas declaradas por ação, gráficos e postura de tempo de execução BYO
 - [Agent Surfaces](/docs/agent-surfaces) — bate-papo avançado e sem interface, sidecar incorporado e caminhos de aplicativos completos
 - [A2A Protocol](/docs/a2a-protocol) — comunicação entre agentes
 - [Multi-App Workspace](/docs/multi-app-workspace) — hospede vários aplicativos em um monorepo com autenticação compartilhada, skills, componentes e credenciais

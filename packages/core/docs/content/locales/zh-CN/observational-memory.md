@@ -21,7 +21,7 @@ OM 将长线程表示为三层，从最精炼到最近：
 
 ```an-diagram title="三层，提炼到最近" summary="较旧的前缀折叠成过时的观察结果和长弧反射；只有最近的轮次才保留原样。"
 {
-  "html": "<div class=\"om\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Reflections</span><small class=\"diagram-muted\">long-arc summary, condensed from the observation log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Observations</span><small class=\"diagram-muted\">dense, dated entries folding stretches of raw messages</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Recent raw messages</span><small class=\"diagram-muted\">last N turns, kept <strong>verbatim</strong> — never folded</small></div></div>",
+  "html": "<div class=\"om\"><div class=\"diagram-card\"><span class=\"diagram-pill\">反思</span><small class=\"diagram-muted\">从观察日志浓缩出的长期摘要</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">观察</span><small class=\"diagram-muted\">带日期的密集条目，折叠多段原始消息</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">最近的原始消息</span><small class=\"diagram-muted\">last N turns, kept <strong>verbatim</strong> — 永不折叠</small></div></div>",
   "css": ".om{display:flex;flex-direction:column-reverse;align-items:stretch;gap:8px}.om .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.om .diagram-arrow{text-align:center;font-size:20px;line-height:1}"
 }
 ```
@@ -37,7 +37,7 @@ OM 将长线程表示为三层，从最精炼到最近：
 
 ```an-diagram title="干净利落的转弯后两次尽力传球" summary="每次传递都不会低于其阈值，因此每轮运行压缩器都很便宜。故障会被吞掉，并且不会增加延迟。"
 {
-  "html": "<div class=\"om-pass\"><div class=\"diagram-node\">Clean turn ends<br><small class=\"diagram-muted\">fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Observer</span><small class=\"diagram-muted\">unobserved tokens &gt; 30k? &rarr; fold into one observation</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Reflector</span><small class=\"diagram-muted\">observation log &gt; 40k? &rarr; condense into a reflection</small></div></div>",
+  "html": "<div class=\"om-pass\"><div class=\"diagram-node\">干净回合结束<br><small class=\"diagram-muted\">fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Observer</span><small class=\"diagram-muted\">unobserved tokens &gt; 30k? &rarr; fold into one observation</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Reflector</span><small class=\"diagram-muted\">observation log &gt; 40k? &rarr; condense into a reflection</small></div></div>",
   "css": ".om-pass{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.om-pass .diagram-node,.om-pass .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.om-pass .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

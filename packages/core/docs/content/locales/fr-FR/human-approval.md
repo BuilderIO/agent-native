@@ -20,8 +20,8 @@ Définissez `needsApproval` sur un `defineAction`. Il accepte un booléen ou un 
   "language": "ts",
   "code": "export default defineAction({\n  description: \"Send an email via Gmail.\",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});",
   "annotations": [
-    { "lines": "10", "label": "The whole gate", "note": "One flag. With it truthy and the call unapproved, the loop stops before `run` — the model never reaches the side effect on its own." },
-    { "lines": "11-13", "label": "run() is untouched", "note": "The handler stays the same. Approval is enforced by the loop around it, not by anything inside `run`." }
+    { "lines": "10", "label": "Toute la porte", "note": "Un drapeau. Avec la vérité et l'appel non approuvé, la boucle s'arrête avant `run` — le modèle n'atteint jamais l'effet secondaire de lui-même." },
+    { "lines": "11-13", "label": "run() is untouched", "note": "Le gestionnaire reste le même. L'approbation est appliquée par la boucle qui l'entoure, et non par quoi que ce soit à l'intérieur de `run`." }
   ]
 }
 ```
@@ -72,7 +72,7 @@ Sur `approval_required`, le chat UI affiche une autorisation **Approuver/Refuser
 
 ```an-diagram title="L'interruption d'approbation" summary="Un appel fermé interrompt le tour avant que run() ne se déclenche. L'approbation réémet le tour porteur de la clé d'appel ; ce n’est qu’alors que l’effet secondaire se produit."
 {
-  "html": "<div class=\"diagram-approve\"><div class=\"diagram-box\" data-rough>Agent calls send-email</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel warn\" data-rough><strong>Gate truthy, call not yet approved</strong><small class=\"diagram-muted\">loop emits tool_start + approval_required { tool, input, approvalKey }</small><span class=\"diagram-pill warn\">turn pauses &mdash; run() did NOT execute</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Human clicks Approve in chat<br><small class=\"diagram-muted\">client re-issues the turn with approvedToolCalls: [approvalKey]</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel ok\" data-rough><span class=\"diagram-pill ok\">Gate sees the key &rarr; run() executes &rarr; email sends</span></div></div>",
+  "html": "<div class=\"diagram-approve\"><div class=\"diagram-box\" data-rough>L’agent appelle send-email</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel warn\" data-rough><strong>Gate vrai, appel pas encore approuvé</strong><small class=\"diagram-muted\">loop emits tool_start + approval_required { tool, input, approvalKey }</small><span class=\"diagram-pill warn\">turn pauses &mdash; run() did NOT execute</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>L’humain clique sur Approuver dans le chat<br><small class=\"diagram-muted\">le client relance le tour avec approvedToolCalls: [approvalKey]</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel ok\" data-rough><span class=\"diagram-pill ok\">Gate sees the key &rarr; run() executes &rarr; email sends</span></div></div>",
   "css": ".diagram-approve{display:flex;flex-direction:column;align-items:center;gap:8px}.diagram-approve .diagram-panel{display:flex;flex-direction:column;gap:6px;align-items:center;padding:12px 16px;text-align:center}.diagram-approve .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

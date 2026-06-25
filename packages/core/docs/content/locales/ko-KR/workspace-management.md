@@ -11,7 +11,7 @@ description: "브랜칭, CODEOWNERS, PR 검토 및 Dispatch가 Git 수준 거버
 
 ```an-diagram title="두 개의 거버넌스 평면" summary="Git은 코드를 관리합니다. Dispatch은 런타임을 관리합니다. 그것들은 보완적입니다. 하나를 다른 것 안에 복제하지 마십시오."
 {
-  "html": "<div class=\"gov\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Git / GitHub</span><strong>Code governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">CODEOWNERS</span><span class=\"diagram-pill\">branch protection</span><span class=\"diagram-pill\">PR review</span><span class=\"diagram-pill\">git log / blame</span></div></div><div class=\"diagram-pill diagram-muted\">+</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Dispatch</span><strong>Runtime governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">vault secrets &amp; grants</span><span class=\"diagram-pill\">workspace resources</span><span class=\"diagram-pill\">agent profiles</span><span class=\"diagram-pill\">approvals &amp; audit</span></div></div></div>",
+  "html": "<div class=\"gov\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Git 및 GitHub</span><strong>코드 거버넌스</strong><div class=\"gov-list\"><span class=\"diagram-pill\">CODEOWNERS</span><span class=\"diagram-pill\">branch protection</span><span class=\"diagram-pill\">PR 검토</span><span class=\"diagram-pill\">git log / blame</span></div></div><div class=\"diagram-pill diagram-muted\">+</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Dispatch</span><strong>Runtime governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">vault secrets &amp; grants</span><span class=\"diagram-pill\">workspace resources</span><span class=\"diagram-pill\">agent profiles</span><span class=\"diagram-pill\">approvals &amp; audit</span></div></div></div>",
   "css": ".gov{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.gov .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:240px}.gov .gov-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}"
 }
 ```
@@ -64,16 +64,16 @@ GitHub의 CODEOWNERS 파일은 변경된 파일을 기반으로 검토자를 PR�
 # Framework core — affects every app; platform team reviews all changes
 packages/core/                     @your-org/platform-team
 
-# Dispatch control plane — secrets, integrations, workspace resources
+# 디스패치 제어 플레인 — 비밀, 통합, 작업 공간 리소스
 templates/dispatch/                @your-org/platform-team
 
-# Per-app ownership — each team reviews their own app
+# 앱별 소유권 - 각 팀이 자신의 앱을 검토합니다.
 templates/mail/                    @your-org/mail-team
 templates/analytics/               @your-org/analytics-team
 templates/calendar/                @your-org/calendar-team
 # ... add an entry per app
 
-# Workspace-level config — broad review since it affects everyone
+# 작업 공간 수준 구성 — 모든 사람에게 영향을 미치므로 광범위한 검토
 .github/                           @your-org/platform-team
 package.json                       @your-org/platform-team
 pnpm-workspace.yaml                @your-org/platform-team

@@ -27,7 +27,7 @@ les bundlers choisissent donc l'entrée sécurisée pour le navigateur.
 
 ```an-diagram title="Déposez un calque, pas hors du cadre" summary="Chaque couche conserve le même temps d'exécution (actions, état du thread et synchronisation SQL-backed) tout en vous donnant plus de contrôle sur le chrome."
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Whole sidebar around your app. The 80% case.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">The panel or a chat page in your own layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Composer and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Same runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Toute la barre latérale autour de votre app. Le cas des 80 %.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">Le panneau ou une page de chat dans votre propre layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Composerr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Même runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -58,7 +58,7 @@ les bundlers choisissent donc l'entrée sécurisée pour le navigateur.
 conversation pendant que Agent-Native conserve le compositeur, la transcription, les fiches outils et
 rendu natif des widgets. Les connecteurs ci-dessus sont la surface API ; le moteur d'exécution
 Les formes de contrats et d'événements sont enseignées
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+[Native Interface de chat — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
 Si vous choisissez entre des agents sans tête, un chat enrichi, un side-car intégré et
 Formes d'application complètes, voir [Agent Surfaces](/docs/agent-surfaces).
 
@@ -96,7 +96,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 Pour un point de terminaison d'agent à emporter, créez un `AgentChatRuntime` avec l'un des
 connecteurs ci-dessus et transmettez-le à `<AssistantChat runtime={...} />`. Voir
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+[Native Interface de chat — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
 pour l'utilisation du connecteur, le flux d'événements normalisé et quand l'atteindre
 `createHttpAgentChatRuntime()` par rapport à un connecteur spécifique au protocole.
 
@@ -151,7 +151,7 @@ Utiliser des widgets d'outils natifs lorsqu'un résultat d'action doit s'affiche
 dans le chat au lieu de JSON simple. Les sorties réutilisables intégrées incluent
 `DataTableWidget`, `DataChartWidget` et `DataWidgetResult` ; ils sont exportés
 à partir de `@agent-native/core/client/chat` et de l'entrée du client racine. Voir
-[Native Chat UI](/docs/native-chat-ui) pour le contrat de résultat de l'action.
+[Native Interface de chat](/docs/native-chat-ui) pour le contrat de résultat de l'action.
 
 | API                              | Utiliser quand                                                                                                  |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------- |
@@ -180,7 +180,7 @@ crochets de documents collaboratifs.
 
 ```an-diagram title="Présence : les humains et l'agent partagent une couche de sensibilisation" summary="useCollaborativeDoc est propriétaire de l'instance de sensibilisation ; les hooks clients publient des curseurs et des sélections ; les assistants du serveur permettent à une action d'agent d'apparaître en tant que participant en direct."
 {
-  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">Agent action<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">render everyone, agent included</small></div></div>",
+  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">Action d’agent<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">rend tout le monde, agent compris</small></div></div>",
   "css": ".diagram-presence{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-presence .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-presence .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-presence .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

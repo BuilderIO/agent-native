@@ -16,7 +16,7 @@ Une installation vous offre :
 
 ```an-diagram title="Trois itinéraires, un forfait" summary="Les plugins universels CLI, Claude Code et Codex installent tous les mêmes deux compétences plus le connecteur Plan hébergé."
 {
-  "html": "<div class=\"diagram-routes\"><div class=\"diagram-col\"><div class=\"diagram-node\">Universal CLI<br><small class=\"diagram-muted\">skills add visual-plan</small></div><div class=\"diagram-node\">Claude Code plugin<br><small class=\"diagram-muted\">/plugin install</small></div><div class=\"diagram-node\">Codex plugin<br><small class=\"diagram-muted\">codex plugin add</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">/visual-plan</span><span class=\"diagram-pill accent\">/visual-recap</span><small class=\"diagram-muted\">two skills</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com/_agent-native/mcp</small></div></div>",
+  "html": "<div class=\"diagram-routes\"><div class=\"diagram-col\"><div class=\"diagram-node\">Universal CLI<br><small class=\"diagram-muted\">skills add visual-plan</small></div><div class=\"diagram-node\">Plugin Claude Code<br><small class=\"diagram-muted\">/plugin install</small></div><div class=\"diagram-node\">Plugin Codex<br><small class=\"diagram-muted\">codex plugin add</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">/visual-plan</span><span class=\"diagram-pill accent\">/visual-recap</span><small class=\"diagram-muted\">two skills</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com/_agent-native/mcp</small></div></div>",
   "css": ".diagram-routes{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-routes .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-routes .diagram-arrow{font-size:22px;line-height:1}.diagram-routes .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-routes .center .diagram-pill{margin:2px}"
 }
 ```
@@ -84,7 +84,7 @@ publier plus tard.
 
 ```an-diagram title="Mode hébergé ou fichiers locaux" summary="Par défaut, les compétences sont publiées via le connecteur ; Le mode fichiers locaux écrit MDX sur le disque et prévisualise via un pont localhost à la place."
 {
-  "html": "<div class=\"diagram-modes\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Default · hosted</span><strong>Publish to the Plan app</strong><small class=\"diagram-muted\">MCP connector &rarr; hosted DB &rarr; share links, comments, history, screenshots</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Local-files privacy</span><strong>Write MDX to disk</strong><small class=\"diagram-muted\">plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost bridge &rarr; hosted Plan UI reads local source. No DB writes until <code>publish-visual-plan</code>.</small></div></div>",
+  "html": "<div class=\"diagram-modes\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Par défaut · hébergé</span><strong>Publier dans l’app Plan</strong><small class=\"diagram-muted\">MCP connector &rarr; hosted DB &rarr; share links, comments, history, screenshots</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Confidentialité fichiers locaux</span><strong>Écrire le MDX sur disque</strong><small class=\"diagram-muted\">plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost bridge &rarr; hosted Plan UI reads local source. No Écriture BDs until <code>publish-visual-plan</code>.</small></div></div>",
   "css": ".diagram-modes{display:flex;gap:14px;flex-wrap:wrap}.diagram-modes .diagram-card{flex:1 1 260px;display:flex;flex-direction:column;gap:6px;padding:16px 18px}"
 }
 ```
@@ -156,7 +156,7 @@ Le même référentiel est un marché de plugins Codex. Ajoutez-le, installez le
 ```bash
 codex plugin marketplace add BuilderIO/agent-native
 codex plugin add agent-native-visual-plans@agent-native-apps
-codex mcp login plan   # OAuth in the browser
+codex mcp login plan   # OAuth dans le navigateur
 ```
 
 Après l'installation, **démarrez un nouveau thread Codex** pour que les outils skills et MCP se chargent dans la session. Le plugin est livré avec un connecteur uniquement URL (`[mcp_servers.plan]` → `https://plan.agent-native.com/_agent-native/mcp`) ; `codex mcp login plan` exécute le flux OAuth. La route universelle CLI ci-dessus fonctionne également pour Codex (`npx @agent-native/core@latest skills add visual-plan --client codex`) si vous préférez une commande qui s'installe et s'authentifie ensemble, ou lorsque vous souhaitez des fichiers locaux ou un mode auto-hébergé.

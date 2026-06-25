@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconArrowsSort,
   IconSortAscending,
@@ -836,8 +837,6 @@ interface SqlChartProps {
   className?: string;
   loadData?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
-  onRefreshChange?: (handler: (() => Promise<void>) | null) => void;
-  onRefreshingChange?: (refreshing: boolean) => void;
 }
 
 export function SqlChart({
@@ -845,64 +844,22 @@ export function SqlChart({
   resolvedSql,
   loadData = true,
   onExportCsvChange,
-  onRefreshChange,
-  onRefreshingChange,
 }: SqlChartProps) {
+  const t = useT();
   // Hooks must be called unconditionally before any early return.
   const isSection = panel.chartType === "section";
   const shouldQuery = !isSection && loadData;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
-  const queryIdentity = `${panel.id}\n${panel.source}\n${sql}`;
-  const [loadedQueryIdentity, setLoadedQueryIdentity] = useState<string | null>(
-    null,
-  );
-  const queryEnabled = shouldQuery && loadedQueryIdentity !== queryIdentity;
-  const {
-    data: result,
-    isFetching,
-    isLoading,
-    refetch,
-  } = useSqlQuery(
+  const { data: result, isLoading } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
     sql,
     panel.source,
     // Skip the query for section panels — they are pure layout with no data.
-    {
-      enabled: queryEnabled,
-      refetchOnMount: false,
-      refetchOnReconnect: false,
-      refetchOnWindowFocus: false,
-    },
+    { enabled: shouldQuery },
   );
 
   const rawRows = result?.rows ?? [];
   const error = result?.error;
-
-  useEffect(() => {
-    if (!shouldQuery || !result || isFetching || isLoading) return;
-    setLoadedQueryIdentity((current) =>
-      current === queryIdentity ? current : queryIdentity,
-    );
-  }, [isFetching, isLoading, queryIdentity, result, shouldQuery]);
-
-  const handleRefresh = useCallback(async () => {
-    await refetch();
-  }, [refetch]);
-
-  useEffect(() => {
-    if (!onRefreshChange) return;
-    if (!shouldQuery) {
-      onRefreshChange(null);
-      return;
-    }
-    onRefreshChange(handleRefresh);
-    return () => onRefreshChange(null);
-  }, [handleRefresh, onRefreshChange, shouldQuery]);
-
-  useEffect(() => {
-    onRefreshingChange?.(shouldQuery && isFetching && !isLoading);
-    return () => onRefreshingChange?.(false);
-  }, [isFetching, isLoading, onRefreshingChange, shouldQuery]);
 
   const { rows, forcedYKeys } = useMemo(() => {
     if (panel.config?.pivot && rawRows.length) {
@@ -956,7 +913,9 @@ export function SqlChart({
       <div
         className={`flex flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
       >
-        <p className="text-sm text-muted-foreground text-center">No data</p>
+        <p className="text-sm text-muted-foreground text-center">
+          {t("common.noData")}
+        </p>
       </div>
     );
   }
@@ -1170,6 +1129,7 @@ function TableRenderer({
   panel: SqlPanel;
   onExportCsvChange?: (handler: (() => void) | null) => void;
 }) {
+  const t = useT();
   const config = panel.config;
   const sortable = config?.sortable !== false; // default on
 
@@ -1351,7 +1311,7 @@ function TableRenderer({
       {sortedRows.length > PAGE_SIZE_OPTIONS[0] && (
         <div className="flex items-center justify-between px-1 pt-1 border-t border-border text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
-            <span>Rows per page:</span>
+            <span>{t("common.rowsPerPage")}</span>
             <Select
               value={String(pageSize)}
               onValueChange={(value) => {
@@ -1782,6 +1742,7 @@ function HeatmapRenderer({
   rows: Record<string, unknown>[];
   panel: SqlPanel;
 }) {
+  const t = useT();
   const cfg = panel.config;
   const yFormatter = cfg?.yFormatter;
 
@@ -1863,7 +1824,9 @@ function HeatmapRenderer({
   if (rows.length === 0 || !valueKey) {
     return (
       <div className="flex min-h-[250px] items-center justify-center py-8">
-        <p className="text-sm text-muted-foreground text-center">No data</p>
+        <p className="text-sm text-muted-foreground text-center">
+          {t("common.noData")}
+        </p>
       </div>
     );
   }

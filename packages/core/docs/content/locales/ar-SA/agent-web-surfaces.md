@@ -1,6 +1,6 @@
 ---
 title: "موقع الوكيل العام"
-description: "اجعل المسارات العامة قابلة للزحف، وقابلة للقراءة، والاستشهاد بها، ويمكن استدعاؤها اختياريًا بواسطة الوكلاء — robots.txt، وllms.txt، ومرايا تخفيض السعر، وJSON-LD، وسطح MCP العام."
+description: "اجعل المسارات العامة قابلة للزحف، وقابلة للقراءة، والاستشهاد بها، ويمكن استدعاؤها اختياريًا بواسطة الوكلاء — robots.txt، وllms.txt، ومرايا Markdown، وJSON-LD، وسطح MCP العام."
 ---
 
 # موقع الوكيل العام
@@ -130,7 +130,7 @@ const files = buildAgentWebStaticFiles({
       path: "/docs",
       title: "Docs",
       description: "Start here.",
-      markdown: "# Docs\n\nStart here.\n",
+      markdown: "# المستندات\n\nابدأ هنا.\n",
       markdownPath: "/docs/getting-started.md",
       lastmod: new Date(),
     },

@@ -69,7 +69,7 @@ npx @agent-native/core@latest create my-platform
 
 ```an-diagram title="テンプレートの 4 つの領域がどのように接続されるか" summary="UI とエージェントは両方とも同じアクションを通じて SQL に到達します。アプリケーションの状態とポーリング同期により、それらの整合性が維持されます。"
 {
-  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React UI<br><small class=\"diagram-muted\">app/routes · components</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL via Drizzle<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">Polling sync</div></div>",
+  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React UI画面<br><small class=\"diagram-muted\">app/routes · コンポーネント</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">アクション</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Drizzle 経由の SQL<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">ポーリングing sync</div></div>",
   "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -137,9 +137,9 @@ export default runMigrations(
 
 ユーザーまたは組織のデータを保持するスキーマを追加する前に、[Database](/docs/database) ドキュメントと [Security](/docs/security) ドキュメントを使用してください。
 
-## オペレーションを Actions として定義 {#actions}
+## オペレーションを アクション として定義 {#actions}
 
-Actions は、アプリの動作に関する唯一の信頼できる情報源です。エージェントはそれらをツールとして呼び出し、フロントエンドはフックを通じてそれらを呼び出し、他のアプリは MCP/A2A を通じてそれらにアクセスできます。
+アクション は、アプリの動作に関する唯一の信頼できる情報源です。エージェントはそれらをツールとして呼び出し、フロントエンドはフックを通じてそれらを呼び出し、他のアプリは MCP/A2A を通じてそれらにアクセスできます。
 
 ```an-annotated-code title="actions/create-project.ts"
 {
@@ -148,9 +148,9 @@ Actions は、アプリの動作に関する唯一の信頼できる情報源で
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});",
   "annotations": [
     { "lines": "2", "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`." },
-    { "lines": "8", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this action as a tool." },
+    { "lines": "8", "label": "工具表面", "note": "`description` は、このアクションをいつツールとして呼び出すかを決定するためにエージェントが読み取るものです。" },
     { "lines": "9-11", "label": "型付き契約", "note": "1つの zod `schema` が、エージェント、UI、HTTP、MCP、A2A からの入力を検証します。" },
-    { "lines": "18-19", "label": "Scoped write", "note": "Stamp `ownerEmail` / `orgId` from `ctx` so the row is correctly scoped for sharing and access checks." }
+    { "lines": "18-19", "label": "スコープ付き書き込み", "note": "`ctx` から `ownerEmail` / `orgId` をスタンプして、行の共有およびアクセス チェックの範囲が正しく設定されるようにします。" }
   ]
 }
 ```
@@ -278,21 +278,21 @@ export default defineAction({
 インデックス:
 
 ```markdown
-# My Template
+# 私のテンプレート
 
 One workspace for projects, tasks, and notes.
 
-## Core Rules
+## コアルール
 
-- Data lives in SQL via Drizzle. Use actions for all writes; schema is additive.
+- Data lives in Drizzle 経由の SQL. Use actions for all writes; schema is additive.
 - Use `view-screen` before acting on "this project" if the screen is unclear.
 
-## Application State
+## アプリケーションの状態
 
 - `navigation.view`: `home` | `project`
 - `navigation.projectId`: selected project on a project page
 
-## Actions
+## アクション
 
 | Action           | Purpose                  |
 | ---------------- | ------------------------ |
@@ -316,11 +316,11 @@ name: project-imports
 description: How to import projects from the legacy CSV export.
 ---
 
-# Project Imports
+# プロジェクトのインポート
 
 Use this skill when the user uploads a legacy project CSV.
 
-## Rules
+## ルール
 
 - Validate required columns before creating rows.
 - Use `create-project` for each project so ownership and sync are correct.

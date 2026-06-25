@@ -26,7 +26,7 @@ PR Visual Recap은 모든 끌어오기 요청을 **시각적 코드 검토**로 
 
 ```an-diagram title="각 PR 푸시 시 어떤 일이 발생합니까?" summary="제한된 diff는 실제 코딩 에이전트에 공급되어 요약을 작성합니다. 워크플로는 이를 스크린샷하고 고정 댓글 하나를 업데이트합니다."
 {
-  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">PR push<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Coding agent<br><small class=\"diagram-muted\">Claude Code / Codex reads diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Headless Chrome<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">One sticky PR comment<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
+  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">PR 푸시<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">코딩 에이전트<br><small class=\"diagram-muted\">Claude Code / Codex가 diff를 읽음</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">헤드리스 Chrome<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">고정 PR 댓글 하나<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
   "css": ".diagram-recap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-recap .diagram-arrow{font-size:20px;line-height:1}.diagram-recap .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-recap .diagram-foot{flex-basis:100%;margin-top:10px;font-size:13px}"
 }
 ```
@@ -159,7 +159,7 @@ npx @agent-native/core@latest recap setup
 
 ```an-diagram title="포크 PR 동의 게이트" summary="포크 PR에는 기본적으로 비밀이 없습니다. 신뢰할 수 있는 작성자는 자동으로 실행되며 외부 기여자는 새로운 관리자 요약 레이블이 필요합니다."
 {
-  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">Fork PR opened<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Trusted author</span><small class=\"diagram-muted\">OWNER, MEMBER, or COLLABORATOR runs automatically</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Outside contributor</span><small class=\"diagram-muted\">maintainer reviews diff, then applies <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Gate checks<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Recap runs<br><small class=\"diagram-muted\">base-repo code only · fork diff is text input</small></div></div>",
+  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">Fork PR 열림<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">신뢰할 수 있는 작성자</span><small class=\"diagram-muted\">OWNER, MEMBER 또는 COLLABORATOR는 자동 실행</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">외부 기여자</span><small class=\"diagram-muted\">메인테이너가 diff를 검토한 뒤 적용 <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">게이트 검사<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">요약 실행<br><small class=\"diagram-muted\">base repo 코드만 · fork diff는 텍스트 입력</small></div></div>",
   "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-arrow{font-size:20px;line-height:1}.diagram-fork .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}"
 }
 ```
@@ -272,15 +272,15 @@ npx @agent-native/core@latest plan local serve --dir plans/pr-123-visual-recap -
 공백이 아니고 주석이 아닌 각 줄은 **리터럴 하위 문자열** 또는 **`/regex/flags`** 패턴입니다.
 
 ```
-# Lines starting with # are comments.
+# #으로 시작하는 줄은 주석입니다.
 
-# Literal substring — any diff line containing this string is allowed.
+# 리터럴 하위 문자열 — 이 문자열을 포함하는 모든 diff 행이 허용됩니다.
 sk-test-fixture1234567890abcdef
 
 # Regex pattern — written as /pattern/flags (JS syntax).
 /^.STRIPE_KEY=sk-test-/i
 
-# Another literal.
+# 또 다른 리터럴.
 EXAMPLE_API_KEY=placeholder-value
 ```
 
@@ -315,10 +315,10 @@ EXAMPLE_API_KEY=placeholder-value
 ```yaml
 name: PR Visual Recap
 
-# Thin caller — the full workflow logic lives in BuilderIO/agent-native.
-# Fixes and improvements reach this repo automatically on each run.
-# To pin a specific version for reproducibility replace '@main' with a
-# tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
+# 씬 호출자 - 전체 작업 흐름 논리가 BuilderIO/agent-native에 있습니다.
+# 수정 사항 및 개선 사항은 실행될 때마다 자동으로 이 저장소에 도달합니다.
+# 재현성을 위해 특정 버전을 고정하려면 '@main'를
+# 태그 또는 SHA, e.g. '@<x2/>' 또는 '@abc1234'.
 
 on:
   pull_request:
@@ -351,10 +351,10 @@ jobs:
 ### CLI를 통해 설치
 
 ```bash
-# Write the thin caller instead of the full copy:
+# 전체 복사본 대신 씬 호출자를 작성합니다.
 npx @agent-native/core@latest recap setup --reusable
 
-# Or with a pinned ref for reproducibility:
+# 또는 재현성을 위해 고정된 참조를 사용합니다.
 npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
 ```
 

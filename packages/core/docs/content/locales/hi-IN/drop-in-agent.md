@@ -29,7 +29,7 @@ description: "एजेंट चैट + वर्कस्पेस को <Ag
 
 ```an-diagram title="माउंट मॉडल" summary="<AgentSidebar> आपके मौजूदा लेआउट को लपेटता है। आपके मार्ग मुख्य क्षेत्र में प्रस्तुत होते हैं; एजेंट पैनल उनके बगल में लगा होता है। <AgentPanel> बिना रैपर वाला वही पैनल है।"
 {
-  "html": "<div class=\"diagram-mount\"><div class=\"diagram-box sidebar\" data-rough><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><div class=\"inner\"><div class=\"diagram-node main\">Your app<br><small class=\"diagram-muted\">children: header + &lt;Outlet/&gt;</small></div><div class=\"diagram-node panel\">Agent panel<br><small class=\"diagram-muted\">chat &middot; CLI &middot; workspace</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card alt\"><span class=\"diagram-pill\">&lt;AgentPanel&gt;</span><small class=\"diagram-muted\">same panel, no wrapper &mdash; you own the layout</small></div></div>",
+  "html": "<div class=\"diagram-mount\"><div class=\"diagram-box sidebar\" data-rough><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><div class=\"inner\"><div class=\"diagram-node main\">आपका ऐप<br><small class=\"diagram-muted\">children: header + &lt;Outlet/&gt;</small></div><div class=\"diagram-node panel\">एजेंट पैनल<br><small class=\"diagram-muted\">chat &middot; CLI &middot; workspace</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card alt\"><span class=\"diagram-pill\">&lt;AgentPanel&gt;</span><small class=\"diagram-muted\">same panel, no wrapper &mdash; you own the layout</small></div></div>",
   "css": ".diagram-mount{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mount .sidebar{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-mount .inner{display:flex;gap:10px}.diagram-mount .main{flex:2}.diagram-mount .panel{flex:1}.diagram-mount .alt{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-mount .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -44,13 +44,13 @@ description: "एजेंट चैट + वर्कस्पेस को <Ag
 {
   "filename": "app/root.tsx",
   "language": "tsx",
-  "code": "import { Outlet } from \"react-router\";\nimport { AgentSidebar, AgentToggleButton } from \"@agent-native/core/client\";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText=\"How can I help?\"\n      suggestions={[\n        \"Summarize my inbox\",\n        \"Draft a reply to the latest email\",\n        \"Show me yesterday's signup numbers\",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position=\"right\"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}",
+  "code": "import { Outlet } from \"react-router\";\nimport { AgentSidebar, AgentToggleButton } from \"@agent-native/core/client\";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText=\"मैं कैसे मदद कर सकता हूं?\"\n      suggestions={[\n        \"Summarize my inbox\",\n        \"Draft a reply to the latest email\",\n        \"Show me yesterday's signup numbers\",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position=\"right\"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}",
   "annotations": [
-    { "lines": "6", "label": "Wrapper", "note": "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area." },
-    { "lines": "8-12", "label": "Starter prompts", "note": "`suggestions` render as clickable chips on the empty chat." },
-    { "lines": "13", "label": "Context-aware chips", "note": "`dynamicSuggestions` merges screen-aware prompts (e.g. \"Summarize this selection\") with your static ones. On by default." },
-    { "lines": "18-20", "label": "Toggle button", "note": "Put `<AgentToggleButton />` anywhere in your header to open and close the panel." },
-    { "lines": "22-24", "label": "Your app", "note": "`<Outlet/>` (your routes) renders in the main area, untouched." }
+    { "lines": "6", "label": "आवरण", "note": "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area." },
+    { "lines": "8-12", "label": "संकेत प्रारंभ करता है", "note": "`suggestions` खाली चैट पर क्लिक करने योग्य चिप्स के रूप में प्रस्तुत करें।" },
+    { "lines": "13", "label": "संदर्भ-जागरूक चिप्स", "note": "`dynamicSuggestions` merges screen-aware prompts (e.g. \"Summarize this selection\") with your static ones. On by default." },
+    { "lines": "18-20", "label": "टॉगल बटन", "note": "Put `<AgentToggleButton />` anywhere in your header to open and close the panel." },
+    { "lines": "22-24", "label": "आपका ऐप", "note": "`<Outlet/>` (your routes) renders in the main area, untouched." }
   ]
 }
 ```
@@ -174,7 +174,7 @@ const { send, isGenerating } = useSendToAgentChat();
   `<AssistantChat runtime={...} />`. कनेक्टर्स
   (`createHttpAgentChatRuntime()` और OpenAI / Claude / Vercel AI / AG-UI
   सहायक) और इवेंट अनुबंध को
-  [Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+  [Native चैट UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
 
 आप जो भी परत चुनें, actions और SQL-समर्थित ऐप स्थिति को अनुबंध के रूप में रखें,
 और उत्पाद UI से सीधे `/_agent-native/agent-chat` पर पोस्ट करने से बचें। यदि ए

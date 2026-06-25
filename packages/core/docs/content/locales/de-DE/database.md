@@ -31,7 +31,7 @@ DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/my
 # Supabase Postgres
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
-# Plain Postgres
+# Einfaches Postgres
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 
 # Turso (libSQL)
@@ -89,7 +89,7 @@ export const tasks = table("tasks", {
 
 Die obige `tasks`-Tabelle definiert die gleichen Spalten auf jedem Backend:
 
-```an-schema title="The tasks table" summary="Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
+```an-schema title="Die Aufgabentabelle" summary="Einmal mit den Framework-Helfern definiert; der Dialekt wird zur Laufzeit aus DATABASE_URL gewählt."
 {
   "entities": [
     {
@@ -168,9 +168,9 @@ Anstatt direkt zu pushen, sollten Schemaänderungen über SQL-Migrationen angewe
   "language": "ts",
   "code": "import { runMigrations } from \"@agent-native/core/db\";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: \"my_app_migrations\" },\n);",
   "annotations": [
-    { "lines": "6-7", "label": "Additive only", "note": "`ADD COLUMN IF NOT EXISTS` is safe to re-run and never drops data. Renames look like drop+create to Drizzle, so add-then-migrate instead." },
-    { "lines": "13-16", "label": "Dialect gating", "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features." },
-    { "lines": "19", "label": "Per-app version table", "note": "Each app tracks its own applied versions so migrations are idempotent across restarts and instances." }
+    { "lines": "6-7", "label": "Nur Zusatzstoff", "note": "`ADD COLUMN IF NOT EXISTS` kann sicher erneut ausgeführt werden und löscht niemals Daten. Umbenennungen sehen wie „Drop+Create“ in „Drizzle“ aus, also fügen Sie stattdessen „Hinzufügen und dann migrieren“ hinzu." },
+    { "lines": "13-16", "label": "Dialekt-Gating", "note": "Übergeben Sie ein nach Dialekt indiziertes Objekt, um je Backend anderes SQL auszuführen. Machen Sie den anderen Schlüssel für reine Postgres- oder reine SQLite-Funktionen zu einem No-op (`SELECT 1`)." },
+    { "lines": "19", "label": "Versionstabelle pro App", "note": "Jede App verfolgt ihre eigenen angewendeten Versionen, sodass Migrationen über Neustarts und Instanzen hinweg idempotent sind." }
   ]
 }
 ```

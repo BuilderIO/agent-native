@@ -1,4 +1,8 @@
-import { SharedImage, uploadEditorImage } from "@agent-native/core/client";
+import {
+  SharedImage,
+  uploadEditorImage,
+  useT,
+} from "@agent-native/core/client";
 import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
@@ -26,6 +30,7 @@ function PlanImageNodeView({
   updateAttributes,
   selected,
 }: NodeViewProps) {
+  const t = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const src = (node.attrs.src as string) || "";
   const alt = (node.attrs.alt as string) || "";
@@ -37,14 +42,14 @@ function PlanImageNodeView({
     event.currentTarget.value = "";
     if (!file) return;
 
-    const toastId = toast.loading("Replacing image…");
+    const toastId = toast.loading(t("raw.document.replacingImage"));
     try {
       const { src: nextSrc, alt: nextAlt } = await uploadEditorImage(file);
       updateAttributes({ src: nextSrc, alt: nextAlt ?? alt });
-      toast.success("Image replaced.", { id: toastId });
+      toast.success(t("raw.document.imageReplaced"), { id: toastId });
     } catch (error) {
       console.error("Image replace failed:", error);
-      toast.error("Could not replace the image.", { id: toastId });
+      toast.error(t("raw.document.replaceImageFailed"), { id: toastId });
     }
   }
 

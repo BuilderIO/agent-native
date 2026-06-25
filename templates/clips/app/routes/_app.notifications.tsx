@@ -1,4 +1,8 @@
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import {
+  useActionQuery,
+  useActionMutation,
+  useT,
+} from "@agent-native/core/client";
 import { IconSend } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -13,9 +17,10 @@ import {
   type NotificationItem,
   type NotificationKind,
 } from "@/components/workspace/notifications-list";
+import enMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: "Notifications · Clips" }];
+  return [{ title: enMessages.notificationsRoute.pageTitle }];
 }
 
 function inLast30Days(iso: string): boolean {
@@ -28,6 +33,7 @@ function inLast30Days(iso: string): boolean {
 }
 
 export default function NotificationsRoute() {
+  const t = useT();
   const [filter, setFilter] = useState<"all" | NotificationKind>("all");
   const [replyFor, setReplyFor] = useState<NotificationItem | null>(null);
   const [replyText, setReplyText] = useState("");
@@ -39,9 +45,7 @@ export default function NotificationsRoute() {
 
   const items: NotificationItem[] = useMemo(() => {
     if (aggregated?.items?.length) {
-      return (aggregated.items as NotificationItem[]).filter((it) =>
-        inLast30Days(it.createdAt),
-      );
+      return aggregated.items.filter((it) => inLast30Days(it.createdAt));
     }
     return [];
   }, [aggregated]);
@@ -69,13 +73,15 @@ export default function NotificationsRoute() {
         content,
         threadId: replyFor.id.replace(/^c:/, ""),
       });
-      toast.success("Reply sent");
+      toast.success(t("notificationsRoute.replySent"));
       setReplyText("");
       setReplyFor(null);
       qc.invalidateQueries({ queryKey: ["action", "list-notifications"] });
       qc.invalidateQueries({ queryKey: ["action", "list-comments"] });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to send");
+      toast.error(
+        err instanceof Error ? err.message : t("notificationsRoute.sendFailed"),
+      );
     }
   }
 
@@ -83,29 +89,36 @@ export default function NotificationsRoute() {
     <>
       <PageHeader>
         <h1 className="text-base font-semibold tracking-tight truncate">
-          Notifications
+          {t("notificationsRoute.title")}
         </h1>
       </PageHeader>
       <div className="p-6 max-w-3xl mx-auto">
         <p className="text-sm text-muted-foreground mb-4">
-          Comments, reactions, mentions, and shares on your recordings in the
-          last 30 days.
+          {t("notificationsRoute.description")}
         </p>
 
         <Tabs value={filter} onValueChange={(v) => setFilter(v as any)}>
           <TabsList>
-            <TabsTrigger value="all">All</TabsTrigger>
-            <TabsTrigger value="comment">Comments</TabsTrigger>
-            <TabsTrigger value="reaction">Reactions</TabsTrigger>
-            <TabsTrigger value="mention">Mentions</TabsTrigger>
-            <TabsTrigger value="share">Shares</TabsTrigger>
+            <TabsTrigger value="all">{t("notificationsRoute.all")}</TabsTrigger>
+            <TabsTrigger value="comment">
+              {t("notificationsRoute.comments")}
+            </TabsTrigger>
+            <TabsTrigger value="reaction">
+              {t("notificationsRoute.reactions")}
+            </TabsTrigger>
+            <TabsTrigger value="mention">
+              {t("notificationsRoute.mentions")}
+            </TabsTrigger>
+            <TabsTrigger value="share">
+              {t("notificationsRoute.shares")}
+            </TabsTrigger>
           </TabsList>
         </Tabs>
 
         <div className="mt-4">
           {isLoading ? (
             <div className="py-16 text-center text-sm text-muted-foreground">
-              Loading…
+              {t("notificationsRoute.loading")}
             </div>
           ) : (
             <NotificationsList items={filtered} onReply={setReplyFor} />
@@ -115,7 +128,9 @@ export default function NotificationsRoute() {
         {replyFor ? (
           <div className="mt-6 rounded-md border bg-muted/30 p-3">
             <div className="text-xs text-muted-foreground mb-1.5">
-              Reply to {replyFor.authorEmail} on{" "}
+              {t("notificationsRoute.replyTo", {
+                email: replyFor.authorEmail,
+              })}{" "}
               <span className="font-medium text-foreground">
                 {replyFor.recordingTitle}
               </span>
@@ -124,7 +139,7 @@ export default function NotificationsRoute() {
               <Input
                 value={replyText}
                 onChange={(e) => setReplyText(e.target.value)}
-                placeholder="Write a reply…"
+                placeholder={t("notificationsRoute.replyPlaceholder")}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -141,7 +156,7 @@ export default function NotificationsRoute() {
                 <IconSend className="size-4" />
               </Button>
               <Button variant="ghost" onClick={() => setReplyFor(null)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
             </div>
           </div>

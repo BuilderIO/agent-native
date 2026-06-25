@@ -163,6 +163,7 @@ import {
   useDocument,
   useUpdateDocument,
 } from "@/hooks/use-documents";
+import { messagesByLocale } from "@/i18n-data";
 import { cn } from "@/lib/utils";
 
 import { BuilderSourceReviewDialog } from "../database-sources/BuilderSourceReviewDialog";
@@ -235,6 +236,18 @@ const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
   "full_page",
 ];
 const DATABASE_FILTER_MODES: DatabaseFilterMode[] = ["and", "or"];
+
+type DatabaseMessageKey = keyof (typeof messagesByLocale)["en-US"]["database"];
+
+function dbText(key: DatabaseMessageKey): string {
+  const locale =
+    typeof document === "undefined" ? "en-US" : document.documentElement.lang;
+  const messages =
+    messagesByLocale[locale as keyof typeof messagesByLocale] ??
+    messagesByLocale["en-US"];
+  return messages.database[key] ?? messagesByLocale["en-US"].database[key];
+}
+
 type CreateDatabaseRowHandler = (
   title?: string,
 ) => Promise<ContentDatabaseItem | null>;
@@ -412,8 +425,8 @@ export function DatabaseView({
   return (
     <DatabaseTable
       document={document}
-      databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
+      databaseId={databaseId}
       hostDocumentId={hostDocumentId}
       renderMode={renderMode}
       canEdit={canEdit}
@@ -973,8 +986,9 @@ function DatabaseTable({
         },
       );
     } catch (error) {
-      toast.error("Builder update failed", {
-        description: error instanceof Error ? error.message : "Try again.",
+      toast.error(dbText("builderUpdateFailed"), {
+        description:
+          error instanceof Error ? error.message : dbText("tryAgain"),
       });
     }
   }
@@ -1099,7 +1113,7 @@ function DatabaseTable({
               />
               <button
                 type="button"
-                aria-label="Close search"
+                aria-label={dbText("closeSearch")}
                 className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
                 onClick={() => {
                   setSearchQuery("");
@@ -1145,14 +1159,14 @@ function DatabaseTable({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  aria-label="Open as full page"
+                  aria-label={dbText("openAsFullPage")}
                   className={databaseToolbarIconButtonClass()}
                   onClick={() => navigate(`/page/${databaseDocumentId}`)}
                 >
                   <IconArrowsDiagonal className="size-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Open as full page</TooltipContent>
+              <TooltipContent>{dbText("openAsFullPage")}</TooltipContent>
             </Tooltip>
           ) : null}
           <Button
@@ -1516,15 +1530,16 @@ function DatabaseTable({
                 setBuilderReviewOpen(false);
                 setBuilderReviewResult(null);
                 setBuilderReviewCheckedAt(null);
-                toast.success("Source disconnected", {
-                  description:
-                    "Database rows and local properties were kept intact.",
+                toast.success(dbText("sourceDisconnected"), {
+                  description: dbText(
+                    "databaseRowsAndLocalPropertiesWereKeptIntact",
+                  ),
                 });
               },
               onError: (error) => {
-                toast.error("Source was not disconnected", {
+                toast.error(dbText("sourceWasNotDisconnected"), {
                   description:
-                    error instanceof Error ? error.message : "Try again.",
+                    error instanceof Error ? error.message : dbText("tryAgain"),
                 });
               },
             },
@@ -1556,9 +1571,9 @@ function DatabaseTable({
                 );
               },
               onError: (error) => {
-                toast.error("Builder write mode was not changed", {
+                toast.error(dbText("builderWriteModeWasNotChanged"), {
                   description:
-                    error instanceof Error ? error.message : "Try again.",
+                    error instanceof Error ? error.message : dbText("tryAgain"),
                 });
               },
             },
@@ -1892,9 +1907,13 @@ export function databaseBulkScalarInputState(
   return { isValid: true, value: trimmed };
 }
 
+type DuplicatedDatabaseItemResponse = {
+  items: ContentDatabaseResponse["items"];
+  duplicatedItemId?: ContentDatabaseResponse["duplicatedItemId"];
+};
+
 export function databaseDuplicatedItemFromResponse(
-  response: Pick<ContentDatabaseResponse, "items"> &
-    Pick<Partial<ContentDatabaseResponse>, "duplicatedItemId">,
+  response: DuplicatedDatabaseItemResponse,
 ) {
   return (
     response.items.find((item) => item.id === response.duplicatedItemId) ?? null
@@ -2030,10 +2049,10 @@ function DatabaseItemPreviewSheet({
         {item ? (
           <DatabaseItemPreview
             item={item}
+            databaseDocumentId={databaseDocumentId}
             previousItem={previousItem}
             nextItem={nextItem}
             position={position}
-            databaseDocumentId={databaseDocumentId}
             focusTitle={focusTitle}
             onPreviewItem={onPreviewItem}
             onTitleFocused={onTitleFocused}
@@ -2042,8 +2061,10 @@ function DatabaseItemPreviewSheet({
           />
         ) : (
           <SheetHeader className="sr-only">
-            <SheetTitle>Database page preview</SheetTitle>
-            <SheetDescription>No database page selected.</SheetDescription>
+            <SheetTitle>{dbText("databasePagePreview")}</SheetTitle>
+            <SheetDescription>
+              {dbText("noDatabasePageSelected")}
+            </SheetDescription>
           </SheetHeader>
         )}
       </SheetContent>
@@ -2178,9 +2199,9 @@ function DatabaseItemPreview({
         });
       },
       onError: (err) => {
-        toast.error("Failed to save page preview", {
+        toast.error(dbText("failedToSavePagePreview"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : dbText("somethingWentWrong"),
         });
       },
     });
@@ -2300,9 +2321,9 @@ function DatabaseItemPreview({
         },
         onError: (err) => {
           setLocalIcon(document.icon);
-          toast.error("Failed to save page icon", {
+          toast.error(dbText("failedToSavePageIcon"), {
             description:
-              err instanceof Error ? err.message : "Something went wrong",
+              err instanceof Error ? err.message : dbText("somethingWentWrong"),
           });
         },
       },
@@ -2318,9 +2339,9 @@ function DatabaseItemPreview({
       );
       if (duplicatedItem) onPreviewItem?.(duplicatedItem);
     } catch (err) {
-      toast.error("Failed to duplicate row", {
+      toast.error(dbText("failedToDuplicateRow"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
       });
     }
   }
@@ -2360,9 +2381,9 @@ function DatabaseItemPreview({
     } catch (err) {
       deletedIdsRef.current.delete(item.document.id);
       onPreviewItem?.(item);
-      toast.error("Failed to delete row", {
+      toast.error(dbText("failedToDeleteRow"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
       });
     }
   }
@@ -2393,7 +2414,7 @@ function DatabaseItemPreview({
               size="icon"
               className="size-8 text-muted-foreground"
               disabled={!previousItem}
-              aria-label="Previous database page"
+              aria-label={dbText("previousDatabasePage")}
               onClick={() => {
                 if (previousItem) onPreviewItem?.(previousItem);
               }}
@@ -2406,7 +2427,7 @@ function DatabaseItemPreview({
               size="icon"
               className="size-8 text-muted-foreground"
               disabled={!nextItem}
-              aria-label="Next database page"
+              aria-label={dbText("nextDatabasePage")}
               onClick={() => {
                 if (nextItem) onPreviewItem?.(nextItem);
               }}
@@ -2421,7 +2442,7 @@ function DatabaseItemPreview({
               onClick={onOpenPage}
             >
               <IconExternalLink className="size-3.5" />
-              Open page
+              {dbText("openPage")}
             </Button>
             {canEdit || canManage ? (
               <DropdownMenu
@@ -2449,7 +2470,7 @@ function DatabaseItemPreview({
                       }}
                     >
                       <IconCopy className="mr-2 size-4 text-muted-foreground" />
-                      Duplicate row
+                      {dbText("duplicateRow")}
                     </DropdownMenuItem>
                   ) : null}
                   {canEdit && canManage ? <DropdownMenuSeparator /> : null}
@@ -2463,7 +2484,7 @@ function DatabaseItemPreview({
                       }}
                     >
                       <IconTrash className="mr-2 size-4" />
-                      Delete row
+                      {dbText("deleteRow")}
                     </DropdownMenuItem>
                   ) : null}
                 </DropdownMenuContent>
@@ -2472,7 +2493,7 @@ function DatabaseItemPreview({
           </div>
         </div>
         <SheetDescription className="sr-only">
-          Preview this database page without leaving the database.
+          {dbText("previewThisDatabasePageWithoutLeavingTheDatabase")}
         </SheetDescription>
       </SheetHeader>
 
@@ -2505,7 +2526,7 @@ function DatabaseItemPreview({
                 rows={1}
                 value={localTitle}
                 readOnly={!canEdit}
-                aria-label="Preview page title"
+                aria-label={dbText("previewPageTitle")}
                 placeholder="Untitled"
                 onChange={(event) => handleTitleChange(event.target.value)}
                 style={{ fieldSizing: "content" } as any}
@@ -2515,7 +2536,6 @@ function DatabaseItemPreview({
             {document.databaseMembership ? (
               <DocumentProperties
                 documentId={document.id}
-                databaseDocumentId={databaseDocumentId}
                 canEdit={canEdit}
                 popoversPortalled={false}
               />
@@ -2560,7 +2580,7 @@ function DatabaseItemPreview({
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete row?</AlertDialogTitle>
+            <AlertDialogTitle>{dbText("deleteRow2")}</AlertDialogTitle>
             <AlertDialogDescription>
               &ldquo;{previewTitle}&rdquo; and any sub-pages will be permanently
               deleted. This cannot be undone.
@@ -2749,9 +2769,9 @@ function DatabaseTableView({
         position: targetIndex,
       });
     } catch (err) {
-      toast.error("Failed to move row", {
+      toast.error(dbText("failedToMoveRow"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
       });
     } finally {
       clearDraggedRow();
@@ -2923,9 +2943,9 @@ function DatabaseTableView({
         value: property.value !== true,
       });
     } catch (err) {
-      toast.error("Failed to update checkbox", {
+      toast.error(dbText("failedToUpdateCheckbox"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
       });
     }
   }
@@ -2952,9 +2972,9 @@ function DatabaseTableView({
         queryKey: ["action", "list-documents"],
       });
     } catch (err) {
-      toast.error("Failed to delete selected rows", {
+      toast.error(dbText("failedToDeleteSelectedRows"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
       });
     }
   }
@@ -2995,7 +3015,7 @@ function DatabaseTableView({
       if (duplicatedPreviewItem) onPreview(duplicatedPreviewItem);
       if (duplicatedCount > 0) onClearSelection();
       if (failedCount > 0) {
-        toast.error("Failed to duplicate every selected row", {
+        toast.error(dbText("failedToDuplicateEverySelectedRow"), {
           description:
             duplicatedCount > 0
               ? `${duplicatedCount} duplicated, ${failedCount} failed.`
@@ -3038,7 +3058,7 @@ function DatabaseTableView({
     });
 
     if (failedCount > 0) {
-      toast.error("Failed to update every selected row", {
+      toast.error(dbText("failedToUpdateEverySelectedRow"), {
         description:
           updatedCount > 0
             ? `${updatedCount} updated, ${failedCount} failed.`
@@ -3136,9 +3156,8 @@ function DatabaseTableView({
             >
               <AddProperty
                 documentId={databaseDocumentId}
-                databaseDocumentId={databaseDocumentId}
                 variant={cleanDefaultTable ? "header" : "icon"}
-                label="Add property"
+                label={dbText("addProperty")}
                 source={source}
                 sources={sources}
               />
@@ -3149,7 +3168,7 @@ function DatabaseTableView({
         {isLoading ? (
           <div className="flex h-16 items-center gap-2 border-t border-border px-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
-            Loading database
+            {dbText("loadingDatabase")}
           </div>
         ) : (
           <>
@@ -3160,7 +3179,7 @@ function DatabaseTableView({
             ) ? (
               <DatabaseNoMatchingPages
                 className="border-t border-border"
-                label="No rows match this view"
+                label={dbText("noRowsMatchThisView")}
                 onClear={onClearResultConstraints}
               />
             ) : null}
@@ -3198,9 +3217,9 @@ function DatabaseTableView({
                   <DatabaseTableRow
                     key={item.id}
                     item={item}
+                    databaseDocumentId={databaseDocumentId}
                     properties={properties}
                     columnWidths={columnWidths}
-                    databaseDocumentId={databaseDocumentId}
                     canEdit={canEdit}
                     rowIndex={index}
                     canReorder={rowsAreManuallyOrdered}
@@ -3272,7 +3291,7 @@ function DatabaseTableView({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete selected rows?</AlertDialogTitle>
+            <AlertDialogTitle>{dbText("deleteSelectedRows")}</AlertDialogTitle>
             <AlertDialogDescription>
               {selectedCount} selected row{selectedCount === 1 ? "" : "s"} and
               any sub-pages will be permanently deleted. This cannot be undone.
@@ -3355,7 +3374,7 @@ function DatabaseActiveConstraintsBar({
         className="ml-auto h-7 px-2 text-xs"
         onClick={onClearAll}
       >
-        Clear all
+        {dbText("clearAll")}
       </Button>
     </div>
   );
@@ -3558,7 +3577,7 @@ function DatabaseSettingsPanelSheet({
         </div>
         <button
           type="button"
-          aria-label="Close database settings"
+          aria-label={dbText("closeDatabaseSettings")}
           className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onClose}
         >
@@ -3668,7 +3687,7 @@ function DatabaseSettingsMainPanel({
         <Input
           value={activeView.name}
           readOnly
-          aria-label="View name"
+          aria-label={dbText("viewName")}
           className="h-7 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
         />
       </div>
@@ -3688,7 +3707,7 @@ function DatabaseSettingsMainPanel({
         />
         <DatabaseSettingsRow
           icon={<IconEye className="size-4" />}
-          label="Property visibility"
+          label={dbText("propertyVisibility")}
           value={propertyCount > 0 ? String(propertyCount - hiddenCount) : ""}
           onClick={() => onPanelChange("property_visibility")}
         />
@@ -3940,7 +3959,7 @@ function DatabaseSettingsSourcePanel({
       ? builderStatus.status.spaces
       : builderOrgName
         ? [{ id: "builder-space", name: builderOrgName }]
-        : [{ id: "builder-space", name: "Builder space" }];
+        : [{ id: "builder-space", name: dbText("builderSpace") }];
   const builderSpaceLabel = builderSpaces[0]?.name ?? builderOrgName;
   const connect = useBuilderConnectFlow({
     trackingSource: "database_source_panel",
@@ -4061,14 +4080,14 @@ function DatabaseSettingsSourcePanel({
         return (
           <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
             <Spinner className="size-3.5" />
-            Checking Builder connection
+            {dbText("checkingBuilderConnection")}
           </div>
         );
       }
       return (
         <div className="grid min-w-0 gap-3">
           <div className="min-w-0 break-words text-xs text-muted-foreground">
-            Connect your Builder account to browse its spaces and models.
+            {dbText("connectYourBuilderAccountToBrowseItsSpaces")}
           </div>
           <div>
             <Button
@@ -4178,12 +4197,12 @@ function DatabaseSettingsSourcePanel({
               source.capabilities.liveWritesEnabled ? (
                 <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground">
                   <IconPencil className="size-3" />
-                  Live writes on
+                  {dbText("liveWritesOn")}
                 </span>
               ) : (
                 <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                   <IconLock className="size-3" />
-                  Read-only
+                  {dbText("readOnly")}
                 </span>
               )
             ) : (
@@ -4201,7 +4220,7 @@ function DatabaseSettingsSourcePanel({
                 onClick={onRefreshSource}
               >
                 <IconRefresh className="size-3" />
-                Couldn’t sync · Retry
+                {dbText("couldntSyncRetry")}
               </button>
             ) : isBuilderSource ? (
               [
@@ -4236,7 +4255,7 @@ function DatabaseSettingsSourcePanel({
                       } ready to push`}
                 </div>
                 <div className="mt-0.5 break-words text-xs text-muted-foreground">
-                  Review before they reach Builder.
+                  {dbText("reviewBeforeTheyReachBuilder")}
                 </div>
               </div>
               <Button
@@ -4247,7 +4266,7 @@ function DatabaseSettingsSourcePanel({
                 onClick={onReviewBuilderUpdate}
               >
                 <IconCheck className="mr-1.5 size-3.5" />
-                Review diff
+                {dbText("reviewDiff")}
               </Button>
             </div>
           </div>
@@ -4289,10 +4308,11 @@ function DatabaseSettingsSourcePanel({
         ) : null}
 
         <div className="rounded-lg border border-border bg-background p-3">
-          <div className="text-xs font-medium">Disconnect source</div>
+          <div className="text-xs font-medium">
+            {dbText("disconnectSource")}
+          </div>
           <div className="mt-0.5 break-words text-xs text-muted-foreground">
-            Keep the database rows and local properties, but remove source
-            mappings, row identity, and pending source changes.
+            {dbText("keepTheDatabaseRowsAndLocalPropertiesButRemoveSource")}
           </div>
           <Button
             type="button"
@@ -4343,13 +4363,12 @@ function SourcesListView({
     <div className="grid min-w-0 gap-4">
       {connectedSources.length === 0 ? (
         <div className="min-w-0 break-words text-xs text-muted-foreground">
-          This database is local. Connect a source to map its columns onto these
-          rows.
+          {dbText("thisDatabaseIsLocalConnectASourceToMapIts")}
         </div>
       ) : (
         <div className="grid min-w-0 gap-1.5">
           <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Connected sources
+            {dbText("connectedSources")}
           </div>
           {connectedSources.map((connected, index) => (
             <DatabaseSettingsRow
@@ -4384,7 +4403,7 @@ function SourcesListView({
           ))}
           <DatabaseSettingsRow
             icon={<IconPlus className="size-4" />}
-            label="Add another source"
+            label={dbText("addAnotherSource")}
             onClick={onAddSource}
           />
         </div>
@@ -4415,7 +4434,7 @@ function SourcesListView({
       </div>
       <div className="grid min-w-0 gap-1.5">
         <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Agent-Native apps
+          {dbText("agentNativeApps")}
         </div>
         <DatabaseSettingsRow
           icon={<IconTimeline className="size-4" />}
@@ -4500,7 +4519,7 @@ function CanonicalKeyConfirmView({
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Spinner className="size-3.5" />
-        Analyzing both sources for a shared key
+        {dbText("analyzingBothSourcesForASharedKey")}
       </div>
     );
   }
@@ -4531,7 +4550,7 @@ function CanonicalKeyConfirmView({
 
       <div className="grid min-w-0 gap-1.5">
         <label className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Existing source · normalize
+          {dbText("existingSourceNormalize")}
         </label>
         <Input
           value={primaryFormula}
@@ -4542,7 +4561,7 @@ function CanonicalKeyConfirmView({
       </div>
       <div className="grid min-w-0 gap-1.5">
         <label className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          New source · normalize
+          {dbText("newSourceNormalize")}
         </label>
         <Input
           value={secondaryFormula}
@@ -4554,7 +4573,7 @@ function CanonicalKeyConfirmView({
 
       <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-muted/30 p-3">
         <div className="flex items-center justify-between text-xs">
-          <span className="font-medium">Sample matches</span>
+          <span className="font-medium">{dbText("sampleMatches")}</span>
           <span className="text-muted-foreground">
             {matchedCount} of {previewRows.length} match
           </span>
@@ -4643,16 +4662,16 @@ function AddSourceView({
     <div className="grid min-w-0 gap-4">
       <div className="grid min-w-0 gap-1.5">
         <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Local tables
+          {dbText("localTables")}
         </div>
         {query.isLoading ? (
           <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
             <Spinner className="size-3.5" />
-            Loading tables
+            {dbText("loadingTables")}
           </div>
         ) : tables.length === 0 ? (
           <div className="min-w-0 break-words px-2 text-xs text-muted-foreground">
-            No other databases available to add.
+            {dbText("noOtherDatabasesAvailableToAdd")}
           </div>
         ) : (
           tables.map((table) => (
@@ -4696,7 +4715,7 @@ function SecondarySourceLeaf({
   if (!source) {
     return (
       <div className="min-w-0 break-words text-xs text-muted-foreground">
-        This source is no longer connected.
+        {dbText("thisSourceIsNoLongerConnected")}
       </div>
     );
   }
@@ -4711,7 +4730,7 @@ function SecondarySourceLeaf({
           </span>
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
             <IconLock className="size-3" />
-            Read-only
+            {dbText("readOnly")}
           </span>
         </div>
         <div className="min-w-0 break-words text-xs text-muted-foreground">
@@ -4723,14 +4742,14 @@ function SecondarySourceLeaf({
       </div>
       {federation ? (
         <div className="grid min-w-0 gap-1 rounded-lg border border-border bg-background p-3 text-xs">
-          <div className="font-medium">Match formula</div>
+          <div className="font-medium">{dbText("matchFormula")}</div>
           <code className="block min-w-0 break-words rounded bg-muted px-1.5 py-1 font-mono text-[11px]">
             {federation.normalizationFormula}
           </code>
         </div>
       ) : null}
       <div className="rounded-lg border border-border bg-background p-3">
-        <div className="text-xs font-medium">Remove this source</div>
+        <div className="text-xs font-medium">{dbText("removeThisSource")}</div>
         <div className="mt-0.5 break-words text-xs text-muted-foreground">
           Removes the federated columns&rsquo; link to this source. Your local
           rows and columns stay.
@@ -4772,7 +4791,7 @@ function BuilderSpaceModelsView({
     return (
       <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         <Spinner className="size-3.5" />
-        Loading Builder models
+        {dbText("loadingBuilderModels")}
       </div>
     );
   }
@@ -4780,7 +4799,7 @@ function BuilderSpaceModelsView({
   if (modelsQuery.data?.state === "unconfigured") {
     return (
       <div className="min-w-0 break-words text-xs text-muted-foreground">
-        Builder isn’t connected. Go back to connect your account first.
+        {dbText("builderIsntConnectedGoBackToConnectYour")}
       </div>
     );
   }
@@ -4808,7 +4827,7 @@ function BuilderSpaceModelsView({
     return (
       <div className="grid min-w-0 gap-2">
         <div className="text-xs text-muted-foreground">
-          No Builder models were found in this space.
+          {dbText("noBuilderModelsWereFoundInThisSpace")}
         </div>
         <Button
           type="button"
@@ -4875,8 +4894,8 @@ function BuilderSpaceModelsView({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search models"
-          aria-label="Search Builder models"
+          placeholder={dbText("searchModels")}
+          aria-label={dbText("searchBuilderModels")}
           className="h-8 min-w-0 pl-7 text-sm"
         />
       </div>
@@ -4884,7 +4903,7 @@ function BuilderSpaceModelsView({
       {attachedModels.length > 0 ? (
         <div className="grid min-w-0 gap-1.5">
           <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Already attached
+            {dbText("alreadyAttached")}
           </div>
           {attachedModels.map(renderRow)}
         </div>
@@ -4893,7 +4912,7 @@ function BuilderSpaceModelsView({
       <div className="grid min-w-0 gap-1.5">
         {attachedModels.length > 0 && otherModels.length > 0 ? (
           <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            All models
+            {dbText("allModels")}
           </div>
         ) : null}
         {otherModels.map(renderRow)}
@@ -4980,7 +4999,9 @@ function SourceChangeSetReviewCard({
         {changeSet.bodyChange ? (
           <div className="rounded border border-border/60 bg-muted/20 p-1.5 text-xs">
             <div className="font-medium">{changeSet.bodyChange.summary}</div>
-            <div className="mt-1 text-muted-foreground">Body diff</div>
+            <div className="mt-1 text-muted-foreground">
+              {dbText("bodyDiff")}
+            </div>
           </div>
         ) : null}
       </div>
@@ -5006,7 +5027,7 @@ function SourceChangeSetReviewCard({
       {latestExecution ? (
         <div className="mt-2 rounded border border-border/60 bg-muted/20 p-1.5 text-xs">
           <div className="flex min-w-0 items-center justify-between gap-2">
-            <span className="font-medium">Execution gate</span>
+            <span className="font-medium">{dbText("executionGate")}</span>
             <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
               {latestExecution.state.replace(/_/g, " ")}
             </span>
@@ -5335,7 +5356,7 @@ function DatabaseSettingsLayoutPanel({
       </div>
       <div className="grid gap-1">
         <DatabaseSettingsSwitch
-          label="Wrap all content"
+          label={dbText("wrapAllContent")}
           checked={wrapCells}
           disabled={activeView.type !== "table"}
           onCheckedChange={onWrapCellsChange}
@@ -5363,7 +5384,7 @@ function DatabaseOpenPagesInSetting({
           type="button"
           className="flex h-9 w-full items-center justify-between rounded-md px-2 text-left text-sm text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="truncate">Open pages in</span>
+          <span className="truncate">{dbText("openPagesIn")}</span>
           <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             <span className="max-w-28 truncate">
               {databaseOpenPagesInLabel(value)}
@@ -5444,8 +5465,8 @@ function DatabaseSettingsPropertyVisibilityPanel({
         <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
         <Input
           value={query}
-          placeholder="Search properties"
-          aria-label="Search properties"
+          placeholder={dbText("searchProperties")}
+          aria-label={dbText("searchProperties")}
           onChange={(event) => setQuery(event.target.value)}
           className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
         />
@@ -5463,7 +5484,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
             disabled={hiddenCount === 0}
             onClick={() => onPropertiesHiddenChange(propertyIds, false)}
           >
-            Show all
+            {dbText("showAll")}
           </Button>
           <Button
             type="button"
@@ -5473,7 +5494,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
             disabled={visibleCount === 0}
             onClick={() => onPropertiesHiddenChange(propertyIds, true)}
           >
-            Hide all
+            {dbText("hideAll")}
           </Button>
         </div>
       </div>
@@ -5509,15 +5530,14 @@ function DatabaseSettingsPropertyVisibilityPanel({
         })}
         {filteredProperties.length === 0 ? (
           <div className="px-2 py-4 text-sm text-muted-foreground">
-            No matching properties
+            {dbText("noMatchingProperties")}
           </div>
         ) : null}
       </div>
       <div className="border-t border-border/70 pt-3">
         <AddProperty
           documentId={documentId}
-          databaseDocumentId={documentId}
-          label="New property"
+          label={dbText("newProperty")}
           source={source}
           sources={sources}
         />
@@ -5564,8 +5584,8 @@ function DatabaseSettingsGroupPanel({
         <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
         <Input
           value={propertyQuery}
-          placeholder="Search properties"
-          aria-label="Search group properties"
+          placeholder={dbText("searchProperties")}
+          aria-label={dbText("searchGroupProperties")}
           disabled={!canGroupView}
           onChange={(event) => setPropertyQuery(event.target.value)}
           className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
@@ -5606,13 +5626,13 @@ function DatabaseSettingsGroupPanel({
       </div>
       {groupableProperties.length === 0 ? (
         <div className="px-2 text-xs text-muted-foreground">
-          Add a status, select, multi-select, or checkbox property to group.
+          {dbText("addAStatusSelectMultiSelectOrCheckboxPropertyToGroup")}
         </div>
       ) : null}
       {groupProperty ? (
         <div className="grid gap-1 border-t border-border/70 pt-3">
           <DatabaseSettingsSwitch
-            label="Hide empty groups"
+            label={dbText("hideEmptyGroups")}
             checked={hideEmptyGroups}
             onCheckedChange={onHideEmptyGroupsChange}
           />
@@ -5625,7 +5645,7 @@ function DatabaseSettingsGroupPanel({
               disabled={groupIds.length === 0}
               onClick={() => onGroupsCollapsedChange(groupIds, true)}
             >
-              Collapse all
+              {dbText("collapseAll")}
             </Button>
             <Button
               type="button"
@@ -5635,7 +5655,7 @@ function DatabaseSettingsGroupPanel({
               disabled={groupIds.length === 0}
               onClick={() => onGroupsCollapsedChange(groupIds, false)}
             >
-              Expand all
+              {dbText("expandAll")}
             </Button>
           </div>
         </div>
@@ -5690,8 +5710,8 @@ function DatabasePropertyPickerSearch({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => event.stopPropagation()}
-          placeholder="Search properties"
-          aria-label="Search properties"
+          placeholder={dbText("searchProperties")}
+          aria-label={dbText("searchProperties")}
           className="h-6 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
         />
       </div>
@@ -5750,7 +5770,7 @@ function DatabasePropertyPickerSubContent({
       ))}
       {items.length === 0 ? (
         <div className="px-2 py-1.5 text-xs text-muted-foreground">
-          No properties found
+          {dbText("noPropertiesFound")}
         </div>
       ) : null}
     </DropdownMenuSubContent>
@@ -5810,7 +5830,7 @@ function DatabaseGroupMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="text-xs text-muted-foreground">
-          Group by
+          {dbText("groupBy")}
         </DropdownMenuLabel>
         <DropdownMenuItem
           onSelect={(event) => {
@@ -5840,7 +5860,7 @@ function DatabaseGroupMenu({
         ))}
         {groupableProperties.length > 0 && groupPropertyItems.length === 0 ? (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            No properties found
+            {dbText("noPropertiesFound")}
           </div>
         ) : null}
         {groupProperty ? (
@@ -5853,7 +5873,7 @@ function DatabaseGroupMenu({
               }}
             >
               <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
-              <span className="flex-1">Hide empty groups</span>
+              <span className="flex-1">{dbText("hideEmptyGroups")}</span>
               {hideEmptyGroups ? (
                 <IconCheck className="size-4 text-muted-foreground" />
               ) : null}
@@ -5866,7 +5886,7 @@ function DatabaseGroupMenu({
               }}
             >
               <IconChevronRight className="mr-2 size-4 text-muted-foreground" />
-              Collapse all groups
+              {dbText("collapseAllGroups")}
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={groupIds.length === 0}
@@ -5876,13 +5896,13 @@ function DatabaseGroupMenu({
               }}
             >
               <IconChevronDown className="mr-2 size-4 text-muted-foreground" />
-              Expand all groups
+              {dbText("expandAllGroups")}
             </DropdownMenuItem>
           </>
         ) : null}
         {groupableProperties.length === 0 ? (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            Add a status, select, multi-select, or checkbox property to group.
+            {dbText("addAStatusSelectMultiSelectOrCheckboxPropertyToGroup")}
           </div>
         ) : null}
       </DropdownMenuContent>
@@ -6067,19 +6087,19 @@ export function databaseCalculationOptionsForProperty(
   property: DocumentProperty,
 ): Array<{ value: DatabaseColumnCalculation; label: string }> {
   const options: Array<{ value: DatabaseColumnCalculation; label: string }> = [
-    { value: "count_all", label: "Count all" },
-    { value: "count_values", label: "Count values" },
-    { value: "count_empty", label: "Count empty" },
-    { value: "count_unique", label: "Count unique" },
-    { value: "percent_filled", label: "Percent filled" },
-    { value: "percent_empty", label: "Percent empty" },
+    { value: "count_all", label: dbText("countAll") },
+    { value: "count_values", label: dbText("countValues") },
+    { value: "count_empty", label: dbText("countEmpty") },
+    { value: "count_unique", label: dbText("countUnique") },
+    { value: "percent_filled", label: dbText("percentFilled") },
+    { value: "percent_empty", label: dbText("percentEmpty") },
   ];
   if (property.definition.type === "checkbox") {
     options.push(
       { value: "count_checked", label: "Checked" },
       { value: "count_unchecked", label: "Unchecked" },
-      { value: "percent_checked", label: "Percent checked" },
-      { value: "percent_unchecked", label: "Percent unchecked" },
+      { value: "percent_checked", label: dbText("percentChecked") },
+      { value: "percent_unchecked", label: dbText("percentUnchecked") },
     );
   }
   if (property.definition.type === "number") {
@@ -6096,7 +6116,7 @@ export function databaseCalculationOptionsForProperty(
     options.push(
       { value: "min", label: "Earliest" },
       { value: "max", label: "Latest" },
-      { value: "date_range", label: "Date range" },
+      { value: "date_range", label: dbText("dateRange") },
     );
   }
   return options;
@@ -6291,7 +6311,7 @@ function DatabaseNoMatchingPages({
         className="h-8 px-2 text-xs"
         onClick={onClear}
       >
-        Clear search and filters
+        {dbText("clearSearchAndFilters")}
       </Button>
     </div>
   );
@@ -6386,7 +6406,7 @@ function DatabaseListView({
       {isLoading ? (
         <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Loading list
+          {dbText("loadingList")}
         </div>
       ) : (
         <div className="grid">
@@ -6667,8 +6687,8 @@ function NewListRow({
         ref={inputRef}
         value={title}
         disabled={disabled}
-        aria-label="New database list item title"
-        placeholder="New page"
+        aria-label={dbText("newDatabaseListItemTitle")}
+        placeholder={dbText("newPage")}
         onChange={(event) => setTitle(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
@@ -6750,7 +6770,7 @@ function DatabaseGalleryView({
       {isLoading ? (
         <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Loading gallery
+          {dbText("loadingGallery")}
         </div>
       ) : (
         <div className="grid gap-3 px-1 py-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -7013,8 +7033,8 @@ function NewGalleryCard({
           ref={inputRef}
           value={title}
           disabled={disabled}
-          aria-label="New database gallery card title"
-          placeholder="New page"
+          aria-label={dbText("newDatabaseGalleryCardTitle")}
+          placeholder={dbText("newPage")}
           onChange={(event) => setTitle(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -7135,7 +7155,7 @@ function DatabaseCalendarView({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  Calendar by
+                  {dbText("calendarBy")}
                 </DropdownMenuLabel>
                 {dateProperties.map((property) => {
                   const Icon = TYPE_ICONS[property.definition.type];
@@ -7176,7 +7196,7 @@ function DatabaseCalendarView({
             variant="ghost"
             size="icon"
             className="size-7 text-muted-foreground"
-            aria-label="Previous month"
+            aria-label={dbText("previousMonth")}
             onClick={() => changeMonth(-1)}
           >
             <IconArrowUp className="size-3.5 -rotate-90" />
@@ -7186,7 +7206,7 @@ function DatabaseCalendarView({
             variant="ghost"
             size="icon"
             className="size-7 text-muted-foreground"
-            aria-label="Next month"
+            aria-label={dbText("nextMonth")}
             onClick={() => changeMonth(1)}
           >
             <IconArrowUp className="size-3.5 rotate-90" />
@@ -7197,17 +7217,12 @@ function DatabaseCalendarView({
       {isLoading ? (
         <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Loading calendar
+          {dbText("loadingCalendar")}
         </div>
       ) : dateProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
-          <span>Add a date property to use calendar view.</span>
-          {canEdit ? (
-            <AddProperty
-              documentId={databaseDocumentId}
-              databaseDocumentId={databaseDocumentId}
-            />
-          ) : null}
+          <span>{dbText("addADatePropertyToUseCalendarView")}</span>
+          {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
         </div>
       ) : databaseViewHasNoMatchingPages(
           items.length,
@@ -7334,7 +7349,7 @@ function DatabaseDateViewNoDateSection({
       <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span className="flex min-w-0 items-center gap-1.5 font-medium">
           <IconCalendarOff className="size-3.5 shrink-0" />
-          <span className="truncate">No date</span>
+          <span className="truncate">{dbText("noDate")}</span>
         </span>
         <span className="rounded bg-background px-1.5 py-0.5 text-[11px]">
           {items.length}
@@ -7586,7 +7601,7 @@ function DatabaseTimelineView({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  Start date
+                  {dbText("startDate")}
                 </DropdownMenuLabel>
                 {dateProperties.map((property) => {
                   const Icon = TYPE_ICONS[property.definition.type];
@@ -7630,7 +7645,7 @@ function DatabaseTimelineView({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  End date
+                  {dbText("endDate")}
                 </DropdownMenuLabel>
                 <DropdownMenuItem
                   onSelect={(event) => {
@@ -7638,7 +7653,9 @@ function DatabaseTimelineView({
                     onEndDatePropertyChange(null);
                   }}
                 >
-                  <span className="min-w-0 flex-1 truncate">No end date</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {dbText("noEndDate")}
+                  </span>
                   {!endDateProperty ? (
                     <IconCheck className="size-4 text-muted-foreground" />
                   ) : null}
@@ -7687,7 +7704,7 @@ function DatabaseTimelineView({
             variant="ghost"
             size="icon"
             className="size-7 text-muted-foreground"
-            aria-label="Previous timeline range"
+            aria-label={dbText("previousTimelineRange")}
             onClick={() => changeMonth(-1)}
           >
             <IconArrowUp className="size-3.5 -rotate-90" />
@@ -7697,7 +7714,7 @@ function DatabaseTimelineView({
             variant="ghost"
             size="icon"
             className="size-7 text-muted-foreground"
-            aria-label="Next timeline range"
+            aria-label={dbText("nextTimelineRange")}
             onClick={() => changeMonth(1)}
           >
             <IconArrowUp className="size-3.5 rotate-90" />
@@ -7708,17 +7725,12 @@ function DatabaseTimelineView({
       {isLoading ? (
         <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Loading timeline
+          {dbText("loadingTimeline")}
         </div>
       ) : dateProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
-          <span>Add a date property to use timeline view.</span>
-          {canEdit ? (
-            <AddProperty
-              documentId={databaseDocumentId}
-              databaseDocumentId={databaseDocumentId}
-            />
-          ) : null}
+          <span>{dbText("addADatePropertyToUseTimelineView")}</span>
+          {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
         </div>
       ) : (
         <>
@@ -7994,7 +8006,7 @@ function NewTimelineCard({
           value={title}
           disabled={disabled}
           aria-label={`New ${dateKey} timeline card title`}
-          placeholder="New page"
+          placeholder={dbText("newPage")}
           onChange={(event) => setTitle(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -8100,9 +8112,9 @@ function DatabaseBoardView({
     try {
       await onMoveCard(draggedItem, group);
     } catch (err) {
-      toast.error("Failed to move card", {
+      toast.error(dbText("failedToMoveCard"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
       });
     } finally {
       setDraggedItem(null);
@@ -8193,7 +8205,7 @@ function DatabaseBoardView({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel className="text-xs text-muted-foreground">
-                Group by
+                {dbText("groupBy")}
               </DropdownMenuLabel>
               {groupableProperties.map((property) => {
                 const Icon = TYPE_ICONS[property.definition.type];
@@ -8225,7 +8237,7 @@ function DatabaseBoardView({
                     }}
                   >
                     <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
-                    <span className="flex-1">Hide empty groups</span>
+                    <span className="flex-1">{dbText("hideEmptyGroups")}</span>
                     {hideEmptyGroups ? (
                       <IconCheck className="size-4 text-muted-foreground" />
                     ) : null}
@@ -8246,7 +8258,7 @@ function DatabaseBoardView({
                     }}
                   >
                     <IconChevronRight className="mr-2 size-4 text-muted-foreground" />
-                    Collapse all groups
+                    {dbText("collapseAllGroups")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={groups.length === 0}
@@ -8259,7 +8271,7 @@ function DatabaseBoardView({
                     }}
                   >
                     <IconChevronDown className="mr-2 size-4 text-muted-foreground" />
-                    Expand all groups
+                    {dbText("expandAllGroups")}
                   </DropdownMenuItem>
                 </>
               ) : null}
@@ -8271,20 +8283,12 @@ function DatabaseBoardView({
       {isLoading ? (
         <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Loading board
+          {dbText("loadingBoard")}
         </div>
       ) : groupableProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
-          <span>
-            Add a status, select, multi-select, or checkbox property to group
-            this board.
-          </span>
-          {canEdit ? (
-            <AddProperty
-              documentId={databaseDocumentId}
-              databaseDocumentId={databaseDocumentId}
-            />
-          ) : null}
+          <span>{dbText("addAStatusSelectMultiSelectOrCheckbox2")}</span>
+          {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
         </div>
       ) : (
         <>
@@ -8364,7 +8368,7 @@ function DatabaseBoardView({
                         (candidate) => candidate.items.length === 0,
                       ) ? (
                         <div className="rounded border border-dashed border-border bg-background/50 px-3 py-4 text-sm text-muted-foreground">
-                          No matching pages
+                          {dbText("noMatchingPages")}
                         </div>
                       ) : null}
                       {canEdit ? (
@@ -8509,7 +8513,7 @@ function DatabaseBoardColumnHeader({
           <DropdownMenuContent align="end" className="w-56">
             <div className="grid gap-1 px-2 py-1.5">
               <DropdownMenuLabel className="px-0 py-0 text-xs text-muted-foreground">
-                Group name
+                {dbText("groupName")}
               </DropdownMenuLabel>
               <Input
                 value={name}
@@ -8566,7 +8570,7 @@ function DatabaseBoardColumnHeader({
               onSelect={() => void onRemove(group)}
             >
               <IconTrash className="mr-2 size-4" />
-              Delete group
+              {dbText("deleteGroup")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -8656,7 +8660,9 @@ function DatabaseBoardCard({
               })}
             </span>
           ) : null}
-          {!canEdit ? null : <span className="sr-only">Open page</span>}
+          {!canEdit ? null : (
+            <span className="sr-only">{dbText("openPage")}</span>
+          )}
         </button>
         {canEdit ? (
           <RowActionsCell
@@ -8715,8 +8721,8 @@ function NewBoardGroupColumn({
           ref={inputRef}
           value={name}
           disabled={disabled}
-          aria-label="New board group name"
-          placeholder="New group"
+          aria-label={dbText("newBoardGroupName")}
+          placeholder={dbText("newGroup")}
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -8778,7 +8784,7 @@ function NewBoardCard({
           value={title}
           disabled={disabled}
           aria-label={`New ${group.label} board card title`}
-          placeholder="New page"
+          placeholder={dbText("newPage")}
           onChange={(event) => setTitle(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -8822,7 +8828,7 @@ function NewDatabaseRow({
   return (
     <button
       type="button"
-      aria-label="New database row"
+      aria-label={dbText("newDatabaseRow")}
       disabled={disabled}
       className={cn(
         "grid w-full border-t border-border/45 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground focus-visible:bg-muted/35 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
@@ -8849,7 +8855,9 @@ function NewDatabaseRow({
         ) : (
           <IconPlus className="size-4 shrink-0" />
         )}
-        <span className="h-7 min-w-0 flex-1 truncate leading-7">New page</span>
+        <span className="h-7 min-w-0 flex-1 truncate leading-7">
+          {dbText("newPage")}
+        </span>
       </span>
       {properties.map((property) => (
         <span
@@ -9659,7 +9667,7 @@ export function databaseViewItemGroups(
     return [
       {
         id: "all",
-        label: "All pages",
+        label: dbText("allPages"),
         property: null,
         value: BOARD_UNGROUPED_VALUE,
         items,
@@ -10006,7 +10014,7 @@ export function databaseBoardGroups(
     return [
       {
         id: "all",
-        label: "No grouping",
+        label: dbText("noGrouping"),
         property: null,
         value: BOARD_UNGROUPED_VALUE,
         items,
@@ -10404,12 +10412,12 @@ function DatabaseViewTabs({
                     ref={renameInputRef}
                     autoFocus
                     value={renameValue}
-                    aria-label="View name"
+                    aria-label={dbText("viewName")}
                     onChange={(event) => setRenameValue(event.target.value)}
                     className="h-8"
                   />
                   <Button type="submit" size="sm" className="h-8">
-                    Rename view
+                    {dbText("renameView")}
                   </Button>
                 </form>
               ) : (
@@ -10420,7 +10428,7 @@ function DatabaseViewTabs({
                       startRename(view);
                     }}
                   >
-                    Rename view
+                    {dbText("renameView")}
                   </DropdownMenuItem>
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
@@ -10465,7 +10473,7 @@ function DatabaseViewTabs({
                     }}
                   >
                     <IconCopy className="mr-2 size-4 text-muted-foreground" />
-                    Duplicate view
+                    {dbText("duplicateView")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -10479,7 +10487,7 @@ function DatabaseViewTabs({
                     }}
                   >
                     <IconTrash className="mr-2 size-4" />
-                    Delete view
+                    {dbText("deleteView")}
                   </DropdownMenuItem>
                 </>
               )}
@@ -10498,7 +10506,7 @@ function DatabaseViewTabs({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              aria-label="Add database view"
+              aria-label={dbText("addDatabaseView")}
               className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/viewtabs:opacity-100 group-hover/viewtabs:opacity-100 data-[state=open]:opacity-100"
             >
               <IconPlus className="size-4" />
@@ -10506,7 +10514,7 @@ function DatabaseViewTabs({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-64">
             <DropdownMenuLabel className="text-xs text-muted-foreground">
-              New view
+              {dbText("newView")}
             </DropdownMenuLabel>
             <form
               className="grid gap-2 p-2"
@@ -10520,7 +10528,7 @@ function DatabaseViewTabs({
                 autoFocus
                 value={newViewName}
                 placeholder="Table"
-                aria-label="New view name"
+                aria-label={dbText("newViewName")}
                 onChange={(event) => setNewViewName(event.target.value)}
                 className="h-8"
               />
@@ -10598,7 +10606,7 @@ function DatabaseNameHeader({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            aria-label="Name column menu"
+            aria-label={dbText("nameColumnMenu")}
             className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded px-1 text-left hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <span className="shrink-0 text-[13px] leading-none text-muted-foreground">
@@ -10620,7 +10628,10 @@ function DatabaseNameHeader({
           sourceField={sourceFieldMappingForColumn(source, "name")}
         />
       </DropdownMenu>
-      <ColumnResizeHandle label="Resize Name column" onPointerDown={onResize} />
+      <ColumnResizeHandle
+        label={dbText("resizeNameColumn")}
+        onPointerDown={onResize}
+      />
     </div>
   );
 }
@@ -10794,7 +10805,7 @@ function DatabaseBulkEditPopover({
                 />
               ) : (
                 <div className="px-2 py-6 text-sm text-muted-foreground">
-                  No editable properties
+                  {dbText("noEditableProperties")}
                 </div>
               )}
             </div>
@@ -10851,7 +10862,7 @@ function DatabaseBulkPropertyValueEditor({
           disabled={disabled}
           onClick={() => void onApply(null)}
         >
-          Clear value
+          {dbText("clearValue")}
         </Button>
       </div>
     );
@@ -10976,7 +10987,7 @@ function DatabaseBulkScalarValueEditor({
       />
       {!valueState.isValid ? (
         <div className="px-1 text-xs text-destructive">
-          Enter a valid number.
+          {dbText("enterAValidNumber")}
         </div>
       ) : null}
       <div className="flex justify-end gap-2">
@@ -11028,7 +11039,7 @@ function DatabaseBulkFilesValueEditor({
         autoFocus
         aria-label="Set files for selected rows"
         value={value}
-        placeholder="One file or media link per line"
+        placeholder={dbText("oneFileOrMediaLinkPerLine")}
         rows={4}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
@@ -11079,7 +11090,7 @@ function DatabaseBulkOptionValueEditor({
     return (
       <div className="grid gap-2">
         <div className="rounded bg-muted/40 px-2 py-3 text-sm text-muted-foreground">
-          This property has no options yet.
+          {dbText("thisPropertyHasNoOptionsYet")}
         </div>
         <Button
           type="button"
@@ -11089,7 +11100,7 @@ function DatabaseBulkOptionValueEditor({
           disabled={disabled}
           onClick={() => void onApply(multi ? [] : null)}
         >
-          Clear value
+          {dbText("clearValue")}
         </Button>
       </div>
     );
@@ -11171,7 +11182,7 @@ function DatabaseBulkOptionValueEditor({
         disabled={disabled}
         onClick={() => void onApply(null)}
       >
-        Clear value
+        {dbText("clearValue")}
       </Button>
     </div>
   );
@@ -11417,7 +11428,7 @@ function ColumnHeaderMenuContent({
         }}
       >
         <IconArrowUp className="mr-2 size-4 text-muted-foreground" />
-        <span className="min-w-0 flex-1">Sort ascending</span>
+        <span className="min-w-0 flex-1">{dbText("sortAscending")}</span>
         {columnSort?.direction === "asc" ? (
           <IconCheck className="size-4 text-muted-foreground" />
         ) : null}
@@ -11429,7 +11440,7 @@ function ColumnHeaderMenuContent({
         }}
       >
         <IconArrowDown className="mr-2 size-4 text-muted-foreground" />
-        <span className="min-w-0 flex-1">Sort descending</span>
+        <span className="min-w-0 flex-1">{dbText("sortDescending")}</span>
         {columnSort?.direction === "desc" ? (
           <IconCheck className="size-4 text-muted-foreground" />
         ) : null}
@@ -11442,7 +11453,7 @@ function ColumnHeaderMenuContent({
           }}
         >
           <IconX className="mr-2 size-4 text-muted-foreground" />
-          Clear sort
+          {dbText("clearSort")}
         </DropdownMenuItem>
       ) : null}
       <DropdownMenuSeparator />
@@ -11487,7 +11498,7 @@ function ColumnHeaderMenuContent({
             }}
           >
             <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
-            Hide in view
+            {dbText("hideInView")}
           </DropdownMenuItem>
         </>
       ) : null}
@@ -11514,7 +11525,7 @@ function ColumnHeaderMenuContent({
               </>
             ) : (
               <div className="text-muted-foreground">
-                Not mapped to Builder.
+                {dbText("notMappedToBuilder")}
               </div>
             )}
           </div>
@@ -11565,7 +11576,7 @@ function DatabasePropertiesMenu({
               ? `${hiddenCount} hidden properties`
               : "Property visibility"
           }
-          title="Property visibility"
+          title={dbText("propertyVisibility")}
           className={cn(
             databaseToolbarIconButtonClass(hiddenCount > 0),
             "relative",
@@ -11595,8 +11606,8 @@ function DatabasePropertiesMenu({
             <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
             <Input
               value={query}
-              placeholder="Search properties"
-              aria-label="Search properties"
+              placeholder={dbText("searchProperties")}
+              aria-label={dbText("searchProperties")}
               onChange={(event) => setQuery(event.target.value)}
               className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
             />
@@ -11615,7 +11626,7 @@ function DatabasePropertiesMenu({
                 onClick={() => onPropertiesHiddenChange(propertyIds, false)}
               >
                 <IconEye className="mr-1 size-3.5" />
-                Show all
+                {dbText("showAll")}
               </Button>
               <Button
                 type="button"
@@ -11626,14 +11637,14 @@ function DatabasePropertiesMenu({
                 onClick={() => onPropertiesHiddenChange(propertyIds, true)}
               >
                 <IconEyeOff className="mr-1 size-3.5" />
-                Hide all
+                {dbText("hideAll")}
               </Button>
             </div>
           </div>
         </div>
         {filteredProperties.length === 0 ? (
           <div className="px-3 py-4 text-sm text-muted-foreground">
-            No matching properties
+            {dbText("noMatchingProperties")}
           </div>
         ) : null}
         {filteredProperties.map((property) => {
@@ -11668,11 +11679,7 @@ function DatabasePropertiesMenu({
           className="border-t border-border p-2"
           onKeyDown={(event) => event.stopPropagation()}
         >
-          <AddProperty
-            documentId={documentId}
-            databaseDocumentId={documentId}
-            label="New property"
-          />
+          <AddProperty documentId={documentId} label={dbText("newProperty")} />
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -11816,13 +11823,13 @@ export function databaseQuickFilterOptionsForColumn(
 ): Array<{ operator: DatabaseQuickFilterOperator; label: string }> {
   if (propertyType === "checkbox") {
     return [
-      { operator: "is_checked", label: "Filter checked" },
-      { operator: "is_unchecked", label: "Filter unchecked" },
+      { operator: "is_checked", label: dbText("filterChecked") },
+      { operator: "is_unchecked", label: dbText("filterUnchecked") },
     ];
   }
   return [
-    { operator: "is_empty", label: "Filter empty" },
-    { operator: "is_not_empty", label: "Filter not empty" },
+    { operator: "is_empty", label: dbText("filterEmpty") },
+    { operator: "is_not_empty", label: dbText("filterNotEmpty") },
   ];
 }
 
@@ -12255,7 +12262,7 @@ function SortMenu({
       <DropdownMenuContent align="end" className="w-[340px]">
         <div className="grid gap-2 p-2">
           <div className="text-xs font-medium text-muted-foreground">
-            Sort rows by
+            {dbText("sortRowsBy")}
           </div>
           <div className="grid gap-2">
             {displayedSorts.map((sort, index) => (
@@ -12328,7 +12335,7 @@ function SortMenu({
               onClick={addSort}
             >
               <IconPlus className="mr-1 size-3.5" />
-              Add sort
+              {dbText("addSort")}
             </Button>
             <Button
               type="button"
@@ -12338,7 +12345,7 @@ function SortMenu({
               disabled={sorts.length === 0}
               onClick={() => onSortsChange([])}
             >
-              Clear sorts
+              {dbText("clearSorts")}
             </Button>
           </div>
         </div>
@@ -12454,7 +12461,7 @@ function FilterMenu({
           onKeyDown={(event) => event.stopPropagation()}
         >
           <div className="text-xs font-medium text-muted-foreground">
-            Filter rows where
+            {dbText("filterRowsWhere")}
           </div>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="h-8 rounded border border-border/70 bg-background px-2 text-sm">
@@ -12593,7 +12600,7 @@ function FilterMenu({
               onClick={addFilter}
             >
               <IconPlus className="mr-1 size-3.5" />
-              Add filter
+              {dbText("addFilter")}
             </Button>
             <Button
               type="button"
@@ -12603,7 +12610,7 @@ function FilterMenu({
               disabled={filters.length === 0}
               onClick={() => onFiltersChange([])}
             >
-              Clear filters
+              {dbText("clearFilters")}
             </Button>
           </div>
           <span className="text-xs text-muted-foreground">
@@ -12673,7 +12680,7 @@ function DatabaseFilterValueControl({
               <Input
                 autoFocus={autoFocus}
                 value={optionQuery}
-                placeholder="Search options"
+                placeholder={dbText("searchOptions")}
                 aria-label={`Search ${filter.label} filter options`}
                 onChange={(event) => setOptionQuery(event.target.value)}
                 className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
@@ -12689,14 +12696,14 @@ function DatabaseFilterValueControl({
                 }}
               >
                 <IconX className="mr-2 size-4 text-muted-foreground" />
-                Clear value
+                {dbText("clearValue")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
             </>
           ) : null}
           {filteredOptions.length === 0 && !canCreateOption ? (
             <div className="px-3 py-4 text-sm text-muted-foreground">
-              No matching options
+              {dbText("noMatchingOptions")}
             </div>
           ) : null}
           {filteredOptions.map((option) => (
@@ -13037,9 +13044,9 @@ function DatabaseGroupedTableSection({
             <DatabaseTableRow
               key={`${group.id}-${item.id}`}
               item={item}
+              databaseDocumentId={databaseDocumentId}
               properties={properties}
               columnWidths={columnWidths}
-              databaseDocumentId={databaseDocumentId}
               canEdit={canEdit}
               rowIndex={index}
               canReorder={false}
@@ -13273,9 +13280,9 @@ function RowActionsCell({
       const duplicatedItem = databaseDuplicatedItemFromResponse(response);
       if (duplicatedItem) onPreviewItem?.(duplicatedItem);
     } catch (err) {
-      toast.error("Failed to duplicate row", {
+      toast.error(dbText("failedToDuplicateRow"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
       });
     }
   }
@@ -13296,9 +13303,9 @@ function RowActionsCell({
       });
     } catch (err) {
       if (previewMoved) onPreviewItem?.(item);
-      toast.error("Failed to delete row", {
+      toast.error(dbText("failedToDeleteRow"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
       });
     }
   }
@@ -13324,7 +13331,7 @@ function RowActionsCell({
             }}
           >
             <IconExternalLink className="mr-2 size-4 text-muted-foreground" />
-            Open page
+            {dbText("openPage")}
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={duplicateItem.isPending}
@@ -13334,7 +13341,7 @@ function RowActionsCell({
             }}
           >
             <IconCopy className="mr-2 size-4 text-muted-foreground" />
-            Duplicate row
+            {dbText("duplicateRow")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -13346,7 +13353,7 @@ function RowActionsCell({
             }}
           >
             <IconTrash className="mr-2 size-4" />
-            Delete row
+            {dbText("deleteRow")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -13354,7 +13361,7 @@ function RowActionsCell({
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete row?</AlertDialogTitle>
+            <AlertDialogTitle>{dbText("deleteRow2")}</AlertDialogTitle>
             <AlertDialogDescription>
               &ldquo;{title}&rdquo; and any sub-pages will be permanently
               deleted. This cannot be undone.

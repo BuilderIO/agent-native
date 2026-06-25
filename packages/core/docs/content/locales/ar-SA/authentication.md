@@ -107,8 +107,8 @@ AUTH_SKIP_EMAIL_VERIFICATION=1
 GOOGLE_SIGN_IN_CLIENT_ID=your-low-scope-sign-in-client-id
 GOOGLE_SIGN_IN_CLIENT_SECRET=your-low-scope-sign-in-client-secret
 
-# Backwards-compatible fallback, and provider OAuth credentials for templates
-# that connect to Google APIs such as Gmail or Calendar.
+# احتياطي متوافق مع الإصدارات السابقة وبيانات اعتماد الموفر OAuth للقوالب
+# التي تتصل بـ Google واجهات برمجة التطبيقات مثل Gmail أو Calendar.
 GOOGLE_CLIENT_ID=your-client-id
 GOOGLE_CLIENT_SECRET=your-client-secret
 
@@ -146,10 +146,10 @@ GITHUB_CLIENT_SECRET=your-client-secret
 `ACCESS_TOKEN` و`ACCESS_TOKENS` ليسا بمثابة مصادقة للمتصفح ولا يجعلان التطبيق خاصًا. وتظل فقط بمثابة بيانات اعتماد حامل ثابتة لعملاء MCP/connect الذين لا يمكنهم استخدام تدفق OAuth.
 
 ```bash
-# Single token
+# رمز مميز واحد
 ACCESS_TOKEN=my-secret-token
 
-# Multiple tokens
+# رموز مميزة متعددة
 ACCESS_TOKENS=token1,token2,token3
 ```
 

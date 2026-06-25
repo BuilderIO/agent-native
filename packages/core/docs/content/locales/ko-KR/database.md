@@ -25,13 +25,13 @@ description: "이식 가능한 SQL 데이터베이스를 에이전트 기반 앱
 호스팅된 데이터베이스를 연결하려면 `.env` 파일 또는 배포 제공자 환경에서 `DATABASE_URL`를 설정하세요. Turso는 필요하지 않습니다. 배포에 맞는 Drizzle 호환 SQL 백엔드를 사용하세요.
 
 ```bash
-# Neon Postgres
+# Neon용 Postgres 데이터베이스
 DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/mydb?sslmode=require
 
-# Supabase Postgres
+# Supabase용 Postgres 데이터베이스
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
-# Plain Postgres
+# 일반 Postgres 데이터베이스
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 
 # Turso (libSQL)
@@ -89,7 +89,7 @@ export const tasks = table("tasks", {
 
 위의 `tasks` 테이블은 모든 백엔드에서 동일한 열을 정의합니다.
 
-```an-schema title="The tasks table" summary="Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
+```an-schema title="작업 테이블" summary="Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
 {
   "entities": [
     {
@@ -168,9 +168,9 @@ Drizzle 쿼리 외부에 원시 SQL가 꼭 필요한 경우:
   "language": "ts",
   "code": "import { runMigrations } from \"@agent-native/core/db\";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: \"my_app_migrations\" },\n);",
   "annotations": [
-    { "lines": "6-7", "label": "Additive only", "note": "`ADD COLUMN IF NOT EXISTS` is safe to re-run and never drops data. Renames look like drop+create to Drizzle, so add-then-migrate instead." },
-    { "lines": "13-16", "label": "Dialect gating", "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features." },
-    { "lines": "19", "label": "Per-app version table", "note": "Each app tracks its own applied versions so migrations are idempotent across restarts and instances." }
+    { "lines": "6-7", "label": "첨가제만", "note": "`ADD COLUMN IF NOT EXISTS`은 다시 실행해도 안전하며 데이터를 삭제하지 않습니다. 이름 바꾸기는 Drizzle에 drop+create와 유사하므로 대신 추가 후 마이그레이션하세요." },
+    { "lines": "13-16", "label": "방언 게이팅", "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features." },
+    { "lines": "19", "label": "앱별 버전 표", "note": "각 앱은 자체 적용된 버전을 추적하므로 마이그레이션은 다시 시작 및 인스턴스 전반에 걸쳐 멱등성을 갖습니다." }
   ]
 }
 ```

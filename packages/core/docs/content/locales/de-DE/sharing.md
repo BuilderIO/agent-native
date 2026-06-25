@@ -74,7 +74,7 @@ Jede gemeinsam nutzbare Ressource erhält in ihrer Kopfzeile eine Schaltfläche 
 
 - Sichtbarkeitsauswahl (`Private` / `Organization` / `Public link`).
 - Autovervollständigung „Personen oder Teams hinzufügen“ – Benutzer in der Organisation suchen oder eine E-Mail einfügen.
-- Ein `Notify people`-Kontrollkästchen im Google Docs-Stil für individuelle E-Mail-Genehmigungen.
+- Ein `Benachrichtigen people`-Kontrollkästchen im Google Docs-Stil für individuelle E-Mail-Genehmigungen.
 - Eine Liste aktueller Gewährungen mit Rollenauswahl und einer Entfernungskontrolle.
 - Eine Schaltfläche zum Kopieren von Links, die die aktuelle Sichtbarkeit berücksichtigt.
 
@@ -127,7 +127,7 @@ export const decks = table("decks", {
 export const deckShares = createSharesTable("deck_shares");
 ```
 
-```an-schema title="Resource + companion shares table" summary="Coarse visibility lives on the resource; each fine-grained grant is a row in the shares table."
+```an-schema title="Tabelle „Ressourcen- und Begleitanteile“." summary="Coarse visibility lives on the resource; each fine-grained grant is a row in the shares table."
 {
   "entities": [
     {
@@ -137,9 +137,9 @@ export const deckShares = createSharesTable("deck_shares");
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "title", "type": "text", "nullable": false },
-        { "name": "owner_email", "type": "text", "nullable": false, "note": "The single source of truth for ownership." },
+        { "name": "owner_email", "type": "text", "nullable": false, "note": "Die einzige Quelle der Wahrheit für Eigentum." },
         { "name": "org_id", "type": "text", "nullable": true },
-        { "name": "visibility", "type": "enum", "nullable": false, "note": "private | org | public" }
+        { "name": "visibility", "type": "enum", "nullable": false, "note": "privat | org | öffentlich" }
       ]
     },
     {
@@ -149,9 +149,9 @@ export const deckShares = createSharesTable("deck_shares");
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "resource_id", "type": "text", "fk": "decks.id", "nullable": false },
-        { "name": "principal_type", "type": "enum", "note": "user | org" },
+        { "name": "principal_type", "type": "enum", "note": "Benutzer | org" },
         { "name": "principal_id", "type": "text", "note": "email (user) or org id (org)" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" },
+        { "name": "role", "type": "enum", "note": "Zuschauer | Herausgeber | Administrator" },
         { "name": "created_by", "type": "text" },
         { "name": "created_at", "type": "text" }
       ]

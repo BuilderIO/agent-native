@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { useRef, useState, useCallback } from "react";
 
 import {
@@ -34,6 +35,7 @@ export const CursorPositioningOverlay: React.FC<
   onUpdateTrack,
   isPlaying,
 }) => {
+  const t = useT();
   const overlayRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -230,7 +232,7 @@ export const CursorPositioningOverlay: React.FC<
           {/* Invisible overlay for click-and-drag */}
         </div>
       </TooltipTrigger>
-      <TooltipContent>Click and drag to position cursor</TooltipContent>
+      <TooltipContent>{t("raw.cursor.clickDragPosition")}</TooltipContent>
     </Tooltip>
   );
 };

@@ -42,7 +42,7 @@ Agent-Native 有两个适配器接缝，可消除狭窄后面的问题，
 
 ```an-diagram title="父母保守秘密；适配器仅运行代码" summary="run-code 构建模块并运行环回桥；适配器接收非秘密模块+限制并返回stdout/stderr/exit。"
 {
-  "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>Parent process</strong><small class=\"diagram-muted\">builds module · loopback bridge · env scrub · output format</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">local child · Docker · remote · durable</small></div></div>",
+  "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>父进程</strong><small class=\"diagram-muted\">构建模块 · loopback 桥 · 环境清理 · 输出格式</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">本地子进程 · Docker · 远程 · 持久</small></div></div>",
   "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -135,7 +135,7 @@ registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 通过 id 选择内置适配器。目前仅有线`local`（默认）；未知值回退到本地而不是运行失败。
 
 ```bash
-AGENT_NATIVE_SANDBOX=local   # the default — explicit
+AGENT_NATIVE_SANDBOX=local   # 默认值——显式
 ```
 
 ### `registerSandboxAdapter()` {#register}

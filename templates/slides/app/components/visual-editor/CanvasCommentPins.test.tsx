@@ -21,6 +21,17 @@ vi.mock("@agent-native/core/client", () => ({
       .flat(Infinity)
       .filter((x) => typeof x === "string" && x.length > 0)
       .join(" "),
+  useT: () => (key: string) =>
+    (
+      ({
+        "raw.comment": "Comment",
+        "raw.editSlide": "Edit slide",
+        "raw.escExit": "Esc to exit",
+        "raw.pinDropHint": "Click anywhere on the slide to leave a comment",
+        "raw.tellAgentChange": "Tell the agent what to change...",
+        "raw.send": "Send",
+      }) as Record<string, string>
+    )[key] ?? key,
 }));
 
 // Tooltip primitives in shadcn portal to document.body. Render them inline

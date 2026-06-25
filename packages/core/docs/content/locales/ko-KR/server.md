@@ -9,7 +9,7 @@ description: "Nitro 서버 경로, 플러그인, 프레임워크 탑재 경로, 
 
 ```an-diagram title="서버에서 실행되는 것" summary="조치가 기본값입니다. 사용자 정의 파일 경로와 프레임워크 탑재 경로는 동일한 Nitro 앱과 동일한 SQL 데이터베이스를 공유합니다."
 {
-  "html": "<div class=\"diagram-server\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">브라우저 / UI</div><div class=\"diagram-node\">에이전트 루프</div><div class=\"diagram-node\">외부 클라이언트<br><small class=\"diagram-muted\">HTTP · MCP · A2A</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Nitro 서버</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">기본 표면</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/_agent-native/*</span><small class=\"diagram-muted\">framework routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/api/*</span><small class=\"diagram-muted\">custom file routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">plugins</span><small class=\"diagram-muted\">startup: migrations, jobs</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL 데이터베이스<br><small class=\"diagram-muted\">Drizzle · the coordination point</small></div></div>",
+  "html": "<div class=\"diagram-server\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">브라우저 / UI</div><div class=\"diagram-node\">에이전트 루프</div><div class=\"diagram-node\">외부 클라이언트<br><small class=\"diagram-muted\">HTTP · MCP · A2A</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Nitro 서버</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">기본 표면</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/_agent-native/*</span><small class=\"diagram-muted\">framework routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/api/*</span><small class=\"diagram-muted\">custom file routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">plugins</span><small class=\"diagram-muted\">시작: 마이그레이션, 작업</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL 데이터베이스<br><small class=\"diagram-muted\">Drizzle · 조정 지점</small></div></div>",
   "css": ".diagram-server{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-server .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-server .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.diagram-server .diagram-row{display:flex;align-items:center;gap:8px}.diagram-server .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -111,17 +111,17 @@ UI와 에이전트는 동일한 기능을 공유합니다.
   "annotations": [
     {
       "lines": "7-10",
-      "label": "Custom routes have no auto-context",
-      "note": "Unlike actions, a file route must load the session itself and fail closed when there is no authenticated user."
+      "label": "커스텀 경로에는 자동 컨텍스트가 없습니다.",
+      "note": "작업과 달리 파일 경로는 세션 자체를 로드해야 하며 인증된 사용자가 없으면 실패 처리됩니다."
     },
     {
       "lines": "12-13",
-      "label": "Establish request context",
-      "note": "`runWithRequestContext` makes the user/org available to scoping helpers for the duration of the work."
+      "label": "요청 컨텍스트 설정",
+      "note": "`runWithRequestContext`은 작업 기간 동안 범위 지정 도우미가 user/org을 사용할 수 있도록 합니다."
     },
     {
       "lines": "18-19",
-      "label": "Scope ownable reads",
+      "label": "범위 소유 가능 읽기",
       "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
     }
   ]
@@ -185,16 +185,16 @@ export default runMigrations(
 
 ```an-diagram title="SQL-backed 동기화 루프" summary="감시자도 없고 끈끈한 상태도 없습니다. 쓰기는 SQL의 버전과 충돌합니다. 모든 클라이언트는 버전을 폴링하고 다시 가져옵니다."
 {
-  "html": "<div class=\"diagram-sync\"><div class=\"diagram-box\" data-rough>Action / helper<br><small class=\"diagram-muted\">mutates data</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>SQL 데이터베이스</strong><small class=\"diagram-muted\">sync version increments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">useDbSync()<br><small class=\"diagram-muted\">polls /_agent-native/poll</small></div><div class=\"diagram-pill ok\">invalidate caches &rarr; UI refreshes</div></div></div>",
+  "html": "<div class=\"diagram-sync\"><div class=\"diagram-box\" data-rough>Action / 헬퍼<br><small class=\"diagram-muted\">mutates data</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>SQL 데이터베이스</strong><small class=\"diagram-muted\">sync version increments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">useDbSync()<br><small class=\"diagram-muted\">polls /_agent-native/poll</small></div><div class=\"diagram-pill ok\">invalidate caches &rarr; UI refreshes</div></div></div>",
   "css": ".diagram-sync{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sync .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
 
-```an-api title="The poll endpoint" method="GET" path="/_agent-native/poll"
+```an-api title="설문 조사 끝점" method="GET" path="/_agent-native/poll"
 {
   "method": "GET",
   "path": "/_agent-native/poll",
-  "summary": "Return the current per-source database sync versions so the client can detect changes.",
+  "summary": "클라이언트가 변경 사항을 감지할 수 있도록 현재 소스별 데이터베이스 동기화 버전을 반환합니다.",
   "description": "`useDbSync()` calls this on an interval (and falls back to it when SSE is unavailable). When a returned version is higher than the client's last-seen value, the matching React Query caches are invalidated and refetch.",
   "auth": "Session cookie (request-scoped identity)",
   "responses": [
@@ -215,7 +215,7 @@ export default runMigrations(
 
 ```an-diagram title="통합 대기열 패턴" summary="웹훅 핸들러는 밀리초 단위로 반환됩니다. 별도의 서명된 실행은 느린 에이전트 작업을 실행합니다."
 {
-  "html": "<div class=\"diagram-webhook\"><div class=\"diagram-box\" data-rough>Inbound webhook<br><small class=\"diagram-muted\">Slack · Stripe · email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Handler</strong><div class=\"diagram-step\"><span class=\"diagram-pill\">1</span><small class=\"diagram-muted\">verify signature</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><small class=\"diagram-muted\">insert work into SQL</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">3</span><small class=\"diagram-muted\">self-fire processor</small></div><div class=\"diagram-step\"><span class=\"diagram-pill ok\">4</span><small class=\"diagram-muted\">return 200 now</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Signed processor<br><small class=\"diagram-muted\">runs agent loop, posts result</small></div></div>",
+  "html": "<div class=\"diagram-webhook\"><div class=\"diagram-box\" data-rough>인바운드 webhook<br><small class=\"diagram-muted\">Slack · Stripe · email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Handler</strong><div class=\"diagram-step\"><span class=\"diagram-pill\">1</span><small class=\"diagram-muted\">verify signature</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><small class=\"diagram-muted\">작업을 SQL에 삽입</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">3</span><small class=\"diagram-muted\">self-fire processor</small></div><div class=\"diagram-step\"><span class=\"diagram-pill ok\">4</span><small class=\"diagram-muted\">return 200 now</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Signed processor<br><small class=\"diagram-muted\">에이전트 루프를 실행하고 결과 게시</small></div></div>",
   "css": ".diagram-webhook{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-webhook .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-webhook .diagram-step{display:flex;align-items:center;gap:8px}.diagram-webhook .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

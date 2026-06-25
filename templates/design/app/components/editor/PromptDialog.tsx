@@ -1,6 +1,7 @@
 import {
   appBasePath,
   PromptComposer,
+  useT,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
 import {
@@ -144,6 +145,7 @@ function AssetsPickerDialog({
   onReady,
   onMessage,
 }: AssetsPickerDialogProps) {
+  const t = useT();
   const [pickerReady, setPickerReady] = useState(false);
 
   useEffect(() => {
@@ -165,13 +167,15 @@ function AssetsPickerDialog({
         className="flex h-[min(86vh,760px)] w-[min(96vw,1040px)] max-w-none flex-col gap-0 overflow-hidden p-0"
       >
         <div className="flex h-12 shrink-0 items-center border-b px-4">
-          <DialogTitle className="text-base">Assets</DialogTitle>
+          <DialogTitle className="text-base">
+            {t("promptDialog.assetsTitle")}
+          </DialogTitle>
         </div>
         <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
           {!pickerReady && <AssetsPickerSkeleton />}
           <EmbeddedApp
             url={url}
-            title="Assets image picker"
+            title={t("promptDialog.assetsImagePicker")}
             className={`absolute inset-0 h-full w-full border-0 bg-background transition-opacity duration-150 ${
               pickerReady ? "opacity-100" : "pointer-events-none opacity-0"
             }`}
@@ -185,11 +189,12 @@ function AssetsPickerDialog({
 }
 
 function AssetsPickerSkeleton() {
+  const t = useT();
   return (
     <div
       className="absolute inset-0 flex flex-col gap-5 p-5"
       role="status"
-      aria-label="Loading Assets picker"
+      aria-label={t("promptDialog.loadingAssetsPicker")}
     >
       <div className="flex items-center gap-3">
         <Skeleton className="h-9 flex-1 rounded-md" />
@@ -241,7 +246,7 @@ export default function PromptPopover({
   open,
   onOpenChange,
   title,
-  placeholder = "Describe what you want...",
+  placeholder,
   onSkip,
   skipLabel = "Skip prompt",
   onSubmit,
@@ -254,6 +259,7 @@ export default function PromptPopover({
   onDesignSystemChange,
   onCreateDesignSystem,
 }: PromptPopoverProps) {
+  const t = useT();
   const [uploading, setUploading] = useState(false);
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
   const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
@@ -378,7 +384,9 @@ export default function PromptPopover({
         setSelectedUploadFiles([]);
       } catch (error) {
         toast.error(
-          error instanceof Error ? error.message : "Failed to upload file",
+          error instanceof Error
+            ? error.message
+            : t("promptDialog.failedToUploadFile"),
         );
       }
     },
@@ -423,7 +431,7 @@ export default function PromptPopover({
         },
       ]);
       setAssetsPickerOpen(false);
-      toast.success("Asset added");
+      toast.success(t("promptDialog.assetAdded"));
     },
     [],
   );
@@ -466,7 +474,7 @@ export default function PromptPopover({
             autoFocus
             attachmentsEnabled
             disabled={loading || uploading}
-            placeholder={placeholder}
+            placeholder={placeholder ?? t("home.describeBuild")}
             onSubmit={handleSubmit}
             attachButton={
               <PromptAttachmentMenu
@@ -493,11 +501,11 @@ export default function PromptPopover({
                   disabled={designSystemsLoading}
                 >
                   <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
-                    <SelectValue placeholder="Design system" />
+                    <SelectValue placeholder={t("promptDialog.designSystem")} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none" className="text-xs">
-                      No design system
+                      {t("promptDialog.noDesignSystem")}
                     </SelectItem>
                     {designSystems.map((system) => (
                       <SelectItem
@@ -513,7 +521,7 @@ export default function PromptPopover({
                 </Select>
               ) : (
                 <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                  No design system
+                  {t("promptDialog.noDesignSystem")}
                 </span>
               )}
             </div>
@@ -526,7 +534,7 @@ export default function PromptPopover({
                 onClick={onCreateDesignSystem}
               >
                 <IconPlus className="h-3.5 w-3.5" />
-                New
+                {t("promptDialog.newDesignSystem")}
               </Button>
             )}
           </div>
@@ -543,7 +551,9 @@ export default function PromptPopover({
                 <button
                   type="button"
                   className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                  aria-label={`Remove ${file.name}`}
+                  aria-label={t("promptDialog.removeAttachment", {
+                    name: file.name,
+                  })}
                   onClick={() => removeSelectedUploadFile(index)}
                 >
                   <IconX className="h-3.5 w-3.5" />
@@ -559,7 +569,9 @@ export default function PromptPopover({
                 <button
                   type="button"
                   className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                  aria-label={`Remove ${asset.originalName}`}
+                  aria-label={t("promptDialog.removeAttachment", {
+                    name: asset.originalName,
+                  })}
                   onClick={() => removePickedAsset(asset.path)}
                 >
                   <IconX className="h-3.5 w-3.5" />
@@ -607,6 +619,7 @@ function PromptAttachmentMenu({
   onUploadFiles: (files: File[]) => void;
   onPickAsset: () => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   return (
@@ -627,7 +640,7 @@ function PromptAttachmentMenu({
           type="button"
           disabled={disabled}
           className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-          aria-label="Add"
+          aria-label={t("promptDialog.addAttachment")}
         >
           <IconPlus className="h-4 w-4" />
         </button>
@@ -647,10 +660,10 @@ function PromptAttachmentMenu({
           <IconUpload className="h-3.5 w-3.5 text-muted-foreground" />
           <span>
             <span className="block font-medium text-foreground">
-              Upload file
+              {t("promptDialog.uploadFile")}
             </span>
             <span className="block text-[10px] text-muted-foreground">
-              Images, PDFs, text/code
+              {t("promptDialog.uploadFileDescription")}
             </span>
           </span>
         </button>
@@ -665,10 +678,10 @@ function PromptAttachmentMenu({
           <IconPhoto className="h-3.5 w-3.5 text-muted-foreground" />
           <span>
             <span className="block font-medium text-foreground">
-              Pick asset
+              {t("promptDialog.pickAsset")}
             </span>
             <span className="block text-[10px] text-muted-foreground">
-              Browse or generate images
+              {t("promptDialog.pickAssetDescription")}
             </span>
           </span>
         </button>

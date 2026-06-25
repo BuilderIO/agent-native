@@ -26,7 +26,7 @@ description: "代理如何知道用户正在查看的内容：导航状态、选
 
 ```an-diagram title="代理如何看到您所看到的内容" summary="UI编写轻量级状态键；屏幕将它们转化为真实的记录；代理可以编写导航返回来移动 UI。"
 {
-  "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI writes</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">view, open ids</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">rows, blocks, shapes</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Agent acts<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">agent moves the UI</small></div></div>",
+  "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI 写入</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">视图、打开的 ID</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">行、块、形状</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">代理执行<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">代理移动 UI</small></div></div>",
   "css": ".diagram-ctx{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-ctx .col{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-ctx .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-ctx .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -133,7 +133,7 @@ if (url?.searchParams) {
       "id": "hero-title",
       "selector": "[data-block-id='hero-title']",
       "label": "Hero title",
-      "text": "Q3 launch plan"
+      "text": "第三季度发布 plan"
     }
   ],
   "capturedAt": 1780332977027
@@ -197,10 +197,10 @@ await setClientAppState(
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { readAppState } from \"@agent-native/core/application-state\";\nimport { eq, inArray } from \"drizzle-orm\";\nimport { z } from \"zod\";\nimport { getDb, schema } from \"../server/db/index.js\";\n\nexport default defineAction({\n  description:\n    \"See what the user is currently looking at on screen.\",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState(\"navigation\")) as any;\n    const selection = (await readAppState(\"selection\")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === \"inbox\") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === \"email.messages\") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return \"No application state found. Is the app running?\";\n    }\n    return screen;\n  },\n});",
   "annotations": [
-    { "lines": "10-11", "label": "Tool surface", "note": "The agent reads this description to know it can call `view-screen` to see the current UI." },
-    { "lines": "13", "label": "http: false", "note": "Internal action — not exposed over HTTP. The agent and `pnpm action` call it, not the browser." },
-    { "lines": "15-16", "label": "Read state", "note": "Pulls the lightweight `navigation` and `selection` keys the UI wrote." },
-    { "lines": "23-37", "label": "Hydrate", "note": "Turns those IDs into **fresh** records straight from SQL, so the agent verifies the live object before acting." }
+    { "lines": "10-11", "label": "工具表面", "note": "代理读取此描述，知道它可以调用 `view-screen` 来查看当前的 UI。" },
+    { "lines": "13", "label": "http: false", "note": "内部操作 - 未通过 HTTP 暴露。代理和 `pnpm action` 调用它，而不是浏览器。" },
+    { "lines": "15-16", "label": "读取状态", "note": "拉取 UI 编写的轻量级 `navigation` 和 `selection` 键。" },
+    { "lines": "23-37", "label": "水合物", "note": "将这些 ID 直接从 SQL 转换为**新鲜**记录，以便代理在执行操作之前验证活动对象。" }
   ]
 }
 ```
@@ -210,7 +210,7 @@ await setClientAppState(
 ```an-callout
 {
   "tone": "info",
-  "body": "**Keep `navigation` and `selection` small.** Store IDs plus short labels, not whole records. `view-screen` fetches the source of truth on demand, so stale or bulky state never reaches the agent."
+  "body": "**保持 `navigation` 和 `selection` 小。**商店 ID 加上短标签，而不是整个记录。 `view-screen` 根据需要获取事实来源，因此陈旧或庞大的状态永远不会到达代理。"
 }
 ```
 
@@ -367,7 +367,7 @@ useDbSync({
 
 ```an-diagram title="源标记可阻止自重取抖动" summary="选项卡会忽略标有其自己的 TAB_ID 的同步事件，但仍会对代理和其他选项卡写入做出反应。"
 {
-  "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">This tab writes<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Server stores source<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">no refetch, no flicker</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">UI updates live</small></div></div>",
+  "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">此标签页写入<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>服务器存储来源<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">无需重新拉取，无闪烁</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">界面实时更新</small></div></div>",
   "css": ".diagram-jitter{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jitter .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-jitter .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

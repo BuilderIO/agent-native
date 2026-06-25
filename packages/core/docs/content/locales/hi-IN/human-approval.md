@@ -20,8 +20,8 @@ description: "उच्च-परिणाम वाली कार्रवा
   "language": "ts",
   "code": "export default defineAction({\n  description: \"Send an email via Gmail.\",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});",
   "annotations": [
-    { "lines": "10", "label": "The whole gate", "note": "One flag. With it truthy and the call unapproved, the loop stops before `run` — the model never reaches the side effect on its own." },
-    { "lines": "11-13", "label": "run() is untouched", "note": "The handler stays the same. Approval is enforced by the loop around it, not by anything inside `run`." }
+    { "lines": "10", "label": "पूरी सड़क", "note": "एक झंडा. इसके सत्य होने और कॉल अस्वीकृत होने पर, लूप `run` से पहले बंद हो जाता है - मॉडल कभी भी अपने आप साइड इफेक्ट तक नहीं पहुंचता है।" },
+    { "lines": "11-13", "label": "run() is untouched", "note": "हैंडलर वही रहता है। अनुमोदन इसके चारों ओर लूप द्वारा लागू किया जाता है, `run` के अंदर किसी चीज़ द्वारा नहीं।" }
   ]
 }
 ```
@@ -72,7 +72,7 @@ description: "उच्च-परिणाम वाली कार्रवा
 
 ```an-diagram title="अनुमोदन में रुकावट" summary="एक गेटेड कॉल रन() सक्रिय होने से पहले टर्न को रोक देती है। अनुमोदन कॉल की कुंजी ले जाने वाले टर्न को फिर से जारी करता है; तभी दुष्प्रभाव होता है।"
 {
-  "html": "<div class=\"diagram-approve\"><div class=\"diagram-box\" data-rough>Agent calls send-email</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel warn\" data-rough><strong>Gate truthy, call not yet approved</strong><small class=\"diagram-muted\">loop emits tool_start + approval_required { tool, input, approvalKey }</small><span class=\"diagram-pill warn\">turn pauses &mdash; run() did NOT execute</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Human clicks Approve in chat<br><small class=\"diagram-muted\">client re-issues the turn with approvedToolCalls: [approvalKey]</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel ok\" data-rough><span class=\"diagram-pill ok\">Gate sees the key &rarr; run() executes &rarr; email sends</span></div></div>",
+  "html": "<div class=\"diagram-approve\"><div class=\"diagram-box\" data-rough>एजेंट send-email कॉल करता है</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel warn\" data-rough><strong>Gate truthy है, कॉल अभी approved नहीं</strong><small class=\"diagram-muted\">loop emits tool_start + approval_required { tool, input, approvalKey }</small><span class=\"diagram-pill warn\">turn pauses &mdash; run() did NOT execute</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>मानव चैट में Approve क्लिक करता है<br><small class=\"diagram-muted\">क्लाइंट approvedToolCalls: [approvalKey] के साथ टर्न फिर जारी करता है</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel ok\" data-rough><span class=\"diagram-pill ok\">Gate sees the key &rarr; run() executes &rarr; email sends</span></div></div>",
   "css": ".diagram-approve{display:flex;flex-direction:column;align-items:center;gap:8px}.diagram-approve .diagram-panel{display:flex;flex-direction:column;gap:6px;align-items:center;padding:12px 16px;text-align:center}.diagram-approve .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

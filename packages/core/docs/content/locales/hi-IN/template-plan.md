@@ -396,14 +396,14 @@ pnpm dev
 | `plan_guest_mints` | अतिथि सत्र जारी करने के लिए दर-सीमा रिकॉर्ड                                                                                                                                                             |
 | `plan_assets`      | इनलाइन छवि संपत्तियों को बेस64 के रूप में संग्रहीत किया जाता है (कोई अपलोड प्रदाता नहीं होने पर फ़ॉलबैक)                                                                                                |
 
-```an-schema title="Plan data model" summary="One plan row owns ordered sections plus comments, events, versions, shares, and inline assets."
+```an-schema title="योजना डेटा मॉडल" summary="एक योजना पंक्ति में आदेशित अनुभागों के अलावा टिप्पणियाँ, ईवेंट, संस्करण, शेयर और इनलाइन संपत्तियां होती हैं।"
 {
   "entities": [
     { "id": "plans", "name": "plans", "note": "each plan or recap", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "title", "type": "text" },
       { "name": "brief", "type": "text", "nullable": true },
-      { "name": "kind", "type": "enum", "note": "plan | recap" },
+      { "name": "kind", "type": "enum", "note": "योजना | पुनर्कथन" },
       { "name": "status", "type": "text" },
       { "name": "source", "type": "text", "nullable": true },
       { "name": "hosted_plan_id", "type": "text", "nullable": true, "note": "hosted_plan_url paired" },
@@ -442,7 +442,7 @@ pnpm dev
     { "id": "plan_shares", "name": "plan_shares", "note": "per-principal grants", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "plan_id", "type": "text", "fk": "plans.id" },
-      { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+      { "name": "role", "type": "enum", "note": "दर्शक | संपादक | व्यवस्थापक" }
     ] },
     { "id": "plan_guest_mints", "name": "plan_guest_mints", "note": "rate-limit records for guest session issuance", "fields": [
       { "name": "id", "type": "text", "pk": true }

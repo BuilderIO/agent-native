@@ -585,6 +585,16 @@ function interpolateFallbackMessage(
   });
 }
 
+function humanizeFallbackKey(key: string) {
+  const lastSegment = key.split(".").filter(Boolean).pop() ?? key;
+  const words = lastSegment
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .trim()
+    .toLowerCase();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : key;
+}
+
 function fallbackMessage(key: string, options?: Record<string, unknown>) {
   const count = Number(options?.count);
   const pluralKey =
@@ -594,7 +604,9 @@ function fallbackMessage(key: string, options?: Record<string, unknown>) {
     DEFAULT_ENGLISH_MESSAGES[key] ??
     CORE_FALLBACK_MESSAGES[pluralKey] ??
     CORE_FALLBACK_MESSAGES[key];
-  return template ? interpolateFallbackMessage(template, options) : key;
+  return template
+    ? interpolateFallbackMessage(template, options)
+    : humanizeFallbackKey(key);
 }
 
 export function useT() {

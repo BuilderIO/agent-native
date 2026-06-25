@@ -1,11 +1,11 @@
 ---
 title: "Spracheingabe"
-description: "Sprachdiktat im Agent Chat Composer – Builder Gemini, BYOK-Anbieter und Browser-Web-Speech-Fallback."
+description: "Sprachdiktat im Agent Chat Verfassenr – Builder Gemini, BYOK-Anbieter und Browser-Web-Speech-Fallback."
 ---
 
 # Spracheingabe
 
-Jede agentennative App verfügt über ein Mikrofon im Chat Composer. Klicken Sie darauf, sprechen Sie und Ihre Worte werden in die Eingabeaufforderung übertragen. Nützlich auf Mobilgeräten, nützlich für lange Eingabeaufforderungen, nützlich, wenn Sie etwas anderes in der Hand haben.
+Jede agentennative App verfügt über ein Mikrofon im Chat Verfassenr. Klicken Sie darauf, sprechen Sie und Ihre Worte werden in die Eingabeaufforderung übertragen. Nützlich auf Mobilgeräten, nützlich für lange Eingabeaufforderungen, nützlich, wenn Sie etwas anderes in der Hand haben.
 
 Das Framework erledigt das alles automatisch. Mit Builder verbundene Benutzer erhalten standardmäßig das von Builder gehostete Gemini Flash-Lite. Andernfalls können Benutzer ihren eigenen Anbieterschlüssel mitbringen oder auf die Spracherkennung des Browsers zurückgreifen.
 
@@ -15,13 +15,13 @@ Die Sprachtaste des Komponisten zeichnet Audio im Browser auf und wählt dann ei
 
 1. **Builder Gemini Flash-Lite (Standard, wenn Builder verbunden ist).** Der Browser sendet Audio an `/_agent-native/transcribe-voice`, das mithilfe von Gemini Flash-Lite über Builder.io weitergeleitet wird. Kein Google API-Schlüssel erforderlich.
 2. **BYOK Cloud-Anbieter.** Benutzer können in den Einstellungen Google Gemini, Groq Whisper oder OpenAI Whisper auswählen. Die Route löst benutzerbezogene verschlüsselte Geheimnisse vor gemeinsam genutzten Anmeldeinformationen für die Bereitstellung auf.
-3. **Browser Web Speech API (Fallback).** Wenn kein Serveranbieter verfügbar ist, kann der Composer die integrierte Spracherkennung des Browsers verwenden. Funktioniert in Chromium-basierten Browsern (Chrome, Edge, Arc) und Safari. Weniger genau; Live-Streams.
+3. **Browser Web Speech API (Fallback).** Wenn kein Serveranbieter verfügbar ist, kann der Verfassenr die integrierte Spracherkennung des Browsers verwenden. Funktioniert in Chromium-basierten Browsern (Chrome, Edge, Arc) und Safari. Weniger genau; Live-Streams.
 
 Die Anbieterauswahl wird im Anwendungsstatus unter `voice-transcription-prefs` gespeichert, sodass der Benutzer `"auto"` (Standard – wählt den besten verfügbaren Anbieter), `"builder-gemini"`, `"builder"`, `"gemini"`, `"groq"`, `"openai"` oder `"browser"` in den Seitenleisteneinstellungen erzwingen kann.
 
-```an-diagram title="Fallback für Sprachtranskriptionsanbieter" summary="Der Composer zeichnet Audio auf, durchläuft dann die Serveranbieter der Reihe nach und wechselt nur dann zum Web Speech API des Browsers, wenn kein Serveranbieter verfügbar ist."
+```an-diagram title="Fallback für Sprachtranskriptionsanbieter" summary="Der Verfassenr zeichnet Audio auf, durchläuft dann die Serveranbieter der Reihe nach und wechselt nur dann zum Web Speech API des Browsers, wenn kein Serveranbieter verfügbar ist."
 {
-  "html": "<div class=\"diagram-voice\"><div class=\"diagram-node\">Mic button<br><small class=\"diagram-muted\">records webm/opus</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill accent\">1 &middot; Builder Gemini</div><small class=\"diagram-muted\">default when Builder connected</small><div class=\"diagram-pill\">2 &middot; BYOK cloud</div><small class=\"diagram-muted\">Gemini &middot; Groq &middot; OpenAI Whisper</small></div><div class=\"diagram-arrow diagram-warn\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box diagram-warn\" data-rough>3 &middot; Browser Web Speech<br><small class=\"diagram-muted\">fallback on 400 &middot; streams live</small></div></div>",
+  "html": "<div class=\"diagram-voice\"><div class=\"diagram-node\">Mikrofontaste<br><small class=\"diagram-muted\">zeichnet webm/opus auf</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill accent\">1 &middot; Builder Gemini</div><small class=\"diagram-muted\">Standard, wenn Builder verbunden ist</small><div class=\"diagram-pill\">2 &middot; BYOK cloud</div><small class=\"diagram-muted\">Gemini &middot; Groq &middot; OpenAI Whisper</small></div><div class=\"diagram-arrow diagram-warn\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box diagram-warn\" data-rough>3 &middot; Browser Web Speech<br><small class=\"diagram-muted\">fallback on 400 &middot; streams live</small></div></div>",
   "css": ".diagram-voice{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-voice .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-voice .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -43,17 +43,17 @@ Legen Sie `GEMINI_API_KEY`, `GROQ_API_KEY` oder `OPENAI_API_KEY` als Umgebungsva
 ```an-callout
 {
   "tone": "info",
-  "body": "**Credential resolution order:** the route checks the user's own encrypted secret first, then the shared deployment key. A power user with their own key always overrides the shared one. If neither exists, the route returns a 400 the composer recognizes and silently falls back to browser Web Speech."
+  "body": "**Auflösungsreihenfolge der Anmeldeinformationen:** Die Route überprüft zuerst das eigene verschlüsselte Geheimnis des Benutzers und dann den gemeinsam genutzten Bereitstellungsschlüssel. Ein Hauptbenutzer mit einem eigenen Schlüssel hat immer Vorrang vor dem gemeinsamen Schlüssel. Wenn keines von beiden vorhanden ist, gibt die Route eine 400 zurück, die der Verfassenr erkennt, und greift stillschweigend auf den Browser Web Speech zurück."
 }
 ```
 
 ## Die Route {#route}
 
-```an-api title="Voice transcription route"
+```an-api title="Route der Sprachtranskription"
 {
   "method": "POST",
   "path": "/_agent-native/transcribe-voice",
-  "summary": "Transcribe a recorded audio clip into prompt text",
+  "summary": "Transkribieren Sie einen aufgezeichneten Audioclip in Aufforderungstext",
   "auth": "Active session (Better Auth cookie). Same-origin only.",
   "description": "The composer POSTs the recorded clip here; the route resolves a provider and returns the transcribed text. You should not call this directly.",
   "params": [
@@ -68,7 +68,7 @@ Legen Sie `GEMINI_API_KEY`, `GROQ_API_KEY` oder `OPENAI_API_KEY` als Umgebungsva
 }
 ```
 
-Sie müssen dies nicht direkt aufrufen – der Composer tut dies. Wenn Sie eine benutzerdefinierte Eingabeoberfläche erstellen, verwenden Sie zunächst die gemeinsam genutzten Composer-/Voice-Client-Teile von `@agent-native/core/client` wieder. Behandeln Sie diese Route als Low-Level-Transportgrenze für benutzerdefinierte Helfer, die mehrteiliges Audio senden müssen.
+Sie müssen dies nicht direkt aufrufen – der Verfassenr tut dies. Wenn Sie eine benutzerdefinierte Eingabeoberfläche erstellen, verwenden Sie zunächst die gemeinsam genutzten Verfassenr-/Voice-Client-Teile von `@agent-native/core/client` wieder. Behandeln Sie diese Route als Low-Level-Transportgrenze für benutzerdefinierte Helfer, die mehrteiliges Audio senden müssen.
 
 ## Anpassen des Anbieters {#customizing}
 

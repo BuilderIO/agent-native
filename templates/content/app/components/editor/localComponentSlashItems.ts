@@ -29,6 +29,7 @@ function humanizeComponentName(name: string) {
 
 export function buildLocalComponentSlashItems(
   components: Record<string, unknown>,
+  copy: { description?: string } = {},
 ): LocalComponentSlashItem[] {
   return Object.entries(components)
     .filter(
@@ -41,7 +42,7 @@ export function buildLocalComponentSlashItems(
       const raw = `<${name} />`;
       return {
         title,
-        description: "Local MDX component",
+        description: copy.description ?? "Local MDX component", // i18n-ignore fallback for tests/non-React callers
         searchText: `${name} ${title} local component mdx`,
         icon: IconComponents,
         action: (editor) => {

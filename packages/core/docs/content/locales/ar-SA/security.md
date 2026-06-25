@@ -11,7 +11,7 @@ description: "نموذج الأمان لتطبيقات الوكيل الأصلي
 
 ```an-diagram title="الدفاع في طبقات" summary="يمتلك الإطار معظم سطح التهديد؛ أنت تمتلك شيئين - وضع علامات على الجداول لتحديد نطاق المدخلات الخارجية والتحقق من صحتها."
 {
-  "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">Framework owns</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">You own</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
+  "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">يمتلكه الإطار</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">أنت تملك التحكم</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
   "css": ".sec-layers{display:flex;flex-direction:column;gap:12px}.sec-layers .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
 }
 ```
@@ -26,7 +26,7 @@ description: "نموذج الأمان لتطبيقات الوكيل الأصلي
 
 يترك هذا سطحًا صغيرًا عليك التفكير فيه:
 
-- **أ. ضع علامة على جداولك لتحديد النطاق.** أضف `owner_email` (و `org_id` لبيانات الفريق) عبر [`ownableColumns()`](#data-scoping)، وقم بتوجيه Drizzle للقراءة/الكتابة من خلال [access guards](#access-guards).
+- **أ. ضع علامة على جداولك لتحديد النطاق.** أضف `owner_email` (و `org_id` لبيانات الفريق) عبر [`ownableColumns()`](#data-scoping), وقم بتوجيه Drizzle للقراءة/الكتابة من خلال [access guards](#access-guards).
 - **ب. التحقق من صحة المدخلات الخارجية وتوجيهها.** أعط كل إجراء Zod [`schema:`](#input-validation)، وأرسل أي جلب من جانب الخادم للمستخدم/الوكيل URL من خلال [SSRF guard](#ssrf).
 
 احصل على هذين الأمرين بشكل صحيح والباقي هو الإعدادات الافتراضية. [Production Checklist](#production-checklist) هو تأكيد من صفحة واحدة قبل الشحن.
@@ -86,7 +86,7 @@ await exec(`INSERT INTO notes (title) VALUES ('${title}')`);
 ```an-callout
 {
   "tone": "risk",
-  "body": "Never build SQL by string concatenation or template literals. Pass user input as `args` to `exec` / `db-query`, or use Drizzle — both always parameterize. The `pnpm guards` checks catch unscoped and concatenated queries at CI time."
+  "body": "لا تقم أبدًا بإنشاء SQL عن طريق تسلسل السلسلة أو القيم الحرفية للقالب. قم بتمرير إدخال المستخدم كـ `args` إلى `exec` / `db-query`، أو استخدم Drizzle — كلاهما يحددان المعلمات دائمًا. تقوم عمليات التحقق `pnpm guards` بالتقاط الاستعلامات غير ذات النطاق والمتسلسلة في وقت CI."
 }
 ```
 
@@ -97,7 +97,7 @@ await exec(`INSERT INTO notes (title) VALUES ('${title}')`);
 - لا تستخدم أبدًا `dangerouslySetInnerHTML` مع المحتوى الذي يتحكم فيه المستخدم
 - لا تستخدم مطلقًا `innerHTML` أو `eval()` أو `document.write()`
 - لتحرير النص المنسق، استخدم TipTap (تبعية إطار العمل) — حيث يتم التنقيح من خلال مخططه
-- لعرض تخفيض السعر، استخدم `react-markdown` - فهو يتحول إلى عناصر React بأمان
+- لعرض Markdown، استخدم `react-markdown` - فهو يتحول إلى عناصر React بأمان
 
 ## الجلب من جانب الخادم (SSRF) {#ssrf}
 
@@ -125,7 +125,7 @@ session.orgId → AGENT_ORG_ID → SQL row scoping
 
 ```an-diagram title="خط أنابيب النطاق" summary="لا يلمس الوكيل SQL الجداول الأساسية مباشرة أبدًا - فهو يقرأ من خلال عرض مؤقت محدد للهوية الحالية، لذلك يمكن لاسم الجدول المجرد إرجاع الصفوف المملوكة فقط."
 {
-  "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">Signed-in session<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">Agent SQL<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
+  "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">جلسة مسجلة الدخول<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">SQL الوكيل<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
   "css": ".scope-pipe{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.scope-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.scope-pipe .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -189,7 +189,7 @@ export const projects = table("projects", {
 });
 ```
 
-```an-schema title="What ownableColumns() adds" summary="The three columns that make a table tenant-aware and shareable."
+```an-schema title="What ownableColumns() adds" summary="الأعمدة الثلاثة التي تجعل الجدول مدركًا للمستأجر وقابلاً للمشاركة."
 {
   "entities": [
     {
@@ -198,8 +198,8 @@ export const projects = table("projects", {
       "note": "Any table that spreads ...ownableColumns()",
       "fields": [
         { "name": "owner_email", "type": "text", "nullable": false, "note": "Creator. Auto-filled by write actions; auto-injected on INSERT." },
-        { "name": "org_id", "type": "text", "nullable": true, "note": "Owner's active org at creation. Drives org-visibility checks." },
-        { "name": "visibility", "type": "enum", "nullable": false, "note": "private | org | public — coarse default, defaults to private." }
+        { "name": "org_id", "type": "text", "nullable": true, "note": "مؤسسة المالك النشطة عند الإنشاء. يقود عمليات التحقق من رؤية المؤسسة." },
+        { "name": "visibility", "type": "enum", "nullable": false, "note": "خاص | منظمة | عام - افتراضي خشن، افتراضي خاص." }
       ]
     }
   ]
@@ -219,8 +219,8 @@ export const projects = table("projects", {
 ### التحقق
 
 ```bash
-pnpm action db-check-scoping           # Check all tables have owner_email
-pnpm action db-check-scoping --require-org  # Also require org_id
+pnpm action db-check-scoping           # تحقق من أن كافة الجداول تحتوي على Owner_email
+pnpm action db-check-scoping --require-org  # يتطلب أيضًا org_id
 ```
 
 ## إدارة الأسرار {#secrets}

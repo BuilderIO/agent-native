@@ -26,13 +26,13 @@ Das ist die Erfahrung, für die Agent-Native entwickelt wurde. Hier erfahren Sie
 
 Es gibt einen Fortschritt, den die meisten Teams erklimmen, ähnlich einer Leiter, und die meisten stoppen eine Sprosse zu früh.
 
-### Rung 1 – ein einzelner LLM-Aufruf (das Anti-Muster) {#rung-one}
+### Stufe 1 – ein einzelner LLM-Aufruf (das Anti-Muster) {#rung-one}
 
 Ein Textfeld sendet eine Eingabeaufforderung, die KI gibt eine Zeichenfolge zurück und Sie zeigen sie an. Vielleicht mit einem Spinner. Es gibt keine Möglichkeit für den Benutzer, den Kurs zu korrigieren, keine Möglichkeit für die KI, Maßnahmen zu ergreifen, keine Möglichkeit zu sehen, was passiert ist oder warum.
 
 Das sieht man überall: „KI-Funktionen“, bei denen es sich im Grunde um eine „Zusammenfassen“-Schaltfläche handelt, die an ein SaaS-Produkt geschraubt ist. Sie sehen in Demos beeindruckend aus und zerbrechen, sobald die Realität durcheinander gerät. Das ist kein Produkt; Das ist ein Spielzeug.
 
-### Rung 2 – ein Chat mit Tools {#rung-two}
+### Stufe 2 – ein Chat mit Tools {#rung-two}
 
 Jetzt kann die KI _Dinge erledigen_. Es verfügt über Tools – „E-Mail entwerfen“, „Kontakte suchen“, „Abfrage ausführen“ – und eine Chat-Oberfläche, auf der es direkt vor Ihnen funktioniert und Tool-Aufrufe und Ergebnisse anzeigt, während es ausgeführt wird. So sehen Claude, ChatGPT und Cursor unter der Haube aus.
 
@@ -52,7 +52,7 @@ Das ist Rang 3. Das ist Agent-nativ.
 
 ```an-diagram title="Das Leiterprinzip" summary="Die meisten Teams bleiben bei Stufe 1 oder 2 stehen. Agent-nativ ist Stufe 3 – eine echte App und ein echter Agent über eine gemeinsame Aktionsoberfläche."
 {
-  "html": "<div class=\"diagram-ladder\"><div class=\"diagram-card rung rung-3\"><span class=\"diagram-pill accent\">Rung 3 · agent-native</span><strong>Agent + UI as equal partners</strong><small class=\"diagram-muted\">One action surface. Every agent tool is also a button; every button runs the same logic the agent uses.</small></div><div class=\"diagram-card rung rung-2\"><span class=\"diagram-pill\">Rung 2</span><strong>A chat with tools</strong><small class=\"diagram-muted\">The agent can act — but it is still just a chat window. No dashboards, lists, or shortcuts.</small></div><div class=\"diagram-card rung rung-1\"><span class=\"diagram-pill warn\">Rung 1</span><strong>A single LLM call</strong><small class=\"diagram-muted\">Prompt in, string out. Impressive in a demo; breaks the moment reality gets messy.</small></div></div>",
+  "html": "<div class=\"diagram-ladder\"><div class=\"diagram-card rung rung-3\"><span class=\"diagram-pill accent\">Stufe 3 · agent-native</span><strong>Agent + UI als gleichberechtigte Partner</strong><small class=\"diagram-muted\">One action surface. Every agent tool is also a button; every button runs the same logic the agent uses.</small></div><div class=\"diagram-card rung rung-2\"><span class=\"diagram-pill\">Stufe 2</span><strong>Ein Chat mit Tools</strong><small class=\"diagram-muted\">Der Agent kann handeln, ist aber weiter nur ein Chatfenster. Keine Dashboards, Listen oder Shortcuts.</small></div><div class=\"diagram-card rung rung-1\"><span class=\"diagram-pill warn\">Stufe 1</span><strong>Ein einzelner LLM-Aufruf</strong><small class=\"diagram-muted\">Prompt in, string out. Impressive in a demo; breaks the moment reality gets messy.</small></div></div>",
   "css": ".diagram-ladder{display:flex;flex-direction:column;gap:14px}.diagram-ladder .rung{display:flex;flex-direction:column;gap:6px;padding:16px 18px}.diagram-ladder .rung-2{margin-inline-end:48px}.diagram-ladder .rung-1{margin-inline-end:96px}"
 }
 ```
@@ -91,7 +91,7 @@ Dies ist das bestimmende Prinzip.
 
 ```an-diagram title="Ein System, zwei Wege hinein" summary="Der Agent und die Benutzeroberfläche schreiben in dieselben Aktionen und dieselbe Datenbank. Was der eine tut, der andere sieht es."
 {
-  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">clicks, forms, shortcuts</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">natural language · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">SQL-Datenbank</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">UI updates live</div></div>",
+  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">Klicks, Formulare, Shortcuts</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">natürliche Sprache · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">SQL-Datenbank</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">UI aktualisiert live</div></div>",
   "css": ".diagram-parity{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-parity .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-parity .diagram-arrow{font-size:22px;line-height:1}.diagram-parity .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -165,9 +165,9 @@ Wenn Sie eine agentennative App erstellen oder erweitern, ist hier das zentrale 
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread\",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app's server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});",
   "annotations": [
-    { "lines": "5", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this as a tool." },
+    { "lines": "5", "label": "Werkzeugoberfläche", "note": "`description` ist das, was der Agent liest, um zu entscheiden, wann er dies als Tool aufrufen soll." },
     { "lines": "6", "label": "Typisierter Vertrag", "note": "Ein zod `schema` validiert Eingaben von **jeder** Oberfläche — Agent, UI, HTTP, MCP und A2A." },
-    { "lines": "7-10", "label": "One implementation", "note": "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this." }
+    { "lines": "7-10", "label": "Eine Implementierung", "note": "Der `run`-Körper ist die einzige Quelle der Wahrheit. Sowohl die UI-Schaltfläche als auch das Agententool führen genau dies aus." }
   ]
 }
 ```

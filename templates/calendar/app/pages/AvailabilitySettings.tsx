@@ -25,14 +25,14 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 
 type DayName = keyof AvailabilityConfig["weeklySchedule"];
 
-const DAYS: { key: DayName; label: string }[] = [
-  { key: "monday", label: "Monday" },
-  { key: "tuesday", label: "Tuesday" },
-  { key: "wednesday", label: "Wednesday" },
-  { key: "thursday", label: "Thursday" },
-  { key: "friday", label: "Friday" },
-  { key: "saturday", label: "Saturday" },
-  { key: "sunday", label: "Sunday" },
+const DAYS: { key: DayName }[] = [
+  { key: "monday" },
+  { key: "tuesday" },
+  { key: "wednesday" },
+  { key: "thursday" },
+  { key: "friday" },
+  { key: "saturday" },
+  { key: "sunday" },
 ];
 
 const DEFAULT_SCHEDULE: DaySchedule = {
@@ -72,7 +72,7 @@ export default function AvailabilitySettings() {
     }
     const url = `${window.location.origin}/book/${bookingSlug}`;
     if (await copyTextToClipboard(url)) {
-      toast.success("Booking link copied to clipboard");
+      toast.success(t("bookingLinks.bookingLinkCopied"));
       return;
     }
     toast.error(t("common.clipboardUnavailable"));
@@ -119,43 +119,67 @@ export default function AvailabilitySettings() {
         bookingPageSlug: bookingSlug,
       },
       {
-        onSuccess: () => toast.success("Availability saved"),
-        onError: () => toast.error("Failed to save availability"),
+        onSuccess: () => toast.success(t("bookingLinks.availabilitySaved")),
+        onError: () => toast.error(t("bookingLinks.availabilitySaveFailed")),
       },
     );
+  }
+
+  function dayLabel(day: DayName) {
+    switch (day) {
+      case "monday":
+        return t("bookingLinks.days.monday");
+      case "tuesday":
+        return t("bookingLinks.days.tuesday");
+      case "wednesday":
+        return t("bookingLinks.days.wednesday");
+      case "thursday":
+        return t("bookingLinks.days.thursday");
+      case "friday":
+        return t("bookingLinks.days.friday");
+      case "saturday":
+        return t("bookingLinks.days.saturday");
+      case "sunday":
+        return t("bookingLinks.days.sunday");
+    }
   }
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 px-4 py-8 pb-12">
       <div>
-        <h1 className="text-2xl font-semibold">Availability</h1>
+        <h1 className="text-2xl font-semibold">
+          {t("bookingLinks.availability")}
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Set your available hours for bookings.
+          {t("bookingLinks.availabilityDescription")}
         </p>
       </div>
 
       {/* Weekly Schedule */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Weekly Schedule</CardTitle>
+          <CardTitle className="text-lg">
+            {t("bookingLinks.weeklySchedule")}
+          </CardTitle>
           <CardDescription>
-            Toggle days and set available hours.
+            {t("bookingLinks.weeklyScheduleDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
-            <Label htmlFor="availability-timezone">Timezone</Label>
+            <Label htmlFor="availability-timezone">
+              {t("eventForm.timezone")}
+            </Label>
             <TimezoneCombobox
               id="availability-timezone"
               value={timezone}
               onChange={setTimezone}
             />
             <p className="text-xs text-muted-foreground">
-              Weekly hours like 9 AM-5 PM are interpreted in this timezone
-              before visitors see them in their own browser timezone.
+              {t("bookingLinks.timezoneHelp")}
             </p>
           </div>
-          {DAYS.map(({ key, label }) => {
+          {DAYS.map(({ key }) => {
             const day = schedule[key];
             const slot = day.slots[0] ?? { start: "09:00", end: "17:00" };
             return (
@@ -170,7 +194,7 @@ export default function AvailabilitySettings() {
                       updateDay(key, { enabled: checked })
                     }
                   />
-                  <span className="text-sm font-medium">{label}</span>
+                  <span className="text-sm font-medium">{dayLabel(key)}</span>
                 </div>
 
                 {day.enabled ? (
@@ -183,7 +207,9 @@ export default function AvailabilitySettings() {
                       }
                       className="w-28 sm:w-32"
                     />
-                    <span className="text-muted-foreground">to</span>
+                    <span className="text-muted-foreground">
+                      {t("bookingLinks.to")}
+                    </span>
                     <Input
                       type="time"
                       value={slot.end}
@@ -195,7 +221,7 @@ export default function AvailabilitySettings() {
                   </div>
                 ) : (
                   <span className="text-sm text-muted-foreground">
-                    Unavailable
+                    {t("bookingLinks.unavailable")}
                   </span>
                 )}
               </div>
@@ -207,15 +233,17 @@ export default function AvailabilitySettings() {
       {/* Booking Settings */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Booking Rules</CardTitle>
+          <CardTitle className="text-lg">
+            {t("bookingLinks.bookingRules")}
+          </CardTitle>
           <CardDescription>
-            Configure buffer time, notice periods, and slot settings.
+            {t("bookingLinks.bookingRulesDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Buffer between events (min)</Label>
+              <Label>{t("bookingLinks.bufferBetweenEvents")}</Label>
               <Input
                 type="number"
                 value={bufferMinutes}
@@ -224,7 +252,7 @@ export default function AvailabilitySettings() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Minimum notice (hours)</Label>
+              <Label>{t("bookingLinks.minimumNotice")}</Label>
               <Input
                 type="number"
                 value={minNoticeHours}
@@ -233,7 +261,7 @@ export default function AvailabilitySettings() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Max advance booking (days)</Label>
+              <Label>{t("bookingLinks.maxAdvanceBooking")}</Label>
               <Input
                 type="number"
                 value={maxAdvanceDays}
@@ -242,7 +270,7 @@ export default function AvailabilitySettings() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Slot duration (minutes)</Label>
+              <Label>{t("bookingLinks.slotDuration")}</Label>
               <Input
                 type="number"
                 value={slotDuration}
@@ -253,7 +281,7 @@ export default function AvailabilitySettings() {
           </div>
 
           <div className="space-y-2">
-            <Label>Booking page slug</Label>
+            <Label>{t("bookingLinks.bookingPageSlug")}</Label>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">/book/</span>
               <Input
@@ -265,13 +293,13 @@ export default function AvailabilitySettings() {
           </div>
 
           <div className="space-y-2">
-            <Label>Share booking link</Label>
+            <Label>{t("bookingLinks.shareBookingLink")}</Label>
             <Button
               variant="outline"
               size="sm"
               onClick={() => void handleCopyBookingLink()}
             >
-              Copy Booking Link
+              {t("bookingLinks.copyBookingLink")}
             </Button>
           </div>
         </CardContent>
@@ -282,14 +310,16 @@ export default function AvailabilitySettings() {
         disabled={updateAvailability.isPending}
         className="w-full"
       >
-        {updateAvailability.isPending ? "Saving..." : "Save Availability"}
+        {updateAvailability.isPending
+          ? t("common.saving")
+          : t("bookingLinks.saveAvailability")}
       </Button>
 
       {showCloudUpgrade && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <CloudUpgrade
-            title="Share Booking Link"
-            description="To share your booking page publicly, connect a cloud database so bookings can be received from anywhere."
+            title={t("bookingLinks.shareBookingLink")}
+            description={t("bookingLinks.cloudUpgradeDescription")}
             onClose={() => setShowCloudUpgrade(false)}
           />
         </div>

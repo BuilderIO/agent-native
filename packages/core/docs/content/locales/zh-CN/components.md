@@ -27,7 +27,7 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 
 ```an-diagram title="下拉一层，不脱离框架" summary="每个层都保持相同的运行时 - 操作、线程状态和 SQL-backed 同步 - 同时让您更好地控制镶边。"
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Whole sidebar around your app. The 80% case.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">The panel or a chat page in your own layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Composer and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Same runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">围绕应用的完整侧边栏。80% 的常见场景。</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">你自己布局中的面板或聊天页。</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">撰写r and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>同一 runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -58,7 +58,7 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 Agent-Native 保留作曲家、文字记录、工具卡和
 本机小部件渲染。上面的连接器是API面；运行时
 合同和事件形状在中教授
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+[Native 聊天界面 — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
 如果您在无头代理、丰富聊天、嵌入式 sidecar 之间进行选择
 完整的应用形状，请参阅 [Agent Surfaces](/docs/agent-surfaces)。
 
@@ -96,7 +96,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 对于自带代理端点，请使用其中之一构建 `AgentChatRuntime`
 上面的连接器并将其传递给`<AssistantChat runtime={...} />`。请参阅
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+[Native 聊天界面 — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
 连接器使用情况、标准化事件流以及何时到达
 `createHttpAgentChatRuntime()` 与特定于协议的连接器。
 
@@ -108,8 +108,8 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 | API                               | 何时使用                                                                                                       |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `<PromptComposer>`                | 您需要一个随时可以提交的聊天字段，其中包含附件、斜线命令、参考、粘贴文本处理、草稿持久性、语音输入和提交语义。 |
-| `<AgentComposerFrame>`            | 您需要自定义 Composer 主体周围的标准视觉外壳。                                                                 |
-| `<TiptapComposer>`                | 您需要最低级别的丰富聊天字段。它必须在 Assistant-ui `ThreadPrimitive.Root` / Composer 运行时内呈现。           |
+| `<AgentComposerFrame>`            | 您需要自定义 撰写r 主体周围的标准视觉外壳。                                                                    |
+| `<TiptapComposer>`                | 您需要最低级别的丰富聊天字段。它必须在 Assistant-ui `ThreadPrimitive.Root` / 撰写r 运行时内呈现。              |
 | `buildPromptComposerSubmission()` | 在调用您自己的提交处理程序之前，您需要相同的附件和粘贴文本规范化。                                             |
 | `formatPromptWithAttachments()`   | 您需要将隐藏的附件元数据呈现到提示字符串中。                                                                   |
 
@@ -151,7 +151,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 内部聊天而不是普通的 JSON。内置可重复使用的输出包括
 `DataTableWidget`、`DataChartWidget` 和 `DataWidgetResult`；它们被导出
 来自 `@agent-native/core/client/chat` 和根客户端条目。请参阅
-[Native Chat UI](/docs/native-chat-ui) 表示操作结果合约。
+[Native 聊天界面](/docs/native-chat-ui) 表示操作结果合约。
 
 | API                              | 何时使用                                                                      |
 | -------------------------------- | ----------------------------------------------------------------------------- |
@@ -180,7 +180,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 ```an-diagram title="存在：人类和智能体共享一个意识层" summary="useCollaborativeDoc 拥有感知实例；客户端挂钩发布光标和选择；服务器助手让代理操作显示为实时参与者。"
 {
-  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">Agent action<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">render everyone, agent included</small></div></div>",
+  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">Agent 操作<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">渲染所有人，包括代理</small></div></div>",
   "css": ".diagram-presence{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-presence .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-presence .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-presence .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

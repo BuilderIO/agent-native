@@ -16,26 +16,29 @@ interface SendLaterButtonProps {
   isSending?: boolean;
 }
 
-function getPresets(): Array<{ label: string; date: Date }> {
+function getPresets(): Array<{ labelKey: string; date: Date }> {
   const now = new Date();
-  const presets: Array<{ label: string; date: Date }> = [];
+  const presets: Array<{ labelKey: string; date: Date }> = [];
 
   const laterToday = new Date(now);
   laterToday.setHours(Math.max(now.getHours() + 4, 18), 0, 0, 0);
   if (laterToday.getDate() === now.getDate()) {
-    presets.push({ label: "Later today", date: laterToday });
+    presets.push({ labelKey: "mail.sendLater.laterToday", date: laterToday });
   }
 
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(8, 0, 0, 0);
-  presets.push({ label: "Tomorrow morning", date: tomorrow });
+  presets.push({
+    labelKey: "mail.sendLater.tomorrowMorning",
+    date: tomorrow,
+  });
 
   const nextWeek = new Date(now);
   const daysUntilMon = (1 - now.getDay() + 7) % 7 || 7;
   nextWeek.setDate(now.getDate() + daysUntilMon);
   nextWeek.setHours(8, 0, 0, 0);
-  presets.push({ label: "Next week", date: nextWeek });
+  presets.push({ labelKey: "mail.sendLater.nextWeek", date: nextWeek });
 
   return presets;
 }
@@ -97,11 +100,13 @@ export function SendLaterButton({
             <div className="space-y-1">
               {presets.map((preset) => (
                 <button
-                  key={preset.label}
+                  key={preset.labelKey}
                   onClick={() => handleSendLater(preset.date)}
                   className="w-full flex items-center justify-between text-left px-2.5 py-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors group"
                 >
-                  <div className="text-sm font-medium">{preset.label}</div>
+                  <div className="text-sm font-medium">
+                    {t(preset.labelKey)}
+                  </div>
                   <div className="text-[11px] text-muted-foreground group-hover:text-accent-foreground/70">
                     {formatDate(preset.date)}
                   </div>

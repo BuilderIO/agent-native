@@ -22,7 +22,7 @@ description: "将您的代理本机应用程序连接到本地 MCP 服务器（c
 
 ```an-diagram title="客户端方向：多种来源，一种工具注册表" summary="配置文件、环境和运行时 UI 全部合并到 MCP 管理器中；它的工具与您的应用程序的操作一起显示为前缀并且可通过工具搜索。这是服务器方向的镜像。"
 {
-  "html": "<div class=\"mcp-merge\"><div class=\"diagram-col sources\"><div class=\"diagram-box\" data-rough>Workspace <code>mcp.config.json</code><br><small class=\"diagram-muted\">shared across apps</small></div><div class=\"diagram-box\" data-rough>App-root <code>mcp.config.json</code><br><small class=\"diagram-muted\">per-app override</small></div><div class=\"diagram-box\" data-rough><code>MCP_SERVERS</code> env<br><small class=\"diagram-muted\">CI / production</small></div><div class=\"diagram-box\" data-rough>Remote via settings UI<br><small class=\"diagram-muted\">personal &amp; org scope</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">MCP manager</span><small class=\"diagram-muted\">merge &middot; hot-reload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col out\"><div class=\"diagram-node\">Agent tool registry<br><small class=\"diagram-muted\"><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small></div><div class=\"diagram-node\"><code>tool-search</code><br><small class=\"diagram-muted\">discover by intent</small></div></div></div>",
+  "html": "<div class=\"mcp-merge\"><div class=\"diagram-col sources\"><div class=\"diagram-box\" data-rough>Workspace <code>mcp.config.json</code><br><small class=\"diagram-muted\">跨应用共享</small></div><div class=\"diagram-box\" data-rough>应用根 <code>mcp.config.json</code><br><small class=\"diagram-muted\">每个应用覆盖</small></div><div class=\"diagram-box\" data-rough><code>MCP_SERVERS</code> env<br><small class=\"diagram-muted\">CI / 生产</small></div><div class=\"diagram-box\" data-rough>通过设置界面远程配置<br><small class=\"diagram-muted\">personal &amp; org scope</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">MCP 管理器</span><small class=\"diagram-muted\">merge &middot; hot-reload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col out\"><div class=\"diagram-node\">Agent 工具 registry<br><small class=\"diagram-muted\"><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small></div><div class=\"diagram-node\"><code>tool-search</code><br><small class=\"diagram-muted\">按意图发现</small></div></div></div>",
   "css": ".mcp-merge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-merge .diagram-col{display:flex;flex-direction:column;gap:8px}.mcp-merge .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-merge .diagram-arrow{font-size:22px;line-height:1}.mcp-merge code{font-size:.85em}"
 }
 ```
@@ -108,9 +108,9 @@ Chrome DevTools 默认使用 `--autoConnect`。它附加到符合条件的正在
   "language": "jsonc",
   "code": "{\n  \"$schema\": \"https://agent-native.com/schema/mcp.config.json\",\n  \"servers\": {\n    \"claude-in-chrome\": {\n      \"command\": \"claude-in-chrome-mcp\",\n      \"args\": [],\n      \"env\": { \"LOG_LEVEL\": \"info\" }\n    },\n    \"filesystem\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem@latest\", \"/Users/me/projects\"]\n    }\n  }\n}",
   "annotations": [
-    { "lines": "3", "label": "Server id", "note": "The key becomes the tool prefix: this server's tools surface as `mcp__claude-in-chrome__*` in the agent's registry, so they can't collide with your template's actions." },
-    { "lines": "4-6", "label": "stdio launcher", "note": "`command` + `args` spawn a local binary. Stdio servers are intended for **local development** — they are a no-op in edge runtimes." },
-    { "lines": "6", "label": "Process env", "note": "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens." }
+    { "lines": "3", "label": "服务器ID", "note": "键成为工具前缀：该服务器的工具在代理的注册表中显示为 `mcp__claude-in-chrome__*`，因此它们不会与模板的操作发生冲突。" },
+    { "lines": "4-6", "label": "stdio launcher", "note": "`command` + `args` 生成本地二进制文件。 Stdio 服务器旨在用于**本地开发**- 它们在边缘运行时中是无操作的。" },
+    { "lines": "6", "label": "进程环境", "note": "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens." }
   ]
 }
 ```
@@ -204,7 +204,7 @@ Dispatch 是传统的中心 - 它已经跨应用进行协调。
 
 ```an-diagram title="中心模型：一个应用程序为组织范围的 MCP 服务器提供服务" summary="Dispatch 拥有组织范围 MCP 服务器；消费者应用程序将它们拉取并合并为 mcp__hub_<orgId>_<name>__*。仅共享组织范围的行 - 个人凭据保持不变。"
 {
-  "html": "<div class=\"mcp-hub\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Dispatch hub</span><small class=\"diagram-muted\">org-scope MCP servers</small><small class=\"diagram-muted\"><code>GET /mcp/hub/servers</code></small></div><div class=\"diagram-col arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div></div><div class=\"diagram-col consumers\"><div class=\"diagram-box\" data-rough>Mail<br><small class=\"diagram-muted\"><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small></div><div class=\"diagram-box\" data-rough>Clips<br><small class=\"diagram-muted\">pull + merge each ~60s</small></div></div></div><p class=\"diagram-muted note\">Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope) servers are never re-exposed.</p>",
+  "html": "<div class=\"mcp-hub\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Dispatch hub</span><small class=\"diagram-muted\">组织范围 MCP 服务器</small><small class=\"diagram-muted\"><code>GET /mcp/hub/servers</code></small></div><div class=\"diagram-col arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div></div><div class=\"diagram-col consumers\"><div class=\"diagram-box\" data-rough>Mail<br><small class=\"diagram-muted\"><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small></div><div class=\"diagram-box\" data-rough>Clips<br><small class=\"diagram-muted\">约每 60 秒 pull + merge</small></div></div></div><p class=\"diagram-muted note\">Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope) servers are never re-exposed.</p>",
   "css": ".mcp-hub{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-hub .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-hub .diagram-col{display:flex;flex-direction:column;gap:10px}.mcp-hub .arrows .diagram-arrow{font-size:22px;line-height:1}.mcp-hub .note{margin:8px 0 0;font-size:.85em}.mcp-hub code{font-size:.85em}"
 }
 ```
@@ -220,7 +220,7 @@ Dispatch 是传统的中心 - 它已经跨应用进行协调。
   "headers": {
     "Authorization": "Bearer ${keys.MCP_SERVER_TOKEN}"
   },
-  "description": "Shared MCP tools for workspace apps"
+  "description": "Shared MCP 工具s for workspace apps"
 }
 ```
 
@@ -285,7 +285,7 @@ AGENT_NATIVE_MCP_HUB_TOKEN=<the-same-secret>
 {
   "method": "GET",
   "path": "/_agent-native/mcp/status",
-  "summary": "MCP client status for tooling and onboarding",
+  "summary": "MCP 工具和入门的客户端状态",
   "description": "Reports which configured servers connected, the total live tool count, the merged prefixed tool list, and any per-server connection errors. Use it to build \"detected — your agent can now drive X\" hints or to debug connection problems.",
   "responses": [
     {

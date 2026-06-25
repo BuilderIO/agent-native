@@ -1053,7 +1053,7 @@ export function EmailThread({
       const data = await res.json();
 
       if (data.ok) {
-        toast.success("Unsubscribe request sent");
+        toast.success(t("mail.toasts.unsubscribeSent"));
         // Also open the URL so user can confirm if needed
         if (data.url || unsubscribeInfo.url) {
           window.open(data.url || unsubscribeInfo.url, "_blank");
@@ -1063,7 +1063,7 @@ export function EmailThread({
         if (unsubscribeInfo.url) {
           window.open(unsubscribeInfo.url, "_blank");
         } else {
-          toast.error("Could not unsubscribe");
+          toast.error(t("mail.toasts.couldNotUnsubscribe"));
         }
       }
     } catch {
@@ -1838,7 +1838,9 @@ const ExpandedMessageCard = forwardRef<
                   <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Reply All</TooltipContent>
+              <TooltipContent>
+                {t("mail.mobileActions.replyAll")}
+              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>

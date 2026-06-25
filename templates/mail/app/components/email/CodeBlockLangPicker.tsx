@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/select";
 
 const LANGUAGES = [
-  { value: "", label: "Plain text" },
+  { value: "", label: "" },
   { value: "javascript", label: "JavaScript" },
   { value: "typescript", label: "TypeScript" },
   { value: "python", label: "Python" },

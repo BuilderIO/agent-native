@@ -9,7 +9,7 @@ description: "Nitro 服务器路由、插件、框架安装的路由、请求上
 
 ```an-diagram title="服务器上运行什么" summary="操作是默认的。自定义文件路由和框架安装的路由共享相同的 Nitro 应用程序和相同的 SQL 数据库。"
 {
-  "html": "<div class=\"diagram-server\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">浏览器 / UI</div><div class=\"diagram-node\">代理循环</div><div class=\"diagram-node\">外部客户端<br><small class=\"diagram-muted\">HTTP · MCP · A2A</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Nitro 服务器</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">默认表面</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/_agent-native/*</span><small class=\"diagram-muted\">framework routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/api/*</span><small class=\"diagram-muted\">custom file routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">plugins</span><small class=\"diagram-muted\">startup: migrations, jobs</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL 数据库<br><small class=\"diagram-muted\">Drizzle · the coordination point</small></div></div>",
+  "html": "<div class=\"diagram-server\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">浏览器 / UI</div><div class=\"diagram-node\">代理循环</div><div class=\"diagram-node\">外部客户端<br><small class=\"diagram-muted\">HTTP · MCP · A2A</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Nitro 服务器</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">默认表面</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/_agent-native/*</span><small class=\"diagram-muted\">framework routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/api/*</span><small class=\"diagram-muted\">custom file routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">plugins</span><small class=\"diagram-muted\">启动：迁移、任务</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL 数据库<br><small class=\"diagram-muted\">Drizzle · 协调点</small></div></div>",
   "css": ".diagram-server{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-server .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-server .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.diagram-server .diagram-row{display:flex;align-items:center;gap:8px}.diagram-server .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -111,17 +111,17 @@ Actions 由框架自动安装并与请求上下文一起运行。自定义路线
   "annotations": [
     {
       "lines": "7-10",
-      "label": "Custom routes have no auto-context",
-      "note": "Unlike actions, a file route must load the session itself and fail closed when there is no authenticated user."
+      "label": "自定义路由没有自动上下文",
+      "note": "与操作不同，文件路由必须加载会话本身，并且在没有经过身份验证的用户时无法关闭。"
     },
     {
       "lines": "12-13",
-      "label": "Establish request context",
-      "note": "`runWithRequestContext` makes the user/org available to scoping helpers for the duration of the work."
+      "label": "建立请求上下文",
+      "note": "`runWithRequestContext` 使 user/org 在工作期间可供范围界定助手使用。"
     },
     {
       "lines": "18-19",
-      "label": "Scope ownable reads",
+      "label": "范围可拥有的读取",
       "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
     }
   ]
@@ -185,16 +185,16 @@ export default runMigrations(
 
 ```an-diagram title="SQL-backed 同步循环" summary="没有观察者，没有粘性状态。写入会碰撞 SQL 中的版本；每个客户端都会轮询版本并重新获取。"
 {
-  "html": "<div class=\"diagram-sync\"><div class=\"diagram-box\" data-rough>Action / helper<br><small class=\"diagram-muted\">mutates data</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>SQL 数据库</strong><small class=\"diagram-muted\">sync version increments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">useDbSync()<br><small class=\"diagram-muted\">polls /_agent-native/poll</small></div><div class=\"diagram-pill ok\">invalidate caches &rarr; UI refreshes</div></div></div>",
+  "html": "<div class=\"diagram-sync\"><div class=\"diagram-box\" data-rough>Action / 辅助函数<br><small class=\"diagram-muted\">mutates data</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>SQL 数据库</strong><small class=\"diagram-muted\">sync version increments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">useDbSync()<br><small class=\"diagram-muted\">polls /_agent-native/poll</small></div><div class=\"diagram-pill ok\">invalidate caches &rarr; UI refreshes</div></div></div>",
   "css": ".diagram-sync{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sync .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
 
-```an-api title="The poll endpoint" method="GET" path="/_agent-native/poll"
+```an-api title="轮询端点" method="GET" path="/_agent-native/poll"
 {
   "method": "GET",
   "path": "/_agent-native/poll",
-  "summary": "Return the current per-source database sync versions so the client can detect changes.",
+  "summary": "返回当前的每个源数据库同步版本，以便客户端可以检测更改。",
   "description": "`useDbSync()` calls this on an interval (and falls back to it when SSE is unavailable). When a returned version is higher than the client's last-seen value, the matching React Query caches are invalidated and refetch.",
   "auth": "Session cookie (request-scoped identity)",
   "responses": [
@@ -215,7 +215,7 @@ export default runMigrations(
 
 ```an-diagram title="集成队列模式" summary="Webhook 处理程序以毫秒为单位返回；单独的签名执行运行缓慢的代理工作。"
 {
-  "html": "<div class=\"diagram-webhook\"><div class=\"diagram-box\" data-rough>Inbound webhook<br><small class=\"diagram-muted\">Slack · Stripe · email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Handler</strong><div class=\"diagram-step\"><span class=\"diagram-pill\">1</span><small class=\"diagram-muted\">verify signature</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><small class=\"diagram-muted\">insert work into SQL</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">3</span><small class=\"diagram-muted\">self-fire processor</small></div><div class=\"diagram-step\"><span class=\"diagram-pill ok\">4</span><small class=\"diagram-muted\">return 200 now</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Signed processor<br><small class=\"diagram-muted\">runs agent loop, posts result</small></div></div>",
+  "html": "<div class=\"diagram-webhook\"><div class=\"diagram-box\" data-rough>入站 webhook<br><small class=\"diagram-muted\">Slack · Stripe · email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Handler</strong><div class=\"diagram-step\"><span class=\"diagram-pill\">1</span><small class=\"diagram-muted\">verify signature</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><small class=\"diagram-muted\">将工作写入 SQL</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">3</span><small class=\"diagram-muted\">self-fire processor</small></div><div class=\"diagram-step\"><span class=\"diagram-pill ok\">4</span><small class=\"diagram-muted\">return 200 now</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Signed processor<br><small class=\"diagram-muted\">运行代理循环并发布结果</small></div></div>",
   "css": ".diagram-webhook{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-webhook .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-webhook .diagram-step{display:flex;align-items:center;gap:8px}.diagram-webhook .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

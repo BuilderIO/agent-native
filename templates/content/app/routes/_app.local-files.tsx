@@ -1,4 +1,4 @@
-import { callAction, setClientAppState } from "@agent-native/core/client";
+import { callAction, setClientAppState, useT } from "@agent-native/core/client";
 import { CONTENT_SOURCE_ROOT } from "@shared/content-source";
 import {
   IconAlertCircle,
@@ -27,6 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { messagesByLocale } from "@/i18n-data";
 import {
   getDesktopContentFiles,
   type DesktopContentFilesFolder,
@@ -173,24 +174,24 @@ function isElectronLikeBrowser() {
   return /\bElectron\//.test(navigator.userAgent);
 }
 
-function unsupportedLocalFolderSyncMessage() {
+function unsupportedLocalFolderSyncMessage(t: ReturnType<typeof useT>) {
   if (isElectronLikeBrowser()) {
-    return "Local folder sync is unavailable in this Electron browser. Use Agent Native Desktop or a browser with folder access.";
+    return t("localFiles.unsupportedElectron");
   }
-  return "Folder access is unavailable in this browser.";
+  return t("localFiles.unsupportedBrowser");
 }
 
 function supportsDirectoryPersistence() {
   return typeof window !== "undefined" && "indexedDB" in window;
 }
 
-function sourcePrefixBase(name: string) {
+function sourcePrefixBase(name: string, fallback = "Local folder") {
   const prefix = name
     .replace(/[\\/]/g, "-")
     .replace(/\0/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  return !prefix || prefix === "." || prefix === ".." ? "Local folder" : prefix;
+  return !prefix || prefix === "." || prefix === ".." ? fallback : prefix;
 }
 
 function uniqueSourcePrefix(
@@ -244,8 +245,11 @@ function browserDirectoryToPersisted(
   };
 }
 
-function directoryUpdatedLabel(directory: SelectedDirectory) {
-  if (!directory.updatedAt) return "Not synced yet";
+function directoryUpdatedLabel(
+  directory: SelectedDirectory,
+  t: ReturnType<typeof useT>,
+) {
+  if (!directory.updatedAt) return t("localFiles.notSyncedYet");
   return new Date(directory.updatedAt).toLocaleString();
 }
 
@@ -390,6 +394,7 @@ async function hasBrowserComponentsDirectory(handle: LocalDirectoryHandle) {
 
 async function chooseDirectory(
   directories: SelectedDirectory[],
+  t: ReturnType<typeof useT>,
 ): Promise<SelectedDirectory> {
   const desktopFiles = getDesktopContentFiles();
   if (desktopFiles) {
@@ -400,7 +405,7 @@ async function chooseDirectory(
 
   const picker = (window as WindowWithDirectoryPicker).showDirectoryPicker;
   if (!picker || isElectronLikeBrowser()) {
-    throw new Error(unsupportedLocalFolderSyncMessage());
+    throw new Error(unsupportedLocalFolderSyncMessage(t));
   }
   const handle = await picker({ mode: "readwrite" });
   const existing = await Promise.all(
@@ -611,21 +616,25 @@ function filesForDirectoryExport(
   );
 }
 
-function resultSummary(result: ImportContentSourceResult) {
+function resultSummary(
+  result: ImportContentSourceResult,
+  t: ReturnType<typeof useT>,
+) {
   return [
-    `${result.created.length} created`,
-    `${result.updated.length} updated`,
-    `${result.unchanged.length} unchanged`,
-    `${result.skipped.length} skipped`,
-    `${result.errors.length} errors`,
+    t("localFiles.summaryCreated", { count: result.created.length }),
+    t("localFiles.summaryUpdated", { count: result.updated.length }),
+    t("localFiles.summaryUnchanged", { count: result.unchanged.length }),
+    t("localFiles.summarySkipped", { count: result.skipped.length }),
+    t("localFiles.summaryErrors", { count: result.errors.length }),
   ].join(" | ");
 }
 
 export function meta() {
-  return [{ title: "Local files - Content" }];
+  return [{ title: messagesByLocale["en-US"].localFiles.metaTitle }];
 }
 
 export default function LocalFilesRoute() {
+  const t = useT();
   const queryClient = useQueryClient();
   const [directories, setDirectories] = useState<SelectedDirectory[]>([]);
   const [status, setStatus] = useState<SyncStatus>({ kind: "idle" });
@@ -635,7 +644,7 @@ export default function LocalFilesRoute() {
 
   useSetPageTitle(
     <h1 className="text-lg font-semibold tracking-tight truncate">
-      Local files
+      {t("localFiles.pageTitle")}
     </h1>,
   );
 
@@ -670,8 +679,10 @@ export default function LocalFilesRoute() {
         setDirectories(restoredDirectories);
         setStatus({
           kind: "success",
-          title: "Folders remembered",
-          detail: `${restoredDirectories.length} linked`,
+          title: t("localFiles.foldersRemembered"),
+          detail: t("localFiles.linkedCount", {
+            count: restoredDirectories.length,
+          }),
         });
         await pullDirectories(restoredDirectories, {
           showToast: false,
@@ -689,8 +700,10 @@ export default function LocalFilesRoute() {
       setDirectories(restoredDirectories);
       setStatus({
         kind: "success",
-        title: "Folders remembered",
-        detail: `${restoredDirectories.length} linked`,
+        title: t("localFiles.foldersRemembered"),
+        detail: t("localFiles.linkedCount", {
+          count: restoredDirectories.length,
+        }),
       });
       await pullDirectories(restoredDirectories, {
         showToast: false,
@@ -705,11 +718,11 @@ export default function LocalFilesRoute() {
         if (!cancelled) {
           setStatus({
             kind: "error",
-            title: "Folder restore failed",
+            title: t("localFiles.folderRestoreFailed"),
             detail:
               err instanceof Error
                 ? err.message
-                : "Choose another folder or try again.",
+                : t("localFiles.chooseAnotherFolder"),
           });
         }
       })
@@ -719,7 +732,7 @@ export default function LocalFilesRoute() {
     return () => {
       cancelled = true;
     };
-  }, [supported]);
+  }, [supported, t]);
 
   function updateDirectory(
     currentDirectories: SelectedDirectory[],
@@ -819,10 +832,10 @@ export default function LocalFilesRoute() {
     if (latestResult) {
       setStatus({
         kind: "success",
-        title: "Folders pulled",
-        detail: resultSummary(latestResult),
+        title: t("localFiles.foldersPulled"),
+        detail: resultSummary(latestResult, t),
       });
-      if (showToast) toast.success("Pulled local files");
+      if (showToast) toast.success(t("localFiles.pulledLocalFiles"));
     }
   }
 
@@ -841,18 +854,17 @@ export default function LocalFilesRoute() {
               { workspacePath } as never,
             );
           if (result.componentCount > 0 && showToast) {
-            toast.success("Local components connected", {
-              description:
-                "Component previews and the slash menu will reload from this folder.",
+            toast.success(t("localFiles.localComponentsConnected"), {
+              description: t("localFiles.localComponentsConnectedDescription"),
             });
           }
         } catch (error) {
           if (showToast) {
-            toast.info("Local files linked", {
+            toast.info(t("localFiles.localFilesLinked"), {
               description:
                 error instanceof Error
                   ? error.message
-                  : "Component previews need the local dev bridge.",
+                  : t("localFiles.componentPreviewsNeedBridge"),
             });
           }
         }
@@ -863,9 +875,8 @@ export default function LocalFilesRoute() {
         showToast &&
         (await hasBrowserComponentsDirectory(directory.handle))
       ) {
-        toast.info("MDX files linked", {
-          description:
-            "This browser can edit the files, but React component previews need Agent Native Desktop or a local dev server.",
+        toast.info(t("localFiles.mdxFilesLinked"), {
+          description: t("localFiles.mdxFilesLinkedDescription"),
         });
       }
     }
@@ -874,7 +885,7 @@ export default function LocalFilesRoute() {
   async function handleChooseFolder() {
     setBusy("choose");
     try {
-      const selected = await chooseDirectory(directories);
+      const selected = await chooseDirectory(directories, t);
       const nextDirectories = upsertDirectory(directories, selected);
       if (selected.kind === "browser") {
         rememberLinkedLocalSourceDirectory(selected.handle);
@@ -883,7 +894,7 @@ export default function LocalFilesRoute() {
       setDirectories(nextDirectories);
       setStatus({
         kind: "success",
-        title: "Folder added",
+        title: t("localFiles.folderAdded"),
         detail: selected.name,
       });
 
@@ -893,11 +904,11 @@ export default function LocalFilesRoute() {
     } catch (err) {
       setStatus({
         kind: "error",
-        title: "Folder add failed",
+        title: t("localFiles.folderAddFailed"),
         detail:
           err instanceof Error
             ? err.message
-            : "Choose another folder or try again.",
+            : t("localFiles.chooseAnotherFolder"),
       });
     } finally {
       setBusy(null);
@@ -911,7 +922,7 @@ export default function LocalFilesRoute() {
         directory.kind === "browser" &&
         !(await ensureReadWritePermission(directory.handle))
       ) {
-        throw new Error("Write permission was not granted.");
+        throw new Error(t("localFiles.writePermissionNotGranted"));
       }
       const bundle = await callAction<ExportContentSourceResult>(
         "export-content-source" as never,
@@ -926,7 +937,7 @@ export default function LocalFilesRoute() {
       if (directory.kind === "desktop") {
         const desktopFiles = getDesktopContentFiles();
         if (!desktopFiles) {
-          throw new Error("Desktop folder access is no longer available.");
+          throw new Error(t("localFiles.desktopFolderUnavailable"));
         }
         const result = await desktopFiles.writeFiles({
           folderId: directory.id,
@@ -952,17 +963,18 @@ export default function LocalFilesRoute() {
       }
       setStatus({
         kind: "success",
-        title: "Pushed to folder",
-        detail: `${bundle.count} files written at ${new Date(
-          bundle.exportedAt,
-        ).toLocaleTimeString()}`,
+        title: t("localFiles.pushedToFolder"),
+        detail: t("localFiles.filesWrittenAt", {
+          count: bundle.count,
+          time: new Date(bundle.exportedAt).toLocaleTimeString(),
+        }),
       });
-      toast.success("Pushed Content documents");
+      toast.success(t("localFiles.pushedContentDocuments"));
     } catch (err) {
       setStatus({
         kind: "error",
-        title: "Push failed",
-        detail: err instanceof Error ? err.message : "Try again.",
+        title: t("localFiles.pushFailed"),
+        detail: err instanceof Error ? err.message : t("localFiles.tryAgain"),
       });
     } finally {
       setBusy(null);
@@ -979,8 +991,8 @@ export default function LocalFilesRoute() {
     } catch (err) {
       setStatus({
         kind: "error",
-        title: "Check failed",
-        detail: err instanceof Error ? err.message : "Try again.",
+        title: t("localFiles.checkFailed"),
+        detail: err instanceof Error ? err.message : t("localFiles.tryAgain"),
       });
     } finally {
       setBusy(null);
@@ -993,15 +1005,15 @@ export default function LocalFilesRoute() {
       const { result } = await pullDirectoryFiles(directory, directories);
       setStatus({
         kind: "success",
-        title: "Pulled from folder",
-        detail: resultSummary(result),
+        title: t("localFiles.pulledFromFolder"),
+        detail: resultSummary(result, t),
       });
-      toast.success("Pulled local files");
+      toast.success(t("localFiles.pulledLocalFiles"));
     } catch (err) {
       setStatus({
         kind: "error",
-        title: "Pull failed",
-        detail: err instanceof Error ? err.message : "Try again.",
+        title: t("localFiles.pullFailed"),
+        detail: err instanceof Error ? err.message : t("localFiles.tryAgain"),
       });
     } finally {
       setBusy(null);
@@ -1026,7 +1038,7 @@ export default function LocalFilesRoute() {
       setDirectories(nextDirectories);
       setStatus({
         kind: "success",
-        title: "Folder removed",
+        title: t("localFiles.folderRemoved"),
         detail: directory.name,
       });
       if (nextDirectories.length === 1) {
@@ -1038,8 +1050,8 @@ export default function LocalFilesRoute() {
     } catch (err) {
       setStatus({
         kind: "error",
-        title: "Remove failed",
-        detail: err instanceof Error ? err.message : "Try again.",
+        title: t("localFiles.removeFailed"),
+        detail: err instanceof Error ? err.message : t("localFiles.tryAgain"),
       });
     } finally {
       setBusy(null);
@@ -1054,12 +1066,19 @@ export default function LocalFilesRoute() {
         <div className="flex flex-col gap-3 border-b border-border pb-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <h2 className="text-xl font-semibold tracking-tight">
-              Local folders
+              {t("localFiles.localFolders")}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               {directories.length === 0
-                ? "No folders linked"
-                : `${directories.length} folder${directories.length === 1 ? "" : "s"} linked`}
+                ? t("localFiles.noFoldersLinked")
+                : t(
+                    directories.length === 1
+                      ? "localFiles.folderLinked"
+                      : "localFiles.foldersLinked",
+                    {
+                      count: directories.length,
+                    },
+                  )}
             </p>
           </div>
           <Button
@@ -1067,20 +1086,20 @@ export default function LocalFilesRoute() {
             className="w-fit"
             onClick={handleChooseFolder}
             disabled={!supported || disabled}
-            aria-label="Choose folder"
+            aria-label={t("localFiles.chooseFolder")}
           >
             <IconFolderPlus />
             {busy === "choose"
-              ? "Adding..."
+              ? t("localFiles.adding")
               : restoringDirectory
-                ? "Restoring..."
-                : "Add folder"}
+                ? t("localFiles.restoring")
+                : t("localFiles.addFolder")}
           </Button>
         </div>
 
         {!supported && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {unsupportedLocalFolderSyncMessage()}
+            {unsupportedLocalFolderSyncMessage(t)}
           </div>
         )}
 
@@ -1119,9 +1138,11 @@ export default function LocalFilesRoute() {
                 <div className="flex items-center gap-2">
                   <IconFileText className="size-4 shrink-0 text-primary" />
                   <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                    <span className="font-medium">Preview ready</span>
+                    <span className="font-medium">
+                      {t("localFiles.previewReady")}
+                    </span>
                     <span className="text-muted-foreground">
-                      {resultSummary(status.result)}
+                      {resultSummary(status.result, t)}
                     </span>
                   </div>
                 </div>
@@ -1156,15 +1177,17 @@ export default function LocalFilesRoute() {
           <Table className="min-w-[640px] sm:min-w-0">
             <TableHeader>
               <TableRow>
-                <TableHead className="whitespace-nowrap">Folder</TableHead>
+                <TableHead className="whitespace-nowrap">
+                  {t("localFiles.folder")}
+                </TableHead>
                 <TableHead className="hidden w-36 md:table-cell">
-                  Sidebar
+                  {t("localFiles.sidebar")}
                 </TableHead>
                 <TableHead className="hidden w-44 lg:table-cell">
-                  Last sync
+                  {t("localFiles.lastSync")}
                 </TableHead>
                 <TableHead className="w-72 whitespace-nowrap text-right sm:w-80">
-                  Actions
+                  {t("localFiles.actions")}
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -1176,7 +1199,7 @@ export default function LocalFilesRoute() {
                     className="h-24 text-center text-sm text-muted-foreground"
                   >
                     <div className="ml-0 mr-auto max-w-[calc(100vw-4rem)] text-left sm:mx-auto sm:max-w-none sm:text-center">
-                      Add a folder to sync local Markdown and MDX files.
+                      {t("localFiles.addFolderDescription")}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -1196,15 +1219,16 @@ export default function LocalFilesRoute() {
                               </span>
                               {isMain && (
                                 <IconStarFilled
-                                  aria-label="Main folder"
+                                  aria-label={t("localFiles.mainFolder")}
                                   className="size-3.5 shrink-0 text-primary"
                                 />
                               )}
                             </div>
                             <div className="truncate text-xs text-muted-foreground">
                               {directory.kind === "desktop"
-                                ? (directory.folder.path ?? "Desktop folder")
-                                : "Browser folder"}
+                                ? (directory.folder.path ??
+                                  t("localFiles.desktopFolder"))
+                                : t("localFiles.browserFolder")}
                             </div>
                           </div>
                         </div>
@@ -1212,10 +1236,10 @@ export default function LocalFilesRoute() {
                       <TableCell className="hidden text-muted-foreground md:table-cell">
                         {directories.length > 1
                           ? directory.sourcePrefix
-                          : "Flat"}
+                          : t("localFiles.flat")}
                       </TableCell>
                       <TableCell className="hidden text-muted-foreground lg:table-cell">
-                        {directoryUpdatedLabel(directory)}
+                        {directoryUpdatedLabel(directory, t)}
                       </TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-1.5">
@@ -1227,8 +1251,8 @@ export default function LocalFilesRoute() {
                           >
                             <IconDownload />
                             {busy === `pull:${directory.id}`
-                              ? "Pulling..."
-                              : "Pull"}
+                              ? t("localFiles.pulling")
+                              : t("localFiles.pull")}
                           </Button>
                           <Button
                             size="sm"
@@ -1238,8 +1262,8 @@ export default function LocalFilesRoute() {
                           >
                             <IconRefresh />
                             {busy === `check:${directory.id}`
-                              ? "Checking..."
-                              : "Check"}
+                              ? t("localFiles.checking")
+                              : t("localFiles.check")}
                           </Button>
                           <Button
                             size="sm"
@@ -1249,13 +1273,15 @@ export default function LocalFilesRoute() {
                           >
                             <IconUpload />
                             {busy === `push:${directory.id}`
-                              ? "Pushing..."
-                              : "Push"}
+                              ? t("localFiles.pushing")
+                              : t("localFiles.push")}
                           </Button>
                           <Button
                             size="icon"
                             variant="ghost"
-                            aria-label={`Remove ${directory.name}`}
+                            aria-label={t("localFiles.removeFolder", {
+                              name: directory.name,
+                            })}
                             onClick={() => handleRemove(directory)}
                             disabled={disabled || isBusy}
                           >

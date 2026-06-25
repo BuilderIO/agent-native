@@ -6,6 +6,7 @@ import {
   appBasePath,
   callAction,
   useGuidedQuestionFlow,
+  useT,
 } from "@agent-native/core/client";
 import { useOrg } from "@agent-native/core/client/org";
 import type { PinpointProps } from "@agent-native/pinpoint/react";
@@ -96,22 +97,23 @@ function MissingDeckAccessPane({
   onRetry: () => void;
   onBack: () => void;
 }) {
+  const t = useT();
   const Icon =
     hasTeamJoinOption || orgLoading || orgError ? IconBuilding : IconLock;
   const title = orgLoading
-    ? "Looking for this deck"
+    ? t("deckEditor.lookingForDeck")
     : orgError
-      ? "Couldn't check team access"
+      ? t("deckEditor.teamAccessCheckFailed")
       : hasTeamJoinOption
-        ? "Join your team to open this deck"
-        : "Deck unavailable";
+        ? t("deckEditor.joinTeamToOpen")
+        : t("deckEditor.deckUnavailable");
   const description = orgLoading
-    ? "Checking whether this presentation is shared with your account."
+    ? t("deckEditor.checkingSharedAccess")
     : orgError
-      ? "We couldn't verify whether this presentation is shared with your account. Try again to reload team access and the deck."
+      ? t("deckEditor.verifySharedAccessFailed")
       : hasTeamJoinOption
-        ? "This link points to a team presentation. Join the team shown above and the deck will open here automatically."
-        : "This deck may have been removed, or your account does not have access to it.";
+        ? t("deckEditor.joinTeamDescription")
+        : t("deckEditor.deckUnavailableDescription");
 
   return (
     <div className="flex flex-1 items-center justify-center bg-background px-4 py-10">
@@ -133,7 +135,7 @@ function MissingDeckAccessPane({
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={onBack}>
             <IconArrowLeft className="size-4" />
-            Back to Decks
+            {t("deckEditor.backToDecks")}
           </Button>
           <Button
             type="button"
@@ -143,7 +145,7 @@ function MissingDeckAccessPane({
             <IconRefresh
               className={refreshing ? "size-4 animate-spin" : "size-4"}
             />
-            Try again
+            {t("deckEditor.tryAgain")}
           </Button>
         </div>
       </div>
@@ -152,6 +154,7 @@ function MissingDeckAccessPane({
 }
 
 export default function DeckEditor() {
+  const t = useT();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -336,7 +339,7 @@ export default function DeckEditor() {
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.url) {
-      throw new Error(data?.error || "Image upload failed");
+      throw new Error(data?.error || t("deckEditor.imageUploadFailed"));
     }
     return data.url as string;
   }, []);
@@ -392,16 +395,16 @@ export default function DeckEditor() {
           updateSlide(id, targetSlide.id, { content: updatedContent });
         }
         toast({
-          title: "Image added",
+          title: t("deckEditor.imageAdded"),
           description: file.name,
         });
       } catch (error) {
         toast({
-          title: "Image upload failed",
+          title: t("deckEditor.imageUploadFailed"),
           description:
             error instanceof Error
               ? error.message
-              : "Something went wrong uploading this image.",
+              : t("deckEditor.imageUploadError"),
           variant: "destructive",
         });
       }
@@ -824,8 +827,8 @@ export default function DeckEditor() {
             const slideIds = deck.slides.map((s) => s.id);
             if (slideIds.length === 0) {
               toast({
-                title: "Export failed",
-                description: "Deck has no slides.",
+                title: t("deckEditor.exportFailed"),
+                description: t("deckEditor.deckHasNoSlides"),
                 variant: "destructive",
               });
               return;
@@ -834,9 +837,11 @@ export default function DeckEditor() {
           } catch (err) {
             console.error("[pdf-export] failed:", err);
             toast({
-              title: "Export failed",
+              title: t("deckEditor.exportFailed"),
               description:
-                err instanceof Error ? err.message : "Could not render PDF.",
+                err instanceof Error
+                  ? err.message
+                  : t("deckEditor.pdfRenderFailed"),
               variant: "destructive",
             });
           }
@@ -925,10 +930,9 @@ export default function DeckEditor() {
 
         {isNewDeckGenerating && deck.slides.length > 0 && !showQuestionFlow && (
           <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-lg border border-border bg-popover/95 px-3 py-2 text-sm text-popover-foreground shadow-lg backdrop-blur">
-            <span className="font-medium">Building deck</span>
+            <span className="font-medium">{t("deckEditor.buildingDeck")}</span>
             <span className="ml-2 text-muted-foreground">
-              {deck.slides.length} slide{deck.slides.length === 1 ? "" : "s"}{" "}
-              added
+              {t("deckEditor.slidesAdded", { count: deck.slides.length })}
             </span>
           </div>
         )}

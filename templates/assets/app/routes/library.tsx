@@ -9,6 +9,7 @@ import {
   updateMcpAppModelContext,
   useActionMutation,
   useActionQuery,
+  useT,
 } from "@agent-native/core/client";
 import {
   createEmbeddedAppBridge,
@@ -682,6 +683,7 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
 }
 
 function AssetOverlayImage({ asset }: { asset: Asset }) {
+  const t = useT();
   const sources = assetOverlaySources(asset);
   const sourcesKey = sources.join("\n");
   const [sourceIndex, setSourceIndex] = useState(0);
@@ -694,7 +696,7 @@ function AssetOverlayImage({ asset }: { asset: Asset }) {
   if (!source) {
     return (
       <div className="flex aspect-square w-full items-center justify-center rounded-lg bg-muted text-sm text-muted-foreground">
-        Preview unavailable
+        {t("brandKitDetail.previewUnavailable")}
       </div>
     );
   }
@@ -715,6 +717,7 @@ function AssetOverlayImage({ asset }: { asset: Asset }) {
 }
 
 export default function AssetPicker() {
+  const t = useT();
   const [searchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();
   const mcpChatBridgeActive =
@@ -791,10 +794,10 @@ export default function AssetPicker() {
   const starterLibrary: Library = useMemo(
     () => ({
       id: STARTER_LIBRARY_ID,
-      title: "Starter assets",
+      title: t("assetPicker.starterAssets"),
       description: STARTER_PRESET.description,
     }),
-    [],
+    [t],
   );
   const displayLibraries = libraries.length
     ? libraries
@@ -862,7 +865,10 @@ export default function AssetPicker() {
     !usingStarterLibrary &&
     Boolean(selectedLibraryId) &&
     (presetsLoading || presetsFetching || presetsPending || !selectedPreset);
-  const mediaLabel = mediaType === "video" ? "video" : "image";
+  const mediaLabelText =
+    mediaType === "video"
+      ? t("brandKitDetail.video").toLowerCase()
+      : t("brandKitDetail.image").toLowerCase();
   const generateBatch = useActionMutation(
     "generate-image-batch" as any,
     {
@@ -879,28 +885,21 @@ export default function AssetPicker() {
         );
         if (generatedCount > 0) {
           toast.success(
-            `Generated ${generatedCount} image candidate${
-              generatedCount === 1 ? "" : "s"
-            }`,
+            t("assetPicker.generatedCandidates", { count: generatedCount }),
             {
               description:
                 failedCount > 0
-                  ? `${failedCount} candidate${
-                      failedCount === 1 ? "" : "s"
-                    } failed.`
-                  : "Pick the one you want to send back.",
+                  ? t("assetPicker.failedCandidates", { count: failedCount })
+                  : t("assetPicker.pickCandidate"),
             },
           );
           setQuery("");
         } else {
-          toast.error(
-            images[0]?.error ||
-              "Image generation finished without usable candidates.",
-          );
+          toast.error(images[0]?.error || t("assetPicker.noUsableCandidates"));
         }
       },
       onError: (error: Error) => {
-        toast.error(error.message || "Image generation failed");
+        toast.error(error.message || t("assetPicker.generationFailed"));
       },
     } as any,
   );
@@ -983,15 +982,15 @@ export default function AssetPicker() {
       try {
         await navigator.clipboard.writeText(text);
         setStandaloneCopyOk(true);
-        toast.success("Selection copied");
+        toast.success(t("assetPicker.selectionCopied"));
         return true;
       } catch {
         setStandaloneCopyOk(false);
-        toast.info("Selection ready");
+        toast.info(t("assetPicker.selectionReady"));
         return false;
       }
     },
-    [],
+    [t],
   );
 
   const postEmbeddedSelectionMessage = useCallback(
@@ -1019,9 +1018,13 @@ export default function AssetPicker() {
       }
       void notifyMcpHost(payload).then((ok) => {
         if (ok) {
-          toast.success(`Selected ${selectedAssetLabel(payload)}`);
+          toast.success(
+            t("assetPicker.selectedAsset", {
+              title: selectedAssetLabel(payload),
+            }),
+          );
         } else {
-          toast.error("Could not send the selected asset back to chat");
+          toast.error(t("assetPicker.sendBackFailed"));
         }
       });
       return;
@@ -1038,7 +1041,7 @@ export default function AssetPicker() {
         if (!result?.id) return;
         const library = {
           id: result.id,
-          title: result.title || "MCP image picks",
+          title: result.title || t("assetPicker.mcpImagePicks"),
           description: result.description ?? null,
         };
         setCreatedPickerLibrary(library);
@@ -1049,7 +1052,7 @@ export default function AssetPicker() {
         // Allow the auto-create effect to retry after a transient failure;
         // otherwise the picker stays stuck on "Preparing..." until reload.
         autoCreateLibraryRef.current = false;
-        toast.error(error.message || "Could not prepare an image library");
+        toast.error(error.message || t("assetPicker.prepareLibraryFailed"));
       },
     } as any,
   );
@@ -1181,8 +1184,8 @@ export default function AssetPicker() {
     typeof config?.lastIssue?.message === "string"
       ? config.lastIssue.message
       : config?.builderEnabled === false
-        ? "Add a generation key in Settings."
-        : "Connect generation models.";
+        ? t("assetPicker.addGenerationKey")
+        : t("assetPicker.connectGenerationModels");
   const needsGenerationLibrary =
     mediaType === "image" &&
     libraryListReady &&
@@ -1199,22 +1202,22 @@ export default function AssetPicker() {
       needsGenerationLibrary ||
       preparingGenerationLibrary);
   const generationButtonLabel = generateBatch.isPending
-    ? "Generating..."
+    ? t("brandKitDetail.generating")
     : waitingForRequestedPreset
-      ? "Loading preset..."
+      ? t("assetPicker.loadingPreset")
       : setupNeeded
-        ? "Setup needed"
+        ? t("assetPicker.setupNeeded")
         : preparingAutoLibrary
-          ? "Preparing..."
-          : "Generate";
+          ? t("assetPicker.preparing")
+          : t("brandKitDetail.generate");
   const generationStatus = generateBatch.isPending
-    ? "Generating candidates..."
+    ? t("assetPicker.generatingCandidates")
     : preparingAutoLibrary
       ? waitingForLibraries
-        ? "Checking image libraries..."
-        : "Preparing an image library..."
+        ? t("assetPicker.checkingLibraries")
+        : t("assetPicker.preparingImageLibrary")
       : waitingForRequestedPreset
-        ? "Loading the requested preset..."
+        ? t("assetPicker.loadingRequestedPreset")
         : null;
 
   useEffect(() => {
@@ -1225,8 +1228,8 @@ export default function AssetPicker() {
   const prepareGenerationLibrary = useCallback(() => {
     createPickerLibrary.mutate({
       presetId: STARTER_PRESET.id,
-      title: "MCP image picks",
-      description: "Generated and selected images from MCP chat hosts.",
+      title: t("assetPicker.mcpImagePicks"),
+      description: t("assetPicker.mcpImagePicksDescription"),
     } as any);
   }, [createPickerLibrary]);
 
@@ -1284,7 +1287,7 @@ export default function AssetPicker() {
     >
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
         <div className="min-w-0 truncate text-sm font-semibold">
-          {embedded ? "Assets" : "Library"}
+          {embedded ? t("navigation.brand") : t("navigation.library")}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {mediaType === "image" && (
@@ -1299,12 +1302,19 @@ export default function AssetPicker() {
               ) : (
                 <IconPhotoPlus className="h-3.5 w-3.5" />
               )}
-              {showCreatePane ? "Close" : "Create"}
+              {showCreatePane
+                ? t("brandKitDetail.close")
+                : t("navigation.create")}
             </Button>
           )}
           {embedded && (
             <>
-              <Button asChild variant="ghost" size="icon" title="Open Assets">
+              <Button
+                asChild
+                variant="ghost"
+                size="icon"
+                title={t("assetPicker.openAssets")}
+              >
                 <a href={absoluteAppUrl("/")} target="_blank" rel="noreferrer">
                   <IconArrowUpRight className="h-4 w-4" />
                 </a>
@@ -1312,7 +1322,7 @@ export default function AssetPicker() {
               <Button
                 variant="ghost"
                 size="icon"
-                title="Close"
+                title={t("brandKitDetail.close")}
                 onClick={() => bridgeRef.current?.close()}
               >
                 <IconX className="h-4 w-4" />
@@ -1342,14 +1352,14 @@ export default function AssetPicker() {
                   event.preventDefault();
                   if (canGenerate) runGenerate();
                 }}
-                placeholder="Generate an image asset"
+                placeholder={t("assetPicker.generatePlaceholder")}
                 className="min-h-11 max-h-40 border-0 bg-transparent px-3 py-2.5 leading-6 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
               />
               <div className="flex items-center gap-1 px-2 pb-2">
                 <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">
                   <Select value={aspectRatio} onValueChange={setAspectRatio}>
                     <SelectTrigger
-                      aria-label="Aspect ratio"
+                      aria-label={t("brandKitDetail.aspectRatio")}
                       className={`${PICKER_INLINE_SELECT_CLASS} shrink-0`}
                     >
                       <span>{aspectRatio}</span>
@@ -1369,7 +1379,7 @@ export default function AssetPicker() {
                     onValueChange={(value) => setCount(normalizeCount(value))}
                   >
                     <SelectTrigger
-                      aria-label="Candidate count"
+                      aria-label={t("assetPicker.candidateCount")}
                       className={`${PICKER_INLINE_SELECT_CLASS} shrink-0`}
                     >
                       <span>{count}x</span>
@@ -1390,14 +1400,16 @@ export default function AssetPicker() {
                       onValueChange={(value) => setPresetId(value)}
                     >
                       <SelectTrigger
-                        aria-label="Preset"
+                        aria-label={t("brandKitDetail.preset")}
                         className={`${PICKER_INLINE_SELECT_CLASS} max-w-[7.5rem] sm:max-w-[10rem]`}
                       >
-                        <SelectValue placeholder="Preset" />
+                        <SelectValue placeholder={t("brandKitDetail.preset")} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectGroup>
-                          <SelectItem value="none">No preset</SelectItem>
+                          <SelectItem value="none">
+                            {t("brandKitDetail.noPreset")}
+                          </SelectItem>
                           {generationPresets.map((preset) => (
                             <SelectItem key={preset.id} value={preset.id}>
                               {preset.title}
@@ -1438,7 +1450,7 @@ export default function AssetPicker() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Settings
+                  {t("navigation.settings")}
                 </a>
               </Button>
             </div>
@@ -1448,8 +1460,8 @@ export default function AssetPicker() {
             <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
               <span className="min-w-0 truncate">
                 {preparingGenerationLibrary
-                  ? "Preparing an image library for generated candidates..."
-                  : "Create an image library to generate new candidates."}
+                  ? t("assetPicker.preparingGeneratedLibrary")
+                  : t("assetPicker.createLibraryForCandidates")}
               </span>
               <Button
                 variant="outline"
@@ -1458,7 +1470,9 @@ export default function AssetPicker() {
                 onClick={prepareGenerationLibrary}
                 disabled={preparingGenerationLibrary}
               >
-                {preparingGenerationLibrary ? "Preparing..." : "Create library"}
+                {preparingGenerationLibrary
+                  ? t("assetPicker.preparing")
+                  : t("assetPicker.createLibrary")}
               </Button>
             </div>
           )}
@@ -1490,7 +1504,9 @@ export default function AssetPicker() {
                 ) : (
                   <IconClipboard className="h-3.5 w-3.5" />
                 )}
-                {standaloneCopyOk ? "Copied" : "Copy"}
+                {standaloneCopyOk
+                  ? t("assetPicker.copied")
+                  : t("assetPicker.copy")}
               </Button>
               {canOpenStandaloneAsset && (
                 <Button
@@ -1505,15 +1521,15 @@ export default function AssetPicker() {
                     )}`}
                   >
                     <IconArrowUpRight className="h-3.5 w-3.5" />
-                    Open
+                    {t("brandKitDetail.open")}
                   </Link>
                 </Button>
               )}
               <Button
                 variant="ghost"
                 size="icon"
-                title="Close"
-                aria-label="Close"
+                title={t("brandKitDetail.close")}
+                aria-label={t("brandKitDetail.close")}
                 className="h-8 w-8"
                 onClick={() => {
                   setStandaloneSelection(null);
@@ -1526,13 +1542,12 @@ export default function AssetPicker() {
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             {standaloneCopyOk
-              ? "Copied to your clipboard — paste it into your agent chat to use it"
-              : "Copy the text below and paste it into your agent chat"}
-            , or just tell your agent which one (e.g. “use this”).
+              ? t("assetPicker.copiedHelp")
+              : t("assetPicker.copyHelp")}
           </p>
           <details className="mt-2">
             <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
-              Show paste text
+              {t("assetPicker.showPasteText")}
             </summary>
             <Textarea
               readOnly
@@ -1553,7 +1568,7 @@ export default function AssetPicker() {
                 onValueChange={setSelectedLibraryId}
               >
                 <SelectTrigger className="h-9 w-full border-border/70 bg-background sm:w-48">
-                  <SelectValue placeholder="Library" />
+                  <SelectValue placeholder={t("navigation.library")} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
@@ -1571,9 +1586,15 @@ export default function AssetPicker() {
                   onValueChange={(value) => setAssetTab(value as AssetTab)}
                 >
                   <TabsList>
-                    <TabsTrigger value="all">All</TabsTrigger>
-                    <TabsTrigger value="generated">Generated</TabsTrigger>
-                    <TabsTrigger value="references">References</TabsTrigger>
+                    <TabsTrigger value="all">
+                      {t("brandKitDetail.all")}
+                    </TabsTrigger>
+                    <TabsTrigger value="generated">
+                      {t("brandKitDetail.generated")}
+                    </TabsTrigger>
+                    <TabsTrigger value="references">
+                      {t("brandKitDetail.references")}
+                    </TabsTrigger>
                   </TabsList>
                 </Tabs>
               )}
@@ -1584,7 +1605,9 @@ export default function AssetPicker() {
                 value={query}
                 onInput={(event) => setQuery(event.currentTarget.value)}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder={`Search ${mediaLabel}s`}
+                placeholder={t("assetPicker.searchMedia", {
+                  media: mediaLabelText,
+                })}
                 className="h-9 border-border/70 bg-background sm:max-w-xs"
               />
             )}
@@ -1594,7 +1617,7 @@ export default function AssetPicker() {
         {!selectedLibraryId && (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             <Button asChild variant="outline">
-              <Link to="/brand-kits">Create a brand kit</Link>
+              <Link to="/brand-kits">{t("brandKits.createDialogTitle")}</Link>
             </Button>
           </div>
         )}
@@ -1611,8 +1634,10 @@ export default function AssetPicker() {
           <div className="flex h-full items-center justify-center text-center">
             <div className="max-w-sm text-sm text-muted-foreground">
               {query
-                ? `No matching ${mediaLabel} assets in this library.`
-                : `No ${mediaLabel} assets in this library yet.`}
+                ? t("assetPicker.noMatchingAssets", {
+                    media: mediaLabelText,
+                  })
+                : t("assetPicker.noAssetsYet", { media: mediaLabelText })}
             </div>
           </div>
         )}
@@ -1626,7 +1651,9 @@ export default function AssetPicker() {
               >
                 <button
                   type="button"
-                  aria-label={`Open ${assetDisplayTitle(asset)}`}
+                  aria-label={t("assetPicker.openAsset", {
+                    title: assetDisplayTitle(asset),
+                  })}
                   onClick={() => {
                     if (embedded) {
                       chooseAsset(asset);
@@ -1657,7 +1684,9 @@ export default function AssetPicker() {
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        aria-label={`Copy ${assetDisplayTitle(asset)}`}
+                        aria-label={t("assetPicker.copyAsset", {
+                          title: assetDisplayTitle(asset),
+                        })}
                         onClick={(event) => {
                           event.stopPropagation();
                           chooseAsset(asset);
@@ -1667,7 +1696,9 @@ export default function AssetPicker() {
                         <IconClipboard className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Copy to clipboard</TooltipContent>
+                    <TooltipContent>
+                      {t("assetPicker.copyToClipboard")}
+                    </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>
@@ -1709,7 +1740,9 @@ export default function AssetPicker() {
                   {assetDisplayTitle(previewAsset)}
                 </DialogTitle>
                 <DialogDescription className="sr-only">
-                  Full-size preview of {assetDisplayTitle(previewAsset)}
+                  {t("assetPicker.fullSizePreview", {
+                    title: assetDisplayTitle(previewAsset),
+                  })}
                 </DialogDescription>
                 <div className="relative">
                   <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
@@ -1717,11 +1750,11 @@ export default function AssetPicker() {
                       <Link
                         to={`/asset/${encodeURIComponent(previewAsset.id)}`}
                       >
-                        View details
+                        {t("brandKitDetail.viewDetails")}
                       </Link>
                     </Button>
                     <DialogClose
-                      aria-label="Close preview"
+                      aria-label={t("assetPicker.closePreview")}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                     >
                       <IconX className="h-5 w-5" />
@@ -1749,7 +1782,7 @@ export default function AssetPicker() {
                   <div className="mt-5 flex justify-center gap-2">
                     <button
                       type="button"
-                      aria-label="Previous image"
+                      aria-label={t("assetPicker.previousImage")}
                       onClick={showPreviousAsset}
                       disabled={!hasPrev}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
@@ -1758,7 +1791,7 @@ export default function AssetPicker() {
                     </button>
                     <button
                       type="button"
-                      aria-label="Next image"
+                      aria-label={t("assetPicker.nextImage")}
                       onClick={showNextAsset}
                       disabled={!hasNext}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconMouse,
   IconPlus,
@@ -79,6 +80,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
   compositionHeight = 1080,
   compositionId,
 }) => {
+  const t = useT();
   const [localState, setLocalState] = useState<CursorState>(DEFAULT_CURSOR);
   const [isOnKeyframe, setIsOnKeyframe] = useState(false);
 
@@ -384,10 +386,10 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
         <IconMouse className="h-8 w-8 mx-auto opacity-50 text-sky-400" />
         <div className="space-y-1">
           <p className="text-xs font-medium text-foreground/80">
-            Add animated cursor
+            {t("raw.cursor.addAnimated")}
           </p>
           <p className="text-[10px] text-muted-foreground leading-relaxed">
-            Animate a cursor overlay for tutorials, demos, and screen recordings
+            {t("raw.cursor.addAnimatedDescription")}
           </p>
         </div>
         <Button
@@ -396,7 +398,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
           className="w-full bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30"
         >
           <IconPlus className="h-3 w-3 mr-1" />
-          Cursor Animation
+          {t("raw.cursor.animation")}
         </Button>
       </div>
     );
@@ -424,20 +426,28 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
                 ? "bg-sky-500/20 text-sky-400 border-sky-500/30"
                 : ""
             }`}
-            aria-label={isClickingAtFrame() ? "Click ON" : "Add Click"}
+            aria-label={
+              isClickingAtFrame()
+                ? t("raw.cursor.clickOn")
+                : t("raw.cursor.addClick")
+            }
           >
             <IconClick className="h-3 w-3" />
-            Play click
+            {t("raw.cursor.playClick")}
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          {isClickingAtFrame() ? "Click ON" : "Add Click"}
+          {isClickingAtFrame()
+            ? t("raw.cursor.clickOn")
+            : t("raw.cursor.addClick")}
         </TooltipContent>
       </Tooltip>
 
       {/* Position Controls */}
       <div className="space-y-2">
-        <Label className="text-xs text-muted-foreground">Position</Label>
+        <Label className="text-xs text-muted-foreground">
+          {t("raw.cursor.position")}
+        </Label>
         <div className="grid grid-cols-2 gap-2">
           <div>
             <Label className="text-[10px] text-muted-foreground">X (px)</Label>
@@ -475,7 +485,9 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
       {/* Cursor Type - Only show when no cursor interactions */}
       {!hasCursorInteractions && (
         <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Cursor Type</Label>
+          <Label className="text-xs text-muted-foreground">
+            {t("raw.cursor.type")}
+          </Label>
           <div className="grid grid-cols-3 gap-2">
             {/* Default Arrow */}
             <Tooltip>
@@ -501,7 +513,9 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
                   </div>
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Arrow (Default)</TooltipContent>
+              <TooltipContent>
+                {t("editor.currentElement.arrowDefault")}
+              </TooltipContent>
             </Tooltip>
 
             {/* Pointer Hand */}
@@ -528,7 +542,9 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
                   </div>
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Pointer (Hand)</TooltipContent>
+              <TooltipContent>
+                {t("editor.currentElement.pointerHand")}
+              </TooltipContent>
             </Tooltip>
 
             {/* Text I-Beam */}
@@ -555,7 +571,9 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
                   </div>
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Text (I-beam)</TooltipContent>
+              <TooltipContent>
+                {t("editor.currentElement.textIBeam")}
+              </TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -566,11 +584,10 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
             <IconAlertCircle className="w-3 h-3 text-blue-400 flex-shrink-0" />
             <div className="flex-1">
               <p className="text-[10px] text-blue-200/90 font-medium">
-                Interactive Composition
+                {t("raw.cursor.interactiveComposition")}
               </p>
               <p className="text-[9px] text-blue-200/70 mt-0.5">
-                Cursor type should be "default" - it will auto-change to
-                "pointer" when hovering over interactive elements
+                {t("raw.cursor.defaultPointerHelp")}
               </p>
             </div>
           </div>
@@ -579,7 +596,9 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
       {/* Visibility & Scale */}
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Visibility</Label>
+          <Label className="text-xs text-muted-foreground">
+            {t("raw.cursor.visibility")}
+          </Label>
           <Button
             variant="outline"
             size="sm"
@@ -593,12 +612,12 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
             {localState.opacity > 0 ? (
               <>
                 <IconEye className="h-3 w-3 mr-1" />
-                Visible
+                {t("raw.cursor.visible")}
               </>
             ) : (
               <>
                 <IconEyeOff className="h-3 w-3 mr-1" />
-                Hidden
+                {t("raw.cursor.hidden")}
               </>
             )}
           </Button>
@@ -638,7 +657,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
         onDuplicate={handleDuplicateKeyframe}
         onReset={resetAll}
         onRemove={removeKeyframe}
-        resetTooltip="Reset all keyframes"
+        resetTooltip={t("raw.keyframes.resetDefaults")}
       />
     </div>
   );

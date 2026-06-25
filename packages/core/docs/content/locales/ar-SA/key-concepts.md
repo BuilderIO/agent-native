@@ -13,7 +13,7 @@ description: "كيفية عمل تطبيقات الوكيل الأصلية: acti
 
 > **Agent** — الذكاء الاصطناعي المستقل الذي يقرأ البيانات، ويكتب البيانات، ويشغل actions، ويعدل التعليمات البرمجية. قابلة للتخصيص باستخدام skills والتعليمات.
 >
-> **التطبيق** — سطح المنتج حول العامل. قد يكون هذا الإجراء فقط في البداية، أو دردشة غنية، أو مستوى تحكم صغير، أو React UI كامل مع لوحات المعلومات، وعمليات التدفق، والمرئيات.
+> **التطبيق** — سطح المنتج حول العامل. قد يكون هذا الإجراء فقط في البداية، أو دردشة غنية، أو مستوى تحكم صغير، أو واجهة React كامل مع لوحات المعلومات، وعمليات التدفق، والمرئيات.
 >
 > **الكمبيوتر** — قاعدة البيانات، المتصفح، تنفيذ التعليمات البرمجية. يعمل الوكلاء مباشرةً باستخدام SQL والأدوات المضمنة؛ خوادم MCP هي إضافات اختيارية وليست أساسية.
 
@@ -86,22 +86,22 @@ description: "كيفية عمل تطبيقات الوكيل الأصلية: acti
 - `oauth_tokens` — بيانات اعتماد OAuth
 - `sessions` — جلسات المصادقة
 
-```an-schema title="Core SQL stores" summary="Auto-created in every template — the agent and UI both read and write these."
+```an-schema title="متاجر SQL الأساسية" summary="يتم إنشاؤه تلقائيًا في كل قالب — يقوم كل من الوكيل وUI بقراءة هذه العناصر وكتابتها."
 {
   "entities": [
-    { "id": "application_state", "name": "application_state", "note": "Ephemeral UI state the agent reads for context", "fields": [
-      { "name": "key", "type": "text", "pk": true, "note": "e.g. 'navigation'" },
-      { "name": "value", "type": "json", "note": "view, selection, drafts" }
+    { "id": "application_state", "name": "application_state", "note": "الحالة المؤقتة UI التي يقرأها الوكيل للسياق", "fields": [
+      { "name": "key", "type": "text", "pk": true, "note": "على سبيل المثال. 'navigation'" },
+      { "name": "value", "type": "json", "note": "عرض، اختيار، مسودات" }
     ] },
-    { "id": "settings", "name": "settings", "note": "Persistent key-value config", "fields": [
+    { "id": "settings", "name": "settings", "note": "تكوين قيمة المفتاح المستمر", "fields": [
       { "name": "key", "type": "text", "pk": true },
       { "name": "value", "type": "json" }
     ] },
-    { "id": "oauth_tokens", "name": "oauth_tokens", "note": "OAuth credentials", "fields": [
+    { "id": "oauth_tokens", "name": "oauth_tokens", "note": "OAuth بيانات الاعتماد", "fields": [
       { "name": "provider", "type": "text", "pk": true },
       { "name": "token", "type": "text" }
     ] },
-    { "id": "sessions", "name": "sessions", "note": "Auth sessions", "fields": [
+    { "id": "sessions", "name": "sessions", "note": "جلسات المصادقة", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "userId", "type": "text" }
     ] }
@@ -123,11 +123,11 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# Core actions for quick database inspection and one-off maintenance
+# الإجراءات الأساسية للفحص السريع لقاعدة البيانات والصيانة لمرة واحدة
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
 pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
-# Surgical find/replace on a large text column — sends a diff, not the whole value
+# يُرسل find/replace الجراحي في عمود نصي كبير فرقًا وليس القيمة بأكملها
 pnpm action db-patch --table documents --column content \
   --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
@@ -213,7 +213,7 @@ useDbSync({ queryClient });
 
 ```an-diagram title="تدفق المزامنة الحية" summary="تصبح كتابة الوكيل عرضًا لواجهة المستخدم بدون تحديث يدوي - SSE أولاً، ويتم الاستقصاء كإجراء احتياطي عالمي."
 {
-  "html": "<div class=\"diagram-sync\"><div class=\"diagram-node\">Agent action<br><small class=\"diagram-muted\">writes to DB</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Change event<br><small class=\"diagram-muted\">source: action / settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">useDbSync</span><small class=\"diagram-muted\">SSE &middot; poll fallback</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Query refetch<br><small class=\"diagram-muted\">render, no reload</small></div></div>",
+  "html": "<div class=\"diagram-sync\"><div class=\"diagram-node\">إجراء الوكيل<br><small class=\"diagram-muted\">يكتب في قاعدة البيانات</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">حدث تغيير<br><small class=\"diagram-muted\">source: action / settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">useDbSync</span><small class=\"diagram-muted\">SSE &middot; poll fallback</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">إعادة جلب الاستعلام<br><small class=\"diagram-muted\">عرض دون إعادة تحميل</small></div></div>",
   "css": ".diagram-sync{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}.diagram-sync .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 14px}"
 }
 ```
@@ -285,10 +285,10 @@ A _frame_ هي البيئة التي تستضيف الوكيل بجوار تطب
 
 يعد اعتماد إطار العمل أمرًا ذا قيمة في الغالب بسبب ما لم تعد بحاجة إلى بنائه. في اللحظة التي يتبع فيها تطبيقك القواعد الستة، ترث:
 
-- **إجراء واحد = كل سطح.** كل إجراء محدد باستخدام `defineAction()` هو في الوقت نفسه أداة وكيل، وخطاف أمامي آمن للكتابة (`useActionQuery` / `useActionMutation`)، ووسيلة نقل HTTP مملوكة لإطار العمل، وأمر CLI، وأداة MCP للعملاء الخارجيين، وأداة A2A لتطبيقات الوكيل الأصلية الأخرى. تضيف البيانات التعريفية الاختيارية `link` و`mcpApp` روابط عميقة وتطبيقات MCP UI بدون تنفيذ ثانٍ.
+- **إجراء واحد = كل سطح.** كل إجراء محدد باستخدام `defineAction()` هو في الوقت نفسه أداة وكيل, وخطاف أمامي آمن للكتابة (`useActionQuery` / `useActionMutation`)، ووسيلة نقل HTTP مملوكة لإطار العمل، وأمر CLI، وأداة MCP للعملاء الخارجيين، وأداة A2A لتطبيقات الوكيل الأصلية الأخرى. تضيف البيانات التعريفية الاختيارية `link` و`mcpApp` روابط عميقة وتطبيقات MCP UI بدون تنفيذ ثانٍ.
 - **مساحة عمل كاملة لكل مستخدم.** Skills، `LEARNINGS.md` المشتركة، `memory/MEMORY.md` الشخصية، `AGENTS.md`، الوكلاء الفرعيون المخصصون، المهام المجدولة، خوادم MCP المتصلة - جميعها مدعومة بـ SQL، لا يلزم وجود صندوق تطوير. انظر [Workspace](/docs/workspace).
 - **مكونات React التي يمكن إضافتها.** يعرض `<AgentPanel />` و`<AgentSidebar />` الدردشة + مساحة العمل في أي مكان في تطبيقك. انظر [Drop-in Agent](/docs/drop-in-agent).
-- ** أوقات تشغيل دردشة وكيل BYO.** يمكن أن توجد نفس الدردشة UI أعلى وكلاء OpenAI، أو ردود OpenAI، أو Claude Agent SDK، أو Vercel AI SDK، أو AG-UI، أو دفق HTTP الخاص بك. انظر [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes).
+- ** أوقات تشغيل دردشة وكيل BYO.** يمكن أن توجد نفس الدردشة UI أعلى وكلاء OpenAI، أو ردود OpenAI، أو Claude Agent SDK، أو Vercel AI SDK، أو AG-UI، أو دفق HTTP الخاص بك. انظر [Native واجهة الدردشة](/docs/native-chat-ui#byo-agent-runtimes).
 - **مزامنة مباشرة بين الوكيل وUI.** نفس العملية تكتب الدفق مباشرة عبر `/_agent-native/events`؛ يحافظ الاستقصاء خفيف الوزن على تقارب عمليات الكتابة بدون خادم، وكرون، والعمليات المشتركة. يؤدي تغيير actions إلى إبطال الاستعلامات المدعومة بالإجراء تلقائيًا، بحيث تظهر السجلات التي أنشأها الوكيل دون تحديث يدوي. انظر [Live Sync](#polling-sync) أدناه.
 - **Auth, orgs, RBAC.** يتم توصيل مصادقة أفضل مع المؤسسات/الأعضاء/الأدوار لكل قالب. انظر [Authentication](/docs/authentication).
 - **الوعي بالسياق.** يعرف الوكيل دائمًا ما يبحث عنه المستخدم من خلال مفتاح حالة التطبيق `navigation`. انظر [Context Awareness](/docs/context-awareness).
@@ -306,7 +306,7 @@ A _frame_ هي البيئة التي تستضيف الوكيل بجوار تطب
 - [What Is Agent-Native?](/docs/what-is-agent-native) — الرؤية والفلسفة
 - [Context Awareness](/docs/context-awareness) — حالة التنقل، شاشة العرض، أوامر التنقل
 - [Skills Guide](/docs/skills-guide) — إطار العمل skills، المجال skills، إنشاء skills مخصص
-- [Native Chat UI](/docs/native-chat-ui) — الجداول والرسوم البيانية التي تم الإعلان عنها، وموقف وقت التشغيل BYO
+- [Native واجهة الدردشة](/docs/native-chat-ui) — الجداول والرسوم البيانية التي تم الإعلان عنها، وموقف وقت التشغيل BYO
 - [Agent Surfaces](/docs/agent-surfaces) - دردشة غنية بدون رأس، وعربة جانبية مضمنة، ومسارات التطبيق الكامل
 - [A2A Protocol](/docs/a2a-protocol) — الاتصال من وكيل إلى وكيل
 - [Multi-App Workspace](/docs/multi-app-workspace) — استضافة العديد من التطبيقات في جهاز monorepo واحد مع مصادقة مشتركة وskills والمكونات وبيانات الاعتماد

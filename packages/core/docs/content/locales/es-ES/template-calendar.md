@@ -10,7 +10,7 @@ Una aplicación de calendario impulsada por agentes. Conecte su Google Calendar 
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>May 3-9, 2026</strong><div style='flex:1'></div><button class='primary'>New Event</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>Sun 3</strong><strong>Mon 4</strong><strong>Tue 5</strong><strong>Wed 6</strong><strong>Thu 7</strong><strong>Fri 8</strong><strong>Sat 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>All-hands</div><div class='wf-box'>Eng standup</div><div class='wf-box'>Eng standup</div><div class='wf-box'>Eng standup</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>Design review</div><div></div><div class='wf-box'>Design crit</div><div class='wf-box'>Roadmap</div><div class='wf-box'>Friday demo</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>Focus block</div><div></div><div></div><div class='wf-box'>All-hands</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>Skip-level</div><div></div><div></div><div></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>3-9 de mayo de 2026</strong><div style='flex:1'></div><button class='primary'>Nuevo evento</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>dom. 3</strong><strong>lun. 4</strong><strong>mar. 5</strong><strong>mié. 6</strong><strong>jue. 7</strong><strong>vie. 8</strong><strong>sáb. 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>Reunión general</div><div class='wf-box'>Daily de ingeniería</div><div class='wf-box'>Daily de ingeniería</div><div class='wf-box'>Daily de ingeniería</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>Revisión de diseño</div><div></div><div class='wf-box'>Crítica de diseño</div><div class='wf-box'>Roadmap</div><div class='wf-box'>Demo del viernes</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>Bloque de concentración</div><div></div><div></div><div class='wf-box'>Reunión general</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>Reunión skip-level</div><div></div><div></div><div></div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ Cuando abres la aplicación, la vista del calendario activo es la superficie pri
 
 ```an-diagram title="Cómo fluye una solicitud de programación" summary="Ya sea que haga clic en el calendario o le pregunte al agente, las mismas acciones se leen en vivo desde Google Calendar y se escriben nuevamente en la misma vista."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">You click<br><small class=\"diagram-muted\">drag, toolbar, shortcuts</small></div><div class=\"diagram-node\">Le pides al agente<br><small class=\"diagram-muted\">\"find a 1-hour slot next week\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-events · check-availability · create-event</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Google Calendar<br><small class=\"diagram-muted\">live, multi-account</small></div><div class=\"diagram-box\">SQL<br><small class=\"diagram-muted\">bookings · availability</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">Calendar view updates live</div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Tú haces clic<br><small class=\"diagram-muted\">arrastrar, barra de herramientas, atajos</small></div><div class=\"diagram-node\">Le pides al agente<br><small class=\"diagram-muted\">\"find a 1-hour slot next week\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-events · check-availability · create-event</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Google Calendar<br><small class=\"diagram-muted\">en vivo, varias cuentas</small></div><div class=\"diagram-box\">SQL<br><small class=\"diagram-muted\">reservas · disponibilidad</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">La vista del calendario se actualiza en vivo</div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -111,7 +111,7 @@ Definido en `templates/calendar/server/db/schema.ts`. Sólo los datos que no son
 - `booking_slug_redirects`: recuerda viejos slugs cuando se cambia el nombre de un enlace para que los URL públicos existentes sigan funcionando.
 - `booking_link_shares`: comparte subvenciones para enlaces de reserva.
 
-```an-schema title="Calendar data model" summary="Only non-event data is stored locally — events live in Google Calendar. Booking links use ownableColumns so the sharing system applies."
+```an-schema title="Modelo de datos de Calendar" summary="Solo los datos que no son eventos se almacenan localmente: los eventos viven en Google Calendar. Los enlaces de reserva utilizan ownableColumns, por lo que se aplica el sistema para compartir."
 {
   "entities": [
     {
@@ -126,7 +126,7 @@ Definido en `templates/calendar/server/db/schema.ts`. Sólo los datos que no son
         { "name": "duration", "type": "int", "note": "primary duration in minutes" },
         { "name": "durations", "type": "json", "nullable": true, "note": "alternative durations" },
         { "name": "customFields", "type": "json", "nullable": true },
-        { "name": "conferencing", "type": "string", "note": "Google Meet / Zoom / custom" },
+        { "name": "conferencing", "type": "string", "note": "Google Meet / Zoom / personalizado" },
         { "name": "color", "type": "string", "nullable": true },
         { "name": "isActive", "type": "bool", "note": "pause without deleting" }
       ]
@@ -134,7 +134,7 @@ Definido en `templates/calendar/server/db/schema.ts`. Sólo los datos que no son
     {
       "id": "bookings",
       "name": "bookings",
-      "note": "Confirmed appointments from public booking pages",
+      "note": "Citas confirmadas desde páginas de reserva públicas",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "slug", "type": "string", "fk": "booking_links.slug" },
@@ -146,13 +146,13 @@ Definido en `templates/calendar/server/db/schema.ts`. Sólo los datos que no son
         { "name": "customFields", "type": "json", "nullable": true, "note": "custom field responses" },
         { "name": "meetingLink", "type": "string", "nullable": true },
         { "name": "cancelToken", "type": "string", "note": "powers /booking/manage/{token}" },
-        { "name": "status", "type": "enum", "note": "confirmed | cancelled" }
+        { "name": "status", "type": "enum", "note": "confirmado | cancelado" }
       ]
     },
     {
       "id": "booking_slug_redirects",
       "name": "booking_slug_redirects",
-      "note": "Keeps old public URLs working after a link is renamed",
+      "note": "Mantiene funcionando el antiguo URLs público después de cambiar el nombre de un enlace.",
       "fields": [
         { "name": "oldSlug", "type": "string", "pk": true },
         { "name": "linkId", "type": "id", "fk": "booking_links.id" }
@@ -161,12 +161,12 @@ Definido en `templates/calendar/server/db/schema.ts`. Sólo los datos que no son
     {
       "id": "booking_link_shares",
       "name": "booking_link_shares",
-      "note": "Share grants for booking links",
+      "note": "Compartir subvenciones para reservar enlaces",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "linkId", "type": "id", "fk": "booking_links.id" },
         { "name": "principal", "type": "string", "note": "user or org" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+        { "name": "role", "type": "enum", "note": "visor | redactor | administración" }
       ]
     }
   ],
