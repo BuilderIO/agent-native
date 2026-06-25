@@ -1,4 +1,4 @@
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { nfmToDoc, type PMNode } from "../shared/nfm.js";
@@ -24,11 +24,12 @@ export async function getDatabaseOwnership(
     .where(eq(schema.contentDatabases.id, databaseId));
   if (!database) return null;
 
-  const [backingDocument] = await db
-    .select()
-    .from(schema.documents)
-    .where(eq(schema.documents.id, database.documentId));
-  if (!backingDocument) return null;
+  const backingDocumentAccess = await resolveAccess(
+    "document",
+    database.documentId,
+  );
+  if (!backingDocumentAccess) return null;
+  const backingDocument = backingDocumentAccess.resource as DocumentRow;
 
   return {
     database,
