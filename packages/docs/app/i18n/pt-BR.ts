@@ -116,7 +116,6 @@ const ptBR = {
     templates: {
       title: "Faça fork e personalize uma app completa",
       eyebrow: "100% grátis e open source",
-      body: "Quando um action precisa de telas, comece por uma app validada que você pode personalizar. Chat é o scaffold mínimo de app; templates de domínio adicionam workflows de produto, dados de exemplo e actions prontas para agent.",
       cta: "Ver todos os templates",
     },
     skills: {

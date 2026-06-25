@@ -117,7 +117,6 @@ const koKR = {
     templates: {
       title: "완전한 기능의 app 을 fork 하고 맞춤화",
       eyebrow: "100% 무료 오픈소스",
-      body: "action 에 화면이 필요할 때는 맞춤화할 수 있는 검증된 app 에서 시작하세요. Chat 은 최소 app scaffold 이고, 도메인 템플릿은 제품 workflows, 예제 데이터, agent-ready actions 를 더합니다.",
       cta: "모든 템플릿 보기",
     },
     skills: {

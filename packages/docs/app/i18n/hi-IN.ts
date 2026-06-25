@@ -117,7 +117,6 @@ const hiIN = {
     templates: {
       title: "पूरी तरह featured app को fork और customize करें",
       eyebrow: "100% मुफ्त और ओपन सोर्स",
-      body: "जब किसी action को screens चाहिए हों, तो ऐसी vetted app से शुरू करें जिसे आप customize कर सकें। Chat सबसे छोटा app scaffold है; domain templates product workflows, example data और agent-ready actions जोड़ते हैं।",
       cta: "सभी templates देखें",
     },
     skills: {

@@ -117,7 +117,6 @@ const frFR = {
     templates: {
       title: "Forkez et personnalisez une app complète",
       eyebrow: "100 % gratuit et open source",
-      body: "Quand un action a besoin d'écrans, partez d'une app validée que vous pouvez personnaliser. Chat est le scaffold d'app minimal ; les modèles de domaine ajoutent des workflows produit, des données d'exemple et des actions prêtes pour agent.",
       cta: "Voir tous les modèles",
     },
     skills: {

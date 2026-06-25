@@ -374,6 +374,18 @@ export function shouldShowAgentPanelChatTabBar(
   return mainTabs.length > 1 || hasSubTabs;
 }
 
+export function shouldShowAgentPanelPageNewChatButton(
+  tabs: MultiTabAssistantChatHeaderProps["tabs"],
+  activeTabId: string,
+  activeTabMessageCount: number,
+) {
+  const activeTab = tabs.find((tab) => tab.id === activeTabId);
+  return (
+    Boolean(activeTabId) &&
+    (activeTabMessageCount > 0 || activeTab?.status === "running")
+  );
+}
+
 export function shouldShowAgentPanelCliTabBar(cliTabs: string[]) {
   return cliTabs.length > 1;
 }
@@ -532,6 +544,8 @@ export interface AgentPanelProps extends Omit<
   chatNotice?: React.ReactNode;
   /** Show the chat thread tab row when the panel header is hidden. Default: true. */
   showTabBar?: boolean;
+  /** Show a compact New chat action in page chat when the main header is hidden. */
+  showPageNewChatButton?: boolean;
   /** Capability gate for source edits and CLI access. */
   codeAccess?: AgentPanelCodeAccess;
 }
@@ -649,6 +663,7 @@ function AgentPanelInner({
   threadUrlSync,
   chatNotice,
   showTabBar = true,
+  showPageNewChatButton = false,
   codeAccess,
   ...assistantChatProps
 }: AgentPanelProps) {
@@ -1246,6 +1261,43 @@ function AgentPanelInner({
     ],
   );
 
+  const renderPageChatOverlay = useCallback(
+    ({
+      activeTabId,
+      activeTabMessageCount,
+      addTab,
+      tabs,
+    }: MultiTabAssistantChatHeaderProps) => {
+      if (
+        !shouldShowAgentPanelPageNewChatButton(
+          tabs,
+          activeTabId,
+          activeTabMessageCount,
+        )
+      ) {
+        return null;
+      }
+
+      return (
+        <div className="pointer-events-none absolute inset-x-0 top-3 z-[60] flex justify-end px-3 sm:top-4 sm:px-4">
+          <button
+            type="button"
+            data-agent-page-new-chat=""
+            aria-label={t("agentPanel.newChat")}
+            onClick={() => {
+              addTab();
+            }}
+            className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background/95 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <IconPlus size={14} />
+            <span>{t("agentPanel.newChat")}</span>
+          </button>
+        </div>
+      );
+    },
+    [t],
+  );
+
   // Ref callback: scroll the active tab into view in the overflow container.
   // Uses getBoundingClientRect for reliable positioning regardless of offsetParent.
   const activeTabRefCb = useCallback((el: HTMLDivElement | null) => {
@@ -1591,7 +1643,11 @@ function AgentPanelInner({
               showHeader={false}
               renderHeader={showHeader ? renderChatHeader : undefined}
               showTabBar={showTabBar}
-              renderOverlay={undefined}
+              renderOverlay={
+                showPageNewChatButton && !showHeader
+                  ? renderPageChatOverlay
+                  : undefined
+              }
               contentHidden={mode !== "chat"}
               emptyStateText={emptyStateText}
               emptyStateAddon={emptyStateAddon}
@@ -2181,6 +2237,13 @@ export interface AgentChatSurfaceProps extends AgentPanelProps {
   chatViewTransition?: boolean;
 }
 
+export function shouldDefaultAgentChatSurfacePageNewChatButton(
+  mode: AgentChatSurfaceMode | undefined,
+  showTabBar: boolean | undefined,
+): boolean {
+  return mode === "page" && showTabBar !== false;
+}
+
 /**
  * Reusable chat surface backed by AgentPanel internals.
  *
@@ -2195,15 +2258,21 @@ export function AgentChatSurface({
   isFullscreen,
   style,
   chatViewTransition = false,
+  showPageNewChatButton,
   ...props
 }: AgentChatSurfaceProps) {
   const pageMode = mode === "page";
+  const defaultShowPageNewChatButton =
+    shouldDefaultAgentChatSurfacePageNewChatButton(mode, props.showTabBar);
 
   return (
     <AgentPanel
       {...props}
       defaultMode={defaultMode}
       isFullscreen={isFullscreen ?? pageMode}
+      showPageNewChatButton={
+        showPageNewChatButton ?? defaultShowPageNewChatButton
+      }
       className={cn(
         pageMode && "h-full min-h-0 w-full overflow-hidden bg-background",
         chatViewTransition && AGENT_CHAT_VIEW_TRANSITION_CLASS,

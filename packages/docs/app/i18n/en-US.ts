@@ -126,7 +126,6 @@ const enUS = {
     templates: {
       title: "Fork and customize a fully-featured app",
       eyebrow: "100% free and open source",
-      body: "When an action needs screens, start from a vetted app you can customize. Chat is the minimal app scaffold; domain templates add product workflows, example data, and agent-ready actions.",
       cta: "View all templates",
     },
     skills: {

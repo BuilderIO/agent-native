@@ -93,6 +93,12 @@ describe("template routes", () => {
     expect(ogImageTitle(localizedIndex)).toBe("开始使用");
     expect(ogImageAccentText(localizedIndex)).toBe("Agent-Native Docs");
 
+    const arabicIndexDoc = await loadDoc("getting-started", "ar-SA");
+    expect(arabicIndexDoc?.title).toBe("الخطوات الأولى");
+    const arabicIndex = docsIndexMeta({ data: arabicIndexDoc });
+    expect(ogImageTitle(arabicIndex)).toBe("الخطوات الأولى");
+    expect(ogImageAccentText(arabicIndex)).toBe("Agent-Native Docs");
+
     const docsPage = docsSlugMeta({
       params: { slug: "workspace-connections" },
     });
