@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { IconX } from "@tabler/icons-react";
+import { useT } from "@agent-native/core/client";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "@shared/api";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { IconLoader2 } from "@tabler/icons-react";
@@ -25,6 +26,7 @@ export default function ImageGenPanel({
   slideContext,
   anchorRef,
 }: ImageGenPanelProps) {
+  const t = useT();
   const [prompt, setPrompt] = useState("");
   const [disabledDefaults, setDisabledDefaults] = useState<Set<number>>(
     new Set(),
@@ -154,7 +156,7 @@ export default function ImageGenPanel({
     >
       <div className="px-4 pt-3 pb-2 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-foreground">
-          Generate Image
+          {t("editorToolbar.generateImage")}
         </h3>
         <button
           onClick={() => onOpenChange(false)}
@@ -216,7 +218,7 @@ export default function ImageGenPanel({
           {generating ? (
             <>
               <IconLoader2 className="w-4 h-4 animate-spin" />
-              Generating...
+              {t("raw.generatingImage")}
             </>
           ) : (
             "Generate"

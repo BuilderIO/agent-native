@@ -25,13 +25,13 @@ description: "ポータブル SQL データベースをエージェント ネイ
 `.env` ファイルまたはデプロイプロバイダー環境で `DATABASE_URL` を設定し、ホストされたデータベースに接続します。 Turso は必要ありません。導入に適した Drizzle 互換の SQL バックエンドを使用してください:
 
 ```bash
-# Neon Postgres
+# Neon の Postgres
 DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/mydb?sslmode=require
 
-# Supabase Postgres
+# Supabase の Postgres
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
-# Plain Postgres
+# 通常の Postgres
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 
 # Turso (libSQL)
@@ -89,7 +89,7 @@ export const tasks = table("tasks", {
 
 上記の `tasks` テーブルは、すべてのバックエンドで同じ列を定義します。
 
-```an-schema title="The tasks table" summary="Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
+```an-schema title="タスクテーブル" summary="Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
 {
   "entities": [
     {
@@ -168,9 +168,9 @@ Drizzle クエリ以外の生の SQL が本当に必要な場合:
   "language": "ts",
   "code": "import { runMigrations } from \"@agent-native/core/db\";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: \"my_app_migrations\" },\n);",
   "annotations": [
-    { "lines": "6-7", "label": "Additive only", "note": "`ADD COLUMN IF NOT EXISTS` is safe to re-run and never drops data. Renames look like drop+create to Drizzle, so add-then-migrate instead." },
-    { "lines": "13-16", "label": "Dialect gating", "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features." },
-    { "lines": "19", "label": "Per-app version table", "note": "Each app tracks its own applied versions so migrations are idempotent across restarts and instances." }
+    { "lines": "6-7", "label": "添加剤のみ", "note": "`ADD COLUMN IF NOT EXISTS` は安全に再実行でき、データがドロップされることはありません。名前の変更は、drop+create から Drizzle に似ているため、代わりに追加してから移行します。" },
+    { "lines": "13-16", "label": "方言ゲート", "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features." },
+    { "lines": "19", "label": "アプリごとのバージョン表", "note": "各アプリは適用された独自のバージョンを追跡するため、移行は再起動とインスタンス間で冪等になります。" }
   ]
 }
 ```

@@ -21,7 +21,7 @@ track(
 
 ```an-diagram title="Ein track()-Aufruf, jeder Anbieter" summary="Server- und Client-Anrufer treffen auf dasselbe Register, wodurch jedes Ereignis parallel an alle aktiven Anbieter weitergeleitet wird."
 {
-  "html": "<div class=\"trk\"><div class=\"diagram-col\"><div class=\"diagram-node\">Server code<br><small class=\"diagram-muted\">actions &middot; plugins &middot; routes</small></div><div class=\"diagram-node\">Browser code<br><small class=\"diagram-muted\">POST /_agent-native/track</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Provider registry</span><small class=\"diagram-muted\">fan-out, fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">PostHog</div><div class=\"diagram-box\">Mixpanel</div><div class=\"diagram-box\">Amplitude</div><div class=\"diagram-box\">Webhook</div></div></div>",
+  "html": "<div class=\"trk\"><div class=\"diagram-col\"><div class=\"diagram-node\">Servercode<br><small class=\"diagram-muted\">actions &middot; plugins &middot; routes</small></div><div class=\"diagram-node\">Browsercode<br><small class=\"diagram-muted\">POST /_agent-native/track</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Provider registry</span><small class=\"diagram-muted\">Fan-out, Fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">PostHog</div><div class=\"diagram-box\">Mixpanel</div><div class=\"diagram-box\">Amplitude</div><div class=\"diagram-box\">Webhook</div></div></div>",
   "css": ".trk{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.trk .diagram-col{display:flex;flex-direction:column;gap:8px}.trk .diagram-arrow{font-size:22px;line-height:1}.trk .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -102,11 +102,11 @@ Track-Aufrufe sind „Fire-and-Forget“ – sie kehren sofort zurück und block
 
 `track()` funktioniert auch über Browser-/App-Code. Importieren Sie den Client-Zwilling aus `@agent-native/core/client` und rufen Sie ihn auf die gleiche Weise auf – er postet das Ereignis an die Framework-Route bei `POST /_agent-native/track`, die es an die **gleichen** registrierten serverseitigen Anbieter (PostHog, Mixpanel, Amplitude, Webhook) weiterleitet. Keine Analysen werden von SDK an den Browser gesendet und auf der Clientseite werden keine Anbieterschlüssel offengelegt.
 
-```an-api title="The client tracking route"
+```an-api title="Die Client-Tracking-Route"
 {
   "method": "POST",
   "path": "/_agent-native/track",
-  "summary": "Forward a browser event to the registered server-side providers",
+  "summary": "Leiten Sie ein Browserereignis an die registrierten serverseitigen Anbieter weiter",
   "auth": "Session required + same-origin/CSRF marker (set automatically by the client helper). Not an open analytics relay.",
   "params": [
     { "name": "name", "in": "body", "type": "string", "required": true, "description": "Event name. Capped at 200 characters." },

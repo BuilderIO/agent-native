@@ -21,7 +21,7 @@ track(
 
 ```an-diagram title="एक ट्रैक() कॉल, प्रत्येक प्रदाता" summary="सर्वर और क्लाइंट कॉलर्स एक ही रजिस्ट्री को हिट करते हैं, जो समानांतर में सभी सक्रिय प्रदाताओं को हर घटना को प्रसारित करता है।"
 {
-  "html": "<div class=\"trk\"><div class=\"diagram-col\"><div class=\"diagram-node\">Server code<br><small class=\"diagram-muted\">actions &middot; plugins &middot; routes</small></div><div class=\"diagram-node\">Browser code<br><small class=\"diagram-muted\">POST /_agent-native/track</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Provider registry</span><small class=\"diagram-muted\">fan-out, fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">PostHog</div><div class=\"diagram-box\">Mixpanel</div><div class=\"diagram-box\">Amplitude</div><div class=\"diagram-box\">Webhook</div></div></div>",
+  "html": "<div class=\"trk\"><div class=\"diagram-col\"><div class=\"diagram-node\">सर्वर कोड<br><small class=\"diagram-muted\">actions &middot; plugins &middot; routes</small></div><div class=\"diagram-node\">ब्राउज़र कोड<br><small class=\"diagram-muted\">POST /_agent-native/track</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Provider registry</span><small class=\"diagram-muted\">fan-out, भेजकर छोड़ें</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">PostHog</div><div class=\"diagram-box\">Mixpanel</div><div class=\"diagram-box\">Amplitude</div><div class=\"diagram-box\">Webhook</div></div></div>",
   "css": ".trk{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.trk .diagram-col{display:flex;flex-direction:column;gap:8px}.trk .diagram-arrow{font-size:22px;line-height:1}.trk .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -102,11 +102,11 @@ export default defineAction({
 
 `track()` ब्राउज़र/ऐप कोड से भी काम करता है। क्लाइंट ट्विन को `@agent-native/core/client` से आयात करें और इसे उसी तरह से कॉल करें - यह ईवेंट को `POST /_agent-native/track` पर फ्रेमवर्क रूट पर पोस्ट करता है, जो इसे **समान** पंजीकृत सर्वर-साइड प्रदाताओं (पोस्टहॉग, मिक्सपैनल, एम्प्लिट्यूड, वेबहुक) को अग्रेषित करता है। कोई भी एनालिटिक्स SDK ब्राउज़र पर नहीं भेजा जाता है और कोई भी प्रदाता कुंजी क्लाइंट-साइड पर प्रदर्शित नहीं होती है।
 
-```an-api title="The client tracking route"
+```an-api title="क्लाइंट ट्रैकिंग रूट"
 {
   "method": "POST",
   "path": "/_agent-native/track",
-  "summary": "Forward a browser event to the registered server-side providers",
+  "summary": "किसी ब्राउज़र ईवेंट को पंजीकृत सर्वर-साइड प्रदाताओं को अग्रेषित करें",
   "auth": "Session required + same-origin/CSRF marker (set automatically by the client helper). Not an open analytics relay.",
   "params": [
     { "name": "name", "in": "body", "type": "string", "required": true, "description": "Event name. Capped at 200 characters." },

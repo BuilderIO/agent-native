@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { appBasePath, PromptComposer } from "@agent-native/core/client";
+import { appBasePath, PromptComposer, useT } from "@agent-native/core/client";
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
 import { toast } from "@/hooks/use-toast";
 
@@ -49,6 +49,7 @@ export default function PromptPopover({
   onBeforeUpload,
   children,
 }: PromptPopoverProps) {
+  const t = useT();
   const [uploading, setUploading] = useState(false);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
@@ -149,16 +150,16 @@ export default function PromptPopover({
         onSubmit(enrichedText, uploaded);
       } catch (error) {
         toast({
-          title: "Upload failed",
+          title: t("raw.uploadFailed"),
           description:
             error instanceof Error
               ? error.message
-              : "Could not upload the attached file.",
+              : t("raw.uploadAttachedFailed"),
           variant: "destructive",
         });
       }
     },
-    [googleDocContext, onBeforeUpload, onSubmit, uploadFiles],
+    [googleDocContext, onBeforeUpload, onSubmit, uploadFiles, t],
   );
 
   useEffect(() => {

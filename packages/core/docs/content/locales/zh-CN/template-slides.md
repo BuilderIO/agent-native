@@ -10,7 +10,7 @@ description: "根据提示生成套牌、进行可视化编辑并全屏呈现。
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Board Update</h1><span class='wf-pill accent'>Title slide</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>分享</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>Q3 Board Update</strong><br/><small>Maya Chen · CEO</small><div style='height:46px'></div><span class='wf-pill'>Product momentum</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>Slide outline</strong><div class='wf-box'>1 Title</div><div class='wf-box'>2 Agenda</div><div class='wf-box'>3 Metrics</div><div class='wf-box'>4 Shipped</div></div><div class='wf-card' style='flex:1'><strong>Speaker notes</strong><p class='wf-muted' style='margin:8px 0 0'>Open with launch progress and retention story.</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 Title</div><div class='wf-box'>2 Agenda</div><div class='wf-box'>3 Metrics</div><div class='wf-box'>4 Shipped</div><div class='wf-box'>5 Risks</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>第三季度董事会更新</h1><span class='wf-pill accent'>标题幻灯片</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>分享</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>第三季度董事会更新</strong><br/><small>Maya Chen · 首席执行官</small><div style='height:46px'></div><span class='wf-pill'>产品动能</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>幻灯片大纲</strong><div class='wf-box'>1 标题</div><div class='wf-box'>2 议程</div><div class='wf-box'>3 指标</div><div class='wf-box'>4 已发布</div></div><div class='wf-card' style='flex:1'><strong>演讲者备注</strong><p class='wf-muted' style='margin:8px 0 0'>以发布进展和留存故事开场。</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 标题</div><div class='wf-box'>2 议程</div><div class='wf-box'>3 指标</div><div class='wf-box'>4 已发布</div><div class='wf-box'>5 风险</div></div></div>"
 }
 ```
 
@@ -111,7 +111,7 @@ pnpm dev
 
 所有牌组数据通过 Drizzle ORM 存储在 SQL 中。架构：`templates/slides/server/db/schema.ts`。
 
-```an-schema title="Slides data model" summary="A deck owns its slides as JSON in decks.data; comments, versions, shares, and design systems hang off it."
+```an-schema title="幻灯片数据模型" summary="A deck owns its slides as JSON in decks.data; comments, versions, shares, and design systems hang off it."
 {
   "entities": [
     {
@@ -132,8 +132,8 @@ pnpm dev
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "deck_id", "type": "text", "fk": "decks.id" },
-        { "name": "slide_id", "type": "text", "note": "Slide the comment lives on" },
-        { "name": "thread_id", "type": "text", "note": "Threading" },
+        { "name": "slide_id", "type": "text", "note": "滑动评论继续存在" },
+        { "name": "thread_id", "type": "text", "note": "螺纹加工" },
         { "name": "parent_id", "type": "text", "nullable": true },
         { "name": "content", "type": "text" },
         { "name": "quoted_text", "type": "text", "nullable": true },
@@ -145,11 +145,11 @@ pnpm dev
     {
       "id": "deck_versions",
       "name": "deck_versions",
-      "note": "Point-in-time snapshots for restore",
+      "note": "用于恢复的时间点快照",
       "fields": [
         { "name": "deck_id", "type": "text", "fk": "decks.id" },
         { "name": "title", "type": "text" },
-        { "name": "data", "type": "text", "note": "Full deck JSON" },
+        { "name": "data", "type": "text", "note": "全副牌 JSON" },
         { "name": "change_label", "type": "text", "nullable": true }
       ]
     },
@@ -167,11 +167,11 @@ pnpm dev
     {
       "id": "deck_share_links",
       "name": "deck_share_links",
-      "note": "Persisted public share-link snapshots",
+      "note": "持久的公共共享链接快照",
       "fields": [
         { "name": "token", "type": "text", "pk": true },
         { "name": "title", "type": "text" },
-        { "name": "slides", "type": "text", "note": "JSON slides snapshot" },
+        { "name": "slides", "type": "text", "note": "JSON 幻灯片快照" },
         { "name": "aspect_ratio", "type": "text", "nullable": true },
         { "name": "created_at", "type": "text" }
       ]

@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { IconPlus, IconX } from "@tabler/icons-react";
+import { useT } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -25,6 +26,7 @@ export function ViewportTabs({
   onTabClose,
   onTabAdd,
 }: ViewportTabsProps) {
+  const t = useT();
   const [draggedTab, setDraggedTab] = useState<string | null>(null);
   const [contextTab, setContextTab] = useState<string | null>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -120,13 +122,13 @@ export function ViewportTabs({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-40">
               <DropdownMenuItem onClick={() => onTabClose(tab.id)}>
-                Close
+                {t("designEditor.closeTab")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleCloseOthers(tab.id)}>
-                Close Others
+                {t("designEditor.closeOtherTabs")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleCloseAll}>
-                Close All
+                {t("designEditor.closeAllTabs")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

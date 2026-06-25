@@ -247,8 +247,8 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 
 ## الملحن المشترك
 
-يستخدم رمز Agent-Native نفس `AgentComposerFrame` + `PromptComposer` /
-تم تصدير مكدس `TiptapComposer` من `@agent-native/core/client/composer` باعتباره
+يستخدم رمز Agent-Native نفس `AgentإنشاءrFrame` + `Promptإنشاءr` /
+تم تصدير مكدس `Tiptapإنشاءr` من `@agent-native/core/client/composer` باعتباره
 الشريط الجانبي لعامل إطار العمل. لا تقم بشوكة منفصلة
 منطقة النص، أو منتقي أدوات الترميز، أو منتقي التحميل، أو زر الصوت، أو منتقي النماذج، أو مفتاح الإدخال للإرسال
 تنفيذ للأسطح المشابهة للتعليمات البرمجية. إذا كان المضيف يحتاج إلى عنصر تحكم إضافي واحد، فقم بالتمرير
@@ -256,7 +256,7 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 تحتفظ الدردشة الدماغية بنفس نموذج التفاعل والمجال البصري.
 
 يستخدم مسار Brain's Ask `AgentChatSurface`، المدعوم بالفعل بواسطة
-مؤلف الشريط الجانبي القياسي. يستخدم الكود `PromptComposer` مباشرة لأن المضيف
+مؤلف الشريط الجانبي القياسي. يستخدم الكود `Promptإنشاءr` مباشرة لأن المضيف
 يمتلك إنشاء التشغيل والنصوص ومتابعة التسليم.
 
 ## أدوات الترميز المشتركة
@@ -382,11 +382,11 @@ npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # sh
 
 نقاط نهاية الترحيل عن بعد الأساسية هي:
 
-```an-api title="Desktop claims queued work"
+```an-api title="يطالب سطح المكتب بالعمل في قائمة الانتظار"
 {
   "method": "POST",
   "path": "/_agent-native/integrations/remote/poll",
-  "summary": "Desktop long-polls the relay to claim enqueued commands",
+  "summary": "يقوم سطح المكتب باستقصاء طويل للمرحل للمطالبة بالأوامر الموضوعة في قائمة الانتظار",
   "description": "Outbound-only from a paired Desktop host. Desktop authenticates with its device token and claims work that mobile or Telegram enqueued.",
   "auth": "Desktop device token",
   "responses": [

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
+import { useT } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -144,6 +145,7 @@ export function DashboardFilterBar({
   filters,
   onSaveView,
 }: DashboardFilterBarProps) {
+  const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [viewName, setViewName] = useState("");
@@ -229,10 +231,10 @@ export function DashboardFilterBar({
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-baseline gap-2">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Filters
+              {t("sqlDashboard.filters")}
             </h3>
             <span className="text-[10px] text-muted-foreground/60">
-              auto-applied
+              {t("sqlDashboard.autoApplied")}
             </span>
           </div>
           <div className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-data-[state=closed]:opacity-100">
@@ -244,7 +246,7 @@ export function DashboardFilterBar({
                 onClick={() => setSaveDialogOpen(true)}
               >
                 <IconDeviceFloppy className="h-3 w-3 mr-1" />
-                Save view
+                {t("sqlDashboard.saveView")}
               </Button>
             )}
             {filtersActive && (
@@ -255,7 +257,7 @@ export function DashboardFilterBar({
                 onClick={clearAllFilters}
               >
                 <IconFilterOff className="h-3 w-3 mr-1" />
-                Clear all
+                {t("sqlDashboard.clearAll")}
               </Button>
             )}
             <CollapsibleTrigger asChild>
@@ -263,9 +265,13 @@ export function DashboardFilterBar({
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                aria-label={filtersOpen ? "Collapse filters" : "Expand filters"}
+                aria-label={
+                  filtersOpen
+                    ? t("sqlDashboard.collapseFilters")
+                    : t("sqlDashboard.expandFilters")
+                }
               >
-                {filtersOpen ? "Hide" : "Show"}
+                {filtersOpen ? t("sqlDashboard.hide") : t("sqlDashboard.show")}
                 <IconChevronDown
                   className={cn(
                     "ml-1 h-3 w-3 transition-transform",
@@ -294,11 +300,11 @@ export function DashboardFilterBar({
       <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Save as View</DialogTitle>
+            <DialogTitle>{t("sqlDashboard.saveAsView")}</DialogTitle>
           </DialogHeader>
           <div className="py-4">
             <Input
-              placeholder="View name (e.g. 'Recent articles only')"
+              placeholder={t("sqlDashboard.viewNameRecentPlaceholder")}
               value={viewName}
               onChange={(e) => setViewName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSaveView()}
@@ -311,14 +317,14 @@ export function DashboardFilterBar({
               size="sm"
               onClick={() => setSaveDialogOpen(false)}
             >
-              Cancel
+              {t("sidebar.cancel")}
             </Button>
             <Button
               size="sm"
               onClick={handleSaveView}
               disabled={!viewName.trim()}
             >
-              Save
+              {t("explorer.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -344,6 +350,7 @@ function FilterControl({
   hasParam,
   setValue,
 }: FilterControlProps) {
+  const t = useT();
   if (filter.type === "date-range") {
     const startKey = `${filter.id}Start`;
     const endKey = `${filter.id}End`;
@@ -357,7 +364,9 @@ function FilterControl({
             value={vars[startKey] || ""}
             onChange={(v) => setValue({ [startKey]: v })}
           />
-          <span className="text-xs text-muted-foreground">to</span>
+          <span className="text-xs text-muted-foreground">
+            {t("sqlDashboard.to")}
+          </span>
           <DatePicker
             value={vars[endKey] || ""}
             onChange={(v) => setValue({ [endKey]: v })}
@@ -421,7 +430,7 @@ function FilterControl({
           className="text-xs h-8 px-3"
           onClick={() => setValue({ [filter.id]: active ? "" : "true" })}
         >
-          {active ? "On" : "Off"}
+          {active ? t("sqlDashboard.on") : t("sqlDashboard.off")}
         </Button>
       </div>
     );
@@ -451,13 +460,13 @@ function FilterControl({
               })
             }
           >
-            {active ? "On" : "Off"}
+            {active ? t("sqlDashboard.on") : t("sqlDashboard.off")}
           </Button>
         </div>
         {active && (
           <div className="flex flex-col gap-1">
             <label className="text-xs text-muted-foreground font-medium">
-              Since
+              {t("sqlDashboard.since")}
             </label>
             <DatePicker
               value={current}

@@ -10,7 +10,7 @@ import {
 import { useT } from "@agent-native/core/client";
 
 const LANGUAGES = [
-  { value: "", label: "Plain text" },
+  { value: "", label: "" },
   { value: "javascript", label: "JavaScript" },
   { value: "typescript", label: "TypeScript" },
   { value: "python", label: "Python" },

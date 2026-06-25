@@ -14,6 +14,7 @@ import {
   IconZoomIn,
 } from "@tabler/icons-react";
 import { Dialog, DialogOverlay, DialogTitle } from "@/components/ui/dialog";
+import { useT } from "@agent-native/core/client";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,7 +23,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { copyImage, downloadImage } from "./image-actions";
+import {
+  copyImage,
+  downloadImage,
+  type ImageActionMessages,
+} from "./image-actions";
 
 /**
  * Shared image presentation for every plan surface — the editor's image node
@@ -77,6 +82,14 @@ export function PlanImageViewer({
   showControls = false,
   uploading = false,
 }: PlanImageViewerProps) {
+  const t = useT();
+  const imageActionMessages = {
+    downloadStarted: t("raw.imageActions.downloadStarted"),
+    openedNewTab: t("raw.imageActions.openedNewTab"),
+    imageCopied: t("raw.imageActions.imageCopied"),
+    copiedUrl: t("raw.imageActions.copiedUrl"),
+    copyFailed: t("raw.imageActions.copyFailed"),
+  };
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -90,7 +103,11 @@ export function PlanImageViewer({
         )}
       >
         <IconPhoto className="size-5" />
-        <span>{uploading ? "Uploading image…" : alt || "Image"}</span>
+        <span>
+          {uploading
+            ? t("raw.imageViewer.uploadingImage")
+            : alt || t("raw.imageViewer.image")}
+        </span>
       </span>
     );
   }
@@ -127,8 +144,8 @@ export function PlanImageViewer({
         <button
           type="button"
           className={ACTION_BTN_CLASS}
-          aria-label="View full size"
-          title="View full size"
+          aria-label={t("raw.imageViewer.viewFullSize")}
+          title={t("raw.imageViewer.viewFullSize")}
           onMouseDown={swallowMouseDown}
           onClick={() => setLightboxOpen(true)}
         >
@@ -140,8 +157,8 @@ export function PlanImageViewer({
             <button
               type="button"
               className={ACTION_BTN_CLASS}
-              aria-label="Image options"
-              title="More"
+              aria-label={t("raw.imageViewer.imageOptions")}
+              title={t("raw.imageViewer.more")}
             >
               <IconDots size={16} />
             </button>
@@ -159,31 +176,35 @@ export function PlanImageViewer({
                 {onEdit ? (
                   <DropdownMenuItem onSelect={() => onEdit()}>
                     <IconPencil size={16} className="mr-2" />
-                    Edit details
+                    {t("raw.imageViewer.editDetails")}
                   </DropdownMenuItem>
                 ) : null}
                 {onReplace ? (
                   <DropdownMenuItem onSelect={() => onReplace()}>
                     <IconRefresh size={16} className="mr-2" />
-                    Replace image
+                    {t("raw.imageViewer.replaceImage")}
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuSeparator />
               </>
             ) : null}
-            <DropdownMenuItem onSelect={() => void downloadImage(src, alt)}>
+            <DropdownMenuItem
+              onSelect={() => void downloadImage(src, alt, imageActionMessages)}
+            >
               <IconDownload size={16} className="mr-2" />
-              Download
+              {t("raw.imageViewer.download")}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void copyImage(src)}>
+            <DropdownMenuItem
+              onSelect={() => void copyImage(src, imageActionMessages)}
+            >
               <IconCopy size={16} className="mr-2" />
-              Copy image
+              {t("raw.imageViewer.copyImage")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={() => window.open(src, "_blank", "noopener,noreferrer")}
             >
               <IconExternalLink size={16} className="mr-2" />
-              Open original
+              {t("raw.imageViewer.openOriginal")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -194,6 +215,7 @@ export function PlanImageViewer({
         onOpenChange={setLightboxOpen}
         src={src}
         alt={alt}
+        actionMessages={imageActionMessages}
       />
     </span>
   );
@@ -204,6 +226,7 @@ type PlanImageLightboxProps = {
   onOpenChange: (open: boolean) => void;
   src: string;
   alt: string;
+  actionMessages?: ImageActionMessages;
 };
 
 function PlanImageLightbox({
@@ -211,7 +234,9 @@ function PlanImageLightbox({
   onOpenChange,
   src,
   alt,
+  actionMessages,
 }: PlanImageLightboxProps) {
+  const t = useT();
   const [zoomed, setZoomed] = useState(false);
 
   function handleOpenChange(next: boolean) {
@@ -229,7 +254,7 @@ function PlanImageLightbox({
           onOpenAutoFocus={(event) => event.preventDefault()}
         >
           <DialogTitle className="sr-only">
-            {alt || "Image preview"}
+            {alt || t("raw.imageViewer.closePreview")}
           </DialogTitle>
 
           <div
@@ -256,19 +281,21 @@ function PlanImageLightbox({
             <button
               type="button"
               className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15 disabled:cursor-default disabled:opacity-40"
-              aria-label="Fit to screen"
+              aria-label={t("raw.imageViewer.fitToScreen")}
               disabled={!zoomed}
               onClick={() => setZoomed(false)}
             >
               <IconMinus size={17} />
             </button>
             <span className="min-w-[5.5rem] text-center text-xs font-medium tabular-nums">
-              {zoomed ? "Actual size" : "Fit"}
+              {zoomed
+                ? t("raw.imageViewer.actualSize")
+                : t("raw.imageViewer.fitToScreen")}
             </span>
             <button
               type="button"
               className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15 disabled:cursor-default disabled:opacity-40"
-              aria-label="Actual size"
+              aria-label={t("raw.imageViewer.actualSize")}
               disabled={zoomed}
               onClick={() => setZoomed(true)}
             >
@@ -278,8 +305,8 @@ function PlanImageLightbox({
             <button
               type="button"
               className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15"
-              aria-label="Download image"
-              onClick={() => void downloadImage(src, alt)}
+              aria-label={t("raw.imageViewer.downloadImage")}
+              onClick={() => void downloadImage(src, alt, actionMessages)}
             >
               <IconDownload size={17} />
             </button>
@@ -287,7 +314,7 @@ function PlanImageLightbox({
             <button
               type="button"
               className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15"
-              aria-label="Close image preview"
+              aria-label={t("raw.imageViewer.closePreview")}
               onClick={() => handleOpenChange(false)}
             >
               <IconX size={17} />

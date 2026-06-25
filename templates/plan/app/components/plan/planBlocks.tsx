@@ -15,6 +15,7 @@ import {
 } from "@agent-native/core/blocks";
 import {
   sendToAgentChat,
+  useT,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
 import type { PlanBlock } from "@shared/plan-content";
@@ -76,13 +77,13 @@ const PLAN_LIBRARY_OVERRIDES: LibraryBlockOverrides = {
       spec: JSON.stringify(
         {
           openapi: "3.0.0",
-          info: { title: "Example API", version: "1.0.0" },
-          tags: [{ name: "widgets", description: "Manage widgets" }],
+          info: { title: "Example API", version: "1.0.0" }, // i18n-ignore example OpenAPI fixture data
+          tags: [{ name: "widgets", description: "Manage widgets" }], // i18n-ignore example OpenAPI fixture data
           paths: {
             "/widgets": {
               get: {
                 tags: ["widgets"],
-                summary: "List widgets",
+                summary: "List widgets", // i18n-ignore example OpenAPI fixture data
                 responses: {
                   "200": {
                     description: "OK",
@@ -99,7 +100,7 @@ const PLAN_LIBRARY_OVERRIDES: LibraryBlockOverrides = {
               },
               post: {
                 tags: ["widgets"],
-                summary: "Create a widget",
+                summary: "Create a widget", // i18n-ignore example OpenAPI fixture data
                 requestBody: {
                   content: {
                     "application/json": {
@@ -307,6 +308,7 @@ export function PlanAiBlockAction({
   blockData: unknown;
   planId?: string | null;
 }) {
+  const t = useT();
   const submitPrompt = (prompt: string) => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
@@ -335,8 +337,10 @@ export function PlanAiBlockAction({
 
   return (
     <InlinePromptField
-      placeholder="Describe a change…"
-      ariaLabel={`Describe a change to ${label.toLowerCase()}`}
+      placeholder={t("raw.blocks.describeChange")}
+      ariaLabel={t("raw.blocks.describeChangeTo", {
+        label: label.toLowerCase(),
+      })}
       onSubmit={submitPrompt}
     />
   );
@@ -353,6 +357,7 @@ function PlanAiFieldAction({
   instructions,
   companionFields = [],
 }: BlockAiFieldActionProps) {
+  const t = useT();
   const submitPrompt = (prompt: string) => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
@@ -392,8 +397,10 @@ function PlanAiFieldAction({
     <InlinePromptField
       size="sm"
       subtle
-      placeholder="Describe a change…"
-      ariaLabel={`Describe a change to the ${fieldLabel.toLowerCase()}`}
+      placeholder={t("raw.blocks.describeChange")}
+      ariaLabel={t("raw.blocks.describeChangeTo", {
+        label: fieldLabel.toLowerCase(),
+      })}
       onSubmit={submitPrompt}
       disabled={disabled}
       fieldActionLabel={fieldLabel}
@@ -461,6 +468,7 @@ function InlinePromptField({
         disabled={disabled}
         aria-label={ariaLabel}
         data-ai-field-action={fieldActionLabel}
+        data-plan-block-edit-prompt
         placeholder={placeholder}
         spellCheck={false}
         onChange={(event) => setValue(event.target.value)}

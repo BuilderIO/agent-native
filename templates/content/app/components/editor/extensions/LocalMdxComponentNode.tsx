@@ -25,6 +25,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useT } from "@agent-native/core/client";
 
 export const LOCAL_FILE_USER_EDIT_META = "localFileUserEdit";
 
@@ -86,6 +87,7 @@ function LocalComponentInputEditor({
   getPos: NodeViewProps["getPos"];
   updateAttributes: NodeViewProps["updateAttributes"];
 }) {
+  const t = useT();
   const updateProp = (name: string, value: unknown) => {
     const pos = getPos();
     const liveNode =
@@ -137,7 +139,9 @@ function LocalComponentInputEditor({
       <PopoverContent align="end" sideOffset={6} className="w-80 space-y-4">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">{componentName}</div>
-          <div className="text-xs text-muted-foreground">Component inputs</div>
+          <div className="text-xs text-muted-foreground">
+            {t("editor.localComponentInputs")}
+          </div>
         </div>
         <div className="space-y-3">
           {Object.entries(inputs).map(([name, input]) => {
@@ -159,7 +163,9 @@ function LocalComponentInputEditor({
                         updateProp(name, event.currentTarget.checked)
                       }
                     />
-                    <span>{input.description ?? "Enabled"}</span>
+                    <span>
+                      {input.description ?? t("editor.localComponentEnabled")}
+                    </span>
                   </label>
                 ) : input.type === "select" ? (
                   <select
@@ -170,7 +176,9 @@ function LocalComponentInputEditor({
                       updateProp(name, event.currentTarget.value)
                     }
                   >
-                    <option value="">Default</option>
+                    <option value="">
+                      {t("editor.localComponentDefault")}
+                    </option>
                     {(input.options ?? []).map((option) => {
                       const normalized = optionParts(option);
                       return (
@@ -228,6 +236,7 @@ function LocalMdxComponentView({
   node,
   updateAttributes,
 }: NodeViewProps) {
+  const t = useT();
   const name = typeof node.attrs.name === "string" ? node.attrs.name : "";
   const Component = name ? localContentComponents[name] : null;
   const inputs = name ? localContentComponentInputs[name] : undefined;
@@ -248,8 +257,8 @@ function LocalMdxComponentView({
         contentEditable={false}
         data-local-mdx-component={name}
       >
-        <code>{name ? `<${name} />` : "Local MDX component"}</code> uses JSX
-        props that cannot be previewed yet.
+        <code>{name ? `<${name} />` : t("editor.localMdxComponent")}</code>{" "}
+        {t("editor.localMdxUnsupportedProps")}
       </NodeViewWrapper>
     );
   }
@@ -261,8 +270,8 @@ function LocalMdxComponentView({
         contentEditable={false}
         data-local-mdx-component={name}
       >
-        <code>{name ? `<${name} />` : "Local MDX component"}</code> not found in
-        local components.
+        <code>{name ? `<${name} />` : t("editor.localMdxComponent")}</code>{" "}
+        {t("editor.localMdxNotFound")}
       </NodeViewWrapper>
     );
   }

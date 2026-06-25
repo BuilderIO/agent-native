@@ -5,6 +5,7 @@
  * / Notes ready), and a 1-2 line summary preview. Hover lifts the card.
  */
 import { NavLink } from "react-router";
+import { useT } from "@agent-native/core/client";
 import {
   IconCheck,
   IconClock,
@@ -38,6 +39,8 @@ export interface MeetingCardData {
   participants?: AttendeeStackParticipant[];
 }
 
+type Translate = (key: string, params?: Record<string, unknown>) => string;
+
 function formatTime(iso?: string | null): string {
   if (!iso) return "";
   try {
@@ -64,6 +67,7 @@ function buildPreview(m: MeetingCardData): string | null {
 }
 
 export function MeetingCard({ meeting }: { meeting: MeetingCardData }) {
+  const t = useT();
   const isLive = !!(
     (meeting.actualStart && !meeting.actualEnd) ||
     meeting.transcriptStatus === "in_progress"
@@ -97,7 +101,7 @@ export function MeetingCard({ meeting }: { meeting: MeetingCardData }) {
         <CardContent className="p-4 space-y-2.5">
           <div className="flex items-start justify-between gap-2">
             <h3 className="text-sm font-medium leading-snug line-clamp-2 flex-1 text-foreground">
-              {meeting.title || "Untitled meeting"}
+              {meeting.title || t("meetingDetail.untitledMeeting")}
             </h3>
             <div className="flex items-center gap-1 shrink-0">
               {isLive ? (
@@ -109,7 +113,7 @@ export function MeetingCard({ meeting }: { meeting: MeetingCardData }) {
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
                     <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
                   </span>
-                  Live
+                  {t("meetingCard.live")}
                 </Badge>
               ) : transcriptReady ? (
                 <Badge
@@ -117,14 +121,14 @@ export function MeetingCard({ meeting }: { meeting: MeetingCardData }) {
                   className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px] gap-1 px-1.5"
                 >
                   <IconCheck className="h-3 w-3" />
-                  Transcript
+                  {t("meetingCard.transcript")}
                 </Badge>
               ) : null}
               {hasNotes && !isLive && (
                 <Badge
                   variant="secondary"
                   className="bg-amber-500/10 text-amber-700 border-amber-500/20 text-[10px] gap-1 px-1.5"
-                  title="AI notes ready"
+                  title={t("meetingCard.aiNotesReady")}
                 >
                   <IconNotes className="h-3 w-3" />
                 </Badge>
@@ -146,7 +150,7 @@ export function MeetingCard({ meeting }: { meeting: MeetingCardData }) {
             </p>
           ) : shouldShowMissingSummary ? (
             <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
-              No summary yet
+              {t("meetingCard.noSummary")}
             </p>
           ) : null}
 
@@ -158,7 +162,7 @@ export function MeetingCard({ meeting }: { meeting: MeetingCardData }) {
             {meeting.recordingId && (
               <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                 <IconVideo className="h-3 w-3" />
-                Transcript source
+                {t("meetingCard.transcriptSource")}
               </span>
             )}
           </div>
@@ -181,15 +185,23 @@ export interface UpcomingMeetingCardData {
 }
 
 /** Human "starts in 5 min" / "now" / "in 2 hrs" label for an upcoming card. */
-function relativeStartLabel(iso: string): { text: string; soon: boolean } {
+function relativeStartLabel(
+  iso: string,
+  t: Translate,
+): { text: string; soon: boolean } {
   const start = Date.parse(iso);
   if (Number.isNaN(start)) return { text: "", soon: false };
   const diffMin = Math.round((start - Date.now()) / 60000);
-  if (diffMin <= 0 && diffMin > -120) return { text: "Now", soon: true };
-  if (diffMin <= 0) return { text: "Started", soon: false };
-  if (diffMin < 60) return { text: `in ${diffMin} min`, soon: diffMin <= 5 };
+  if (diffMin <= 0 && diffMin > -120)
+    return { text: t("meetingCard.now"), soon: true };
+  if (diffMin <= 0) return { text: t("meetingCard.started"), soon: false };
+  if (diffMin < 60)
+    return {
+      text: t("meetingCard.inMinutes", { count: diffMin }),
+      soon: diffMin <= 5,
+    };
   const hrs = Math.round(diffMin / 60);
-  return { text: `in ${hrs} hr${hrs === 1 ? "" : "s"}`, soon: false };
+  return { text: t("meetingCard.inHours", { count: hrs }), soon: false };
 }
 
 /**
@@ -203,8 +215,12 @@ export function UpcomingMeetingCard({
 }: {
   meeting: UpcomingMeetingCardData;
 }) {
+  const t = useT();
   const isLive = !!(meeting.actualStart && !meeting.actualEnd);
-  const { text: whenText, soon } = relativeStartLabel(meeting.scheduledStart);
+  const { text: whenText, soon } = relativeStartLabel(
+    meeting.scheduledStart,
+    t,
+  );
   const joinable = soon || isLive;
 
   return (
@@ -221,7 +237,7 @@ export function UpcomingMeetingCard({
         >
           <div className="flex items-start justify-between gap-2">
             <h3 className="text-sm font-medium leading-snug line-clamp-2 flex-1 text-foreground group-hover:text-foreground">
-              {meeting.title || "Untitled meeting"}
+              {meeting.title || t("meetingDetail.untitledMeeting")}
             </h3>
             {isLive ? (
               <Badge
@@ -232,7 +248,7 @@ export function UpcomingMeetingCard({
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
                   <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
                 </span>
-                Live
+                {t("meetingCard.live")}
               </Badge>
             ) : (
               <span
@@ -273,7 +289,7 @@ export function UpcomingMeetingCard({
                   tabIndex={-1}
                 >
                   <IconExternalLink className="h-3.5 w-3.5" />
-                  Join
+                  {t("meetingCard.join")}
                 </Button>
               </a>
             )}
@@ -284,7 +300,7 @@ export function UpcomingMeetingCard({
               className="h-7 gap-1 px-2.5 text-xs cursor-pointer"
             >
               <NavLink to={`/meetings/${meeting.id}`}>
-                {isLive ? "Open notes" : "Open"}
+                {isLive ? t("meetingCard.openNotes") : t("meetingCard.open")}
               </NavLink>
             </Button>
           </div>

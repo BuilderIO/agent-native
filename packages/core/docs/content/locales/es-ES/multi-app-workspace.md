@@ -66,7 +66,7 @@ Luego arrancalo:
 
 ```bash
 cd my-company-platform
-cp .env.example .env             # fill in ANTHROPIC_API_KEY, BETTER_AUTH_SECRET, ...
+cp .env.example .env             # completa ANTHROPIC_API_KEY, BETTER_AUTH_SECRET, ...
 pnpm install
 pnpm dev                         # opens Dispatch; other apps start on first visit
 ```

@@ -15,6 +15,7 @@ import {
   useActionMutation,
   sendToAgentChat,
   openAgentSidebar,
+  useT,
 } from "@agent-native/core/client";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -56,6 +57,7 @@ export function DesignSystemSetup({
   onComplete,
   editingId,
 }: DesignSystemSetupProps) {
+  const t = useT();
   const [companyName, setCompanyName] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [websiteUrls, setWebsiteUrls] = useState<string[]>([]);
@@ -204,10 +206,10 @@ export function DesignSystemSetup({
         customInstructions,
       });
       onComplete();
-      toast({ title: "Design system updated" });
+      toast({ title: t("raw.designSetup.designSystemUpdated") });
     } catch {
       toast({
-        title: "Failed to update",
+        title: t("raw.designSetup.failedToUpdate"),
         variant: "destructive",
       });
     } finally {
@@ -227,7 +229,9 @@ export function DesignSystemSetup({
     );
 
     if (companyName.trim()) {
-      parts.push(`\n## Company / Brand\n${companyName.trim()}`);
+      parts.push(
+        `\n## ${t("raw.designSetup.companyBrand")}\n${companyName.trim()}`,
+      );
     }
 
     if (websiteUrls.length > 0) {
@@ -246,7 +250,7 @@ export function DesignSystemSetup({
       const withContent = codeFiles.filter((f) => f.textContent);
       if (withContent.length > 0) {
         parts.push(
-          `\n## Code Files (${withContent.length} files)\nCall \`import-code\` with these files:`,
+          `\n## ${t("raw.designSetup.codeFiles")} (${withContent.length} files)\nCall \`import-code\` with these files:`,
         );
         for (const f of withContent) {
           parts.push(
@@ -272,7 +276,7 @@ export function DesignSystemSetup({
       const system = existingSystems.find((s) => s.id === selectedSystemId);
       if (system) {
         parts.push(
-          `\n## Fork Existing Design System\nClone "${system.title}" as a starting point. Call \`import-design-project --designSystemId ${selectedSystemId}\``,
+          `\n## ${t("raw.designSetup.forkExisting")}\nClone "${system.title}" as a starting point. Call \`import-design-project --designSystemId ${selectedSystemId}\``,
         );
       }
     }
@@ -311,6 +315,7 @@ export function DesignSystemSetup({
     brandNotes,
     customInstructions,
     onComplete,
+    t,
   ]);
 
   return (
@@ -332,11 +337,13 @@ export function DesignSystemSetup({
           <div className="space-y-5 py-4">
             {/* Company Name */}
             <div className="space-y-2">
-              <Label className="text-foreground/70">Company / Brand</Label>
+              <Label className="text-foreground/70">
+                {t("raw.designSetup.companyBrand")}
+              </Label>
               <Input
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
-                placeholder="Acme Inc. — We build developer tools..."
+                placeholder={t("raw.designSetup.companyPlaceholder")}
                 className="bg-accent/50 border-border text-foreground/90 placeholder:text-muted-foreground/60"
               />
             </div>
@@ -347,7 +354,7 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/70 flex items-center gap-1.5">
                     <IconWorld className="w-3.5 h-3.5" />
-                    Website URL
+                    {t("raw.designSetup.websiteUrl")}
                   </Label>
                   <div className="flex gap-2">
                     <Input
@@ -380,7 +387,7 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/70 flex items-center gap-1.5">
                     <IconBrandGithub className="w-3.5 h-3.5" />
-                    GitHub Repository
+                    {t("raw.designSetup.githubRepository")}
                   </Label>
                   <div className="flex gap-2">
                     <Input
@@ -413,7 +420,7 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/70 flex items-center gap-1.5">
                     <IconFolder className="w-3.5 h-3.5" />
-                    Code Files
+                    {t("raw.designSetup.codeFiles")}
                   </Label>
                   <button
                     onClick={() => codeInputRef.current?.click()}
@@ -426,7 +433,7 @@ export function DesignSystemSetup({
                     className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                   >
                     <p className="text-xs text-muted-foreground/70">
-                      CSS, Tailwind config, theme files — drop or click
+                      {t("raw.designSetup.codeDrop")}
                     </p>
                   </button>
                   <input
@@ -453,14 +460,14 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/70 flex items-center gap-1.5">
                     <IconFileDescription className="w-3.5 h-3.5" />
-                    Documents & Presentations
+                    {t("raw.designSetup.documents")}
                   </Label>
                   <button
                     onClick={() => docInputRef.current?.click()}
                     className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                   >
                     <p className="text-xs text-muted-foreground/70">
-                      PPTX, DOCX, PDF — brand guides, pitch decks
+                      {t("raw.designSetup.documentsDrop")}
                     </p>
                   </button>
                   <input
@@ -493,14 +500,14 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/70 flex items-center gap-1.5">
                     <IconPhoto className="w-3.5 h-3.5" />
-                    Screenshots & Visual References
+                    {t("raw.designSetup.screenshots")}
                   </Label>
                   <button
                     onClick={() => imageInputRef.current?.click()}
                     className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                   >
                     <p className="text-xs text-muted-foreground/70">
-                      Product screenshots, mood boards, logos
+                      {t("raw.designSetup.screenshotsDrop")}
                     </p>
                   </button>
                   <input
@@ -533,7 +540,7 @@ export function DesignSystemSetup({
                 {existingSystems.length > 0 && (
                   <div className="space-y-2">
                     <Label className="text-foreground/70">
-                      Fork an existing design system
+                      {t("raw.designSetup.forkExisting")}
                     </Label>
                     <div className="grid grid-cols-2 gap-2">
                       {existingSystems
@@ -574,7 +581,7 @@ export function DesignSystemSetup({
               <Textarea
                 value={brandNotes}
                 onChange={(e) => setBrandNotes(e.target.value)}
-                placeholder="Design preferences, constraints, brand guidelines..."
+                placeholder={t("raw.designSetup.customInstructionsPlaceholder")}
                 rows={3}
                 className="bg-accent/50 border-border text-foreground/90 placeholder:text-muted-foreground/60 resize-none"
               />
@@ -582,7 +589,9 @@ export function DesignSystemSetup({
 
             {/* Custom Instructions — durable, stored on the design system */}
             <div className="space-y-2">
-              <Label className="text-foreground/70">Custom instructions</Label>
+              <Label className="text-foreground/70">
+                {t("raw.designSetup.customInstructions")}
+              </Label>
               <Textarea
                 value={customInstructions}
                 onChange={(e) => setCustomInstructions(e.target.value)}
@@ -591,8 +600,7 @@ export function DesignSystemSetup({
                 className="bg-accent/50 border-border text-foreground/90 placeholder:text-muted-foreground/60 resize-none"
               />
               <p className="text-[11px] text-muted-foreground/70">
-                Saved with the design system. Re-applied every time the agent
-                uses it to generate compositions.
+                {t("raw.designSetup.savedInstructions")}
               </p>
             </div>
           </div>
@@ -616,7 +624,7 @@ export function DesignSystemSetup({
             {generating ? (
               <>
                 <IconLoader2 className="w-4 h-4 animate-spin" />
-                Saving...
+                {t("raw.designSetup.saving")}
               </>
             ) : editingId ? (
               "Save Changes"

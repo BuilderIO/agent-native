@@ -167,7 +167,7 @@ export default defineAction({
   "method": "GET",
   "path": "/_agent-native/actions/get-lead",
   "summary": "كل action يثبت هنا تلقائيا - اسم الملف هو اسم action.",
-  "description": "الافتراضي هو POST؛ `http: { method: \"GET\" }` يجعلها GET. تستدعي React hooks و `callAction` هذا المسار دائما بالاسم، بغض النظر عن أي تجاوز `http.path`.",
+  "description": "الافتراضي هو POST؛ `http: { method: \"GET\" }` يجعلها GET. تستدعي خطافات React و `callAction` هذا المسار دائما بالاسم، بغض النظر عن أي تجاوز `http.path`.",
   "auth": "ملف تعريف ارتباط للجلسة؛ تحمل استدعاءات الواجهة `X-Agent-Native-Frontend: 1`",
   "params": [
     { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "تصل وسائط GET كمعاملات query؛ وتصل وسائط POST في جسم JSON." }
@@ -446,7 +446,7 @@ export default defineAction({
 
 المميزات المضمنة هي `"data-table"`، `"data-chart"`، و
 `"data-insights"`، مع أدوات إنشاء ومخططات آمنة للخادم في
-`@agent-native/core/data-widgets`. See [Native Chat UI](/docs/native-chat-ui)
+`@agent-native/core/data-widgets`. See [Native واجهة الدردشة](/docs/native-chat-ui)
 للحصول على عقد النتيجة الكاملة وإرشادات وقت تشغيل BYO، أو
 [Agent Surfaces](/docs/agent-surfaces) لمعرفة كيفية استمرار نفس الإجراء
 بدون رأس، أو يتم عرضه في الدردشة، أو يتم عرضه في وضع ملء الشاشة.

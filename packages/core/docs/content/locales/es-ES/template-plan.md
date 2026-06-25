@@ -396,14 +396,14 @@ El esquema vive en `templates/plan/server/db/schema.ts`. Tablas principales:
 | `plan_guest_mints` | Registros de límite de tarifa para emisión de sesión de invitado                                                                                                                                  |
 | `plan_assets`      | Recursos de imágenes en línea almacenados como base64 (respaldo cuando no hay proveedor de carga)                                                                                                 |
 
-```an-schema title="Plan data model" summary="One plan row owns ordered sections plus comments, events, versions, shares, and inline assets."
+```an-schema title="Modelo de datos Plan" summary="Una fila del plan posee secciones ordenadas además de comentarios, eventos, versiones, recursos compartidos y activos en línea."
 {
   "entities": [
     { "id": "plans", "name": "plans", "note": "each plan or recap", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "title", "type": "text" },
       { "name": "brief", "type": "text", "nullable": true },
-      { "name": "kind", "type": "enum", "note": "plan | recap" },
+      { "name": "kind", "type": "enum", "note": "plano | resumen" },
       { "name": "status", "type": "text" },
       { "name": "source", "type": "text", "nullable": true },
       { "name": "hosted_plan_id", "type": "text", "nullable": true, "note": "hosted_plan_url paired" },
@@ -442,7 +442,7 @@ El esquema vive en `templates/plan/server/db/schema.ts`. Tablas principales:
     { "id": "plan_shares", "name": "plan_shares", "note": "per-principal grants", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "plan_id", "type": "text", "fk": "plans.id" },
-      { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+      { "name": "role", "type": "enum", "note": "visor | redactor | administración" }
     ] },
     { "id": "plan_guest_mints", "name": "plan_guest_mints", "note": "rate-limit records for guest session issuance", "fields": [
       { "name": "id", "type": "text", "pk": true }

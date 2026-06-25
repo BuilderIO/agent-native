@@ -10,7 +10,7 @@ description: "ब्रांड-संगत मीडिया के लि�
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Launch brand</h1><span class='wf-pill accent'>Blog heroes</span><span class='wf-pill'>Product shots</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Create brand media</strong><div class='wf-box'>Three homepage hero options using the approved logo and product references.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>Web export</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>Hero A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Reference set</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Logo safe</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>लॉन्च brand</h1><span class='wf-pill accent'>ब्लॉग hero</span><span class='wf-pill'>उत्पाद चित्र</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>ब्रांड media बनाएं</strong><div class='wf-box'>approved logo और product references के साथ तीन homepage hero विकल्प.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>वेब एक्सपोर्ट</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>हीरो A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>संदर्भ सेट</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>लोगो सुरक्षित</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ description: "ब्रांड-संगत मीडिया के लि�
 
 ```an-diagram title="उत्पन्न करें, समीक्षा करें, पुन: उपयोग करें" summary="सन्दर्भ और संकेत एक उत्पन्न-और-चुनें सत्र फ़ीड करते हैं; चुनी गई संपत्तियाँ एक लाइब्रेरी में आती हैं और पिकर या A2A के माध्यम से अन्य ऐप्स में प्रवाहित होती हैं।"
 {
-  "html": "<div class=\"diagram-assets\"><div class=\"diagram-col\"><div class=\"diagram-node\">References<br><small class=\"diagram-muted\">logos, product shots, style</small></div><div class=\"diagram-node\">प्रॉम्प्ट<br><small class=\"diagram-muted\">chat or Generate controls</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Generation session</span><small class=\"diagram-muted\">image &amp; video candidates · audit log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Library</span><small class=\"diagram-muted\">chosen, brand-consistent assets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Picker<br><small class=\"diagram-muted\">iframe / MCP App</small></div><div class=\"diagram-node\">A2A<br><small class=\"diagram-muted\">Slides · Design · Content</small></div></div></div>",
+  "html": "<div class=\"diagram-assets\"><div class=\"diagram-col\"><div class=\"diagram-node\">References<br><small class=\"diagram-muted\">लोगो, उत्पाद चित्र, शैली</small></div><div class=\"diagram-node\">प्रॉम्प्ट<br><small class=\"diagram-muted\">chat या Generate controls</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">जनरेशन session</span><small class=\"diagram-muted\">image &amp; video candidates · audit log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Library</span><small class=\"diagram-muted\">चुने हुए, brand-consistent assets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Picker<br><small class=\"diagram-muted\">iframe / MCP App</small></div><div class=\"diagram-node\">A2A<br><small class=\"diagram-muted\">स्लाइड · डिजाइन · सामग्री</small></div></div></div>",
   "css": ".diagram-assets{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-assets .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-assets .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-assets .diagram-arrow{font-size:20px;line-height:1}"
 }
 ```
@@ -130,52 +130,52 @@ npx @agent-native/core@latest create my-assets --standalone --template assets
 | `image_assets`                   | संपत्ति रिकॉर्ड - मीडिया प्रकार, भूमिका, स्थिति, शीर्षक/विवरण/वैकल्पिक पाठ, प्रॉम्प्ट, मॉडल, आयाम, MIME प्रकार, ऑब्जेक्ट/थंबनेल कुंजियाँ, और वंशावली                                            |
 | `image_generation_runs`          | जेनरेशन ऑडिट लॉग - प्रॉम्प्ट, संकलित प्रॉम्प्ट, मॉडल, संदर्भ, स्थिति, त्रुटियां, और `source` (`chat` / `ui` / `a2a`) जिसने इसे ट्रिगर किया                                                      |
 
-```an-schema title="Assets data model" summary="Libraries are the ownable container; collections, folders, and presets organize them. Sessions drive generate-and-choose; assets and runs hold output and the audit log. Table names keep the legacy image_* prefix but cover all media."
+```an-schema title="संपत्ति डेटा मॉडल" summary="Libraries are the ownable container; collections, folders, and presets organize them. Sessions drive generate-and-choose; assets and runs hold output and the audit log. Table names keep the legacy image_* prefix but cover all media."
 {
   "entities": [
-    { "id": "library", "name": "image_libraries", "note": "Top-level ownable container", "fields": [
+    { "id": "library", "name": "image_libraries", "note": "शीर्ष-स्तरीय स्वामित्व योग्य कंटेनर", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "custom_instructions", "type": "text", "nullable": true },
       { "name": "style_brief", "type": "text", "nullable": true },
       { "name": "logo_asset_id", "type": "id", "fk": "image_assets.id", "nullable": true },
       { "name": "archived", "type": "boolean" }
     ] },
-    { "id": "library_shares", "name": "image_library_shares", "note": "Framework shares table", "fields": [
+    { "id": "library_shares", "name": "image_library_shares", "note": "फ्रेमवर्क शेयर तालिका", "fields": [
       { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
       { "name": "role", "type": "text", "note": "viewer / editor / admin" }
     ] },
-    { "id": "collections", "name": "image_collections", "note": "Style/category groupings", "fields": [
+    { "id": "collections", "name": "image_collections", "note": "Style/category समूह", "fields": [
       { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
       { "name": "style_brief", "type": "text", "nullable": true },
       { "name": "prompt_template", "type": "text", "nullable": true }
     ] },
-    { "id": "folders", "name": "asset_folders", "note": "Nestable folders", "fields": [
+    { "id": "folders", "name": "asset_folders", "note": "नेस्टेबल फ़ोल्डर्स", "fields": [
       { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
       { "name": "parent_id", "type": "id", "fk": "asset_folders.id", "nullable": true }
     ] },
-    { "id": "presets", "name": "image_generation_presets", "note": "Saved generation recipes", "fields": [
+    { "id": "presets", "name": "image_generation_presets", "note": "सहेजी गई पीढ़ी के व्यंजन", "fields": [
       { "name": "media_type", "type": "text" },
       { "name": "prompt_template", "type": "text" },
       { "name": "model", "type": "text" }
     ] },
-    { "id": "sessions", "name": "image_generation_sessions", "note": "Iterative generate-and-choose", "fields": [
+    { "id": "sessions", "name": "image_generation_sessions", "note": "पुनरावृत्तीय उत्पन्न-और-चुनें", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "status", "type": "text" },
       { "name": "active_asset_id", "type": "id", "fk": "image_assets.id", "nullable": true }
     ] },
-    { "id": "session_items", "name": "image_generation_session_items", "note": "Candidate assets in a session", "fields": [
+    { "id": "session_items", "name": "image_generation_session_items", "note": "एक सत्र में उम्मीदवार की संपत्ति", "fields": [
       { "name": "session_id", "type": "id", "fk": "image_generation_sessions.id" },
       { "name": "asset_id", "type": "id", "fk": "image_assets.id" },
       { "name": "role", "type": "text" }
     ] },
-    { "id": "assets", "name": "image_assets", "note": "The asset record", "fields": [
+    { "id": "assets", "name": "image_assets", "note": "संपत्ति रिकॉर्ड", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "media_type", "type": "text", "note": "image / video" },
       { "name": "status", "type": "text" },
       { "name": "prompt", "type": "text", "nullable": true },
       { "name": "object_key", "type": "text", "nullable": true }
     ] },
-    { "id": "runs", "name": "image_generation_runs", "note": "Generation audit log", "fields": [
+    { "id": "runs", "name": "image_generation_runs", "note": "जनरेशन ऑडिट लॉग", "fields": [
       { "name": "model", "type": "text" },
       { "name": "status", "type": "text" },
       { "name": "source", "type": "text", "note": "chat / ui / a2a" }
@@ -253,25 +253,25 @@ Codex, Claude कोड और Claude डेस्कटॉप कोड को 
 `https://assets.agent-native.com/_agent-native/mcp`.
 
 ```bash
-# Easiest hosted install: exported skill instructions plus MCP connector.
+# सबसे आसान होस्ट किया गया इंस्टॉल: निर्यातित कौशल निर्देश प्लस MCP कनेक्टर।
 npx @agent-native/core@latest skills add assets
 
-# Vercel/open Skills CLI install: exported instructions only, no MCP config.
+# Vercel/open Skills CLI इंस्टॉल: केवल निर्यात किए गए निर्देश, कोई MCP कॉन्फ़िगरेशन नहीं।
 npx skills@latest add BuilderIO/agent-native --skill assets
 
-# Hosted install: URL-only MCP connector, no shared secrets in skill files.
+# होस्ट किया गया इंस्टॉल: URL-केवल MCP कनेक्टर, कौशल फ़ाइलों में कोई साझा रहस्य नहीं।
 npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
 
-# Local editable launch.
+# स्थानीय संपादन योग्य लॉन्च।
 npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
 
-# Marketplace package, including Claude Code marketplace and Vercel Labs skills adapters.
+# मार्केटप्लेस पैकेज, जिसमें Claude कोड मार्केटप्लेस और Vercel लैब्स कौशल एडाप्टर शामिल हैं।
 npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
 
-# Install a local exported Assets bundle with the open skills CLI.
+# खुले कौशल CLI के साथ एक स्थानीय निर्यातित संपत्ति बंडल स्थापित करें।
 npx skills@latest add ./dist/assets-skill --skill assets -a codex -y
 
-# Install from the generated Claude Code marketplace adapter.
+# जेनरेट किए गए Claude कोड मार्केटप्लेस एडॉप्टर से इंस्टॉल करें।
 claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace
 claude plugin install agent-native-assets@agent-native-apps
 ```

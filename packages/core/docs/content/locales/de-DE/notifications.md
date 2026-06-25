@@ -46,7 +46,7 @@ Der Webhook-Kanal löst `${keys.NAME}`-Referenzen sowohl im URL als auch im `NOT
 
 ```an-diagram title="Kanäle und Schweregrad" summary="Der Posteingang ist immer aktiviert. Webhook benötigt eine Umgebungsvariable; Benutzerdefinierte Kanäle werden beim Start registriert. Der Schweregrad bestimmt die Gestaltung des Abzeichens und wird an alle Kanäle weitergegeben."
 {
-  "html": "<div class=\"diagram-channels\"><div class=\"diagram-panel col\" data-rough><strong>Channels</strong><div class=\"diagram-box\" data-rough>inbox<br><small class=\"diagram-muted\">always on &mdash; part of the primitive</small></div><div class=\"diagram-box\" data-rough>webhook<br><small class=\"diagram-muted\">needs NOTIFICATIONS_WEBHOOK_URL</small></div><div class=\"diagram-box\" data-rough>custom<br><small class=\"diagram-muted\">registerNotificationChannel()</small></div></div><div class=\"diagram-panel col\" data-rough><strong>Severity drives the badge</strong><div class=\"sev-row\"><span class=\"diagram-pill\">info</span><span class=\"diagram-muted\">confirmations, FYI</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">warning</span><span class=\"diagram-muted\">look at soon</span></div><div class=\"sev-row\"><span class=\"diagram-pill accent\">critical</span><span class=\"diagram-muted\">needs immediate attention</span></div></div></div>",
+  "html": "<div class=\"diagram-channels\"><div class=\"diagram-panel col\" data-rough><strong>Channels</strong><div class=\"diagram-box\" data-rough>inbox<br><small class=\"diagram-muted\">always on &mdash; part of the primitive</small></div><div class=\"diagram-box\" data-rough>webhook<br><small class=\"diagram-muted\">needs NOTIFICATIONS_WEBHOOK_URL</small></div><div class=\"diagram-box\" data-rough>custom<br><small class=\"diagram-muted\">registerNotificationChannel()</small></div></div><div class=\"diagram-panel col\" data-rough><strong>Schweregrad steuert das Badge</strong><div class=\"sev-row\"><span class=\"diagram-pill\">info</span><span class=\"diagram-muted\">Bestätigungen, FYI</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">warning</span><span class=\"diagram-muted\">look at soon</span></div><div class=\"sev-row\"><span class=\"diagram-pill accent\">critical</span><span class=\"diagram-muted\">needs immediate attention</span></div></div></div>",
   "css": ".diagram-channels{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}.diagram-channels .col{display:flex;flex-direction:column;gap:10px;padding:14px;min-width:240px}.diagram-channels .sev-row{display:flex;align-items:center;gap:10px}"
 }
 ```
@@ -155,11 +155,11 @@ Wird durch das Core-Routes-Plugin bei `/_agent-native/notifications/*` gemountet
 | `POST`   | `/_agent-native/notifications/read-all`             |
 | `DELETE` | `/_agent-native/notifications/:id`                  |
 
-```an-api title="List notifications" summary="The route behind listNotifications() — scoped to the authenticated session's email."
+```an-api title="Benachrichtigungen auflisten" summary="The route behind listNotifications() — scoped to the authenticated session's email."
 {
   "method": "GET",
   "path": "/_agent-native/notifications?unread=true&limit=50",
-  "summary": "List recent notifications for the current user",
+  "summary": "Letzte Benachrichtigungen für den aktuellen Benutzer auflisten",
   "auth": "Authenticated session; results are scoped to the session's email.",
   "params": [
     { "name": "unread", "in": "query", "type": "boolean", "required": false, "description": "When true, returns only unread notifications." },

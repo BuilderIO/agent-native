@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useT } from "@agent-native/core/client";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -124,6 +125,7 @@ export function CameraVisualizer({
   onStatusChange,
   onPreviewChange,
 }: CameraVisualizerProps) {
+  const t = useT();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const runIdRef = useRef(0);
@@ -293,10 +295,16 @@ export function CameraVisualizer({
     <div className={cn("space-y-2", disabled && "opacity-70", className)}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2 rounded-full border border-border bg-muted/20 py-0.5 ps-2 pe-0.5">
-          <span className="text-[11px] text-muted-foreground">Bubble</span>
+          <span className="text-[11px] text-muted-foreground">
+            {t("cameraVisualizer.bubble")}
+          </span>
           {live || starting ? (
             <span className="rounded-full bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm">
-              {live ? (hasFrame ? "Live" : "Waiting") : "Opening"}
+              {live
+                ? hasFrame
+                  ? t("cameraVisualizer.live")
+                  : t("cameraVisualizer.waiting")
+                : t("cameraVisualizer.opening")}
             </span>
           ) : null}
         </div>
@@ -326,7 +334,11 @@ export function CameraVisualizer({
           onClick={live ? stopTest : startTest}
           className="ms-auto h-7 shrink-0 px-2.5 text-xs"
         >
-          {live ? "Stop" : starting ? "Opening..." : "Test"}
+          {live
+            ? t("cameraVisualizer.stop")
+            : starting
+              ? t("cameraVisualizer.openingEllipsis")
+              : t("cameraVisualizer.test")}
         </Button>
       </div>
       {showBubble && (
@@ -347,7 +359,7 @@ export function CameraVisualizer({
                 setHasFrame(true);
                 onPreviewChange?.(true);
               }}
-              aria-label="Selected camera preview"
+              aria-label={t("cameraVisualizer.selectedPreview")}
               className={cn(
                 "h-full w-full rounded-full object-cover [transform:scaleX(-1)]",
                 !live && "opacity-0",
@@ -355,7 +367,7 @@ export function CameraVisualizer({
             />
             {!live && (
               <div className="absolute inset-0 flex items-center justify-center rounded-full bg-gradient-to-br from-muted/70 to-background px-5 text-center text-[11px] text-muted-foreground">
-                Camera preview
+                {t("cameraVisualizer.preview")}
               </div>
             )}
             {live && (
@@ -372,7 +384,9 @@ export function CameraVisualizer({
               <button
                 key={option.value}
                 type="button"
-                aria-label={`Set camera bubble size ${option.label}`}
+                aria-label={t("cameraVisualizer.setBubbleSize", {
+                  size: option.label,
+                })}
                 aria-pressed={size === option.value}
                 onClick={() => onSizeChange?.(option.value)}
                 className={cn(

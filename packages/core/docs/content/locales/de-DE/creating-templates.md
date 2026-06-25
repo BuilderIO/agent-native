@@ -52,7 +52,7 @@ Jede Vorlage folgt dem gleichen allgemeinen Layout:
     { "path": "server/db/schema.ts", "note": "Drizzle-Schema" },
     { "path": "server/plugins/db.ts", "note": "Additive Migrationen" },
     { "path": "server/plugins/", "note": "Startup-Integrationen" },
-    { "path": "server/routes/api/", "note": "Benutzerdefinierte Routen nur, wenn Actions nicht ausreichen" },
+    { "path": "server/routes/api/", "note": "Benutzerdefinierte Routen nur, wenn Aktionen nicht ausreichen" },
     { "path": "shared/types.ts", "note": "Gemeinsame Client-/Server-Typen" },
     { "path": ".agents/skills/", "note": "<skill>/SKILL.md: Agent-Anleitung für komplexe Workflows" },
     { "path": "AGENTS.md", "note": "Template-spezifische Agent-Anweisungen" },
@@ -69,7 +69,7 @@ Die vier Bereiche jeder Vorlage sind über eine gemeinsame Aktionsoberfläche un
 
 ```an-diagram title="Wie die vier Bereiche einer Vorlage miteinander verbunden sind" summary="Die Benutzeroberfläche und der Agent erreichen SQL beide über dieselben Aktionen; Anwendungsstatus und Abfragesynchronisierung sorgen dafür, dass sie aufeinander abgestimmt sind."
 {
-  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React UI<br><small class=\"diagram-muted\">app/routes · components</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL via Drizzle<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">Polling sync</div></div>",
+  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React-UI<br><small class=\"diagram-muted\">app/routes · Komponenten</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Aktionen</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL über Drizzle<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">Polling-Sync</div></div>",
   "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -137,9 +137,9 @@ export default runMigrations(
 
 Verwenden Sie die Dokumente [Database](/docs/database) und [Security](/docs/security), bevor Sie Schemas hinzufügen, die Benutzer- oder Organisationsdaten enthalten.
 
-## Vorgänge als Actions definieren {#actions}
+## Vorgänge als Aktionen definieren {#actions}
 
-Actions sind die einzige Quelle der Wahrheit für das App-Verhalten. Der Agent ruft sie als Tools auf, das Frontend ruft sie über Hooks auf und andere Apps können sie über MCP/A2A erreichen.
+Aktionen sind die einzige Quelle der Wahrheit für das App-Verhalten. Der Agent ruft sie als Tools auf, das Frontend ruft sie über Hooks auf und andere Apps können sie über MCP/A2A erreichen.
 
 ```an-annotated-code title="actions/create-project.ts"
 {
@@ -148,9 +148,9 @@ Actions sind die einzige Quelle der Wahrheit für das App-Verhalten. Der Agent r
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});",
   "annotations": [
     { "lines": "2", "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`." },
-    { "lines": "8", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this action as a tool." },
+    { "lines": "8", "label": "Werkzeugoberfläche", "note": "`description` ist das, was der Agent liest, um zu entscheiden, wann diese Aktion als Tool aufgerufen werden soll." },
     { "lines": "9-11", "label": "Typisierter Vertrag", "note": "Ein zod `schema` validiert Eingaben von Agent, UI, HTTP, MCP und A2A." },
-    { "lines": "18-19", "label": "Scoped write", "note": "Stamp `ownerEmail` / `orgId` from `ctx` so the row is correctly scoped for sharing and access checks." }
+    { "lines": "18-19", "label": "Begrenztes Schreiben", "note": "Stempeln Sie `ownerEmail` / `orgId` von `ctx`, damit die Zeile den korrekten Bereich für Freigabe- und Zugriffsprüfungen aufweist." }
   ]
 }
 ```
@@ -278,21 +278,21 @@ Zweckzeile, Kernregeln, Anwendungsstatusschlüssel, eine Aktionstabelle und ein 
 Index:
 
 ```markdown
-# My Template
+# Meine Vorlage
 
 One workspace for projects, tasks, and notes.
 
-## Core Rules
+## Grundregeln
 
-- Data lives in SQL via Drizzle. Use actions for all writes; schema is additive.
+- Data lives in SQL über Drizzle. Use actions for all writes; schema is additive.
 - Use `view-screen` before acting on "this project" if the screen is unclear.
 
-## Application State
+## Anwendungsstatus
 
 - `navigation.view`: `home` | `project`
 - `navigation.projectId`: selected project on a project page
 
-## Actions
+## Aktionen
 
 | Action           | Purpose                  |
 | ---------------- | ------------------------ |
@@ -316,11 +316,11 @@ name: project-imports
 description: How to import projects from the legacy CSV export.
 ---
 
-# Project Imports
+# Projektimporte
 
 Use this skill when the user uploads a legacy project CSV.
 
-## Rules
+## Regeln
 
 - Validate required columns before creating rows.
 - Use `create-project` for each project so ownership and sync are correct.

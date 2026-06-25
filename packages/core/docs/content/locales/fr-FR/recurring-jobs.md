@@ -17,12 +17,12 @@ Les tâches sont en direct dans le [workspace](/docs/workspace) sur `jobs/<name>
 {
   "filename": "jobs/morning-digest.md",
   "language": "markdown",
-  "code": "---\nschedule: \"0 7 * * *\"\nenabled: true\nrunAs: creator\n---\n\n# Morning digest\n\nSummarize the emails received overnight. Group by sender domain.\nPin the top 3 threads that look like they need a reply today to the\n\"Needs reply\" label. Draft replies for any that are obvious.",
+  "code": "---\nschedule: \"0 7 * * *\"\nenabled: true\nrunAs: creator\n---\n\n# Résumé du matin\n\nSummarize les e-mails reçus pendant la nuit. Regroupez par domaine d'expéditeur.\nPin les trois principaux sujets qui semblent avoir besoin d'une réponse aujourd'hui au libellé\n\"Réponse nécessaire\". Rédigez des réponses pour celles qui sont évidentes.",
   "annotations": [
-    { "lines": "2", "label": "When", "note": "Standard 5-field cron — `0 7 * * *` is every day at 07:00." },
-    { "lines": "3", "label": "Pause switch", "note": "Flip to `false` to stop the job without deleting it." },
-    { "lines": "4", "label": "Identity", "note": "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key." },
-    { "lines": "7-12", "label": "The prompt", "note": "The body is just a prompt — the agent runs it at each firing with all its normal tools and workspace context." }
+    { "lines": "2", "label": "Quand", "note": "Cron standard à 5 champs — `0 7 * * *` est tous les jours à 07h00." },
+    { "lines": "3", "label": "Bouton pause", "note": "Flip to `false` to stop the job without deleting it." },
+    { "lines": "4", "label": "Identité", "note": "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key." },
+    { "lines": "7-12", "label": "L'invite", "note": "Le corps n'est qu'une invite : l'agent l'exécute à chaque déclenchement avec tous ses outils et son contexte d'espace de travail normaux." }
   ]
 }
 ```

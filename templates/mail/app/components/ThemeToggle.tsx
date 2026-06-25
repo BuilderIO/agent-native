@@ -9,9 +9,11 @@ import {
 } from "@/components/ui/tooltip";
 import { getResolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { useT } from "@agent-native/core/client";
 
 export function ThemeToggle({ className }: { className?: string }) {
   const { setTheme, resolvedTheme } = useTheme();
+  const t = useT();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
@@ -41,13 +43,16 @@ export function ThemeToggle({ className }: { className?: string }) {
           )}
         </Button>
       </TooltipTrigger>
-      <TooltipContent>Toggle theme</TooltipContent>
+      <TooltipContent>
+        {t(isDark ? "commandPalette.toggleLight" : "commandPalette.toggleDark")}
+      </TooltipContent>
     </Tooltip>
   );
 }
 
 export function SidebarThemeRow() {
   const { setTheme, resolvedTheme } = useTheme();
+  const t = useT();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
@@ -63,11 +68,13 @@ export function SidebarThemeRow() {
       onClick={toggleTheme}
       className="flex w-full items-center justify-between rounded-md px-3 py-2.5 text-[14px] text-foreground/70 hover:bg-accent/30 transition-colors min-h-[44px] cursor-pointer"
     >
-      <span>Appearance</span>
+      <span>{t("commandPalette.appearance")}</span>
       <span className="flex items-center gap-1.5 text-muted-foreground">
         {mounted ? (
           <>
-            <span className="text-[12px]">{isDark ? "Dark" : "Light"}</span>
+            <span className="text-[12px]">
+              {t(isDark ? "theme.dark" : "theme.light")}
+            </span>
             {isDark ? (
               <IconSun className="h-4 w-4" />
             ) : (

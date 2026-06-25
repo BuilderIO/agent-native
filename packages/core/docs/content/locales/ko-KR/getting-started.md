@@ -63,7 +63,7 @@ npx @agent-native/core@latest create my-agent --headless
 그런 다음 생성한 폴더에서 설치합니다.
 
 ```bash
-cd my-agent # or my-app if you chose the Chat template
+cd my-agent # 또는 Chat 템플릿을 선택한 경우 my-app
 pnpm install
 ```
 
@@ -82,9 +82,9 @@ pnpm install
   "annotations": [
     { "lines": "5", "label": "도구 설명", "note": "에이전트는 `description`을 읽고 언제 도구로 호출할지 판단합니다." },
     { "lines": "6-8", "label": "타입 계약", "note": "하나의 zod `schema`가 에이전트, UI, HTTP, MCP, A2A의 모든 입력을 검증합니다." },
-    { "lines": "9", "label": "HTTP verb", "note": "Opt this action into an auto-mounted HTTP endpoint." },
-    { "lines": "10", "label": "Read-only", "note": "`readOnly` marks the action as safe to call without approval and cacheable for queries." },
-    { "lines": "11-13", "label": "One implementation", "note": "The `run` body is the single source of truth that every surface executes." }
+    { "lines": "9", "label": "HTTP 동사", "note": "이 액션을 자동으로 마운트되는 HTTP 엔드포인트로 노출합니다." },
+    { "lines": "10", "label": "읽기 전용", "note": "`readOnly`는 이 액션이 승인 없이 안전하게 호출될 수 있고 쿼리용으로 캐시될 수 있음을 표시합니다." },
+    { "lines": "11-13", "label": "하나의 구현", "note": "`run` 본문은 모든 표면이 실행하는 단일 진실 공급원입니다." }
   ]
 }
 ```
@@ -123,7 +123,7 @@ pnpm dev
 
 ```an-diagram title="하나의 작업, 모든 표면" summary="추가 배선 없이 단일 defineAction 파일이 모든 소비자에게 전달됩니다."
 {
-  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Scheduled jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
+  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">채팅 UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">예약된 작업</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
   "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -138,7 +138,7 @@ pnpm dev
 ```an-callout
 {
   "tone": "info",
-  "body": "**Headless is still a real app.** The app-agent loop persists sessions, threads, runs, settings, and credentials in SQL — it is not a stateless prompt. You can add a UI later without touching your actions or state."
+  "body": "**헤드리스는 여전히 실제 앱입니다.**앱-에이전트 루프는 SQL에서 세션, 스레드, 실행, 설정 및 자격 증명을 유지하며 상태 비저장 프롬프트가 아닙니다. 나중에 작업이나 상태를 건드리지 않고도 UI를 추가할 수 있습니다."
 }
 ```
 
@@ -165,7 +165,7 @@ export default function ChatRoute() {
   `useActionMutation()`.
 
 전체 구성 요소 세트는 [Drop-in Agent](/docs/drop-in-agent)를 참조하세요.
-작업 결과를 테이블로 렌더링하는 [Native Chat UI](/docs/native-chat-ui)
+작업 결과를 테이블로 렌더링하는 [Native 채팅 UI](/docs/native-chat-ui)
 일반 텍스트 대신 차트 및 입력된 카드
 
 **헤드리스로 시작했고 나중에 UI를 원하시나요?** 채팅 템플릿은 _is_ UI 온램프 —
@@ -178,12 +178,12 @@ export default function ChatRoute() {
 
 ```text
 my-app/
-  actions/         # Agent-callable actions
-  app/             # React frontend (UI templates only; omitted when headless)
-  server/          # Nitro API server (routes, plugins)
-  AGENTS.md        # Always-on agent instructions
-  .agents/         # Skills the agent can pull in when relevant
-  data/app.db      # Local SQLite state when DATABASE_URL is unset
+  actions/         # 에이전트가 호출할 수 있는 액션
+  app/             # React 프런트엔드(UI 템플릿만 해당, headless에서는 생략)
+  server/          # Nitro API 서버(라우트, 플러그인)
+  AGENTS.md        # 항상 적용되는 에이전트 지침
+  .agents/         # 필요할 때 에이전트가 불러올 수 있는 스킬
+  data/app.db      # DATABASE_URL이 없을 때의 로컬 SQLite 상태
 ```
 
 ## 다음 목적지

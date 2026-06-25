@@ -28,7 +28,7 @@ agent-native add channel discord  | codex
 
 ```bash
 agent-native add <kind> <name>            # print a curated blueprint
-agent-native add <kind> <https://docs…>   # research-and-integrate from a URL
+agent-native add <kind> <https://docs…>   # البحث والتكامل من URL
 agent-native add --list                   # list available kinds and blueprints
 ```
 

@@ -19,7 +19,7 @@ Claude, ChatGPT, Copilot 또는 Cursor와 같은 외부 호스트가 렌더링�
 
 ```an-diagram title="네이티브 렌더 경로" summary="작업이 JSON을 반환합니다. 런타임은 명시적인 위젯 판별자 또는 chatUI.renderer와 일치합니다. AssistantChat는 실제 React 구성요소를 마운트합니다. iframe도 없고 HTML 실행도 없습니다."
 {
-  "html": "<div class=\"diagram-render\"><div class=\"diagram-node\">Action runs<br><small class=\"diagram-muted\">returns structured JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Match</span><small class=\"diagram-muted\">explicit widget &middot; chatUI.renderer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;AssistantChat&gt;<br><small class=\"diagram-muted\">mounts a React widget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill ok\">DataTable</div><div class=\"diagram-pill ok\">DataChart</div><div class=\"diagram-pill ok\">DataInsights</div></div></div>",
+  "html": "<div class=\"diagram-render\"><div class=\"diagram-node\">Action 실행<br><small class=\"diagram-muted\">구조화된 JSON 반환</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Match</span><small class=\"diagram-muted\">explicit widget &middot; chatUI.renderer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;AssistantChat&gt;<br><small class=\"diagram-muted\">React 위젯 마운트</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill ok\">DataTable</div><div class=\"diagram-pill ok\">DataChart</div><div class=\"diagram-pill ok\">DataInsights</div></div></div>",
   "css": ".diagram-render{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-render .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-render .col{display:flex;flex-direction:column;gap:6px;padding:12px}.diagram-render .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -100,7 +100,7 @@ export default defineAction({
 ```an-callout
 {
   "tone": "success",
-  "body": "The renderer only takes over when the action declares `chatUI` **or** the result carries an explicit known `widget` discriminant. It never shape-infers arbitrary objects and never executes HTML or JavaScript from tool results — so a native widget can't become an injection vector."
+  "body": "렌더러는 작업이 `chatUI`을 선언하거나**결과가 명시적으로 알려진 `widget` 판별식을 전달하는 경우에만 인계받습니다. 임의 개체의 모양을 추론하지 않으며 도구 결과에서 HTML 또는 JavaScript를 실행하지 않습니다. 따라서 기본 위젯은 주입 벡터가 될 수 없습니다."
 }
 ```
 
@@ -211,7 +211,7 @@ export default defineAction({
 
 ```an-diagram title="BYO 런타임은 Agent-Native 채팅 셸을 유지합니다." summary="외부 에이전트는 커넥터를 통해 정규화된 이벤트를 스트리밍합니다. Agent-Native은 작성기, 기록, 도구 카드, 승인 및 기본 위젯을 유지합니다."
 {
-  "html": "<div class=\"diagram-byo\"><div class=\"diagram-box\" data-rough>Your agent<br><small class=\"diagram-muted\">OpenAI &middot; Claude &middot; Vercel AI &middot; AG-UI &middot; HTTP</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">connector</span><small class=\"diagram-muted\">normalized message-* / tool-* events</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill\">&lt;AssistantChat runtime=&hellip; /&gt;</div><small class=\"diagram-muted\">composer &middot; transcript &middot; tool cards</small><small class=\"diagram-muted\">approvals &middot; native widgets</small></div></div>",
+  "html": "<div class=\"diagram-byo\"><div class=\"diagram-box\" data-rough>내 에이전트<br><small class=\"diagram-muted\">OpenAI &middot; Claude &middot; Vercel AI &middot; AG-UI &middot; HTTP</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">connector</span><small class=\"diagram-muted\">정규화된 message-* / tool-* 이벤트</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill\">&lt;AssistantChat runtime=&hellip; /&gt;</div><small class=\"diagram-muted\">composer &middot; transcript &middot; tool cards</small><small class=\"diagram-muted\">approvals &middot; native widgets</small></div></div>",
   "css": ".diagram-byo{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-byo .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-byo .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-byo .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -302,7 +302,7 @@ const runtime = createAgentNativeChatRuntime({
 ```
 
 전체가 필요할 때만 `<AssistantChat createAdapter={...} />`를 사용하세요
-assistant-ui 어댑터 제어. 제품을 사용할 때 `PromptComposer`만 사용하세요.
+assistant-ui 어댑터 제어. 제품을 사용할 때 `Prompt작성r`만 사용하세요.
 외부 녹취록 전체를 소유하고 있으며 Agent-Native의 작곡가만 원합니다
 필드.
 

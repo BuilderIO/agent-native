@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useT } from "@agent-native/core/client";
 
 export type CompSettings = {
   durationInFrames: number;
@@ -21,6 +22,7 @@ export function CompSettingsEditor({
   settings,
   onChange,
 }: CompSettingsEditorProps) {
+  const t = useT();
   const durationSeconds = +(settings.durationInFrames / settings.fps).toFixed(
     2,
   );
@@ -60,7 +62,9 @@ export function CompSettingsEditor({
 
         {/* Size presets */}
         <div className="space-y-1.5">
-          <label className="text-xs text-muted-foreground">Output Size</label>
+          <label className="text-xs text-muted-foreground">
+            {t("raw.compositionSettings.outputSize")}
+          </label>
           <div className="flex gap-1">
             {SIZE_PRESETS.map((preset) => {
               const active =

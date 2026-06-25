@@ -11,7 +11,7 @@ Las aplicaciones nativas del agente están diseñadas para ser seguras de forma 
 
 ```an-diagram title="Defensa en capas" summary="El marco posee la mayor parte de la superficie de amenazas; usted posee dos cosas: etiquetar tablas para determinar el alcance y validar entradas externas."
 {
-  "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">Framework owns</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">You own</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
+  "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">Lo controla el framework</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">Tú lo controlas</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
   "css": ".sec-layers{display:flex;flex-direction:column;gap:12px}.sec-layers .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
 }
 ```
@@ -86,7 +86,7 @@ await exec(`INSERT INTO notes (title) VALUES ('${title}')`);
 ```an-callout
 {
   "tone": "risk",
-  "body": "Never build SQL by string concatenation or template literals. Pass user input as `args` to `exec` / `db-query`, or use Drizzle — both always parameterize. The `pnpm guards` checks catch unscoped and concatenated queries at CI time."
+  "body": "Nunca construyas SQL mediante concatenación de cadenas o literales de plantilla. Pase la entrada del usuario como `args` a `exec` / `db-query`, o use Drizzle; ambos siempre parametrizan. Las comprobaciones `pnpm guards` detectan consultas concatenadas y sin ámbito en el momento de CI."
 }
 ```
 
@@ -125,7 +125,7 @@ session.orgId → AGENT_ORG_ID → SQL row scoping
 
 ```an-diagram title="El canal de alcance" summary="El agente SQL nunca toca las tablas base directamente: lee una vista temporal cuyo ámbito es la identidad actual, por lo que un nombre de tabla simple solo puede devolver filas propias."
 {
-  "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">Signed-in session<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">Agent SQL<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
+  "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">Sesión iniciada<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">SQL del agente<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
   "css": ".scope-pipe{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.scope-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.scope-pipe .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -189,7 +189,7 @@ export const projects = table("projects", {
 });
 ```
 
-```an-schema title="What ownableColumns() adds" summary="The three columns that make a table tenant-aware and shareable."
+```an-schema title="What ownableColumns() adds" summary="Las tres columnas que hacen que una tabla sea compatible con los inquilinos y se pueda compartir."
 {
   "entities": [
     {
@@ -198,8 +198,8 @@ export const projects = table("projects", {
       "note": "Any table that spreads ...ownableColumns()",
       "fields": [
         { "name": "owner_email", "type": "text", "nullable": false, "note": "Creator. Auto-filled by write actions; auto-injected on INSERT." },
-        { "name": "org_id", "type": "text", "nullable": true, "note": "Owner's active org at creation. Drives org-visibility checks." },
-        { "name": "visibility", "type": "enum", "nullable": false, "note": "private | org | public — coarse default, defaults to private." }
+        { "name": "org_id", "type": "text", "nullable": true, "note": "Organización activa del propietario en el momento de la creación. Impulsa las comprobaciones de visibilidad de la organización." },
+        { "name": "visibility", "type": "enum", "nullable": false, "note": "privado | organización | público: valor predeterminado aproximado, el valor predeterminado es privado." }
       ]
     }
   ]
@@ -219,8 +219,8 @@ Las tablas creadas con `ownableColumns()` requieren estas lecturas y escrituras 
 ### Validación
 
 ```bash
-pnpm action db-check-scoping           # Check all tables have owner_email
-pnpm action db-check-scoping --require-org  # Also require org_id
+pnpm action db-check-scoping           # Verifique que todas las tablas tengan propietario_email
+pnpm action db-check-scoping --require-org  # También requiere org_id
 ```
 
 ## Gestión de secretos {#secrets}

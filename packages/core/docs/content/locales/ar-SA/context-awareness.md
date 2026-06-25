@@ -133,7 +133,7 @@ if (url?.searchParams) {
       "id": "hero-title",
       "selector": "[data-block-id='hero-title']",
       "label": "Hero title",
-      "text": "Q3 launch plan"
+      "text": "إطلاق الربع الثالث plan"
     }
   ],
   "capturedAt": 1780332977027
@@ -226,7 +226,7 @@ await setClientAppState(
 ```an-callout
 {
   "tone": "info",
-  "body": "**Keep `navigation` and `selection` small.** Store IDs plus short labels, not whole records. `view-screen` fetches the source of truth on demand, so stale or bulky state never reaches the agent."
+  "body": "**احتفظ بـ `navigation` و`selection` صغيرين.** معرفات المتجر بالإضافة إلى التسميات القصيرة، وليس السجلات الكاملة. `view-screen` يجلب مصدر الحقيقة عند الطلب، لذلك لا تصل الحالة القديمة أو الضخمة إلى الوكيل أبدًا."
 }
 ```
 

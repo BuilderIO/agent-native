@@ -14,7 +14,7 @@ description: "MDX 的开源 Obsidian：编辑本地 Markdown/MDX 文件，生成
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Q3 Roadmap</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>Engineering wiki</span><span class='wf-pill'>Reading list</span><span class='wf-pill'>Weekly sync</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Roadmap</h1><div style='flex:1'></div><button>分享</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>Launch goals</h2><p style='margin:0'>Ship the onboarding flow, reduce setup time, and document owner handoffs.</p><div class='wf-box'>At a glance · owner, window, status</div><div class='wf-box'>Top objectives</div><div class='wf-box'>Workstreams table</div></div></main></div>"
+  "html": "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>第三季度路线图</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>工程 wiki</span><span class='wf-pill'>阅读清单</span><span class='wf-pill'>每周同步</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>第三季度路线图</h1><div style='flex:1'></div><button>分享</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>发布目标</h2><p style='margin:0'>发布 onboarding 流程，缩短设置时间，并记录负责人交接。</p><div class='wf-box'>概览 · 负责人、时间窗口、状态</div><div class='wf-box'>主要目标</div><div class='wf-box'>工作流表</div></div></main></div>"
 }
 ```
 
@@ -22,7 +22,7 @@ description: "MDX 的开源 Obsidian：编辑本地 Markdown/MDX 文件，生成
 
 ```an-diagram title="一份文档，多名编辑" summary="您和代理都通过相同的 Yjs 管道进行写入。 SQL 是规范存储；本地文件和 Notion 是可选的同步表面。"
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">You type<br><small class=\"diagram-muted\">slash menu, toolbar</small></div><div class=\"diagram-node\">Agent edits<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">live, conflict-free merge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">canonical SQL store</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Local .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Notion pages<br><small class=\"diagram-muted\">pull · push</small></div></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">你输入<br><small class=\"diagram-muted\">slash 菜单、工具栏</small></div><div class=\"diagram-node\">代理编辑<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">实时、无冲突合并</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">规范 SQL 存储</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">本地 .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Notion 页面<br><small class=\"diagram-muted\">拉取 · 推送</small></div></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -257,7 +257,7 @@ The browser **Local files** picker can read and write `.md` and `.mdx` files on
 - **`document_property_values`** — 每个文档的属性值（`property_id` → `value_json`）。
 - **`document_shares`** — 通过 `createSharesTable` 创建的每用户和每组织拨款。
 
-```an-schema title="Content data model" summary="Nine tables in server/db/schema.ts. documents is the page tree; the rest hang off it for versions, comments, Notion sync, inline databases, and sharing."
+```an-schema title="内容数据模型" summary="Nine tables in server/db/schema.ts. documents is the page tree; the rest hang off it for versions, comments, Notion sync, inline databases, and sharing."
 {
   "entities": [
     {
@@ -272,7 +272,7 @@ The browser **Local files** picker can read and write `.md` and `.mdx` files on
         { "name": "icon", "type": "string", "nullable": true },
         { "name": "position", "type": "int", "note": "sibling ordering" },
         { "name": "is_favorite", "type": "bool" },
-        { "name": "visibility", "type": "enum", "note": "private | org | public" },
+        { "name": "visibility", "type": "enum", "note": "私人|组织|民众" },
         { "name": "owner_email", "type": "string" },
         { "name": "org_id", "type": "id", "nullable": true }
       ]
@@ -280,7 +280,7 @@ The browser **Local files** picker can read and write `.md` and `.mdx` files on
     {
       "id": "document_versions",
       "name": "document_versions",
-      "note": "Full title/content snapshots for version history",
+      "note": "版本历史记录的完整 title/content 快照",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -291,7 +291,7 @@ The browser **Local files** picker can read and write `.md` and `.mdx` files on
     {
       "id": "document_comments",
       "name": "document_comments",
-      "note": "Threaded comments with quoted-text anchors",
+      "note": "带有引用文本锚的线索评论",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -299,13 +299,13 @@ The browser **Local files** picker can read and write `.md` and `.mdx` files on
         { "name": "parent_id", "type": "id", "fk": "document_comments.id", "nullable": true },
         { "name": "quoted_text", "type": "string", "nullable": true },
         { "name": "resolved", "type": "bool" },
-        { "name": "notion_comment_id", "type": "string", "nullable": true, "note": "bidirectional Notion sync" }
+        { "name": "notion_comment_id", "type": "string", "nullable": true, "note": "双向概念同步" }
       ]
     },
     {
       "id": "document_sync_links",
       "name": "document_sync_links",
-      "note": "One row per Notion-linked document",
+      "note": "每个概念链接文档一行",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -317,7 +317,7 @@ The browser **Local files** picker can read and write `.md` and `.mdx` files on
     {
       "id": "content_databases",
       "name": "content_databases",
-      "note": "Inline database objects attached to a document",
+      "note": "附加到文档的内联数据库对象",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -338,7 +338,7 @@ The browser **Local files** picker can read and write `.md` and `.mdx` files on
     {
       "id": "document_property_definitions",
       "name": "document_property_definitions",
-      "note": "Column definitions for inline databases",
+      "note": "内联数据库的列定义",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "name", "type": "string" },
@@ -350,7 +350,7 @@ The browser **Local files** picker can read and write `.md` and `.mdx` files on
     {
       "id": "document_property_values",
       "name": "document_property_values",
-      "note": "Per-document property values",
+      "note": "每个文档的属性值",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
@@ -366,7 +366,7 @@ The browser **Local files** picker can read and write `.md` and `.mdx` files on
         { "name": "id", "type": "id", "pk": true },
         { "name": "document_id", "type": "id", "fk": "documents.id" },
         { "name": "principal", "type": "string" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+        { "name": "role", "type": "enum", "note": "观众|编辑|行政" }
       ]
     }
   ],
@@ -374,7 +374,7 @@ The browser **Local files** picker can read and write `.md` and `.mdx` files on
     { "from": "documents", "to": "documents", "kind": "1-n", "label": "has children" },
     { "from": "documents", "to": "document_versions", "kind": "1-n", "label": "has snapshots" },
     { "from": "documents", "to": "document_comments", "kind": "1-n", "label": "has comments" },
-    { "from": "documents", "to": "document_sync_links", "kind": "1-1", "label": "links to Notion" },
+    { "from": "documents", "to": "document_sync_links", "kind": "1-1", "label": "概念链接" },
     { "from": "documents", "to": "content_databases", "kind": "1-n", "label": "hosts databases" },
     { "from": "content_databases", "to": "content_database_items", "kind": "1-n", "label": "has rows" },
     { "from": "document_property_definitions", "to": "document_property_values", "kind": "1-n", "label": "has values" },

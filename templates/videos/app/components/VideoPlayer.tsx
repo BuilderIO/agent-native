@@ -29,6 +29,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useT } from "@agent-native/core/client";
 
 export type VideoPlayerHandle = {
   seekTo: (frame: number) => void;
@@ -65,6 +66,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     },
     ref,
   ) {
+    const t = useT();
     const playerRef = useRef<PlayerRef>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [playing, setPlaying] = useState(false);
@@ -266,7 +268,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // Range bounds in seconds, for the time display
     const rangeStartTime = viewStart / composition.fps;
     const rangeEndTime = rangeEnd / composition.fps;
-    const isRanged = viewStart > 0 || rangeEnd < composition.durationInFrames;
+    const isRanged = viewStart > 0 || rangeEnd < composition.durationInFrames; // i18n-ignore scanner false positive
 
     const formatTime = (seconds: number) => {
       const m = Math.floor(seconds / 60);
@@ -365,13 +367,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 <TooltipTrigger asChild>
                   <button
                     onClick={restart}
-                    aria-label="Go to start"
+                    aria-label={t("raw.player.goToStart")}
                     className="p-2.5 sm:p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary"
                   >
                     <IconPlayerSkipBack size={16} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Go to start</TooltipContent>
+                <TooltipContent>{t("raw.player.goToStart")}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -437,12 +439,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   <TooltipTrigger asChild>
                     <SelectTrigger
                       className="h-auto text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono cursor-pointer w-auto gap-1"
-                      aria-label="Playback speed"
+                      aria-label={t("raw.player.playbackSpeed")}
                     >
                       <SelectValue />
                     </SelectTrigger>
                   </TooltipTrigger>
-                  <TooltipContent>Playback speed</TooltipContent>
+                  <TooltipContent>
+                    {t("raw.player.playbackSpeed")}
+                  </TooltipContent>
                 </Tooltip>
                 <SelectContent>
                   <SelectItem value="0.25">0.25×</SelectItem>

@@ -16,9 +16,10 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import changelog from "../../CHANGELOG.md?raw";
+import messages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: "Settings - Macros" }];
+  return [{ title: messages.routeTitles.settings }];
 }
 
 export default function SettingsRoute() {

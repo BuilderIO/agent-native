@@ -27,7 +27,7 @@ Il y a trois couches :
 
 ```an-diagram title="Trois couches sur un seul magasin" summary="CLI, Desktop et l'interface utilisateur partagée sont des surfaces différentes sur le même magasin d'exécution et le même exécuteur sauvegardés sur des fichiers ; les hôtes l'adaptent via le contrat CodeAgentsHost."
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-row\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">CLI</span><small class=\"diagram-muted\">start · resume · status · stop</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Desktop</span><small class=\"diagram-muted\">native terminal · webviews · deep links</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Partagerd UI</span><small class=\"diagram-muted\">@agent-native/code-agents-ui</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill\">CodeAgentsHost</span><small class=\"diagram-muted\">host contract</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>File-backed run store + executor<br><small class=\"diagram-muted\">@agent-native/core/code-agents</small></div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-row\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">CLI</span><small class=\"diagram-muted\">démarrer · reprendre · statut · arrêter</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Desktop</span><small class=\"diagram-muted\">terminal natif · webviews · liens profonds</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Partagerd UI</span><small class=\"diagram-muted\">@agent-native/code-agents-ui</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill\">CodeAgentsHost</span><small class=\"diagram-muted\">host contract</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Store d’exécution sur fichiers + exécuteur<br><small class=\"diagram-muted\">@agent-native/core/code-agents</small></div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px;align-items:center}.diagram-layers .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-layers .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.diagram-layers .diagram-arrow{font-size:22px;line-height:1}.diagram-layers .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -247,8 +247,8 @@ Les hôtes du navigateur devraient renvoyer une erreur `openTerminal` gracieuse 
 
 ## Compositeur partagé
 
-Le code Agent-Native utilise le même `AgentComposerFrame` + `PromptComposer` /
-Pile `TiptapComposer` exportée depuis `@agent-native/core/client/composer` en tant que
+Le code Agent-Native utilise le même `AgentComposerrFrame` + `PromptComposerr` /
+Pile `TiptapComposerr` exportée depuis `@agent-native/core/client/composer` en tant que
 barre latérale de l'agent Framework. Ne créez pas de fichier séparé
 zone de texte, sélecteur d'outil de codage, sélecteur de téléchargement, bouton vocal, sélecteur de modèle ou Entrée pour soumettre
 implémentation pour les surfaces de type Code. Si un hôte a besoin d'un contrôle supplémentaire, passez
@@ -256,7 +256,7 @@ via les points d'extension partagés du compositeur, donc la barre latérale, le
 Le chat cérébral conserve le même modèle d'interaction et le même champ visuel.
 
 La route Ask de Brain utilise `AgentChatSurface`, qui est déjà soutenue par le
-compositeur de barre latérale standard. Le code utilise `PromptComposer` directement car l'hôte
+compositeur de barre latérale standard. Le code utilise `PromptComposerr` directement car l'hôte
 est propriétaire de la création des analyses, des transcriptions et de la livraison de suivi.
 
 ## Outils de codage partagés
@@ -375,18 +375,18 @@ La connexion est sortante uniquement depuis Desktop :
 
 ```an-diagram title="Le Dispatch distant est uniquement sortant" summary="Le mobile ne parle jamais directement au bureau. Desktop interroge longuement Dispatch, revendique les commandes, pilote le magasin d'exécution local et reflète les résultats."
 {
-  "html": "<div class=\"diagram-remote\"><div class=\"diagram-node\" data-rough>Mobile / Telegram<br><small class=\"diagram-muted\">/code · sessions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Dispatch relay<br><small class=\"diagram-muted\">hosts · runs · transcript</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-node\" data-rough>Desktop<br><small class=\"diagram-muted\">long-polls · claims · drives run store</small></div></div>",
+  "html": "<div class=\"diagram-remote\"><div class=\"diagram-node\" data-rough>Application mobile / Telegram<br><small class=\"diagram-muted\">/code · séances</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Relais Dispatch<br><small class=\"diagram-muted\">hôtes · exécutions · transcription</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-node\" data-rough>Desktop<br><small class=\"diagram-muted\">long-polls · revendique · pilote le store d’exécution</small></div></div>",
   "css": ".diagram-remote{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-remote .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
 
 Les points de terminaison canoniques du relais distant sont :
 
-```an-api title="Desktop claims queued work"
+```an-api title="Le bureau revendique le travail en file d'attente"
 {
   "method": "POST",
   "path": "/_agent-native/integrations/remote/poll",
-  "summary": "Desktop long-polls the relay to claim enqueued commands",
+  "summary": "Le bureau interroge longuement le relais pour réclamer les commandes mises en file d'attente",
   "description": "Outbound-only from a paired Desktop host. Desktop authenticates with its device token and claims work that mobile or Telegram enqueued.",
   "auth": "Desktop device token",
   "responses": [

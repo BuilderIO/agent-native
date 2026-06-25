@@ -23,7 +23,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useActionMutation } from "@agent-native/core/client";
+import { useActionMutation, useT } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { msToClock } from "./scrubber";
 
@@ -424,6 +424,7 @@ function EmptyCommentsState({
   enableComments: boolean;
   isSharePresentation: boolean;
 }) {
+  const t = useT();
   if (!enableComments) {
     return (
       <div
@@ -434,7 +435,7 @@ function EmptyCommentsState({
             : "p-6",
         )}
       >
-        Comments are disabled for this recording.
+        {t("commentsPanel.disabled")}
       </div>
     );
   }
@@ -453,12 +454,12 @@ function EmptyCommentsState({
         </span>
       </div>
       <p className="text-base font-semibold text-foreground">
-        Be the first to comment
+        {t("commentsPanel.beFirst")}
       </p>
       <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
         {isSharePresentation
-          ? "Leave a note at the top of this panel."
-          : "Leave a note at the current timestamp."}
+          ? t("commentsPanel.leaveNotePanel")
+          : t("commentsPanel.leaveNoteTimestamp")}
       </p>
     </div>
   );
@@ -489,10 +490,11 @@ function CommentComposer({
   onSubmit: () => void;
   onUnauthenticated?: (intent: "comment" | "react") => void;
 }) {
+  const t = useT();
   if (!enableComments) {
     return (
       <div className="border-t border-border p-3 text-xs text-muted-foreground">
-        Comments are disabled for this recording.
+        {t("commentsPanel.disabled")}
       </div>
     );
   }
@@ -510,7 +512,9 @@ function CommentComposer({
               A
             </AvatarFallback>
           </Avatar>
-          <span className="min-w-0 flex-1 truncate">Leave a comment...</span>
+          <span className="min-w-0 flex-1 truncate">
+            {t("commentsPanel.leaveComment")}
+          </span>
           <IconMoodSmile className="size-4 shrink-0 text-muted-foreground" />
         </button>
       );
@@ -519,14 +523,14 @@ function CommentComposer({
     return (
       <div className="flex items-center justify-between gap-3 border-t border-border bg-background p-3">
         <span className="text-xs text-muted-foreground">
-          Sign in to leave a comment.
+          {t("commentsPanel.signInToComment")}
         </span>
         <Button
           size="sm"
           onClick={() => onUnauthenticated("comment")}
           className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
         >
-          Sign in
+          {t("commentsPanel.signIn")}
         </Button>
       </div>
     );
@@ -544,18 +548,19 @@ function CommentComposer({
       {replyTo ? (
         <div className="flex items-center justify-between rounded bg-accent/50 px-2 py-1 text-xs text-muted-foreground">
           <span>
-            Replying to{" "}
+            {t("commentsPanel.replyingTo")}{" "}
             <span className="font-medium text-foreground">
               {displayName(replyTo)}
             </span>
           </span>
           <button onClick={onCancelReply} className="hover:text-foreground">
-            Cancel
+            {t("common.cancel")}
           </button>
         </div>
       ) : !isSharePresentation ? (
         <div className="px-1 text-[11px] text-muted-foreground">
-          Comment at <span className="font-mono">{msToClock(currentMs)}</span>
+          {t("commentsPanel.commentAt")}{" "}
+          <span className="font-mono">{msToClock(currentMs)}</span>
         </div>
       ) : null}
       <div
@@ -575,7 +580,11 @@ function CommentComposer({
         <Textarea
           value={draft}
           onChange={(e) => onDraftChange(e.target.value)}
-          placeholder={replyTo ? "Write a reply..." : "Leave a comment..."}
+          placeholder={
+            replyTo
+              ? t("commentsPanel.writeReply")
+              : t("commentsPanel.leaveComment")
+          }
           className={cn(
             "resize-none text-sm",
             isSharePresentation

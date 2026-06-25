@@ -14,7 +14,7 @@ Importar navegador UI desde subrutas de cliente enfocadas:
 
 ```tsx
 import { AgentSidebar } from "@agent-native/core/client";
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptRedactarr } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/core/client/editor";
@@ -27,7 +27,7 @@ para que los paquetes elijan la entrada segura para el navegador.
 
 ```an-diagram title="Bajar una capa, no fuera del marco." summary="Cada capa mantiene el mismo tiempo de ejecución (acciones, estado del subproceso y sincronización SQL-backed) al tiempo que le brinda más control sobre Chrome."
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Whole sidebar around your app. The 80% case.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">The panel or a chat page in your own layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Composer and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Same runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Toda la barra lateral alrededor de tu app. El caso del 80 %.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">El panel o una página de chat en tu propio layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptRedactarr&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Redactarr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Mismo runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -58,7 +58,7 @@ para que los paquetes elijan la entrada segura para el navegador.
 conversación mientras Agent-Native mantiene el compositor, la transcripción, las tarjetas de herramientas y
 renderizado de widgets nativos. Los conectores de arriba son la superficie API; el tiempo de ejecución
 Las formas de contratos y eventos se enseñan en
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+[Native Interfaz de chat — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
 Si elige entre agentes sin cabeza, chat enriquecido, sidecar integrado y
 formas completas de la aplicación, consulte [Agent Surfaces](/docs/agent-surfaces).
 
@@ -96,7 +96,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 Para un punto final de "traiga su propio agente", cree un `AgentChatRuntime` con uno de los
 conectores de arriba y páselo a `<AssistantChat runtime={...} />`. Ver
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+[Native Interfaz de chat — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
 para el uso del conector, el flujo de eventos normalizado y cuándo alcanzarlo
 `createHttpAgentChatRuntime()` frente a un conector específico de protocolo.
 
@@ -107,18 +107,18 @@ campo utilizado por la barra lateral dentro de UI personalizado.
 
 | API                               | Usar cuando                                                                                                                                                                                          |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<PromptComposer>`                | Necesita un campo de chat listo para enviar con archivos adjuntos, comandos de barra diagonal, referencias, manejo de texto pegado, persistencia de borradores, entrada de voz y semántica de envío. |
-| `<AgentComposerFrame>`            | Quieres el shell visual estándar alrededor de un cuerpo de compositor personalizado.                                                                                                                 |
-| `<TiptapComposer>`                | Necesita el campo de chat enriquecido de nivel más bajo. Debe renderizarse dentro de un tiempo de ejecución de asistente-ui `ThreadPrimitive.Root`/compositor.                                       |
-| `buildPromptComposerSubmission()` | Necesita el mismo archivo adjunto y la normalización del texto pegado antes de llamar a su propio controlador de envío.                                                                              |
+| `<PromptRedactarr>`                | Necesita un campo de chat listo para enviar con archivos adjuntos, comandos de barra diagonal, referencias, manejo de texto pegado, persistencia de borradores, entrada de voz y semántica de envío. |
+| `<AgentRedactarrFrame>`            | Quieres el shell visual estándar alrededor de un cuerpo de compositor personalizado.                                                                                                                 |
+| `<TiptapRedactarr>`                | Necesita el campo de chat enriquecido de nivel más bajo. Debe renderizarse dentro de un tiempo de ejecución de asistente-ui `ThreadPrimitive.Root`/compositor.                                       |
+| `buildPromptRedactarrSubmission()` | Necesita el mismo archivo adjunto y la normalización del texto pegado antes de llamar a su propio controlador de envío.                                                                              |
 | `formatPromptWithAttachments()`   | Necesita representar los metadatos del archivo adjunto oculto en una cadena de mensaje.                                                                                                              |
 
-La mayoría de los UI personalizados deben comenzar con `PromptComposer`:
+La mayoría de los UI personalizados deben comenzar con `PromptRedactarr`:
 
 ```tsx
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptRedactarr } from "@agent-native/core/client/composer";
 
-<PromptComposer
+<PromptRedactarr
   placeholder="Ask the agent..."
   onSubmit={async (text, files, references, options) => {
     await sendMessageToYourRuntime({ text, files, references, options });
@@ -126,7 +126,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 />;
 ```
 
-Utilice `TiptapComposer` solo si ya está cableando primitivas de interfaz de usuario del asistente
+Utilice `TiptapRedactarr` solo si ya está cableando primitivas de interfaz de usuario del asistente
 tú mismo. Es el campo, no todo el tiempo de ejecución del chat.
 
 ## Representación de conversaciones {#conversation}
@@ -151,7 +151,7 @@ Utilice widgets de herramientas nativas cuando el resultado de una acción deba 
 chat interno en lugar de JSON simple. Las salidas reutilizables integradas incluyen
 `DataTableWidget`, `DataChartWidget` y `DataWidgetResult`; se exportan
 de `@agent-native/core/client/chat` y la entrada del cliente raíz. Ver
-[Native Chat UI](/docs/native-chat-ui) para el contrato de resultado de acción.
+[Native Interfaz de chat](/docs/native-chat-ui) para el contrato de resultado de acción.
 
 | API                              | Usar cuando                                                                                                      |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -180,7 +180,7 @@ ganchos de documentos colaborativos.
 
 ```an-diagram title="Presencia: los humanos y el agente comparten una capa de conciencia." summary="useCollaborativeDoc posee la instancia de conocimiento; los ganchos de cliente publican cursores y selecciones; Los asistentes del servidor permiten que la acción de un agente aparezca como un participante en vivo."
 {
-  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">Agent action<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">render everyone, agent included</small></div></div>",
+  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">Acción del agente<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">renderiza a todos, agente incluido</small></div></div>",
   "css": ".diagram-presence{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-presence .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-presence .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-presence .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

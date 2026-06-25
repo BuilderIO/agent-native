@@ -49,6 +49,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useT } from "@agent-native/core/client";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { useSqlQuery } from "@/lib/sql-query";
@@ -843,6 +844,7 @@ export function SqlChart({
   loadData = true,
   onExportCsvChange,
 }: SqlChartProps) {
+  const t = useT();
   // Hooks must be called unconditionally before any early return.
   const isSection = panel.chartType === "section";
   const shouldQuery = !isSection && loadData;
@@ -910,7 +912,9 @@ export function SqlChart({
       <div
         className={`flex flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
       >
-        <p className="text-sm text-muted-foreground text-center">No data</p>
+        <p className="text-sm text-muted-foreground text-center">
+          {t("common.noData")}
+        </p>
       </div>
     );
   }
@@ -1124,6 +1128,7 @@ function TableRenderer({
   panel: SqlPanel;
   onExportCsvChange?: (handler: (() => void) | null) => void;
 }) {
+  const t = useT();
   const config = panel.config;
   const sortable = config?.sortable !== false; // default on
 
@@ -1305,7 +1310,7 @@ function TableRenderer({
       {sortedRows.length > PAGE_SIZE_OPTIONS[0] && (
         <div className="flex items-center justify-between px-1 pt-1 border-t border-border text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
-            <span>Rows per page:</span>
+            <span>{t("common.rowsPerPage")}</span>
             <Select
               value={String(pageSize)}
               onValueChange={(value) => {
@@ -1736,6 +1741,7 @@ function HeatmapRenderer({
   rows: Record<string, unknown>[];
   panel: SqlPanel;
 }) {
+  const t = useT();
   const cfg = panel.config;
   const yFormatter = cfg?.yFormatter;
 
@@ -1817,7 +1823,9 @@ function HeatmapRenderer({
   if (rows.length === 0 || !valueKey) {
     return (
       <div className="flex min-h-[250px] items-center justify-center py-8">
-        <p className="text-sm text-muted-foreground text-center">No data</p>
+        <p className="text-sm text-muted-foreground text-center">
+          {t("common.noData")}
+        </p>
       </div>
     );
   }

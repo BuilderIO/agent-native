@@ -18,9 +18,9 @@ description: "Slack, ईमेल, टेलीग्राम, या व्ह
 - **वही एजेंट, वही मेमोरी।** आप इसे Slack पर जो भी बताते हैं वह बाद में ईमेल करने पर याद रखा जाता है। वेब चैट और बाहरी संदेश एक थ्रेड इतिहास साझा करते हैं।
 - एकतरफ़ा इन-ऐप अलर्ट (घंटी आइकन, webhooks) के लिए [Notifications](/docs/notifications) देखें।
 
-```an-diagram title="चैनल अनेक, एजेंट एक" summary="प्रत्येक प्लेटफ़ॉर्म एक ही एजेंट लूप और एक ही SQL थ्रेड इतिहास को पसंद करता है - इसलिए एक Slack DM और एक ईमेल समान वार्तालाप जारी रखते हैं।"
+```an-diagram title="चैनल अनेक, एजेंट एक" summary="प्रत्येक प्लेटफ़ॉर्म एक ही एजेंट लूप और एक ही SQL थ्रेड इतिहास को पसंद करता है - इसलिए एक Slack DM संदेश और एक ईमेल समान वार्तालाप जारी रखते हैं।"
 {
-  "html": "<div class=\"msg-fanin\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">Telegram</div><div class=\"diagram-node\">WhatsApp</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">One agent loop</span><small class=\"diagram-muted\">same memory · same tools</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>One SQL thread history<br><small class=\"diagram-muted\">web chat + external messages share it</small></div></div>",
+  "html": "<div class=\"msg-fanin\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">Telegram</div><div class=\"diagram-node\">WhatsApp</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">एक एजेंट लूप</span><small class=\"diagram-muted\">वही memory · वही tools</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>एक SQL थ्रेड इतिहास<br><small class=\"diagram-muted\">web chat + external messages share it</small></div></div>",
   "css": ".msg-fanin{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.msg-fanin .diagram-col{display:flex;flex-direction:column;gap:8px}.msg-fanin .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -233,18 +233,18 @@ https://your-app.example.com/_agent-native/integrations/email/webhook
 
 ```an-diagram title="इनबाउंड वेबहुक जीवनचक्र" summary="वेबहुक केवल 200 को सत्यापित करता है, कतारबद्ध करता है और लौटाता है। एक ताजा फ़ंक्शन निष्पादन कतार को हटा देता है और सुरक्षा जाल के रूप में 60s पुनः प्रयास कार्य के साथ एजेंट लूप चलाता है।"
 {
-  "html": "<div class=\"msg-flow\"><div class=\"msg-row\"><div class=\"diagram-node\">Platform<br><small class=\"diagram-muted\">Slack · email · etc.</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><strong>/webhook</strong><br><small class=\"diagram-muted\">verify signature + parse</small><br><span class=\"diagram-pill\">INSERT pending task</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">return 200</div></div><div class=\"msg-fire\"><span class=\"diagram-muted\">fire-and-forget</span> <span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</span></div><div class=\"msg-row\"><div class=\"diagram-box\" data-rough><strong>/process-task</strong><br><small class=\"diagram-muted\">fresh execution · own timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">claim</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">agent loop</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">adapter.sendResponse</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">completed</div></div><div class=\"diagram-panel msg-retry\" data-rough><span class=\"diagram-pill warn\">every 60s</span> <span class=\"diagram-muted\">retry job sweeps stuck tasks (pending &gt;90s · processing &gt;5min) and re-fires /process-task &mdash; capped at 3 attempts, then <strong>failed</strong></span></div></div>",
+  "html": "<div class=\"msg-flow\"><div class=\"msg-row\"><div class=\"diagram-node\">Platform<br><small class=\"diagram-muted\">Slack · ईमेल · आदि</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><strong>/webhook</strong><br><small class=\"diagram-muted\">verify signature + parse</small><br><span class=\"diagram-pill\">INSERT लंबित कार्य</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">return 200</div></div><div class=\"msg-fire\"><span class=\"diagram-muted\">fire-and-forget</span> <span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</span></div><div class=\"msg-row\"><div class=\"diagram-box\" data-rough><strong>/process-task</strong><br><small class=\"diagram-muted\">नया execution · अपना timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">claim</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">agent loop</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">adapter.sendResponse</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">completed</div></div><div class=\"diagram-panel msg-retry\" data-rough><span class=\"diagram-pill warn\">every 60s</span> <span class=\"diagram-muted\">retry job sweeps stuck tasks (pending &gt;90s · processing &gt;5min) and re-fires /process-task &mdash; capped at 3 attempts, then <strong>failed</strong></span></div></div>",
   "css": ".msg-flow{display:flex;flex-direction:column;gap:12px}.msg-flow .msg-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.msg-flow .msg-fire{display:flex;align-items:center;gap:8px;padding-inline-start:12px}.msg-flow .msg-retry{display:flex;align-items:center;gap:8px;flex-wrap:wrap}"
 }
 ```
 
-इनबाउंड और आउटबाउंड वार्तालाप एक ही SQL थ्रेड में रहते हैं, इसलिए आप वेब UI से Slack DM जारी रख सकते हैं या इसके विपरीत।
+इनबाउंड और आउटबाउंड वार्तालाप एक ही SQL थ्रेड में रहते हैं, इसलिए आप वेब UI से Slack DM संदेश जारी रख सकते हैं या इसके विपरीत।
 
 ```an-api
 {
   "method": "POST",
   "path": "/_agent-native/integrations/slack/webhook",
-  "summary": "Slack Events API inbound webhook",
+  "summary": "Slack इवेंट API इनबाउंड वेबहुक",
   "description": "Receives Slack events (DMs and channel `app_mention`s). Verifies the request signature, parses the payload into an `IncomingMessage`, inserts a `pending` row into `integration_pending_tasks`, fires the fresh-execution processor, and returns **200 immediately** — well inside Slack's 3-second SLA. The same route shape exists per platform under `/_agent-native/integrations/<platform>/webhook`.",
   "auth": "HMAC-SHA256 of the raw body using `SLACK_SIGNING_SECRET`, checked against the `X-Slack-Signature` header. In production also gated by `SLACK_ALLOWED_TEAM_IDS` / `SLACK_ALLOWED_API_APP_IDS`.",
   "params": [
@@ -322,7 +322,7 @@ POST /_agent-native/integrations/telegram/setup
 
 प्रत्येक बाहरी वार्तालाप एजेंट-मूल डेटाबेस में एक सतत थ्रेड पर मैप होता है:
 
-- **Slack DM** → प्रति Slack उपयोगकर्ता एक थ्रेड।
+- **Slack DM संदेश** → प्रति Slack उपयोगकर्ता एक थ्रेड।
 - **Slack चैनल @उल्लेख** → प्रति चैनल एक थ्रेड।
 - **टेलीग्राम चैट** → प्रति टेलीग्राम चैट एक थ्रेड।
 - **व्हाट्सएप वार्तालाप** → प्रति व्हाट्सएप नंबर एक थ्रेड।

@@ -26,7 +26,7 @@ Six modèles résolvent ce problème :
 
 ```an-diagram title="Comment l'agent voit ce que vous voyez" summary="L'interface utilisateur écrit des clés d'état légères ; l'écran de visualisation les hydrate en enregistrements réels ; l'agent peut écrire, revenir en arrière pour déplacer l'interface utilisateur."
 {
-  "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI writes</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">view, open ids</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">rows, blocks, shapes</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Agent acts<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">agent moves the UI</small></div></div>",
+  "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">L’UI écrit</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">vue, IDs ouverts</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">lignes, blocs, formes</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">L’agent agit<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">l’agent déplace l’UI</small></div></div>",
   "css": ".diagram-ctx{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-ctx .col{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-ctx .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-ctx .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -133,7 +133,7 @@ Utilisez la clé d'état de l'application `selection` pour une sélection durabl
       "id": "hero-title",
       "selector": "[data-block-id='hero-title']",
       "label": "Hero title",
-      "text": "Q3 launch plan"
+      "text": "Lancement T3 plan"
     }
   ],
   "capturedAt": 1780332977027
@@ -197,10 +197,10 @@ Chaque modèle doit avoir une action `view-screen`. Il lit l'état de navigation
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { readAppState } from \"@agent-native/core/application-state\";\nimport { eq, inArray } from \"drizzle-orm\";\nimport { z } from \"zod\";\nimport { getDb, schema } from \"../server/db/index.js\";\n\nexport default defineAction({\n  description:\n    \"See what the user is currently looking at on screen.\",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState(\"navigation\")) as any;\n    const selection = (await readAppState(\"selection\")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === \"inbox\") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === \"email.messages\") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return \"No application state found. Is the app running?\";\n    }\n    return screen;\n  },\n});",
   "annotations": [
-    { "lines": "10-11", "label": "Tool surface", "note": "The agent reads this description to know it can call `view-screen` to see the current UI." },
-    { "lines": "13", "label": "http: false", "note": "Internal action — not exposed over HTTP. The agent and `pnpm action` call it, not the browser." },
-    { "lines": "15-16", "label": "Read state", "note": "Pulls the lightweight `navigation` and `selection` keys the UI wrote." },
-    { "lines": "23-37", "label": "Hydrate", "note": "Turns those IDs into **fresh** records straight from SQL, so the agent verifies the live object before acting." }
+    { "lines": "10-11", "label": "Surface de l'outil", "note": "L'agent lit cette description pour savoir qu'il peut appeler `view-screen` pour voir l'interface utilisateur actuelle." },
+    { "lines": "13", "label": "http: false", "note": "Action interne – non exposée sur HTTP. L'agent et `pnpm action` l'appellent, pas le navigateur." },
+    { "lines": "15-16", "label": "Lire l'état", "note": "Extrait les touches légères `navigation` et `selection` écrites par l'interface utilisateur." },
+    { "lines": "23-37", "label": "Hydratation", "note": "Transforme ces IDs en enregistrements **frais** directement à partir de `application_state`, afin que l'agent vérifie l'objet actif avant d'agir." }
   ]
 }
 ```
@@ -210,7 +210,7 @@ L'agent doit appeler `pnpm action view-screen` avant d'agir sur le UI actuel. Il
 ```an-callout
 {
   "tone": "info",
-  "body": "**Keep `navigation` and `selection` small.** Store IDs plus short labels, not whole records. `view-screen` fetches the source of truth on demand, so stale or bulky state never reaches the agent."
+  "body": "**Gardez `navigation` et `selection` petits.** Stockez IDs ainsi que des étiquettes courtes, pas des disques entiers. `view-screen` récupère la source de vérité à la demande, de sorte qu'un état obsolète ou volumineux n'atteigne jamais l'agent."
 }
 ```
 
@@ -367,7 +367,7 @@ Comment ça marche :
 
 ```an-diagram title="Le marquage de la source arrête la gigue de la récupération automatique" summary="Un onglet ignore les événements de synchronisation marqués de son propre TAB_ID, mais réagit toujours aux écritures de l'agent et des autres onglets."
 {
-  "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">This tab writes<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Server stores source<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">no refetch, no flicker</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">UI updates live</small></div></div>",
+  "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">Cet onglet écrit<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Le serveur stocke la source<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">pas de refetch, pas de scintillement</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">L’UI se met à jour en direct</small></div></div>",
   "css": ".diagram-jitter{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jitter .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-jitter .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

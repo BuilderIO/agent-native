@@ -6,6 +6,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
+import { useT } from "@agent-native/core/client";
 import {
   isHtml,
   linkifyText,
@@ -31,6 +32,7 @@ export function RenderedDescription({
   editable?: boolean;
   className?: string;
 }) {
+  const t = useT();
   const descIsHtml = isHtml(description);
   const html = descIsHtml
     ? stripGcalInviteHtml(sanitizeHtml(description))
@@ -66,11 +68,12 @@ export function RenderedDescription({
         >
           {expanded ? (
             <>
-              Show less <IconChevronUp className="h-3 w-3" />
+              {t("eventForm.showLess")} <IconChevronUp className="h-3 w-3" />
             </>
           ) : (
             <>
-              Show more <IconChevronDown className="h-3 w-3" />
+              {t("eventForm.showMore")}{" "}
+              <IconChevronDown className="h-3 w-3" />
             </>
           )}
         </button>

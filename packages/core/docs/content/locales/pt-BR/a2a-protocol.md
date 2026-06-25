@@ -22,7 +22,7 @@ Conceitos principais:
 
 ```an-diagram title="Um agente passa o trabalho para outro" summary="Um agente de correio descobre o cartão do agente analítico, envia uma mensagem JSON-RPC e recebe de volta uma tarefa concluída."
 {
-  "html": "<div class=\"diagram-handoff\"><div class=\"diagram-card\"><strong>Mail agent</strong><small class=\"diagram-muted\">needs analytics</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">GET /.well-known/agent-card.json</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">POST /_agent-native/a2a<br><small class=\"diagram-muted\">message/send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-pill ok\">task · completed</div></div><div class=\"diagram-card\" data-rough><strong>Analytics agent</strong><small class=\"diagram-muted\">runs run-query, returns result</small></div></div>",
+  "html": "<div class=\"diagram-handoff\"><div class=\"diagram-card\"><strong>Agente Mail</strong><small class=\"diagram-muted\">needs analytics</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">GET /.well-known/agent-card.json</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">POST /_agent-native/a2a<br><small class=\"diagram-muted\">message/send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-pill ok\">tarefa · concluída</div></div><div class=\"diagram-card\" data-rough><strong>Agente Analytics</strong><small class=\"diagram-muted\">executa run-query e retorna o resultado</small></div></div>",
   "css": ".diagram-handoff{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-handoff .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-handoff .diagram-arrow{font-size:20px;line-height:1}"
 }
 ```
@@ -119,11 +119,11 @@ Todos os métodos são chamados via `POST /_agent-native/a2a` com formato JSON-R
 | `tasks/get`      | Buscar uma tarefa por ID — usado para pesquisar uma tarefa assíncrona até a conclusão                                                | `id`                          |
 | `tasks/cancel`   | Cancelar uma tarefa em execução                                                                                                      | `id`                          |
 
-```an-api title="Primary A2A endpoint" summary="All JSON-RPC methods are POSTed here. message/send shown."
+```an-api title="Ponto de extremidade primário A2A" summary="Todos os métodos JSON-RPC são POSTados aqui. message/send mostrado."
 {
   "method": "POST",
   "path": "/_agent-native/a2a",
-  "summary": "Send a message and wait for the completed task",
+  "summary": "Envie uma mensagem e aguarde a conclusão da tarefa",
   "description": "JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `tasks/cancel`. Pass `async: true` to return immediately in `working` state and poll with `tasks/get`.",
   "auth": "JWT bearer signed with A2A_SECRET (or legacy apiKeyEnv static token)",
   "params": [
@@ -148,7 +148,7 @@ Quando `message/send` é chamado com `async: true`, o manipulador JSON-RPC enfil
 
 ```an-diagram title="Ciclo de vida de tarefa assíncrona sem servidor" summary="async:true retorna funcionando em milissegundos e, em seguida, uma nova execução executa o loop do agente enquanto o chamador pesquisa."
 {
-  "html": "<div class=\"diagram-async\"><div class=\"diagram-box\" data-rough>message/send<br><small class=\"diagram-muted\">async: true</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">enqueue task</span><span class=\"diagram-pill warn\">return working</span><small class=\"diagram-muted\">~milliseconds</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>self-fire POST /_agent-native/a2a/_process-task<br><small class=\"diagram-muted\">HMAC token · fresh execution · full timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">tasks/get (poll)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">completed</div></div></div>",
+  "html": "<div class=\"diagram-async\"><div class=\"diagram-box\" data-rough>message/send<br><small class=\"diagram-muted\">async: true</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">enqueue task</span><span class=\"diagram-pill warn\">return working</span><small class=\"diagram-muted\">~milissegundos</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>POST autoacionado /_agent-native/a2a/_process-task<br><small class=\"diagram-muted\">token HMAC · execução nova · timeout completo</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">tasks/get (poll)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">completed</div></div></div>",
   "css": ".diagram-async{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-async .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-arrow{font-size:20px;line-height:1}",
   "caption": "A recurring sweeper re-claims any task left in flight if the function execution dies mid-run."
 }
@@ -165,9 +165,9 @@ As mensagens contêm partes digitadas — texto, dados estruturados e arquivos p
   "language": "json",
   "code": "{\n  \"role\": \"user\",\n  \"parts\": [\n    { \"type\": \"text\", \"text\": \"Show signups by source\" },\n    { \"type\": \"data\", \"data\": { \"dateRange\": \"last-30d\" } },\n    {\n      \"type\": \"file\",\n      \"file\": { \"name\": \"report.csv\", \"mimeType\": \"text/csv\", \"bytes\": \"...\" }\n    }\n  ]\n}",
   "annotations": [
-    { "lines": "4", "label": "text part", "note": "Plain natural-language instruction the agent reads." },
-    { "lines": "5", "label": "data part", "note": "Structured JSON arguments — e.g. a date range — passed alongside the prompt." },
-    { "lines": "6-9", "label": "file part", "note": "Attach a file by name, `mimeType`, and base64 `bytes`." }
+    { "lines": "4", "label": "text part", "note": "Instrução simples em linguagem natural que o agente lê." },
+    { "lines": "5", "label": "data part", "note": "Argumentos JSON estruturados — por ex. um intervalo de datas – passado junto com o prompt." },
+    { "lines": "6-9", "label": "file part", "note": "Anexe um arquivo por nome, `mimeType` e base64 `bytes`." }
   ]
 }
 ```

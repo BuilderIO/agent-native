@@ -29,6 +29,7 @@ import {
   filterInboxTabEmails,
 } from "@/lib/inbox-tabs";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { useT } from "@agent-native/core/client";
 
 function ContactPanel({
   emailId,
@@ -39,6 +40,7 @@ function ContactPanel({
   contactEmail?: string;
   emails: EmailMessage[];
 }) {
+  const t = useT();
   // Look up from already-cached list data instead of making a separate API call
   const email = useMemo(
     () =>
@@ -57,7 +59,9 @@ function ContactPanel({
   if (!displayEmail) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-xs text-muted-foreground/40">No contact selected</p>
+        <p className="text-xs text-muted-foreground/40">
+          {t("mail.contacts.noContactSelected")}
+        </p>
       </div>
     );
   }

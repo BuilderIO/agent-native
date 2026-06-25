@@ -19,7 +19,7 @@ agent-native add channel discord  | codex
 
 ```an-diagram title="एक नुस्खा प्रिंट जोड़ें; आपका कोडिंग एजेंट इसे लागू करता है" summary="agent-native stdout (stderr के लिए निदान) के लिए एक मार्कडाउन ब्लूप्रिंट उत्सर्जित करता है; आप इसे Claude Code या Codex में पाइप करते हैं, जो आपके लाइव रेपो को पूरे संदर्भ के साथ संपादित करता है।"
 {
-  "html": "<div class=\"diagram-bp\"><div class=\"diagram-node\" data-rough>agent-native add<br><small class=\"diagram-muted\">&lt;kind&gt; &lt;name|URL&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Markdown blueprint<br><small class=\"diagram-muted\">stdout · files to touch · rules · Verify</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>Coding agent<br><small class=\"diagram-muted\">claude · codex</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">edits your live repo</div></div>",
+  "html": "<div class=\"diagram-bp\"><div class=\"diagram-node\" data-rough>agent-native add<br><small class=\"diagram-muted\">&lt;kind&gt; &lt;name|URL&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Markdown ब्लूप्रिंट<br><small class=\"diagram-muted\">stdout · छूने वाली फाइलें · नियम · Verify</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>कोडिंग एजेंट<br><small class=\"diagram-muted\">claude · codex</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">edits your live repo</div></div>",
   "css": ".diagram-bp{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bp .diagram-arrow{font-size:22px;line-height:1}.diagram-bp .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -28,7 +28,7 @@ agent-native add channel discord  | codex
 
 ```bash
 agent-native add <kind> <name>            # print a curated blueprint
-agent-native add <kind> <https://docs…>   # research-and-integrate from a URL
+agent-native add <kind> <https://docs…>   # URL से अनुसंधान-और-एकीकृत करें
 agent-native add --list                   # list available kinds and blueprints
 ```
 

@@ -12,7 +12,7 @@ Wenn Sie die kleinste reine Aktionslaufzeit ohne Browser UI wünschen, beginnen 
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>How can I help?</h1><p class='wf-muted' style='margin:10px 0 0'>Chat about anything. Add actions, components, pages, jobs, or your own backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Message the agent...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Wie kann ich helfen?</h1><p class='wf-muted' style='margin:10px 0 0'>Chatte über alles. Füge Actions, Komponenten, Seiten, Jobs oder dein eigenes Backend hinzu.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Nachricht an den Agenten...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
 }
 ```
 
@@ -37,7 +37,7 @@ Das ist der Punkt. Chat ist eine schlanke, nützliche Standard-Shell für Ihren 
 
 ```an-diagram title="Was in der Chat-Shell enthalten ist" summary="Eine schlanke Chat-Oberfläche über die Standardlaufzeit des Frameworks – Aktionen, dauerhafte Threads, Live-Synchronisierung und Authentifizierung – mit Platz zum Hinzufügen Ihrer eigenen Benutzeroberfläche."
 {
-  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">Thread list<br><small class=\"diagram-muted\">create · reopen · pin · archive</small></div><div class=\"diagram-node\">Full-page chat<br><small class=\"diagram-muted\">framework chat surface on /</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">Core SQL tables<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">Live sync &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">login · orgs · sessions</small></div></div></div>",
+  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">Thread-Liste<br><small class=\"diagram-muted\">erstellen · erneut öffnen · anheften · archivieren</small></div><div class=\"diagram-node\">Ganzseitiger Chat<br><small class=\"diagram-muted\">Framework-Chat-Oberfläche auf /</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">Kern-SQL-Tabellen<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">Live-Synchronisierung &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">Login · Organisationen · Sitzungen</small></div></div></div>",
   "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -46,7 +46,7 @@ Das ist der Punkt. Chat ist eine schlanke, nützliche Standard-Shell für Ihren 
 
 - **Sie möchten eine einfache App, mit der Benutzer sofort sprechen können** und die Sie dann mit actions und UI erweitern können.
 - **Sie haben eine Headless-App, die Chat** als erste Browseroberfläche benötigt.
-- **Sie möchten Ihr eigenes Agent-Backend in einen vertrauten Chat UI** einbinden und dabei Agent-Natives actions, Status, Authentifizierung und Bereitstellungsform beibehalten.
+- **Sie möchten Ihr eigenes Agent-Backend in einen vertrauten Chat-Oberfläche** einbinden und dabei Agent-Natives actions, Status, Authentifizierung und Bereitstellungsform beibehalten.
 - **Sie erstellen einen Prototyp eines benutzerdefinierten internen Tools**, das nicht mit einer Domänenvorlage übereinstimmt.
 
 ## Gerüst {#scaffolding}
@@ -80,7 +80,7 @@ Kopieren Sie von dort aus die `/`-Route und die Seitenleisten-Thread-Liste der C
     { "path": "actions/hello.ts", "note": "Die eine Beispiel-Action; ersetzen oder daneben Actions ergänzen" },
     { "path": "actions/view-screen.ts", "note": "Standard-Kontext-Action, die der Agent liest" },
     { "path": "actions/navigate.ts", "note": "Standard-Navigations-Action" },
-    { "path": "app/routes/_index.tsx", "note": "Rendert die ganzseitige Chat-Oberfläche; Vorschläge, Empty State und Composer bearbeiten" },
+    { "path": "app/routes/_index.tsx", "note": "Rendert die ganzseitige Chat-Oberfläche; Vorschläge, Empty State und Verfassenr bearbeiten" },
     { "path": "AGENTS.md", "note": "Chat-orientierte Anleitung, die der integrierte Agent liest" }
   ]
 }
@@ -125,5 +125,5 @@ Der Agent sollte ein Drizzle-Schema, actions, Route, Navigation und Anweisungen 
 - [**Getting Started**](/docs) – Wählen Sie zwischen Headless-, Chat- und Domain-Vorlagen
 - [**Agent Surfaces**](/docs/agent-surfaces) – Headless-, Chat-, eingebettete und vollständige App-Muster
 - [**Actions**](/docs/actions) – der Aktionssystem-Chat und UI rufen beide auf
-- [**Native Chat UI**](/docs/native-chat-ui) – Chat-Oberflächenprimitive und Laufzeitoptionen
+- [**Native Chat-Oberfläche**](/docs/native-chat-ui) – Chat-Oberflächenprimitive und Laufzeitoptionen
 - [**Pure-Agent Apps**](/docs/pure-agent-apps) – reine Aktions-Apps, die später in Chat integriert werden können

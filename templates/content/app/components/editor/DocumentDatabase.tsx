@@ -16,6 +16,7 @@ import {
   useBuilderConnectFlow,
   useBuilderStatus,
   useCodeMode,
+  useT,
 } from "@agent-native/core/client";
 import {
   IconArrowDown,
@@ -248,6 +249,65 @@ type DatabaseDropTargetState = {
   side: DatabaseDropSide;
 };
 
+type DatabaseT = ReturnType<typeof useDatabaseT>;
+
+function useDatabaseT() {
+  const t = useT();
+  return (key: string, options?: Record<string, unknown>) =>
+    t(`database.${key}`, options);
+}
+
+function DatabaseText({
+  k,
+  values,
+}: {
+  k: string;
+  values?: Record<string, unknown>;
+}) {
+  const db = useDatabaseT();
+  return <>{db(k, values)}</>;
+}
+
+function databaseGroupLabels(db: DatabaseT) {
+  return {
+    allPages: db("allPages"),
+    noGrouping: db("noGrouping"),
+    checked: db("checked"),
+    unchecked: db("unchecked"),
+  };
+}
+
+function defaultDatabaseT(key: string) {
+  const labels: Record<string, string> = {
+    allPages: "All pages",
+    average: "Average",
+    checked: "Checked",
+    countAll: "Count all",
+    countEmpty: "Count empty",
+    countUnique: "Count unique",
+    countValues: "Count values",
+    dateRange: "Date range",
+    earliest: "Earliest",
+    filterChecked: "Filter checked",
+    filterEmpty: "Filter empty",
+    filterNotEmpty: "Filter not empty",
+    filterUnchecked: "Filter unchecked",
+    latest: "Latest",
+    max: "Max",
+    median: "Median",
+    min: "Min",
+    noGrouping: "No grouping",
+    percentChecked: "Percent checked",
+    percentEmpty: "Percent empty",
+    percentFilled: "Percent filled",
+    percentUnchecked: "Percent unchecked",
+    range: "Range",
+    sum: "Sum",
+    unchecked: "Unchecked",
+  };
+  return labels[key] ?? key;
+}
+
 function databaseDragMoved(
   startX: number,
   startY: number,
@@ -399,6 +459,7 @@ function DatabaseTable({
   document: Document;
   canEdit: boolean;
 }) {
+  const db = useDatabaseT();
   const navigate = useNavigate();
   const [databaseItemLimit, setDatabaseItemLimit] = useState(
     CONTENT_DATABASE_PAGE_SIZE,
@@ -927,8 +988,8 @@ function DatabaseTable({
         },
       );
     } catch (error) {
-      toast.error("Builder update failed", {
-        description: error instanceof Error ? error.message : "Try again.",
+      toast.error(db("builderUpdateFailed"), {
+        description: error instanceof Error ? error.message : db("tryAgain"),
       });
     }
   }
@@ -940,6 +1001,7 @@ function DatabaseTable({
         visibleItems,
         orderedProperties,
         activeView.groupByPropertyId,
+        databaseGroupLabels(db),
       ),
       activeView.hideEmptyGroups === true,
     );
@@ -947,6 +1009,7 @@ function DatabaseTable({
     activeView.groupByPropertyId,
     activeView.hideEmptyGroups,
     databaseGroupProperty,
+    db,
     orderedProperties,
     visibleItems,
   ]);
@@ -1041,7 +1104,7 @@ function DatabaseTable({
               <Input
                 autoFocus
                 value={searchQuery}
-                placeholder="Search"
+                placeholder={db("search")}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Escape") {
@@ -1053,7 +1116,7 @@ function DatabaseTable({
               />
               <button
                 type="button"
-                aria-label="Close search"
+                aria-label={db("closeSearch")}
                 className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
                 onClick={() => {
                   setSearchQuery("");
@@ -1068,8 +1131,8 @@ function DatabaseTable({
               type="button"
               variant="ghost"
               size="sm"
-              aria-label="Search"
-              title="Search"
+              aria-label={db("search")}
+              title={db("search")}
               className={cn(
                 databaseToolbarIconButtonClass(),
                 searchQuery && "bg-muted text-foreground",
@@ -1453,15 +1516,15 @@ function DatabaseTable({
                 setBuilderReviewOpen(false);
                 setBuilderReviewResult(null);
                 setBuilderReviewCheckedAt(null);
-                toast.success("Source disconnected", {
+                toast.success(db("sourceDisconnected"), {
                   description:
-                    "Database rows and local properties were kept intact.",
+                    db("databaseRowsAndLocalPropertiesWereKeptIntact"),
                 });
               },
               onError: (error) => {
-                toast.error("Source was not disconnected", {
+                toast.error(db("sourceWasNotDisconnected"), {
                   description:
-                    error instanceof Error ? error.message : "Try again.",
+                    error instanceof Error ? error.message : db("tryAgain"),
                 });
               },
             },
@@ -1493,9 +1556,9 @@ function DatabaseTable({
                 );
               },
               onError: (error) => {
-                toast.error("Builder write mode was not changed", {
+                toast.error(db("builderWriteModeWasNotChanged"), {
                   description:
-                    error instanceof Error ? error.message : "Try again.",
+                    error instanceof Error ? error.message : db("tryAgain"),
                 });
               },
             },
@@ -1820,7 +1883,7 @@ export function databaseBulkScalarInputState(
 }
 
 export function databaseDuplicatedItemFromResponse(
-  response: Pick<ContentDatabaseResponse, "items"> &
+  response: Pick<ContentDatabaseResponse, "items"> & // i18n-ignore type expression
     Pick<Partial<ContentDatabaseResponse>, "duplicatedItemId">,
 ) {
   return (
@@ -1946,6 +2009,7 @@ function DatabaseItemPreviewSheet({
   onTitleFocused?: () => void;
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
+  const db = useDatabaseT();
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal={false}>
       <SheetContent
@@ -1969,8 +2033,8 @@ function DatabaseItemPreviewSheet({
           />
         ) : (
           <SheetHeader className="sr-only">
-            <SheetTitle>Database page preview</SheetTitle>
-            <SheetDescription>No database page selected.</SheetDescription>
+            <SheetTitle><DatabaseText k="databasePagePreview" /></SheetTitle>
+            <SheetDescription><DatabaseText k="noDatabasePageSelected" /></SheetDescription>
           </SheetHeader>
         )}
       </SheetContent>
@@ -2021,6 +2085,7 @@ function DatabaseItemPreview({
   onClose: () => void;
   onOpenPage: () => void;
 }) {
+  const db = useDatabaseT();
   const queryClient = useQueryClient();
   const updateDocument = useUpdateDocument();
   const deleteDocument = useDeleteDocument();
@@ -2105,9 +2170,9 @@ function DatabaseItemPreview({
         });
       },
       onError: (err) => {
-        toast.error("Failed to save page preview", {
+        toast.error(db("failedToSavePagePreview"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : db("somethingWentWrong"),
         });
       },
     });
@@ -2227,9 +2292,9 @@ function DatabaseItemPreview({
         },
         onError: (err) => {
           setLocalIcon(document.icon);
-          toast.error("Failed to save page icon", {
+          toast.error(db("failedToSavePageIcon"), {
             description:
-              err instanceof Error ? err.message : "Something went wrong",
+              err instanceof Error ? err.message : db("somethingWentWrong"),
           });
         },
       },
@@ -2245,9 +2310,9 @@ function DatabaseItemPreview({
       );
       if (duplicatedItem) onPreviewItem?.(duplicatedItem);
     } catch (err) {
-      toast.error("Failed to duplicate row", {
+      toast.error(db("failedToDuplicateRow"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : db("somethingWentWrong"),
       });
     }
   }
@@ -2287,9 +2352,9 @@ function DatabaseItemPreview({
     } catch (err) {
       deletedIdsRef.current.delete(item.document.id);
       onPreviewItem?.(item);
-      toast.error("Failed to delete row", {
+      toast.error(db("failedToDeleteRow"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : db("somethingWentWrong"),
       });
     }
   }
@@ -2320,7 +2385,7 @@ function DatabaseItemPreview({
               size="icon"
               className="size-8 text-muted-foreground"
               disabled={!previousItem}
-              aria-label="Previous database page"
+              aria-label={db("previousDatabasePage")}
               onClick={() => {
                 if (previousItem) onPreviewItem?.(previousItem);
               }}
@@ -2333,7 +2398,7 @@ function DatabaseItemPreview({
               size="icon"
               className="size-8 text-muted-foreground"
               disabled={!nextItem}
-              aria-label="Next database page"
+              aria-label={db("nextDatabasePage")}
               onClick={() => {
                 if (nextItem) onPreviewItem?.(nextItem);
               }}
@@ -2348,7 +2413,7 @@ function DatabaseItemPreview({
               onClick={onOpenPage}
             >
               <IconExternalLink className="size-3.5" />
-              Open page
+              <DatabaseText k="openPage" />
             </Button>
             {canEdit || canManage ? (
               <DropdownMenu
@@ -2376,7 +2441,7 @@ function DatabaseItemPreview({
                       }}
                     >
                       <IconCopy className="mr-2 size-4 text-muted-foreground" />
-                      Duplicate row
+                      <DatabaseText k="duplicateRow" />
                     </DropdownMenuItem>
                   ) : null}
                   {canEdit && canManage ? <DropdownMenuSeparator /> : null}
@@ -2390,7 +2455,7 @@ function DatabaseItemPreview({
                       }}
                     >
                       <IconTrash className="mr-2 size-4" />
-                      Delete row
+                      <DatabaseText k="deleteRow" />
                     </DropdownMenuItem>
                   ) : null}
                 </DropdownMenuContent>
@@ -2399,7 +2464,7 @@ function DatabaseItemPreview({
           </div>
         </div>
         <SheetDescription className="sr-only">
-          Preview this database page without leaving the database.
+          <DatabaseText k="previewThisDatabasePageWithoutLeavingTheDatabase" />
         </SheetDescription>
       </SheetHeader>
 
@@ -2432,8 +2497,8 @@ function DatabaseItemPreview({
                 rows={1}
                 value={localTitle}
                 readOnly={!canEdit}
-                aria-label="Preview page title"
-                placeholder="Untitled"
+                aria-label={db("previewPageTitle")}
+                placeholder={db("untitled")}
                 onChange={(event) => handleTitleChange(event.target.value)}
                 style={{ fieldSizing: "content" } as any}
                 className="min-w-0 flex-1 resize-none overflow-hidden break-words border-0 bg-transparent p-0 text-3xl font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40"
@@ -2486,14 +2551,14 @@ function DatabaseItemPreview({
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete row?</AlertDialogTitle>
+            <AlertDialogTitle><DatabaseText k="deleteRow2" /></AlertDialogTitle>
             <AlertDialogDescription>
               &ldquo;{previewTitle}&rdquo; and any sub-pages will be permanently
               deleted. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel><DatabaseText k="cancel" /></AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deleteDocument.isPending}
@@ -2611,6 +2676,7 @@ function DatabaseTableView({
   onDeletedPreviewItems: (items: ContentDatabaseItem[]) => boolean;
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
+  const db = useDatabaseT();
   const queryClient = useQueryClient();
   const moveItem = useMoveDatabaseItem(databaseDocumentId);
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
@@ -2634,7 +2700,12 @@ function DatabaseTableView({
   const selectedItems = databaseSelectedItems(items, selectedItemIds);
   const bulkEditableProperties = databaseBulkEditableProperties(properties);
   const groups = databaseVisibleGroups(
-    databaseViewItemGroups(items, groupableProperties, groupByPropertyId),
+    databaseViewItemGroups(
+      items,
+      groupableProperties,
+      groupByPropertyId,
+      databaseGroupLabels(db),
+    ),
     hideEmptyGroups,
   );
   const grouped = !!databaseViewGroupingProperty(
@@ -2675,9 +2746,9 @@ function DatabaseTableView({
         position: targetIndex,
       });
     } catch (err) {
-      toast.error("Failed to move row", {
+      toast.error(db("failedToMoveRow"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : db("somethingWentWrong"),
       });
     } finally {
       clearDraggedRow();
@@ -2849,9 +2920,9 @@ function DatabaseTableView({
         value: property.value !== true,
       });
     } catch (err) {
-      toast.error("Failed to update checkbox", {
+      toast.error(db("failedToUpdateCheckbox"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : db("somethingWentWrong"),
       });
     }
   }
@@ -2878,9 +2949,9 @@ function DatabaseTableView({
         queryKey: ["action", "list-documents"],
       });
     } catch (err) {
-      toast.error("Failed to delete selected rows", {
+      toast.error(db("failedToDeleteSelectedRows"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : db("somethingWentWrong"),
       });
     }
   }
@@ -2921,7 +2992,7 @@ function DatabaseTableView({
       if (duplicatedPreviewItem) onPreview(duplicatedPreviewItem);
       if (duplicatedCount > 0) onClearSelection();
       if (failedCount > 0) {
-        toast.error("Failed to duplicate every selected row", {
+        toast.error(db("failedToDuplicateEverySelectedRow"), {
           description:
             duplicatedCount > 0
               ? `${duplicatedCount} duplicated, ${failedCount} failed.`
@@ -2964,7 +3035,7 @@ function DatabaseTableView({
     });
 
     if (failedCount > 0) {
-      toast.error("Failed to update every selected row", {
+      toast.error(db("failedToUpdateEverySelectedRow"), {
         description:
           updatedCount > 0
             ? `${updatedCount} updated, ${failedCount} failed.`
@@ -3063,7 +3134,7 @@ function DatabaseTableView({
               <AddProperty
                 documentId={databaseDocumentId}
                 variant={cleanDefaultTable ? "header" : "icon"}
-                label="Add property"
+                label={db("addProperty")}
                 source={source}
                 sources={sources}
               />
@@ -3074,7 +3145,7 @@ function DatabaseTableView({
         {isLoading ? (
           <div className="flex h-16 items-center gap-2 border-t border-border px-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
-            Loading database
+            <DatabaseText k="loadingDatabase" />
           </div>
         ) : (
           <>
@@ -3085,7 +3156,7 @@ function DatabaseTableView({
             ) ? (
               <DatabaseNoMatchingPages
                 className="border-t border-border"
-                label="No rows match this view"
+                label={db("noRowsMatchThisView")}
                 onClear={onClearResultConstraints}
               />
             ) : null}
@@ -3197,14 +3268,14 @@ function DatabaseTableView({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete selected rows?</AlertDialogTitle>
+            <AlertDialogTitle><DatabaseText k="deleteSelectedRows" /></AlertDialogTitle>
             <AlertDialogDescription>
               {selectedCount} selected row{selectedCount === 1 ? "" : "s"} and
               any sub-pages will be permanently deleted. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel><DatabaseText k="cancel" /></AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deleteDocument.isPending}
@@ -3240,6 +3311,7 @@ function DatabaseActiveConstraintsBar({
   onRemoveFilter: (index: number) => void;
   onClearAll: () => void;
 }) {
+  const db = useDatabaseT();
   if (constraintCount === 0) return null;
   const activeFilterEntries = filters
     .map((filter, index) => ({ filter, index }))
@@ -3280,7 +3352,7 @@ function DatabaseActiveConstraintsBar({
         className="ml-auto h-7 px-2 text-xs"
         onClick={onClearAll}
       >
-        Clear all
+        <DatabaseText k="clearAll" />
       </Button>
     </div>
   );
@@ -3434,6 +3506,7 @@ function DatabaseSettingsPanelSheet({
   onHideEmptyGroupsChange: (hideEmptyGroups: boolean) => void;
   onGroupsCollapsedChange: (groupIds: string[], collapsed: boolean) => void;
 }) {
+  const db = useDatabaseT();
   // Local drill-down path *within* the Source(s) panel. Kept here (not in the
   // flat panel enum) because the levels are dynamic — space/model names aren't
   // known at compile time. The sheet's back button pops this stack first.
@@ -3471,7 +3544,7 @@ function DatabaseSettingsPanelSheet({
         {panel === "main" ? null : (
           <button
             type="button"
-            aria-label="Back"
+            aria-label={db("back")}
             className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={handleBack}
           >
@@ -3483,7 +3556,7 @@ function DatabaseSettingsPanelSheet({
         </div>
         <button
           type="button"
-          aria-label="Close database settings"
+          aria-label={db("closeDatabaseSettings")}
           className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onClose}
         >
@@ -3581,6 +3654,7 @@ function DatabaseSettingsMainPanel({
   hiddenCount: number;
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
 }) {
+  const db = useDatabaseT();
   const groupLabel = activeView.groupByPropertyId ? "On" : "";
   const sourceBadgeCount = builderReviewableChangeSets(source).length;
   return (
@@ -3593,33 +3667,33 @@ function DatabaseSettingsMainPanel({
         <Input
           value={activeView.name}
           readOnly
-          aria-label="View name"
+          aria-label={db("viewName")}
           className="h-7 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
         />
       </div>
       <div className="grid gap-1">
         <DatabaseSettingsRow
           icon={<IconPlugConnected className="size-4" />}
-          label="Sources"
+          label={db("sources")}
           value={sourceCount > 0 ? `${sourceCount} connected` : "None"}
           badgeCount={sourceBadgeCount}
           onClick={() => onPanelChange("source")}
         />
         <DatabaseSettingsRow
           icon={databaseViewIconElement(activeView.type)}
-          label="Layout"
+          label={db("layout")}
           value={databaseViewDefaultName(activeView.type)}
           onClick={() => onPanelChange("layout")}
         />
         <DatabaseSettingsRow
           icon={<IconEye className="size-4" />}
-          label="Property visibility"
+          label={db("propertyVisibility")}
           value={propertyCount > 0 ? String(propertyCount - hiddenCount) : ""}
           onClick={() => onPanelChange("property_visibility")}
         />
         <DatabaseSettingsRow
           icon={<IconLayoutKanban className="size-4" />}
-          label="Group"
+          label={db("group")}
           value={groupLabel}
           onClick={() => onPanelChange("group")}
         />
@@ -3839,6 +3913,7 @@ function DatabaseSettingsSourcePanel({
   onSetBuilderLiveWrites: (enabled: boolean) => void;
   sourceActionPending: boolean;
 }) {
+  const db = useDatabaseT();
   const outboundChangeSets =
     source?.changeSets.filter(
       (changeSet) => changeSet.direction === "outbound",
@@ -3865,7 +3940,7 @@ function DatabaseSettingsSourcePanel({
       ? builderStatus.status.spaces
       : builderOrgName
         ? [{ id: "builder-space", name: builderOrgName }]
-        : [{ id: "builder-space", name: "Builder space" }];
+        : [{ id: "builder-space", name: db("builderSpace") }];
   const builderSpaceLabel = builderSpaces[0]?.name ?? builderOrgName;
   const connect = useBuilderConnectFlow({
     trackingSource: "database_source_panel",
@@ -3986,14 +4061,14 @@ function DatabaseSettingsSourcePanel({
         return (
           <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
             <Spinner className="size-3.5" />
-            Checking Builder connection
+            <DatabaseText k="checkingBuilderConnection" />
           </div>
         );
       }
       return (
         <div className="grid min-w-0 gap-3">
           <div className="min-w-0 break-words text-xs text-muted-foreground">
-            Connect your Builder account to browse its spaces and models.
+            <DatabaseText k="connectYourBuilderAccountToBrowseItsSpaces" />
           </div>
           <div>
             <Button
@@ -4103,12 +4178,12 @@ function DatabaseSettingsSourcePanel({
               source.capabilities.liveWritesEnabled ? (
                 <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground">
                   <IconPencil className="size-3" />
-                  Live writes on
+                  <DatabaseText k="liveWritesOn" />
                 </span>
               ) : (
                 <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                   <IconLock className="size-3" />
-                  Read-only
+                  <DatabaseText k="readOnly" />
                 </span>
               )
             ) : (
@@ -4126,7 +4201,7 @@ function DatabaseSettingsSourcePanel({
                 onClick={onRefreshSource}
               >
                 <IconRefresh className="size-3" />
-                Couldn’t sync · Retry
+                <DatabaseText k="couldntSyncRetry" />
               </button>
             ) : isBuilderSource ? (
               [
@@ -4161,7 +4236,7 @@ function DatabaseSettingsSourcePanel({
                       } ready to push`}
                 </div>
                 <div className="mt-0.5 break-words text-xs text-muted-foreground">
-                  Review before they reach Builder.
+                  <DatabaseText k="reviewBeforeTheyReachBuilder" />
                 </div>
               </div>
               <Button
@@ -4172,7 +4247,7 @@ function DatabaseSettingsSourcePanel({
                 onClick={onReviewBuilderUpdate}
               >
                 <IconCheck className="mr-1.5 size-3.5" />
-                Review diff
+                <DatabaseText k="reviewDiff" />
               </Button>
             </div>
           </div>
@@ -4213,12 +4288,11 @@ function DatabaseSettingsSourcePanel({
           </>
         ) : null}
 
-        <div className="rounded-lg border border-border bg-background p-3">
-          <div className="text-xs font-medium">Disconnect source</div>
-          <div className="mt-0.5 break-words text-xs text-muted-foreground">
-            Keep the database rows and local properties, but remove source
-            mappings, row identity, and pending source changes.
-          </div>
+      <div className="rounded-lg border border-border bg-background p-3">
+        <div className="text-xs font-medium"><DatabaseText k="disconnectSource" /></div>
+        <div className="mt-0.5 break-words text-xs text-muted-foreground">
+          <DatabaseText k="keepTheDatabaseRowsAndLocalPropertiesButRemoveSource" />
+        </div>
           <Button
             type="button"
             size="sm"
@@ -4261,6 +4335,7 @@ function SourcesListView({
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
+  const db = useDatabaseT();
   const isBuilderSource = source?.sourceType === "builder-cms";
   const connectedSources =
     sources.length > 0 ? sources : source ? [source] : [];
@@ -4268,13 +4343,12 @@ function SourcesListView({
     <div className="grid min-w-0 gap-4">
       {connectedSources.length === 0 ? (
         <div className="min-w-0 break-words text-xs text-muted-foreground">
-          This database is local. Connect a source to map its columns onto these
-          rows.
+          <DatabaseText k="thisDatabaseIsLocalConnectASourceToMapIts" />
         </div>
       ) : (
         <div className="grid min-w-0 gap-1.5">
           <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Connected sources
+            <DatabaseText k="connectedSources" />
           </div>
           {connectedSources.map((connected, index) => (
             <DatabaseSettingsRow
@@ -4309,14 +4383,14 @@ function SourcesListView({
           ))}
           <DatabaseSettingsRow
             icon={<IconPlus className="size-4" />}
-            label="Add another source"
+            label={db("addAnotherSource")}
             onClick={onAddSource}
           />
         </div>
       )}
       <div className="grid min-w-0 gap-1.5">
         <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Integrations
+          <DatabaseText k="integrations" />
         </div>
         <DatabaseSettingsRow
           icon={<BuilderLogoMark className="size-4" />}
@@ -4340,7 +4414,7 @@ function SourcesListView({
       </div>
       <div className="grid min-w-0 gap-1.5">
         <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Agent-Native apps
+          <DatabaseText k="agentNativeApps" />
         </div>
         <DatabaseSettingsRow
           icon={<IconTimeline className="size-4" />}
@@ -4369,6 +4443,7 @@ function CanonicalKeyConfirmView({
   pending: boolean;
   onCommit: (join: ContentDatabaseSourceJoinRequest) => void;
 }) {
+  const db = useDatabaseT();
   const suggestionQuery = useSuggestSourceJoinKey({
     documentId,
     candidateSourceType: candidate.sourceType,
@@ -4425,7 +4500,7 @@ function CanonicalKeyConfirmView({
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Spinner className="size-3.5" />
-        Analyzing both sources for a shared key
+        <DatabaseText k="analyzingBothSourcesForASharedKey" />
       </div>
     );
   }
@@ -4456,7 +4531,7 @@ function CanonicalKeyConfirmView({
 
       <div className="grid min-w-0 gap-1.5">
         <label className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Existing source · normalize
+          <DatabaseText k="existingSourceNormalize" />
         </label>
         <Input
           value={primaryFormula}
@@ -4467,7 +4542,7 @@ function CanonicalKeyConfirmView({
       </div>
       <div className="grid min-w-0 gap-1.5">
         <label className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          New source · normalize
+          <DatabaseText k="newSourceNormalize" />
         </label>
         <Input
           value={secondaryFormula}
@@ -4479,7 +4554,7 @@ function CanonicalKeyConfirmView({
 
       <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-muted/30 p-3">
         <div className="flex items-center justify-between text-xs">
-          <span className="font-medium">Sample matches</span>
+          <span className="font-medium"><DatabaseText k="sampleMatches" /></span>
           <span className="text-muted-foreground">
             {matchedCount} of {previewRows.length} match
           </span>
@@ -4557,6 +4632,7 @@ function AddSourceView({
     title: string;
   }) => void;
 }) {
+  const db = useDatabaseT();
   const query = useContentDatabases({ enabled: true });
   // Exclude this database (no self-reference) and any table already federated
   // onto it — those live in the "Connected sources" group above.
@@ -4568,16 +4644,16 @@ function AddSourceView({
     <div className="grid min-w-0 gap-4">
       <div className="grid min-w-0 gap-1.5">
         <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Local tables
+          <DatabaseText k="localTables" />
         </div>
         {query.isLoading ? (
           <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
             <Spinner className="size-3.5" />
-            Loading tables
+            <DatabaseText k="loadingTables" />
           </div>
         ) : tables.length === 0 ? (
           <div className="min-w-0 break-words px-2 text-xs text-muted-foreground">
-            No other databases available to add.
+            <DatabaseText k="noOtherDatabasesAvailableToAdd" />
           </div>
         ) : (
           tables.map((table) => (
@@ -4593,7 +4669,7 @@ function AddSourceView({
       </div>
       <div className="grid min-w-0 gap-1.5">
         <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Integrations
+          <DatabaseText k="integrations" />
         </div>
         <DatabaseSettingsRow
           icon={<NotionLogoMark className="size-4" />}
@@ -4618,10 +4694,11 @@ function SecondarySourceLeaf({
   pending: boolean;
   onDisconnect: () => void;
 }) {
+  const db = useDatabaseT();
   if (!source) {
     return (
       <div className="min-w-0 break-words text-xs text-muted-foreground">
-        This source is no longer connected.
+        <DatabaseText k="thisSourceIsNoLongerConnected" />
       </div>
     );
   }
@@ -4636,7 +4713,7 @@ function SecondarySourceLeaf({
           </span>
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
             <IconLock className="size-3" />
-            Read-only
+            <DatabaseText k="readOnly" />
           </span>
         </div>
         <div className="min-w-0 break-words text-xs text-muted-foreground">
@@ -4648,14 +4725,14 @@ function SecondarySourceLeaf({
       </div>
       {federation ? (
         <div className="grid min-w-0 gap-1 rounded-lg border border-border bg-background p-3 text-xs">
-          <div className="font-medium">Match formula</div>
+          <div className="font-medium"><DatabaseText k="matchFormula" /></div>
           <code className="block min-w-0 break-words rounded bg-muted px-1.5 py-1 font-mono text-[11px]">
             {federation.normalizationFormula}
           </code>
         </div>
       ) : null}
       <div className="rounded-lg border border-border bg-background p-3">
-        <div className="text-xs font-medium">Remove this source</div>
+        <div className="text-xs font-medium"><DatabaseText k="removeThisSource" /></div>
         <div className="mt-0.5 break-words text-xs text-muted-foreground">
           Removes the federated columns&rsquo; link to this source. Your local
           rows and columns stay.
@@ -4689,6 +4766,7 @@ function BuilderSpaceModelsView({
   attachedModelName: string | null;
   onOpenModel: (model: BuilderCmsModelSummary) => void;
 }) {
+  const db = useDatabaseT();
   const modelsQuery = useBuilderCmsModels(true);
   const models = modelsQuery.data?.models ?? [];
   const [query, setQuery] = useState("");
@@ -4697,7 +4775,7 @@ function BuilderSpaceModelsView({
     return (
       <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         <Spinner className="size-3.5" />
-        Loading Builder models
+        <DatabaseText k="loadingBuilderModels" />
       </div>
     );
   }
@@ -4705,7 +4783,7 @@ function BuilderSpaceModelsView({
   if (modelsQuery.data?.state === "unconfigured") {
     return (
       <div className="min-w-0 break-words text-xs text-muted-foreground">
-        Builder isn’t connected. Go back to connect your account first.
+        <DatabaseText k="builderIsntConnectedGoBackToConnectYour" />
       </div>
     );
   }
@@ -4723,7 +4801,7 @@ function BuilderSpaceModelsView({
           onClick={() => modelsQuery.refetch()}
         >
           <IconRefresh className="mr-1.5 size-3.5" />
-          Retry
+          <DatabaseText k="retry" />
         </Button>
       </div>
     );
@@ -4733,7 +4811,7 @@ function BuilderSpaceModelsView({
     return (
       <div className="grid min-w-0 gap-2">
         <div className="text-xs text-muted-foreground">
-          No Builder models were found in this space.
+          <DatabaseText k="noBuilderModelsWereFoundInThisSpace" />
         </div>
         <Button
           type="button"
@@ -4784,7 +4862,7 @@ function BuilderSpaceModelsView({
         {isAttached ? (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-foreground">
             <IconCheck className="size-3" />
-            Attached
+            <DatabaseText k="attached" />
           </span>
         ) : null}
         <IconChevronRight className="size-4 shrink-0 text-muted-foreground" />
@@ -4800,8 +4878,8 @@ function BuilderSpaceModelsView({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search models"
-          aria-label="Search Builder models"
+          placeholder={db("searchModels")}
+          aria-label={db("searchBuilderModels")}
           className="h-8 min-w-0 pl-7 text-sm"
         />
       </div>
@@ -4809,7 +4887,7 @@ function BuilderSpaceModelsView({
       {attachedModels.length > 0 ? (
         <div className="grid min-w-0 gap-1.5">
           <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Already attached
+            <DatabaseText k="alreadyAttached" />
           </div>
           {attachedModels.map(renderRow)}
         </div>
@@ -4818,7 +4896,7 @@ function BuilderSpaceModelsView({
       <div className="grid min-w-0 gap-1.5">
         {attachedModels.length > 0 && otherModels.length > 0 ? (
           <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            All models
+            <DatabaseText k="allModels" />
           </div>
         ) : null}
         {otherModels.map(renderRow)}
@@ -4839,6 +4917,7 @@ function SourceChangeSetReviewCard({
   changeSet: ContentDatabaseSourceChangeSet;
   source: ContentDatabaseSource;
 }) {
+  const db = useDatabaseT();
   const latestReview =
     changeSet.reviewEvents[changeSet.reviewEvents.length - 1] ?? null;
   const latestExecution =
@@ -4905,7 +4984,7 @@ function SourceChangeSetReviewCard({
         {changeSet.bodyChange ? (
           <div className="rounded border border-border/60 bg-muted/20 p-1.5 text-xs">
             <div className="font-medium">{changeSet.bodyChange.summary}</div>
-            <div className="mt-1 text-muted-foreground">Body diff</div>
+            <div className="mt-1 text-muted-foreground"><DatabaseText k="bodyDiff" /></div>
           </div>
         ) : null}
       </div>
@@ -4931,7 +5010,7 @@ function SourceChangeSetReviewCard({
       {latestExecution ? (
         <div className="mt-2 rounded border border-border/60 bg-muted/20 p-1.5 text-xs">
           <div className="flex min-w-0 items-center justify-between gap-2">
-            <span className="font-medium">Execution gate</span>
+            <span className="font-medium"><DatabaseText k="executionGate" /></span>
             <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
               {latestExecution.state.replace(/_/g, " ")}
             </span>
@@ -5234,6 +5313,7 @@ function DatabaseSettingsLayoutPanel({
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
 }) {
+  const db = useDatabaseT();
   const wrapCells = activeView.wrapCells === true;
   const openPagesIn = activeView.openPagesIn ?? "preview";
 
@@ -5260,7 +5340,7 @@ function DatabaseSettingsLayoutPanel({
       </div>
       <div className="grid gap-1">
         <DatabaseSettingsSwitch
-          label="Wrap all content"
+          label={db("wrapAllContent")}
           checked={wrapCells}
           disabled={activeView.type !== "table"}
           onCheckedChange={onWrapCellsChange}
@@ -5281,6 +5361,7 @@ function DatabaseOpenPagesInSetting({
   value: ContentDatabaseOpenPagesIn;
   onChange: (value: ContentDatabaseOpenPagesIn) => void;
 }) {
+  const db = useDatabaseT();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -5288,7 +5369,7 @@ function DatabaseOpenPagesInSetting({
           type="button"
           className="flex h-9 w-full items-center justify-between rounded-md px-2 text-left text-sm text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="truncate">Open pages in</span>
+          <span className="truncate"><DatabaseText k="openPagesIn" /></span>
           <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             <span className="max-w-28 truncate">
               {databaseOpenPagesInLabel(value)}
@@ -5351,6 +5432,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
   onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
   onPropertiesHiddenChange: (propertyIds: string[], hidden: boolean) => void;
 }) {
+  const db = useDatabaseT();
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
   const filteredProperties = normalizedQuery
@@ -5369,8 +5451,8 @@ function DatabaseSettingsPropertyVisibilityPanel({
         <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
         <Input
           value={query}
-          placeholder="Search properties"
-          aria-label="Search properties"
+          placeholder={db("searchProperties")}
+          aria-label={db("searchProperties")}
           onChange={(event) => setQuery(event.target.value)}
           className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
         />
@@ -5388,7 +5470,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
             disabled={hiddenCount === 0}
             onClick={() => onPropertiesHiddenChange(propertyIds, false)}
           >
-            Show all
+            <DatabaseText k="showAll" />
           </Button>
           <Button
             type="button"
@@ -5398,7 +5480,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
             disabled={visibleCount === 0}
             onClick={() => onPropertiesHiddenChange(propertyIds, true)}
           >
-            Hide all
+            <DatabaseText k="hideAll" />
           </Button>
         </div>
       </div>
@@ -5434,14 +5516,14 @@ function DatabaseSettingsPropertyVisibilityPanel({
         })}
         {filteredProperties.length === 0 ? (
           <div className="px-2 py-4 text-sm text-muted-foreground">
-            No matching properties
+            <DatabaseText k="noMatchingProperties" />
           </div>
         ) : null}
       </div>
       <div className="border-t border-border/70 pt-3">
         <AddProperty
           documentId={documentId}
-          label="New property"
+          label={db("newProperty")}
           source={source}
           sources={sources}
         />
@@ -5468,6 +5550,7 @@ function DatabaseSettingsGroupPanel({
   onHideEmptyGroupsChange: (hideEmptyGroups: boolean) => void;
   onGroupsCollapsedChange: (groupIds: string[], collapsed: boolean) => void;
 }) {
+  const db = useDatabaseT();
   const [propertyQuery, setPropertyQuery] = useState("");
   const groupableProperties = databaseViewGroupableProperties(properties);
   const groupProperty = databaseViewGroupingProperty(activeView, properties);
@@ -5488,8 +5571,8 @@ function DatabaseSettingsGroupPanel({
         <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
         <Input
           value={propertyQuery}
-          placeholder="Search properties"
-          aria-label="Search group properties"
+          placeholder={db("searchProperties")}
+          aria-label={db("searchGroupProperties")}
           disabled={!canGroupView}
           onChange={(event) => setPropertyQuery(event.target.value)}
           className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
@@ -5503,7 +5586,7 @@ function DatabaseSettingsGroupPanel({
           onClick={() => onGroupByChange(null)}
         >
           <IconX className="size-4 text-muted-foreground" />
-          <span className="flex-1">None</span>
+          <span className="flex-1"><DatabaseText k="none" /></span>
           {!groupProperty ? (
             <IconCheck className="size-4 text-muted-foreground" />
           ) : null}
@@ -5530,13 +5613,13 @@ function DatabaseSettingsGroupPanel({
       </div>
       {groupableProperties.length === 0 ? (
         <div className="px-2 text-xs text-muted-foreground">
-          Add a status, select, multi-select, or checkbox property to group.
+          <DatabaseText k="addAStatusSelectMultiSelectOrCheckbox2" />
         </div>
       ) : null}
       {groupProperty ? (
         <div className="grid gap-1 border-t border-border/70 pt-3">
           <DatabaseSettingsSwitch
-            label="Hide empty groups"
+            label={db("hideEmptyGroups")}
             checked={hideEmptyGroups}
             onCheckedChange={onHideEmptyGroupsChange}
           />
@@ -5549,7 +5632,7 @@ function DatabaseSettingsGroupPanel({
               disabled={groupIds.length === 0}
               onClick={() => onGroupsCollapsedChange(groupIds, true)}
             >
-              Collapse all
+              <DatabaseText k="collapseAll" />
             </Button>
             <Button
               type="button"
@@ -5559,7 +5642,7 @@ function DatabaseSettingsGroupPanel({
               disabled={groupIds.length === 0}
               onClick={() => onGroupsCollapsedChange(groupIds, false)}
             >
-              Expand all
+              <DatabaseText k="expandAll" />
             </Button>
           </div>
         </div>
@@ -5606,6 +5689,7 @@ function DatabasePropertyPickerSearch({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const db = useDatabaseT();
   return (
     <div className="border-b border-border/70 p-1">
       <div className="flex h-8 items-center gap-2 rounded border border-input bg-background px-2">
@@ -5614,8 +5698,8 @@ function DatabasePropertyPickerSearch({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => event.stopPropagation()}
-          placeholder="Search properties"
-          aria-label="Search properties"
+          placeholder={db("searchProperties")}
+          aria-label={db("searchProperties")}
           className="h-6 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
         />
       </div>
@@ -5658,6 +5742,7 @@ function DatabasePropertyPickerSubContent({
   includeName?: boolean;
   onSelect: (key: string, label: string) => void;
 }) {
+  const db = useDatabaseT();
   const [query, setQuery] = useState("");
   const items = databasePropertyPickerItems(properties, query, { includeName });
 
@@ -5674,7 +5759,7 @@ function DatabasePropertyPickerSubContent({
       ))}
       {items.length === 0 ? (
         <div className="px-2 py-1.5 text-xs text-muted-foreground">
-          No properties found
+          <DatabaseText k="noPropertiesFound" />
         </div>
       ) : null}
     </DropdownMenuSubContent>
@@ -5699,6 +5784,7 @@ function DatabaseGroupMenu({
   onHideEmptyGroupsChange: (hideEmptyGroups: boolean) => void;
   onGroupsCollapsedChange: (groupIds: string[], collapsed: boolean) => void;
 }) {
+  const db = useDatabaseT();
   const groupableProperties = databaseViewGroupableProperties(properties);
   const groupProperty = databaseViewGroupingProperty(activeView, properties);
   const hideEmptyGroups = activeView.hideEmptyGroups === true;
@@ -5726,7 +5812,7 @@ function DatabaseGroupMenu({
               ? `Group by ${groupProperty.definition.name}`
               : "Group"
           }
-          title="Group"
+          title={db("group")}
           className={cn(databaseToolbarIconButtonClass(Boolean(groupProperty)))}
         >
           <IconLayoutKanban className="size-3.5" />
@@ -5734,7 +5820,7 @@ function DatabaseGroupMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="text-xs text-muted-foreground">
-          Group by
+          <DatabaseText k="groupBy" />
         </DropdownMenuLabel>
         <DropdownMenuItem
           onSelect={(event) => {
@@ -5742,7 +5828,7 @@ function DatabaseGroupMenu({
             onGroupByChange(null);
           }}
         >
-          <span className="flex-1">None</span>
+          <span className="flex-1"><DatabaseText k="none" /></span>
           {!groupProperty ? (
             <IconCheck className="size-4 text-muted-foreground" />
           ) : null}
@@ -5764,7 +5850,7 @@ function DatabaseGroupMenu({
         ))}
         {groupableProperties.length > 0 && groupPropertyItems.length === 0 ? (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            No properties found
+            <DatabaseText k="noPropertiesFound" />
           </div>
         ) : null}
         {groupProperty ? (
@@ -5777,7 +5863,7 @@ function DatabaseGroupMenu({
               }}
             >
               <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
-              <span className="flex-1">Hide empty groups</span>
+              <span className="flex-1"><DatabaseText k="hideEmptyGroups" /></span>
               {hideEmptyGroups ? (
                 <IconCheck className="size-4 text-muted-foreground" />
               ) : null}
@@ -5790,7 +5876,7 @@ function DatabaseGroupMenu({
               }}
             >
               <IconChevronRight className="mr-2 size-4 text-muted-foreground" />
-              Collapse all groups
+              <DatabaseText k="collapseAllGroups" />
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={groupIds.length === 0}
@@ -5800,13 +5886,13 @@ function DatabaseGroupMenu({
               }}
             >
               <IconChevronDown className="mr-2 size-4 text-muted-foreground" />
-              Expand all groups
+              <DatabaseText k="expandAllGroups" />
             </DropdownMenuItem>
           </>
         ) : null}
         {groupableProperties.length === 0 ? (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            Add a status, select, multi-select, or checkbox property to group.
+            <DatabaseText k="addAStatusSelectMultiSelectOrCheckbox2" />
           </div>
         ) : null}
       </DropdownMenuContent>
@@ -5874,6 +5960,7 @@ function DatabaseTableFooter({
     calculation: DatabaseColumnCalculation | null,
   ) => void;
 }) {
+  const db = useDatabaseT();
   if (totalCount === 0 && !constrained) return null;
 
   return (
@@ -5896,7 +5983,7 @@ function DatabaseTableFooter({
         const result = calculation
           ? databaseColumnCalculationResult(calculation, items, property)
           : null;
-        const options = databaseCalculationOptionsForProperty(property);
+        const options = databaseCalculationOptionsForProperty(property, db);
         return (
           <div
             key={property.definition.id}
@@ -5926,7 +6013,7 @@ function DatabaseTableFooter({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-44">
-                  <DropdownMenuLabel>Calculate</DropdownMenuLabel>
+                  <DropdownMenuLabel><DatabaseText k="calculate" /></DropdownMenuLabel>
                   {options.map((option) => (
                     <DropdownMenuItem
                       key={option.value}
@@ -5950,7 +6037,7 @@ function DatabaseTableFooter({
                       onCalculationChange(property.definition.id, null)
                     }
                   >
-                    Clear
+                    <DatabaseText k="clear" />
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -5989,38 +6076,39 @@ export function databaseFooterVisibleCount(
 
 export function databaseCalculationOptionsForProperty(
   property: DocumentProperty,
+  db: DatabaseT = defaultDatabaseT,
 ): Array<{ value: DatabaseColumnCalculation; label: string }> {
   const options: Array<{ value: DatabaseColumnCalculation; label: string }> = [
-    { value: "count_all", label: "Count all" },
-    { value: "count_values", label: "Count values" },
-    { value: "count_empty", label: "Count empty" },
-    { value: "count_unique", label: "Count unique" },
-    { value: "percent_filled", label: "Percent filled" },
-    { value: "percent_empty", label: "Percent empty" },
+    { value: "count_all", label: db("countAll") },
+    { value: "count_values", label: db("countValues") },
+    { value: "count_empty", label: db("countEmpty") },
+    { value: "count_unique", label: db("countUnique") },
+    { value: "percent_filled", label: db("percentFilled") },
+    { value: "percent_empty", label: db("percentEmpty") },
   ];
   if (property.definition.type === "checkbox") {
     options.push(
-      { value: "count_checked", label: "Checked" },
-      { value: "count_unchecked", label: "Unchecked" },
-      { value: "percent_checked", label: "Percent checked" },
-      { value: "percent_unchecked", label: "Percent unchecked" },
+      { value: "count_checked", label: db("checked") },
+      { value: "count_unchecked", label: db("unchecked") },
+      { value: "percent_checked", label: db("percentChecked") },
+      { value: "percent_unchecked", label: db("percentUnchecked") },
     );
   }
   if (property.definition.type === "number") {
     options.push(
-      { value: "sum", label: "Sum" },
-      { value: "average", label: "Average" },
-      { value: "median", label: "Median" },
-      { value: "min", label: "Min" },
-      { value: "max", label: "Max" },
-      { value: "range", label: "Range" },
+      { value: "sum", label: db("sum") },
+      { value: "average", label: db("average") },
+      { value: "median", label: db("median") },
+      { value: "min", label: db("min") },
+      { value: "max", label: db("max") },
+      { value: "range", label: db("range") },
     );
   }
   if (property.definition.type === "date") {
     options.push(
-      { value: "min", label: "Earliest" },
-      { value: "max", label: "Latest" },
-      { value: "date_range", label: "Date range" },
+      { value: "min", label: db("earliest") },
+      { value: "max", label: db("latest") },
+      { value: "date_range", label: db("dateRange") },
     );
   }
   return options;
@@ -6200,6 +6288,7 @@ function DatabaseNoMatchingPages({
   className?: string;
   onClear: () => void;
 }) {
+  const db = useDatabaseT();
   return (
     <div
       className={cn(
@@ -6215,7 +6304,7 @@ function DatabaseNoMatchingPages({
         className="h-8 px-2 text-xs"
         onClick={onClear}
       >
-        Clear search and filters
+        <DatabaseText k="clearSearchAndFilters" />
       </Button>
     </div>
   );
@@ -6292,8 +6381,14 @@ function DatabaseListView({
   onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
+  const db = useDatabaseT();
   const groups = databaseVisibleGroups(
-    databaseViewItemGroups(items, groupableProperties, groupByPropertyId),
+    databaseViewItemGroups(
+      items,
+      groupableProperties,
+      groupByPropertyId,
+      databaseGroupLabels(db),
+    ),
     hideEmptyGroups,
   );
   const grouped = !!databaseViewGroupingProperty(
@@ -6305,12 +6400,12 @@ function DatabaseListView({
     <div className="border-b border-border">
       <div className="flex min-h-9 items-center gap-2 border-t border-border px-1 text-xs text-muted-foreground">
         <IconList className="size-4 shrink-0" />
-        <span>List</span>
+        <span><DatabaseText k="list" /></span>
       </div>
       {isLoading ? (
         <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Loading list
+          <DatabaseText k="loadingList" />
         </div>
       ) : (
         <div className="grid">
@@ -6564,6 +6659,7 @@ function NewListRow({
   isPending: boolean;
   onCreate: CreateDatabaseRowHandler;
 }) {
+  const db = useDatabaseT();
   const inputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
 
@@ -6591,8 +6687,8 @@ function NewListRow({
         ref={inputRef}
         value={title}
         disabled={disabled}
-        aria-label="New database list item title"
-        placeholder="New page"
+        aria-label={db("newDatabaseListItemTitle")}
+        placeholder={db("newPage")}
         onChange={(event) => setTitle(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
@@ -6656,8 +6752,14 @@ function DatabaseGalleryView({
   onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
+  const db = useDatabaseT();
   const groups = databaseVisibleGroups(
-    databaseViewItemGroups(items, groupableProperties, groupByPropertyId),
+    databaseViewItemGroups(
+      items,
+      groupableProperties,
+      groupByPropertyId,
+      databaseGroupLabels(db),
+    ),
     hideEmptyGroups,
   );
   const grouped = !!databaseViewGroupingProperty(
@@ -6669,12 +6771,12 @@ function DatabaseGalleryView({
     <div className="border-b border-border">
       <div className="flex min-h-9 items-center gap-2 border-t border-border px-1 text-xs text-muted-foreground">
         <IconLayoutGrid className="size-4 shrink-0" />
-        <span>Gallery</span>
+        <span><DatabaseText k="gallery" /></span>
       </div>
       {isLoading ? (
         <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Loading gallery
+          <DatabaseText k="loadingGallery" />
         </div>
       ) : (
         <div className="grid gap-3 px-1 py-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -6909,6 +7011,7 @@ function NewGalleryCard({
   isPending: boolean;
   onCreate: CreateDatabaseRowHandler;
 }) {
+  const db = useDatabaseT();
   const inputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
 
@@ -6937,8 +7040,8 @@ function NewGalleryCard({
           ref={inputRef}
           value={title}
           disabled={disabled}
-          aria-label="New database gallery card title"
-          placeholder="New page"
+          aria-label={db("newDatabaseGalleryCardTitle")}
+          placeholder={db("newPage")}
           onChange={(event) => setTitle(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -6999,6 +7102,7 @@ function DatabaseCalendarView({
   onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
+  const db = useDatabaseT();
   const dateProperties = databaseCalendarDateProperties(properties);
   const monthDays = databaseCalendarMonthDays(month);
   const itemsByDate = databaseCalendarItemsByDate(
@@ -7059,7 +7163,7 @@ function DatabaseCalendarView({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  Calendar by
+                  <DatabaseText k="calendarBy" />
                 </DropdownMenuLabel>
                 {dateProperties.map((property) => {
                   const Icon = TYPE_ICONS[property.definition.type];
@@ -7093,14 +7197,14 @@ function DatabaseCalendarView({
             onClick={() => onMonthChange(startOfMonth(new Date()))}
           >
             <IconCalendarEvent className="mr-1 size-3.5" />
-            Today
+            <DatabaseText k="today" />
           </Button>
           <Button
             type="button"
             variant="ghost"
             size="icon"
             className="size-7 text-muted-foreground"
-            aria-label="Previous month"
+            aria-label={db("previousMonth")}
             onClick={() => changeMonth(-1)}
           >
             <IconArrowUp className="size-3.5 -rotate-90" />
@@ -7110,7 +7214,7 @@ function DatabaseCalendarView({
             variant="ghost"
             size="icon"
             className="size-7 text-muted-foreground"
-            aria-label="Next month"
+            aria-label={db("nextMonth")}
             onClick={() => changeMonth(1)}
           >
             <IconArrowUp className="size-3.5 rotate-90" />
@@ -7121,11 +7225,11 @@ function DatabaseCalendarView({
       {isLoading ? (
         <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Loading calendar
+          <DatabaseText k="loadingCalendar" />
         </div>
       ) : dateProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
-          <span>Add a date property to use calendar view.</span>
+          <span><DatabaseText k="addADatePropertyToUseCalendarView" /></span>
           {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
         </div>
       ) : databaseViewHasNoMatchingPages(
@@ -7246,6 +7350,7 @@ function DatabaseDateViewNoDateSection({
   onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
+  const db = useDatabaseT();
   if (items.length === 0) return null;
 
   return (
@@ -7253,7 +7358,7 @@ function DatabaseDateViewNoDateSection({
       <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span className="flex min-w-0 items-center gap-1.5 font-medium">
           <IconCalendarOff className="size-3.5 shrink-0" />
-          <span className="truncate">No date</span>
+          <span className="truncate"><DatabaseText k="noDate" /></span>
         </span>
         <span className="rounded bg-background px-1.5 py-0.5 text-[11px]">
           {items.length}
@@ -7439,6 +7544,7 @@ function DatabaseTimelineView({
   onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
+  const db = useDatabaseT();
   const dateProperties = databaseCalendarDateProperties(properties);
   const timelineDays = databaseTimelineDays(month);
   const endDateProperty = databaseTimelineEndDateProperty(
@@ -7505,7 +7611,7 @@ function DatabaseTimelineView({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  Start date
+                  <DatabaseText k="startDate" />
                 </DropdownMenuLabel>
                 {dateProperties.map((property) => {
                   const Icon = TYPE_ICONS[property.definition.type];
@@ -7549,7 +7655,7 @@ function DatabaseTimelineView({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  End date
+                  <DatabaseText k="endDate" />
                 </DropdownMenuLabel>
                 <DropdownMenuItem
                   onSelect={(event) => {
@@ -7557,7 +7663,7 @@ function DatabaseTimelineView({
                     onEndDatePropertyChange(null);
                   }}
                 >
-                  <span className="min-w-0 flex-1 truncate">No end date</span>
+                  <span className="min-w-0 flex-1 truncate"><DatabaseText k="noEndDate" /></span>
                   {!endDateProperty ? (
                     <IconCheck className="size-4 text-muted-foreground" />
                   ) : null}
@@ -7599,14 +7705,14 @@ function DatabaseTimelineView({
             onClick={() => onMonthChange(startOfMonth(new Date()))}
           >
             <IconCalendarEvent className="mr-1 size-3.5" />
-            Today
+            <DatabaseText k="today" />
           </Button>
           <Button
             type="button"
             variant="ghost"
             size="icon"
             className="size-7 text-muted-foreground"
-            aria-label="Previous timeline range"
+            aria-label={db("previousTimelineRange")}
             onClick={() => changeMonth(-1)}
           >
             <IconArrowUp className="size-3.5 -rotate-90" />
@@ -7616,7 +7722,7 @@ function DatabaseTimelineView({
             variant="ghost"
             size="icon"
             className="size-7 text-muted-foreground"
-            aria-label="Next timeline range"
+            aria-label={db("nextTimelineRange")}
             onClick={() => changeMonth(1)}
           >
             <IconArrowUp className="size-3.5 rotate-90" />
@@ -7627,11 +7733,11 @@ function DatabaseTimelineView({
       {isLoading ? (
         <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Loading timeline
+          <DatabaseText k="loadingTimeline" />
         </div>
       ) : dateProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
-          <span>Add a date property to use timeline view.</span>
+          <span><DatabaseText k="addADatePropertyToUseTimelineView" /></span>
           {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
         </div>
       ) : (
@@ -7879,6 +7985,7 @@ function NewTimelineCard({
     title?: string,
   ) => Promise<ContentDatabaseItem | null>;
 }) {
+  const db = useDatabaseT();
   const inputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
 
@@ -7908,7 +8015,7 @@ function NewTimelineCard({
           value={title}
           disabled={disabled}
           aria-label={`New ${dateKey} timeline card title`}
-          placeholder="New page"
+          placeholder={db("newPage")}
           onChange={(event) => setTitle(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -7928,6 +8035,12 @@ function NewTimelineCard({
 }
 
 const BOARD_UNGROUPED_VALUE = "__ungrouped__";
+const DEFAULT_DATABASE_GROUP_LABELS = {
+  allPages: "All pages",
+  noGrouping: "No grouping",
+  checked: "Checked",
+  unchecked: "Unchecked",
+};
 
 export interface DatabaseBoardGroup {
   id: string;
@@ -7990,9 +8103,15 @@ function DatabaseBoardView({
   onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
+  const db = useDatabaseT();
   const groupableProperties = databaseBoardGroupableProperties(properties);
   const groups = databaseVisibleGroups(
-    databaseBoardGroups(items, properties, activeView.groupByPropertyId),
+    databaseBoardGroups(
+      items,
+      properties,
+      activeView.groupByPropertyId,
+      databaseGroupLabels(db),
+    ),
     hideEmptyGroups,
   );
   const cardProperties = databaseBoardVisibleCardProperties(
@@ -8014,9 +8133,9 @@ function DatabaseBoardView({
     try {
       await onMoveCard(draggedItem, group);
     } catch (err) {
-      toast.error("Failed to move card", {
+      toast.error(db("failedToMoveCard"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : db("somethingWentWrong"),
       });
     } finally {
       setDraggedItem(null);
@@ -8101,13 +8220,13 @@ function DatabaseBoardView({
                 size="sm"
                 className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
               >
-                Group
+                <DatabaseText k="group" />
                 <IconChevronDown className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel className="text-xs text-muted-foreground">
-                Group by
+                <DatabaseText k="groupBy" />
               </DropdownMenuLabel>
               {groupableProperties.map((property) => {
                 const Icon = TYPE_ICONS[property.definition.type];
@@ -8139,7 +8258,7 @@ function DatabaseBoardView({
                     }}
                   >
                     <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
-                    <span className="flex-1">Hide empty groups</span>
+                    <span className="flex-1"><DatabaseText k="hideEmptyGroups" /></span>
                     {hideEmptyGroups ? (
                       <IconCheck className="size-4 text-muted-foreground" />
                     ) : null}
@@ -8160,7 +8279,7 @@ function DatabaseBoardView({
                     }}
                   >
                     <IconChevronRight className="mr-2 size-4 text-muted-foreground" />
-                    Collapse all groups
+                    <DatabaseText k="collapseAllGroups" />
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={groups.length === 0}
@@ -8173,7 +8292,7 @@ function DatabaseBoardView({
                     }}
                   >
                     <IconChevronDown className="mr-2 size-4 text-muted-foreground" />
-                    Expand all groups
+                    <DatabaseText k="expandAllGroups" />
                   </DropdownMenuItem>
                 </>
               ) : null}
@@ -8185,13 +8304,12 @@ function DatabaseBoardView({
       {isLoading ? (
         <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Loading board
+          <DatabaseText k="loadingBoard" />
         </div>
       ) : groupableProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
           <span>
-            Add a status, select, multi-select, or checkbox property to group
-            this board.
+            <DatabaseText k="addAStatusSelectMultiSelectOrCheckbox2" />
           </span>
           {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
         </div>
@@ -8273,7 +8391,7 @@ function DatabaseBoardView({
                         (candidate) => candidate.items.length === 0,
                       ) ? (
                         <div className="rounded border border-dashed border-border bg-background/50 px-3 py-4 text-sm text-muted-foreground">
-                          No matching pages
+                          <DatabaseText k="noMatchingPages" />
                         </div>
                       ) : null}
                       {canEdit ? (
@@ -8325,6 +8443,7 @@ function DatabaseBoardColumnHeader({
   ) => Promise<void>;
   onRemove: (group: DatabaseBoardGroup) => Promise<void>;
 }) {
+  const db = useDatabaseT();
   const option = databaseBoardOptionForGroup(group);
   const canManageGroup = canEdit && !!option;
   const [name, setName] = useState(group.label);
@@ -8418,7 +8537,7 @@ function DatabaseBoardColumnHeader({
           <DropdownMenuContent align="end" className="w-56">
             <div className="grid gap-1 px-2 py-1.5">
               <DropdownMenuLabel className="px-0 py-0 text-xs text-muted-foreground">
-                Group name
+                <DatabaseText k="groupName" />
               </DropdownMenuLabel>
               <Input
                 value={name}
@@ -8445,7 +8564,7 @@ function DatabaseBoardColumnHeader({
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={disabled}>
                 <IconPalette className="mr-2 size-4 text-muted-foreground" />
-                Color
+                <DatabaseText k="color" />
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-44">
                 {OPTION_COLORS.map((color) => (
@@ -8475,7 +8594,7 @@ function DatabaseBoardColumnHeader({
               onSelect={() => void onRemove(group)}
             >
               <IconTrash className="mr-2 size-4" />
-              Delete group
+              <DatabaseText k="deleteGroup" />
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -8511,6 +8630,7 @@ function DatabaseBoardCard({
   onPreview: () => void;
   onOpenPage: () => void;
 }) {
+  const db = useDatabaseT();
   const visibleProperties = properties.slice(0, 3);
 
   return (
@@ -8565,7 +8685,7 @@ function DatabaseBoardCard({
               })}
             </span>
           ) : null}
-          {!canEdit ? null : <span className="sr-only">Open page</span>}
+          {!canEdit ? null : <span className="sr-only"><DatabaseText k="openPage" /></span>}
         </button>
         {canEdit ? (
           <RowActionsCell
@@ -8595,6 +8715,7 @@ function NewBoardGroupColumn({
   isPending: boolean;
   onCreate: (name: string) => Promise<void>;
 }) {
+  const db = useDatabaseT();
   const inputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
 
@@ -8624,8 +8745,8 @@ function NewBoardGroupColumn({
           ref={inputRef}
           value={name}
           disabled={disabled}
-          aria-label="New board group name"
-          placeholder="New group"
+          aria-label={db("newBoardGroupName")}
+          placeholder={db("newGroup")}
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -8658,6 +8779,7 @@ function NewBoardCard({
     title?: string,
   ) => Promise<ContentDatabaseItem | null>;
 }) {
+  const db = useDatabaseT();
   const inputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
 
@@ -8687,7 +8809,7 @@ function NewBoardCard({
           value={title}
           disabled={disabled}
           aria-label={`New ${group.label} board card title`}
-          placeholder="New page"
+          placeholder={db("newPage")}
           onChange={(event) => setTitle(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -8723,6 +8845,7 @@ function NewDatabaseRow({
   onCreate: CreateDatabaseRowHandler;
   actionColumnWidth?: number;
 }) {
+  const db = useDatabaseT();
   async function submitNewRow() {
     if (disabled) return;
     await onCreate("");
@@ -8731,7 +8854,7 @@ function NewDatabaseRow({
   return (
     <button
       type="button"
-      aria-label="New database row"
+      aria-label={db("newDatabaseRow")}
       disabled={disabled}
       className={cn(
         "grid w-full border-t border-border/45 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground focus-visible:bg-muted/35 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
@@ -8758,7 +8881,7 @@ function NewDatabaseRow({
         ) : (
           <IconPlus className="size-4 shrink-0" />
         )}
-        <span className="h-7 min-w-0 flex-1 truncate leading-7">New page</span>
+        <span className="h-7 min-w-0 flex-1 truncate leading-7"><DatabaseText k="newPage" /></span>
       </span>
       {properties.map((property) => (
         <span
@@ -9563,19 +9686,25 @@ export function databaseViewItemGroups(
   items: ContentDatabaseItem[],
   properties: DocumentProperty[],
   groupByPropertyId?: string | null,
+  labels: {
+    allPages: string;
+    noGrouping: string;
+    checked: string;
+    unchecked: string;
+  } = DEFAULT_DATABASE_GROUP_LABELS,
 ): DatabaseBoardGroup[] {
   if (!groupByPropertyId) {
     return [
       {
         id: "all",
-        label: "All pages",
+        label: labels.allPages,
         property: null,
         value: BOARD_UNGROUPED_VALUE,
         items,
       },
     ];
   }
-  return databaseBoardGroups(items, properties, groupByPropertyId);
+  return databaseBoardGroups(items, properties, groupByPropertyId, labels);
 }
 
 export function databaseVisibleGroups(
@@ -9904,6 +10033,8 @@ export function databaseBoardGroups(
   items: ContentDatabaseItem[],
   properties: DocumentProperty[],
   groupByPropertyId?: string | null,
+  labels: { noGrouping: string; checked: string; unchecked: string } =
+    DEFAULT_DATABASE_GROUP_LABELS,
 ): DatabaseBoardGroup[] {
   const groupProperty =
     databaseBoardGroupingProperty(
@@ -9915,7 +10046,7 @@ export function databaseBoardGroups(
     return [
       {
         id: "all",
-        label: "No grouping",
+        label: labels.noGrouping,
         property: null,
         value: BOARD_UNGROUPED_VALUE,
         items,
@@ -9923,11 +10054,13 @@ export function databaseBoardGroups(
     ];
   }
 
-  const groups = databaseBoardGroupDefinitions(groupProperty).map((group) => ({
-    ...group,
-    property: groupProperty,
-    items: [] as ContentDatabaseItem[],
-  }));
+  const groups = databaseBoardGroupDefinitions(groupProperty, labels).map(
+    (group) => ({
+      ...group,
+      property: groupProperty,
+      items: [] as ContentDatabaseItem[],
+    }),
+  );
   const groupById = new Map(groups.map((group) => [group.id, group]));
   const optionIds = new Set(
     groupProperty.definition.options.options?.map((option) => option.id) ?? [],
@@ -9944,17 +10077,20 @@ export function databaseBoardGroups(
   return groups;
 }
 
-function databaseBoardGroupDefinitions(property: DocumentProperty) {
+function databaseBoardGroupDefinitions(
+  property: DocumentProperty,
+  labels: { noGrouping: string; checked: string; unchecked: string },
+) {
   if (property.definition.type === "checkbox") {
     return [
       {
         id: databaseBoardGroupId(property, false),
-        label: "Unchecked",
+        label: labels.unchecked,
         value: false,
       },
       {
         id: databaseBoardGroupId(property, true),
-        label: "Checked",
+        label: labels.checked,
         value: true,
       },
     ];
@@ -10065,6 +10201,7 @@ function DatabaseViewTabs({
   canEdit: boolean;
   onViewConfigChange: (viewConfig: ContentDatabaseViewConfig) => void;
 }) {
+  const db = useDatabaseT();
   const normalized = normalizeClientDatabaseViewConfig(viewConfig);
   const [newViewName, setNewViewName] = useState("");
   const [addViewOpen, setAddViewOpen] = useState(false);
@@ -10313,12 +10450,12 @@ function DatabaseViewTabs({
                     ref={renameInputRef}
                     autoFocus
                     value={renameValue}
-                    aria-label="View name"
+                    aria-label={db("viewName")}
                     onChange={(event) => setRenameValue(event.target.value)}
                     className="h-8"
                   />
                   <Button type="submit" size="sm" className="h-8">
-                    Rename view
+                    <DatabaseText k="renameView" />
                   </Button>
                 </form>
               ) : (
@@ -10329,12 +10466,12 @@ function DatabaseViewTabs({
                       startRename(view);
                     }}
                   >
-                    Rename view
+                    <DatabaseText k="renameView" />
                   </DropdownMenuItem>
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
                       <ViewIcon className="mr-2 size-4 text-muted-foreground" />
-                      Layout
+                      <DatabaseText k="layout" />
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="w-48">
                       {DATABASE_VIEW_TYPES.map((type) => {
@@ -10374,7 +10511,7 @@ function DatabaseViewTabs({
                     }}
                   >
                     <IconCopy className="mr-2 size-4 text-muted-foreground" />
-                    Duplicate view
+                    <DatabaseText k="duplicateView" />
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -10388,7 +10525,7 @@ function DatabaseViewTabs({
                     }}
                   >
                     <IconTrash className="mr-2 size-4" />
-                    Delete view
+                    <DatabaseText k="deleteView" />
                   </DropdownMenuItem>
                 </>
               )}
@@ -10407,7 +10544,7 @@ function DatabaseViewTabs({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              aria-label="Add database view"
+              aria-label={db("addDatabaseView")}
               className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/viewtabs:opacity-100 group-hover/viewtabs:opacity-100 data-[state=open]:opacity-100"
             >
               <IconPlus className="size-4" />
@@ -10415,7 +10552,7 @@ function DatabaseViewTabs({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-64">
             <DropdownMenuLabel className="text-xs text-muted-foreground">
-              New view
+              <DatabaseText k="newView" />
             </DropdownMenuLabel>
             <form
               className="grid gap-2 p-2"
@@ -10428,8 +10565,8 @@ function DatabaseViewTabs({
               <Input
                 autoFocus
                 value={newViewName}
-                placeholder="Table"
-                aria-label="New view name"
+                placeholder={db("table")}
+                aria-label={db("newViewName")}
                 onChange={(event) => setNewViewName(event.target.value)}
                 className="h-8"
               />
@@ -10483,6 +10620,7 @@ function DatabaseNameHeader({
   onToggleAllRowsSelection: () => void;
   onResize: (event: ReactPointerEvent) => void;
 }) {
+  const db = useDatabaseT();
   const columnState = databaseColumnHeaderState(sorts, filters, "name");
   const allSelected = selectableCount > 0 && selectedCount === selectableCount;
   const partiallySelected = selectedCount > 0 && !allSelected;
@@ -10507,20 +10645,20 @@ function DatabaseNameHeader({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            aria-label="Name column menu"
+            aria-label={db("nameColumnMenu")}
             className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded px-1 text-left hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <span className="shrink-0 text-[13px] leading-none text-muted-foreground">
               Aa
             </span>
-            <span className="truncate">Name</span>
+            <span className="truncate"><DatabaseText k="name" /></span>
             <DatabaseColumnStateIndicators state={columnState} />
             <IconChevronDown className="ml-auto size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-70 data-[state=open]:opacity-100" />
           </button>
         </DropdownMenuTrigger>
         <ColumnHeaderMenuContent
           columnKey="name"
-          label="Name"
+          label={db("name")}
           sorts={sorts}
           filters={filters}
           onSortsChange={onSortsChange}
@@ -10529,7 +10667,7 @@ function DatabaseNameHeader({
           sourceField={sourceFieldMappingForColumn(source, "name")}
         />
       </DropdownMenu>
-      <ColumnResizeHandle label="Resize Name column" onPointerDown={onResize} />
+      <ColumnResizeHandle label={db("resizeNameColumn")} onPointerDown={onResize} />
     </div>
   );
 }
@@ -10560,6 +10698,7 @@ function DatabaseSelectionBar({
   onDuplicateSelected: () => void;
   onDeleteSelected: () => void;
 }) {
+  const db = useDatabaseT();
   return (
     <div className="flex h-8 items-center justify-between gap-2 border-y border-border/45 bg-muted/20 px-2 text-xs text-muted-foreground">
       <span className="font-medium text-foreground">
@@ -10583,7 +10722,7 @@ function DatabaseSelectionBar({
               onClick={onDuplicateSelected}
             >
               <IconCopy className="size-3.5" />
-              Duplicate
+              <DatabaseText k="duplicate" />
             </Button>
             <Button
               type="button"
@@ -10594,7 +10733,7 @@ function DatabaseSelectionBar({
               onClick={onDeleteSelected}
             >
               <IconTrash className="size-3.5" />
-              Delete
+              <DatabaseText k="delete" />
             </Button>
           </>
         ) : null}
@@ -10605,7 +10744,7 @@ function DatabaseSelectionBar({
           className="h-7 px-2 text-xs"
           onClick={onClearSelection}
         >
-          Clear
+          <DatabaseText k="clear" />
         </Button>
       </div>
     </div>
@@ -10626,6 +10765,7 @@ function DatabaseBulkEditPopover({
     value: DocumentPropertyValue,
   ) => Promise<void>;
 }) {
+  const db = useDatabaseT();
   const [open, setOpen] = useState(false);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
     properties[0]?.definition.id ?? null,
@@ -10703,7 +10843,7 @@ function DatabaseBulkEditPopover({
                 />
               ) : (
                 <div className="px-2 py-6 text-sm text-muted-foreground">
-                  No editable properties
+                  <DatabaseText k="noEditableProperties" />
                 </div>
               )}
             </div>
@@ -10725,6 +10865,7 @@ function DatabaseBulkPropertyValueEditor({
   onApply: (value: DocumentPropertyValue) => Promise<void>;
   onCancel: () => void;
 }) {
+  const db = useDatabaseT();
   const type = property.definition.type;
 
   if (type === "checkbox") {
@@ -10739,7 +10880,7 @@ function DatabaseBulkPropertyValueEditor({
           onClick={() => void onApply(true)}
         >
           <IconCheck className="mr-1.5 size-3.5" />
-          Checked
+          <DatabaseText k="checked" />
         </Button>
         <Button
           type="button"
@@ -10750,7 +10891,7 @@ function DatabaseBulkPropertyValueEditor({
           onClick={() => void onApply(false)}
         >
           <IconMinus className="mr-1.5 size-3.5" />
-          Unchecked
+          <DatabaseText k="unchecked" />
         </Button>
         <Button
           type="button"
@@ -10760,7 +10901,7 @@ function DatabaseBulkPropertyValueEditor({
           disabled={disabled}
           onClick={() => void onApply(null)}
         >
-          Clear value
+          <DatabaseText k="clearValue" />
         </Button>
       </div>
     );
@@ -10808,6 +10949,7 @@ function DatabaseBulkScalarValueEditor({
   onApply: (value: DocumentPropertyValue) => Promise<void>;
   onCancel: () => void;
 }) {
+  const db = useDatabaseT();
   const type = property.definition.type;
   const [value, setValue] = useState("");
   const valueState = databaseBulkScalarInputState(type, value);
@@ -10849,7 +10991,7 @@ function DatabaseBulkScalarValueEditor({
             }
           >
             <IconCalendar className="size-3.5" />
-            Today
+            <DatabaseText k="today" />
           </Button>
           <Button
             type="button"
@@ -10865,7 +11007,7 @@ function DatabaseBulkScalarValueEditor({
             }
           >
             <IconCalendar className="size-3.5" />
-            Tomorrow
+            <DatabaseText k="tomorrow" />
           </Button>
         </div>
       ) : null}
@@ -10874,7 +11016,7 @@ function DatabaseBulkScalarValueEditor({
         value={value}
         type={inputType}
         aria-label={`Set ${property.definition.name} for selected rows`}
-        placeholder="Value"
+        placeholder={db("value")}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
@@ -10885,7 +11027,7 @@ function DatabaseBulkScalarValueEditor({
       />
       {!valueState.isValid ? (
         <div className="px-1 text-xs text-destructive">
-          Enter a valid number.
+          <DatabaseText k="enterAValidNumber" />
         </div>
       ) : null}
       <div className="flex justify-end gap-2">
@@ -10896,17 +11038,17 @@ function DatabaseBulkScalarValueEditor({
           disabled={disabled}
           onClick={() => void onApply(null)}
         >
-          Clear
+          <DatabaseText k="clear" />
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
+          <DatabaseText k="cancel" />
         </Button>
         <Button
           type="submit"
           size="sm"
           disabled={disabled || !valueState.isValid}
         >
-          Apply
+          <DatabaseText k="apply" />
         </Button>
       </div>
     </form>
@@ -10922,6 +11064,7 @@ function DatabaseBulkFilesValueEditor({
   onApply: (value: DocumentPropertyValue) => Promise<void>;
   onCancel: () => void;
 }) {
+  const db = useDatabaseT();
   const [value, setValue] = useState("");
 
   return (
@@ -10937,7 +11080,7 @@ function DatabaseBulkFilesValueEditor({
         autoFocus
         aria-label="Set files for selected rows"
         value={value}
-        placeholder="One file or media link per line"
+        placeholder={db("oneFileOrMediaLinkPerLine")}
         rows={4}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
@@ -10956,13 +11099,13 @@ function DatabaseBulkFilesValueEditor({
           disabled={disabled}
           onClick={() => void onApply(null)}
         >
-          Clear
+          <DatabaseText k="clear" />
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
+          <DatabaseText k="cancel" />
         </Button>
         <Button type="submit" size="sm" disabled={disabled}>
-          Apply
+          <DatabaseText k="apply" />
         </Button>
       </div>
     </form>
@@ -10980,6 +11123,7 @@ function DatabaseBulkOptionValueEditor({
   onApply: (value: DocumentPropertyValue) => Promise<void>;
   onCancel: () => void;
 }) {
+  const db = useDatabaseT();
   const options = property.definition.options.options ?? [];
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const multi = property.definition.type === "multi_select";
@@ -10988,7 +11132,7 @@ function DatabaseBulkOptionValueEditor({
     return (
       <div className="grid gap-2">
         <div className="rounded bg-muted/40 px-2 py-3 text-sm text-muted-foreground">
-          This property has no options yet.
+          <DatabaseText k="thisPropertyHasNoOptionsYet" />
         </div>
         <Button
           type="button"
@@ -10998,7 +11142,7 @@ function DatabaseBulkOptionValueEditor({
           disabled={disabled}
           onClick={() => void onApply(multi ? [] : null)}
         >
-          Clear value
+          <DatabaseText k="clearValue" />
         </Button>
       </div>
     );
@@ -11039,10 +11183,10 @@ function DatabaseBulkOptionValueEditor({
             disabled={disabled}
             onClick={() => void onApply([])}
           >
-            Clear
+            <DatabaseText k="clear" />
           </Button>
           <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-            Cancel
+            <DatabaseText k="cancel" />
           </Button>
           <Button
             type="button"
@@ -11050,7 +11194,7 @@ function DatabaseBulkOptionValueEditor({
             disabled={disabled}
             onClick={() => void onApply(selectedIds)}
           >
-            Apply
+            <DatabaseText k="apply" />
           </Button>
         </div>
       </div>
@@ -11080,7 +11224,7 @@ function DatabaseBulkOptionValueEditor({
         disabled={disabled}
         onClick={() => void onApply(null)}
       >
-        Clear value
+        <DatabaseText k="clearValue" />
       </Button>
     </div>
   );
@@ -11308,11 +11452,12 @@ function ColumnHeaderMenuContent({
   onHide?: () => void | Promise<void>;
   hideDisabled?: boolean;
 }) {
+  const db = useDatabaseT();
   const columnSort = sorts.find((sort) => sort.key === columnKey) ?? null;
   const columnFilterCount = filters.filter(
     (filter) => filter.key === columnKey,
   ).length;
-  const quickFilters = databaseQuickFilterOptionsForColumn(propertyType);
+  const quickFilters = databaseQuickFilterOptionsForColumn(db, propertyType);
 
   return (
     <DropdownMenuContent align="start" className="w-56">
@@ -11326,7 +11471,7 @@ function ColumnHeaderMenuContent({
         }}
       >
         <IconArrowUp className="mr-2 size-4 text-muted-foreground" />
-        <span className="min-w-0 flex-1">Sort ascending</span>
+        <span className="min-w-0 flex-1"><DatabaseText k="sortAscending" /></span>
         {columnSort?.direction === "asc" ? (
           <IconCheck className="size-4 text-muted-foreground" />
         ) : null}
@@ -11338,7 +11483,7 @@ function ColumnHeaderMenuContent({
         }}
       >
         <IconArrowDown className="mr-2 size-4 text-muted-foreground" />
-        <span className="min-w-0 flex-1">Sort descending</span>
+        <span className="min-w-0 flex-1"><DatabaseText k="sortDescending" /></span>
         {columnSort?.direction === "desc" ? (
           <IconCheck className="size-4 text-muted-foreground" />
         ) : null}
@@ -11351,7 +11496,7 @@ function ColumnHeaderMenuContent({
           }}
         >
           <IconX className="mr-2 size-4 text-muted-foreground" />
-          Clear sort
+          <DatabaseText k="clearSort" />
         </DropdownMenuItem>
       ) : null}
       <DropdownMenuSeparator />
@@ -11396,7 +11541,7 @@ function ColumnHeaderMenuContent({
             }}
           >
             <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
-            Hide in view
+            <DatabaseText k="hideInView" />
           </DropdownMenuItem>
         </>
       ) : null}
@@ -11404,7 +11549,7 @@ function ColumnHeaderMenuContent({
         <>
           <DropdownMenuSeparator />
           <div className="grid gap-1 px-2 py-1.5 text-xs">
-            <div className="font-medium text-foreground">Source</div>
+            <div className="font-medium text-foreground"><DatabaseText k="source" /></div>
             {sourceField ? (
               <>
                 <div className="min-w-0 break-words text-muted-foreground">
@@ -11423,7 +11568,7 @@ function ColumnHeaderMenuContent({
               </>
             ) : (
               <div className="text-muted-foreground">
-                Not mapped to Builder.
+                <DatabaseText k="notMappedToBuilder" />
               </div>
             )}
           </div>
@@ -11450,6 +11595,7 @@ function DatabasePropertiesMenu({
   onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
   onPropertiesHiddenChange: (propertyIds: string[], hidden: boolean) => void;
 }) {
+  const db = useDatabaseT();
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
   const filteredProperties = normalizedQuery
@@ -11474,7 +11620,7 @@ function DatabasePropertiesMenu({
               ? `${hiddenCount} hidden properties`
               : "Property visibility"
           }
-          title="Property visibility"
+          title={db("propertyVisibility")}
           className={cn(
             databaseToolbarIconButtonClass(hiddenCount > 0),
             "relative",
@@ -11494,7 +11640,7 @@ function DatabasePropertiesMenu({
         onCloseAutoFocus={() => setQuery("")}
       >
         <DropdownMenuLabel className="text-xs text-muted-foreground">
-          Properties
+          <DatabaseText k="properties" />
         </DropdownMenuLabel>
         <div
           className="grid gap-2 p-2 pt-1"
@@ -11504,8 +11650,8 @@ function DatabasePropertiesMenu({
             <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
             <Input
               value={query}
-              placeholder="Search properties"
-              aria-label="Search properties"
+              placeholder={db("searchProperties")}
+              aria-label={db("searchProperties")}
               onChange={(event) => setQuery(event.target.value)}
               className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
             />
@@ -11524,7 +11670,7 @@ function DatabasePropertiesMenu({
                 onClick={() => onPropertiesHiddenChange(propertyIds, false)}
               >
                 <IconEye className="mr-1 size-3.5" />
-                Show all
+                <DatabaseText k="showAll" />
               </Button>
               <Button
                 type="button"
@@ -11535,14 +11681,14 @@ function DatabasePropertiesMenu({
                 onClick={() => onPropertiesHiddenChange(propertyIds, true)}
               >
                 <IconEyeOff className="mr-1 size-3.5" />
-                Hide all
+                <DatabaseText k="hideAll" />
               </Button>
             </div>
           </div>
         </div>
         {filteredProperties.length === 0 ? (
           <div className="px-3 py-4 text-sm text-muted-foreground">
-            No matching properties
+            <DatabaseText k="noMatchingProperties" />
           </div>
         ) : null}
         {filteredProperties.map((property) => {
@@ -11577,7 +11723,7 @@ function DatabasePropertiesMenu({
           className="border-t border-border p-2"
           onKeyDown={(event) => event.stopPropagation()}
         >
-          <AddProperty documentId={documentId} label="New property" />
+          <AddProperty documentId={documentId} label={db("newProperty")} />
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -11717,17 +11863,22 @@ type DatabaseQuickFilterOperator = Extract<
 >;
 
 export function databaseQuickFilterOptionsForColumn(
+  dbOrPropertyType: DatabaseT | DocumentPropertyType,
   propertyType?: DocumentPropertyType,
 ): Array<{ operator: DatabaseQuickFilterOperator; label: string }> {
-  if (propertyType === "checkbox") {
+  const db =
+    typeof dbOrPropertyType === "function" ? dbOrPropertyType : defaultDatabaseT;
+  const type =
+    typeof dbOrPropertyType === "function" ? propertyType : dbOrPropertyType;
+  if (type === "checkbox") {
     return [
-      { operator: "is_checked", label: "Filter checked" },
-      { operator: "is_unchecked", label: "Filter unchecked" },
+      { operator: "is_checked", label: db("filterChecked") },
+      { operator: "is_unchecked", label: db("filterUnchecked") },
     ];
   }
   return [
-    { operator: "is_empty", label: "Filter empty" },
-    { operator: "is_not_empty", label: "Filter not empty" },
+    { operator: "is_empty", label: db("filterEmpty") },
+    { operator: "is_not_empty", label: db("filterNotEmpty") },
   ];
 }
 
@@ -12099,6 +12250,7 @@ function SortMenu({
   sorts: DatabaseSort[];
   onSortsChange: (sorts: DatabaseSort[]) => void;
 }) {
+  const db = useDatabaseT();
   const displayedSorts = sorts.length > 0 ? sorts : [defaultDatabaseSort()];
 
   function updateSort(index: number, next: Partial<DatabaseSort>) {
@@ -12143,7 +12295,7 @@ function SortMenu({
           aria-label={
             sorts.length > 0 ? `${sorts.length} active sorts` : "Sort"
           }
-          title="Sort"
+          title={db("sort")}
           className={cn(
             databaseToolbarIconButtonClass(sorts.length > 0),
             "relative",
@@ -12160,7 +12312,7 @@ function SortMenu({
       <DropdownMenuContent align="end" className="w-[340px]">
         <div className="grid gap-2 p-2">
           <div className="text-xs font-medium text-muted-foreground">
-            Sort rows by
+            <DatabaseText k="sortRowsBy" />
           </div>
           <div className="grid gap-2">
             {displayedSorts.map((sort, index) => (
@@ -12233,7 +12385,7 @@ function SortMenu({
               onClick={addSort}
             >
               <IconPlus className="mr-1 size-3.5" />
-              Add sort
+              <DatabaseText k="addSort" />
             </Button>
             <Button
               type="button"
@@ -12243,7 +12395,7 @@ function SortMenu({
               disabled={sorts.length === 0}
               onClick={() => onSortsChange([])}
             >
-              Clear sorts
+              <DatabaseText k="clearSorts" />
             </Button>
           </div>
         </div>
@@ -12284,6 +12436,7 @@ function FilterMenu({
   onFiltersChange: (filters: DatabaseFilter[]) => void;
   onFilterModeChange: (filterMode: DatabaseFilterMode) => void;
 }) {
+  const db = useDatabaseT();
   const activeFilters = filters.filter(isActiveFilter);
   const active = activeFilters.length > 0;
   const displayedFilters =
@@ -12342,7 +12495,7 @@ function FilterMenu({
           aria-label={
             active ? `${activeFilters.length} active filters` : "Filter"
           }
-          title="Filter"
+          title={db("filter")}
           className={cn(databaseToolbarIconButtonClass(active), "relative")}
         >
           <IconFilter className="size-3.5" />
@@ -12359,7 +12512,7 @@ function FilterMenu({
           onKeyDown={(event) => event.stopPropagation()}
         >
           <div className="text-xs font-medium text-muted-foreground">
-            Filter rows where
+            <DatabaseText k="filterRowsWhere" />
           </div>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="h-8 rounded border border-border/70 bg-background px-2 text-sm">
@@ -12498,7 +12651,7 @@ function FilterMenu({
               onClick={addFilter}
             >
               <IconPlus className="mr-1 size-3.5" />
-              Add filter
+              <DatabaseText k="addFilter" />
             </Button>
             <Button
               type="button"
@@ -12508,7 +12661,7 @@ function FilterMenu({
               disabled={filters.length === 0}
               onClick={() => onFiltersChange([])}
             >
-              Clear filters
+              <DatabaseText k="clearFilters" />
             </Button>
           </div>
           <span className="text-xs text-muted-foreground">
@@ -12533,6 +12686,7 @@ function DatabaseFilterValueControl({
   autoFocus?: boolean;
   onValueChange: (value: string) => void;
 }) {
+  const db = useDatabaseT();
   const configureProperty = useConfigureDocumentProperty(documentId);
   const options = databaseFilterOptionChoices(filter.key, properties);
   const type = filterPropertyTypeForKey(filter.key, properties);
@@ -12578,7 +12732,7 @@ function DatabaseFilterValueControl({
               <Input
                 autoFocus={autoFocus}
                 value={optionQuery}
-                placeholder="Search options"
+                placeholder={db("searchOptions")}
                 aria-label={`Search ${filter.label} filter options`}
                 onChange={(event) => setOptionQuery(event.target.value)}
                 className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
@@ -12594,14 +12748,14 @@ function DatabaseFilterValueControl({
                 }}
               >
                 <IconX className="mr-2 size-4 text-muted-foreground" />
-                Clear value
+                <DatabaseText k="clearValue" />
               </DropdownMenuItem>
               <DropdownMenuSeparator />
             </>
           ) : null}
           {filteredOptions.length === 0 && !canCreateOption ? (
             <div className="px-3 py-4 text-sm text-muted-foreground">
-              No matching options
+              <DatabaseText k="noMatchingOptions" />
             </div>
           ) : null}
           {filteredOptions.map((option) => (
@@ -13164,6 +13318,7 @@ function RowActionsCell({
   onDeletedPreviewItem?: (item: ContentDatabaseItem) => boolean;
   onOpenPage: () => void;
 }) {
+  const db = useDatabaseT();
   const queryClient = useQueryClient();
   const deleteDocument = useDeleteDocument();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
@@ -13178,9 +13333,9 @@ function RowActionsCell({
       const duplicatedItem = databaseDuplicatedItemFromResponse(response);
       if (duplicatedItem) onPreviewItem?.(duplicatedItem);
     } catch (err) {
-      toast.error("Failed to duplicate row", {
+      toast.error(db("failedToDuplicateRow"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : db("somethingWentWrong"),
       });
     }
   }
@@ -13201,9 +13356,9 @@ function RowActionsCell({
       });
     } catch (err) {
       if (previewMoved) onPreviewItem?.(item);
-      toast.error("Failed to delete row", {
+      toast.error(db("failedToDeleteRow"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : db("somethingWentWrong"),
       });
     }
   }
@@ -13229,7 +13384,7 @@ function RowActionsCell({
             }}
           >
             <IconExternalLink className="mr-2 size-4 text-muted-foreground" />
-            Open page
+            <DatabaseText k="openPage" />
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={duplicateItem.isPending}
@@ -13239,7 +13394,7 @@ function RowActionsCell({
             }}
           >
             <IconCopy className="mr-2 size-4 text-muted-foreground" />
-            Duplicate row
+            <DatabaseText k="duplicateRow" />
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -13251,7 +13406,7 @@ function RowActionsCell({
             }}
           >
             <IconTrash className="mr-2 size-4" />
-            Delete row
+            <DatabaseText k="deleteRow" />
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -13259,14 +13414,14 @@ function RowActionsCell({
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete row?</AlertDialogTitle>
+            <AlertDialogTitle><DatabaseText k="deleteRow2" /></AlertDialogTitle>
             <AlertDialogDescription>
               &ldquo;{title}&rdquo; and any sub-pages will be permanently
               deleted. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel><DatabaseText k="cancel" /></AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deleteDocument.isPending}
@@ -13308,6 +13463,7 @@ function RowNameCell({
   onTitleEditStarted: () => void;
   onPreview: () => void;
 }) {
+  const db = useDatabaseT();
   const queryClient = useQueryClient();
   const updateDocument = useUpdateDocument();
   const [title, setTitle] = useState(item.document.title);
@@ -13411,7 +13567,7 @@ function RowNameCell({
             }
           }}
           className="h-7 min-w-0 flex-1 rounded-sm bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground/70 focus:bg-background focus:ring-1 focus:ring-ring"
-          placeholder="Untitled"
+          placeholder={db("untitled")}
         />
       ) : (
         <button

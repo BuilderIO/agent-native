@@ -329,10 +329,11 @@ export function WeekView({
     for (const span of allDaySpans) {
       let placed = false;
       for (const row of rows) {
+        // i18n-ignore scanner false positive for layout property access
         const hasConflict = row.some(
           (existing) =>
-            span.startCol <= existing.endCol &&
-            span.endCol >= existing.startCol,
+            /* i18n-ignore scanner false positive */ span.startCol <=
+              existing.endCol && span.endCol >= existing.startCol,
         );
         if (!hasConflict) {
           row.push(span);
@@ -355,10 +356,11 @@ export function WeekView({
     for (const span of allDaySpans) {
       let placed = false;
       for (let r = 0; r < rows.length; r++) {
+        // i18n-ignore scanner false positive for layout property access
         const hasConflict = rows[r].some(
           (existing) =>
-            span.startCol <= existing.endCol &&
-            span.endCol >= existing.startCol,
+            /* i18n-ignore scanner false positive */ span.startCol <=
+              existing.endCol && span.endCol >= existing.startCol,
         );
         if (!hasConflict) {
           rows[r].push({ ...span, id: span.event.id });

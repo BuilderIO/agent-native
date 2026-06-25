@@ -63,7 +63,7 @@ npx @agent-native/core@latest create my-agent --headless
 Em seguida, instale a partir da pasta que você criou:
 
 ```bash
-cd my-agent # or my-app if you chose the Chat template
+cd my-agent # ou my-app se você escolheu o modelo Chat
 pnpm install
 ```
 
@@ -82,9 +82,9 @@ envie com este exemplo:
   "annotations": [
     { "lines": "5", "label": "Descrição da ferramenta", "note": "O agente lê `description` para decidir quando chamar isto como ferramenta." },
     { "lines": "6-8", "label": "Contrato tipado", "note": "Um `schema` zod valida entradas de todas as superfícies: agente, UI, HTTP, MCP e A2A." },
-    { "lines": "9", "label": "HTTP verb", "note": "Opt this action into an auto-mounted HTTP endpoint." },
-    { "lines": "10", "label": "Read-only", "note": "`readOnly` marks the action as safe to call without approval and cacheable for queries." },
-    { "lines": "11-13", "label": "One implementation", "note": "The `run` body is the single source of truth that every surface executes." }
+    { "lines": "9", "label": "Verbo HTTP", "note": "Exponha esta ação em um endpoint HTTP montado automaticamente." },
+    { "lines": "10", "label": "Somente leitura", "note": "`readOnly` marca a ação como segura para chamar sem aprovação e cacheável para consultas." },
+    { "lines": "11-13", "label": "Uma implementação", "note": "O corpo de `run` é a única fonte da verdade que todas as superfícies executam." }
   ]
 }
 ```
@@ -123,7 +123,7 @@ trabalhos agendados e webhooks. Defina uma vez, ligue de qualquer lugar.
 
 ```an-diagram title="Uma ação, cada superfície" summary="Um único arquivo defineAction é distribuído para todos os consumidores sem fiação extra."
 {
-  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Scheduled jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
+  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Interface de chat</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Jobs agendados</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
   "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -138,7 +138,7 @@ histórico de execução e credenciais residem em SQL. Localmente é SQLite em
 ```an-callout
 {
   "tone": "info",
-  "body": "**Headless is still a real app.** The app-agent loop persists sessions, threads, runs, settings, and credentials in SQL — it is not a stateless prompt. You can add a UI later without touching your actions or state."
+  "body": "**Headless ainda é um aplicativo real.** O loop do agente de aplicativo persiste sessões, threads, execuções, configurações e credenciais em SQL — não é um prompt sem estado. Você pode adicionar um UI posteriormente sem alterar suas ações ou estado."
 }
 ```
 
@@ -165,7 +165,7 @@ export default function ChatRoute() {
   `useActionMutation()`.
 
 Veja [Drop-in Agent](/docs/drop-in-agent) para o conjunto completo de componentes e
-[Native Chat UI](/docs/native-chat-ui) para renderizar resultados de ações como tabelas,
+[Native Interface de chat](/docs/native-chat-ui) para renderizar resultados de ações como tabelas,
 gráficos e cartões digitados em vez de texto simples.
 
 **Começou sem cabeça e quer um UI mais tarde?** O modelo de bate-papo _é_ a rampa de acesso do UI —
@@ -178,12 +178,12 @@ modelo; seu estado `actions/`, agente e SQL permanecem inalterados. Veja
 
 ```text
 my-app/
-  actions/         # Agent-callable actions
-  app/             # React frontend (UI templates only; omitted when headless)
-  server/          # Nitro API server (routes, plugins)
-  AGENTS.md        # Always-on agent instructions
-  .agents/         # Skills the agent can pull in when relevant
-  data/app.db      # Local SQLite state when DATABASE_URL is unset
+  actions/         # Ações que o agente pode chamar
+  app/             # Frontend React (apenas templates UI; omitido em headless)
+  server/          # Servidor API Nitro (rotas, plugins)
+  AGENTS.md        # Instruções permanentes do agente
+  .agents/         # Skills que o agente pode carregar quando relevantes
+  data/app.db      # Estado SQLite local quando DATABASE_URL não está definido
 ```
 
 ## Para onde ir a seguir

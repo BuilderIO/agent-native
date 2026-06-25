@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { toast } from "sonner";
 import { IconLink, IconMail } from "@tabler/icons-react";
-import { appPath, useActionQuery } from "@agent-native/core/client";
+import { appPath, useActionQuery, useT } from "@agent-native/core/client";
 import {
   Popover,
   PopoverContent,
@@ -55,6 +55,7 @@ function ShareMeetingContent({
   meetingId: string;
   meetingTitle?: string;
 }) {
+  const t = useT();
   const shareUrl = useMemo(
     () => `${window.location.origin}${appPath(`/share/meeting/${meetingId}`)}`,
     [meetingId],
@@ -67,7 +68,9 @@ function ShareMeetingContent({
 
   const data = sharesQuery.data;
   const canManage = data?.role === "owner" || data?.role === "admin";
-  const titleText = meetingTitle ? `Share "${meetingTitle}"` : "Share meeting";
+  const titleText = meetingTitle
+    ? t("clipsFinalRaw.shareNamedMeeting", { title: meetingTitle })
+    : t("clipsFinalRaw.shareMeeting");
 
   return (
     <>
@@ -77,11 +80,11 @@ function ShareMeetingContent({
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="link" className="gap-1.5">
             <IconLink size={14} />
-            Link
+            {t("clipsFinalRaw.link")}
           </TabsTrigger>
           <TabsTrigger value="invite" className="gap-1.5">
             <IconMail size={14} />
-            Invite
+            {t("clipsFinalRaw.invite")}
           </TabsTrigger>
         </TabsList>
 
@@ -105,8 +108,8 @@ function ShareMeetingContent({
                 err instanceof Error
                   ? err.message
                   : action === "invite"
-                    ? "Couldn't invite person"
-                    : "Couldn't remove person",
+                    ? t("clipsFinalRaw.inviteFailed")
+                    : t("clipsFinalRaw.removePersonFailed"),
               )
             }
           />
@@ -127,6 +130,7 @@ function LinkTab({
   sharesQuery: SharesQuery;
   canManage: boolean;
 }) {
+  const t = useT();
   const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
     "meeting",
     meetingId,
@@ -146,7 +150,7 @@ function LinkTab({
         onChange={(next) => setResourceVisibility(next)}
       />
 
-      <CopyField label="Share link" value={shareUrl} />
+      <CopyField label={t("clipsFinalRaw.shareLink")} value={shareUrl} />
 
       {!isPublic && canManage ? (
         <MakePublicCard

@@ -18,9 +18,10 @@ import { SortMenu, type SortKey } from "@/components/library/sort-menu";
 import { PageHeader } from "@/components/library/page-header";
 import { useRecordings, type RecordingSummary } from "@/hooks/use-library";
 import { useActionMutation, useT } from "@agent-native/core/client";
+import enMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: "Trash · Clips" }];
+  return [{ title: enMessages.clipsFinalRaw.trashPageTitle }];
 }
 
 function Skeleton() {

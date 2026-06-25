@@ -4,6 +4,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useT } from "@agent-native/core/client";
 import { shortcutModifierLabel } from "@/lib/utils";
 
 interface KeyboardShortcutsHelpProps {
@@ -15,41 +16,51 @@ export function KeyboardShortcutsHelp({
   open,
   onClose,
 }: KeyboardShortcutsHelpProps) {
+  const t = useT();
   const shortcutGroups = [
     {
-      category: "Navigation",
+      category: t("keyboardShortcuts.navigation"),
       shortcuts: [
-        { keys: ["J"], description: "Next period (day / week / month)" },
-        { keys: ["K"], description: "Previous period" },
-        { keys: ["T"], description: "Go to today" },
-        { keys: ["P"], description: "Show teammate calendars" },
+        { keys: ["J"], description: t("keyboardShortcuts.nextPeriod") },
+        { keys: ["K"], description: t("keyboardShortcuts.previousPeriod") },
+        { keys: ["T"], description: t("keyboardShortcuts.goToday") },
+        {
+          keys: ["P"],
+          description: t("keyboardShortcuts.showTeammateCalendars"),
+        },
       ],
     },
     {
-      category: "Views",
+      category: t("keyboardShortcuts.views"),
       shortcuts: [
-        { keys: ["M"], description: "Month view" },
-        { keys: ["W"], description: "Week view" },
-        { keys: ["D"], description: "Day view" },
+        { keys: ["M"], description: t("keyboardShortcuts.monthView") },
+        { keys: ["W"], description: t("keyboardShortcuts.weekView") },
+        { keys: ["D"], description: t("keyboardShortcuts.dayView") },
       ],
     },
     {
-      category: "Events",
+      category: t("keyboardShortcuts.events"),
       shortcuts: [
-        { keys: ["C"], description: "Create new event" },
-        { keys: ["Del"], description: "Delete selected event" },
-        { keys: ["Esc"], description: "Close dialog / cancel" },
+        { keys: ["C"], description: t("keyboardShortcuts.createNewEvent") },
+        {
+          keys: ["Del"],
+          description: t("keyboardShortcuts.deleteSelectedEvent"),
+        },
+        { keys: ["Esc"], description: t("keyboardShortcuts.closeDialog") },
       ],
     },
     {
-      category: "Search & Quick Actions",
+      category: t("keyboardShortcuts.searchQuickActions"),
       shortcuts: [
         {
           keys: [shortcutModifierLabel(), "K"],
-          description: "Open command palette",
+          description: t("keyboardShortcuts.openCommandPalette"),
         },
-        { keys: ["/"], description: "Open command palette" },
-        { keys: ["?"], description: "Show keyboard shortcuts" },
+        { keys: ["/"], description: t("keyboardShortcuts.openCommandPalette") },
+        {
+          keys: ["?"],
+          description: t("keyboardShortcuts.showKeyboardShortcuts"),
+        },
       ],
     },
   ];
@@ -58,7 +69,7 @@ export function KeyboardShortcutsHelp({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-[460px]">
         <DialogHeader>
-          <DialogTitle>Keyboard Shortcuts</DialogTitle>
+          <DialogTitle>{t("keyboardShortcuts.title")}</DialogTitle>
         </DialogHeader>
 
         <div className="grid gap-5 py-1">
@@ -94,7 +105,7 @@ export function KeyboardShortcutsHelp({
         </div>
 
         <p className="text-xs text-muted-foreground border-t border-border pt-3 mt-1">
-          Shortcuts are disabled while typing in text fields.
+          {t("keyboardShortcuts.disabledWhileTyping")}
         </p>
       </DialogContent>
     </Dialog>

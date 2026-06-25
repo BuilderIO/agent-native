@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Turnstile } from "@agent-native/core/client";
+import { Turnstile, useT } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,6 +42,7 @@ export function BookingForm({
   loading,
   customFields = [],
 }: BookingFormProps) {
+  const t = useT();
   const [captchaToken, setCaptchaToken] = useState<string | undefined>();
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
@@ -71,7 +72,9 @@ export function BookingForm({
           value === "" ||
           value === false
         ) {
-          errors[field.id] = `${field.label} is required`;
+          errors[field.id] = t("bookingLinks.fieldRequired", {
+            label: field.label,
+          });
           continue;
         }
       }
@@ -81,7 +84,7 @@ export function BookingForm({
           if (!re.test(value)) {
             errors[field.id] =
               field.patternError ||
-              `${field.label} does not match the expected format`;
+              t("bookingLinks.fieldFormatError", { label: field.label });
           }
         } catch {}
       }
@@ -112,18 +115,18 @@ export function BookingForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="booking-name">Name</Label>
+        <Label htmlFor="booking-name">{t("bookingLinks.name")}</Label>
         <Input
           id="booking-name"
           value={name}
           onChange={(e) => updateValue({ name: e.target.value })}
-          placeholder="Your name"
+          placeholder={t("bookingLinks.yourName")}
           required
         />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="booking-email">Email</Label>
+        <Label htmlFor="booking-email">{t("bookingLinks.email")}</Label>
         <Input
           id="booking-email"
           type="email"
@@ -141,16 +144,18 @@ export function BookingForm({
           value={fieldResponses[field.id]}
           error={fieldErrors[field.id]}
           onChange={(val) => setFieldValue(field.id, val)}
+          optionalLabel={t("bookingLinks.optional")}
+          selectPlaceholder={t("bookingLinks.selectPlaceholder")}
         />
       ))}
 
       <div className="space-y-2">
-        <Label htmlFor="booking-notes">Notes (optional)</Label>
+        <Label htmlFor="booking-notes">{t("bookingLinks.notesOptional")}</Label>
         <Textarea
           id="booking-notes"
           value={notes}
           onChange={(e) => updateValue({ notes: e.target.value })}
-          placeholder="Anything you'd like to share"
+          placeholder={t("bookingLinks.notesPlaceholder")}
           rows={3}
         />
       </div>
@@ -158,7 +163,7 @@ export function BookingForm({
       <Turnstile onVerify={setCaptchaToken} />
 
       <Button type="submit" className="w-full" disabled={loading}>
-        {loading ? "Booking..." : "Confirm Booking"}
+        {loading ? t("bookingLinks.booking") : t("bookingLinks.confirmBooking")}
       </Button>
     </form>
   );
@@ -168,11 +173,15 @@ function CustomFieldInput({
   field,
   value,
   error,
+  optionalLabel,
+  selectPlaceholder,
   onChange,
 }: {
   field: CustomField;
   value: string | boolean | undefined;
   error?: string;
+  optionalLabel: string;
+  selectPlaceholder: string;
   onChange: (value: string | boolean) => void;
 }) {
   const id = `custom-field-${field.id}`;
@@ -208,13 +217,13 @@ function CustomFieldInput({
           {!field.required && (
             <span className="text-muted-foreground font-normal">
               {" "}
-              (optional)
+              {optionalLabel}
             </span>
           )}
         </Label>
         <Select value={strValue} onValueChange={(val) => onChange(val)}>
           <SelectTrigger id={id}>
-            <SelectValue placeholder={field.placeholder || "Select..."} />
+            <SelectValue placeholder={field.placeholder || selectPlaceholder} />
           </SelectTrigger>
           <SelectContent>
             {field.options.map((opt) => (
@@ -237,7 +246,7 @@ function CustomFieldInput({
           {!field.required && (
             <span className="text-muted-foreground font-normal">
               {" "}
-              (optional)
+              {optionalLabel}
             </span>
           )}
         </Label>
@@ -259,7 +268,10 @@ function CustomFieldInput({
       <Label htmlFor={id}>
         {field.label}
         {!field.required && (
-          <span className="text-muted-foreground font-normal"> (optional)</span>
+          <span className="text-muted-foreground font-normal">
+            {" "}
+            {optionalLabel}
+          </span>
         )}
       </Label>
       <Input

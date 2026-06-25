@@ -10,7 +10,7 @@ Posez des questions d'analyse dans un anglais simple, récupérez des graphiques
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native Templates</h1><p class='wf-muted' style='margin:0'>Adoption and engagement across the last 12 weeks.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>Weekly active users</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>New signups</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>Revenue MRR</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Weekly active users</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Revenue over time</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>Signups by source</strong><br/><small class='wf-muted'>Lower chart begins below the main charts.</small></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Templates Agent-Native</h1><p class='wf-muted' style='margin:0'>Adoption et engagement sur les 12 dernières semaines.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>Utilisateurs actifs hebdomadaires</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>Nouvelles inscriptions</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>MRR de revenus</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Utilisateurs actifs hebdomadaires</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Revenus dans le temps</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>Inscriptions par source</strong><br/><small class='wf-muted'>Le graphique inférieur commence sous les graphiques principaux.</small></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ Il s'agit d'un remplacement open source d'Amplitude, Mixpanel et Looker, destin�
 
 ```an-diagram title="Question à tracer" summary="L'agent consulte le dictionnaire de données, écrit SQL, le valide par rapport à l'entrepôt, puis restitue un graphique ou enregistre un panneau."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">Plain-English<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Writes SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Dry-run validate</div><small class=\"diagram-muted\">BigQuery / source</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Chart, table, or<br>saved panel</div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">Langage simple<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Écrit du SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Valider en dry-run</div><small class=\"diagram-muted\">BigQuery / origine</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Graphique, tableau ou<br>saved panel</div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -162,23 +162,23 @@ Le client de connexion à faible portée reste distinct des clients d'intégrati
 
 Tableaux de base (voir `templates/analytics/server/db/schema.ts`) :
 
-```an-schema title="Analytics data model" summary="Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
+```an-schema title="Modèle de données Analytics" summary="Les dashboards et analyses sont les ressources ; vues, partages et cache de requêtes s’y rattachent. Les tables d’organisation viennent de @agent-native/core/org."
 {
   "entities": [
     {
       "id": "dashboards",
       "name": "dashboards",
-      "note": "Explorer and SQL dashboards",
+      "note": "Tableaux de bord Explorer et SQL",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "kind", "type": "text", "note": "\"explorer\" or \"sql\"" },
-        { "name": "config", "type": "text", "note": "JSON matching SqlDashboardConfig" }
+        { "name": "config", "type": "text", "note": "JSON correspondant à SqlDashboardConfig" }
       ]
     },
     {
       "id": "dashboard_views",
       "name": "dashboard_views",
-      "note": "Saved filter presets per dashboard",
+      "note": "Préréglages de filtres enregistrés par tableau de bord",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "dashboard_id", "type": "text", "fk": "dashboards.id" }
@@ -187,12 +187,12 @@ Tableaux de base (voir `templates/analytics/server/db/schema.ts`) :
     {
       "id": "analyses",
       "name": "analyses",
-      "note": "Re-runnable ad-hoc investigations",
+      "note": "Enquêtes ad hoc réexécutables",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "question", "type": "text" },
-        { "name": "instructions", "type": "text", "note": "Re-run steps" },
-        { "name": "dataSources", "type": "text", "note": "Sources touched" },
+        { "name": "instructions", "type": "text", "note": "Réexécuter les étapes" },
+        { "name": "dataSources", "type": "text", "note": "Sources touchées" },
         { "name": "resultMarkdown", "type": "text" },
         { "name": "resultData", "type": "text", "nullable": true }
       ]
@@ -200,7 +200,7 @@ Tableaux de base (voir `templates/analytics/server/db/schema.ts`) :
     {
       "id": "bigquery_cache",
       "name": "bigquery_cache",
-      "note": "Result cache keyed by SQL hash",
+      "note": "Cache des résultats saisi par le hachage SQL",
       "fields": [
         { "name": "sql_hash", "type": "text", "pk": true },
         { "name": "bytes_processed", "type": "integer" }

@@ -210,11 +210,11 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 | `/_agent-native/secrets/adhoc`         | POST    | إنشاء أو تحديث مفتاح مخصص                          |
 | `/_agent-native/secrets/adhoc/:name`   | DELETE  | حذف مفتاح مخصص                                     |
 
-```an-api title="Fire a test event"
+```an-api title="إطلاق حدث اختباري"
 {
   "method": "POST",
   "path": "/_agent-native/automations/fire-test",
-  "summary": "Emit a test.event.fired event to validate event-triggered automations",
+  "summary": "قم بإصدار حدث test.event.fired للتحقق من صحة العمليات التلقائية التي يتم تشغيلها بواسطة الحدث",
   "description": "Confirm an automation's wiring and condition without waiting for a real provider event. Equivalent to the `manage-automations` action `fire-test`.",
   "responses": [
     { "status": "200", "description": "Event emitted; matching automations are dispatched through the normal condition + ownership path." }

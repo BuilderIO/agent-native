@@ -10,6 +10,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useT } from "@agent-native/core/client";
 
 type EmojiCategory = { name: string; emojis: string[] };
 
@@ -640,6 +641,7 @@ export function EmojiPicker({
   variant = "page",
   portalled = true,
 }: EmojiPickerProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -674,7 +676,7 @@ export function EmojiPicker({
             {icon ? (
               <button
                 type="button"
-                aria-label="Change page icon"
+                aria-label={t("editor.emojiChangePageIcon")}
                 className={
                   variant === "compact"
                     ? "flex size-9 shrink-0 items-center justify-center rounded-md text-xl leading-none hover:bg-accent/50"
@@ -686,7 +688,9 @@ export function EmojiPicker({
             ) : defaultIcon ? (
               <button
                 type="button"
-                aria-label={`Change ${defaultIconLabel} icon`}
+                aria-label={t("editor.emojiChangeNamedIcon", {
+                  name: defaultIconLabel,
+                })}
                 className={
                   variant === "compact"
                     ? "flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50"
@@ -698,7 +702,7 @@ export function EmojiPicker({
             ) : (
               <button
                 type="button"
-                aria-label="Add page icon"
+                aria-label={t("editor.emojiAddPageIcon")}
                 className={
                   variant === "compact"
                     ? "flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent/50 hover:text-muted-foreground data-[state=open]:bg-accent/50"
@@ -706,13 +710,17 @@ export function EmojiPicker({
                 }
               >
                 <IconMoodSmile size={18} />
-                {variant === "page" ? <span>Add icon</span> : null}
+                {variant === "page" ? (
+                  <span>{t("editor.emojiAddIcon")}</span>
+                ) : null}
               </button>
             )}
           </TooltipTrigger>
         </PopoverTrigger>
         <TooltipContent>
-          {icon || defaultIcon ? "Change icon" : "Add icon"}
+          {icon || defaultIcon
+            ? t("editor.emojiChangeIcon")
+            : t("editor.emojiAddIcon")}
         </TooltipContent>
       </Tooltip>
       <PopoverContent align="start" className="w-80 p-0" portalled={portalled}>
@@ -723,7 +731,7 @@ export function EmojiPicker({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter..."
+            placeholder={t("editor.emojiFilter")}
             className="w-full px-2.5 py-1.5 text-sm bg-accent/50 rounded-md outline-none placeholder:text-muted-foreground/50"
           />
         </div>
@@ -732,13 +740,23 @@ export function EmojiPicker({
         <div className="max-h-64 overflow-auto p-2">
           {filteredCategories.length === 0 ? (
             <div className="text-sm text-muted-foreground text-center py-4">
-              No emojis found
+              {t("editor.emojiNoEmojisFound")}
             </div>
           ) : (
             filteredCategories.map((category) => (
               <div key={category.name} className="mb-2 last:mb-0">
                 <div className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider px-0.5 mb-1">
-                  {category.name}
+                  {t(
+                    `editor.emojiCategory${category.name}` as
+                      | "editor.emojiCategorySmileys"
+                      | "editor.emojiCategoryPeople"
+                      | "editor.emojiCategoryNature"
+                      | "editor.emojiCategoryFood"
+                      | "editor.emojiCategoryActivities"
+                      | "editor.emojiCategoryTravel"
+                      | "editor.emojiCategoryObjects"
+                      | "editor.emojiCategorySymbols",
+                  )}
                 </div>
                 <div className="grid grid-cols-7 gap-0 sm:grid-cols-8">
                   {category.emojis.map((emoji) => (
@@ -765,7 +783,7 @@ export function EmojiPicker({
               onClick={handleRemove}
               className="w-full text-left text-sm text-muted-foreground hover:text-foreground hover:bg-accent px-2.5 py-1.5 rounded-md cursor-pointer"
             >
-              Remove icon
+              {t("editor.emojiRemoveIcon")}
             </button>
           </div>
         )}

@@ -28,7 +28,7 @@ Le flux est une redirection standard d'autorisation → jeton signé → rappel,
 
 ```an-diagram title="Flux de fédération d'identité" summary="Dispatch authentifie l'humain et renvoie une assertion signée de courte durée d'une chose : l'e-mail vérifié. L'application est liée par e-mail et crée sa propre session locale."
 {
-  "html": "<div class=\"diagram-sso\"><div class=\"diagram-card\" data-rough><strong>Client app</strong><small class=\"diagram-muted\">own user store</small></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill\">authorize</span></div><div class=\"diagram-card\" data-rough><strong>Dispatch</strong><small class=\"diagram-muted\">identity authority</small><span class=\"diagram-pill accent\">authenticates human</span></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill accent\">302 + signed JWT</span></div><div class=\"diagram-card\" data-rough><strong>App callback</strong><small class=\"diagram-muted\">verify signature · scope:identity · exp &le; 2 min</small><span class=\"diagram-pill ok\">JIT-link by email</span><span class=\"diagram-pill ok\">mint local session</span></div></div>",
+  "html": "<div class=\"diagram-sso\"><div class=\"diagram-card\" data-rough><strong>Application cliente</strong><small class=\"diagram-muted\">own user store</small></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill\">authorize</span></div><div class=\"diagram-card\" data-rough><strong>Dispatch</strong><small class=\"diagram-muted\">identity authority</small><span class=\"diagram-pill accent\">authenticates human</span></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill accent\">302 + signed JWT</span></div><div class=\"diagram-card\" data-rough><strong>Callback de l’application</strong><small class=\"diagram-muted\">verify signature · scope:identity · exp &le; 2 min</small><span class=\"diagram-pill ok\">Association JIT par e-mail</span><span class=\"diagram-pill ok\">mint local session</span></div></div>",
   "css": ".diagram-sso{display:flex;align-items:stretch;gap:12px;flex-wrap:wrap}.diagram-sso .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px}.diagram-sso .diagram-step{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}.diagram-sso .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -50,7 +50,7 @@ Le flux est une redirection standard d'autorisation → jeton signé → rappel,
      "auth": "Session de répartition (connexion interactive si aucune)",
      "params": [
        { "name": "app", "in": "query", "type": "string", "required": true, "description": "L'identifiant de l'application demandeuse." },
-       { "name": "redirect_uri", "in": "query", "type": "string", "required": true, "description": "App callback URL. Validé par rapport à une liste blanche stricte (`*.agent-native.com` ou localhost par défaut)." },
+       { "name": "redirect_uri", "in": "query", "type": "string", "required": true, "description": "Callback de l’application URL. Validé par rapport à une liste blanche stricte (`*.agent-native.com` ou localhost par défaut)." },
        { "name": "state", "in": "query", "type": "string", "required": true, "description": "L'état CSRF a été renvoyé lors de la redirection."
      ],
      "réponses" : [
@@ -103,7 +103,7 @@ L'ensemble du modèle repose sur quelques garanties volontairement petites :
 ```an-callout
 {
   "tone": "success",
-  "body": "**Safe to enable, safe to revert.** Identity writes are **additive only** — an existing same-email account is reused untouched, and a new email just inserts a fresh row. There is no schema change and nothing to migrate, so flipping `AGENT_NATIVE_IDENTITY_HUB_URL` on or off is fully reversible at any time, per app."
+  "body": "**Activation sûre, restauration sécurisée.** Les écritures d'identité sont **additifs uniquement** : un compte de même adresse e-mail existant est réutilisé sans modification et un nouvel e-mail insère simplement une nouvelle ligne. Il n'y a aucun changement de schéma et rien à migrer, donc l'activation ou la désactivation de `AGENT_NATIVE_IDENTITY_HUB_URL` est entièrement réversible à tout moment, par application."
 }
 ```
 
@@ -111,7 +111,7 @@ Le lien juste à temps est une décision unique entièrement saisie sur l’e-ma
 
 ```an-diagram title="Décision JIT-link" summary="Le lien est saisi sur l'e-mail vérifié et est uniquement additif : les comptes existants sont réutilisés sans modification, les nouveaux e-mails créent un nouvel utilisateur local."
 {
-  "html": "<div class=\"diagram-jit\"><div class=\"diagram-node\" data-rough>Verified email<br><small class=\"diagram-muted\">from signed identity JWT</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-branch\"><div class=\"diagram-box\" data-rough>Local user exists?<span class=\"diagram-pill ok\">yes &rarr; reuse unchanged</span><span class=\"diagram-pill accent\">no &rarr; create local user</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Mint normal local session</div></div></div>",
+  "html": "<div class=\"diagram-jit\"><div class=\"diagram-node\" data-rough>E-mail vérifié<br><small class=\"diagram-muted\">depuis un JWT d’identité signé</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-branch\"><div class=\"diagram-box\" data-rough>Local user exists?<span class=\"diagram-pill ok\">yes &rarr; reuse unchanged</span><span class=\"diagram-pill accent\">no &rarr; create local user</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Émettre une session locale normale</div></div></div>",
   "css": ".diagram-jit{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jit .diagram-node{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-jit .diagram-branch{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jit .diagram-box{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-jit .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { IconMessage, IconSend, IconX } from "@tabler/icons-react";
-import { sendToAgentChat } from "@agent-native/core/client";
+import { sendToAgentChat, useT } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -137,6 +137,7 @@ export function CanvasCommentPins({
   contextId,
   contextLabel,
 }: CanvasCommentPinsProps) {
+  const t = useT();
   const [pins, setPins] = useState<CanvasPin[]>([]);
   const [activePinId, setActivePinId] = useState<string | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
@@ -290,10 +291,10 @@ export function CanvasCommentPins({
         >
           <IconMessage className="w-3.5 h-3.5 text-[#609FF8]" />
           <span className="text-[11px] text-foreground">
-            Click anywhere to drop a comment pin
+            {t("raw.pinDropHint")}
           </span>
           <span className="text-[10px] text-muted-foreground ml-1">
-            Esc to exit
+            {t("raw.escExit")}
           </span>
         </div>
       )}
@@ -351,7 +352,7 @@ export function CanvasCommentPins({
                 })()}
               >
                 <p className="mb-2 text-xs font-semibold text-foreground">
-                  Edit slide
+                  {t("raw.editSlide")}
                 </p>
                 <Textarea
                   autoFocus
@@ -374,7 +375,7 @@ export function CanvasCommentPins({
                       removePin(pin.id);
                     }
                   }}
-                  placeholder="Tell the agent what to change…"
+                  placeholder={t("raw.tellAgentChange")}
                   className="resize-none text-xs min-h-[60px]"
                 />
                 {pin.targetText && (

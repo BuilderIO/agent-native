@@ -43,13 +43,13 @@ npx @agent-native/core@latest create my-platform
 {
   "title": "my-template/",
   "entries": [
-    { "path": "app/", "note": "React frontend सतह" },
+    { "path": "app/", "note": "React फ्रंट एंड सतह" },
     { "path": "app/root.tsx", "note": "HTML shell और providers" },
     { "path": "app/routes/", "note": "React Router की file routes" },
     { "path": "app/components/", "note": "Template की UI" },
     { "path": "app/hooks/", "note": "UI state और data hooks" },
     { "path": "actions/", "note": "defineAction operations: single source of truth" },
-    { "path": "server/db/schema.ts", "note": "Drizzle schema परिभाषा" },
+    { "path": "server/db/schema.ts", "note": "Drizzle स्कीमा परिभाषा" },
     { "path": "server/plugins/db.ts", "note": "additive migrations केवल जोड़ने वाली" },
     { "path": "server/plugins/", "note": "startup integrations setup" },
     { "path": "server/routes/api/", "note": "custom routes केवल तब जब actions पर्याप्त न हों" },
@@ -69,7 +69,7 @@ npx @agent-native/core@latest create my-platform
 
 ```an-diagram title="किसी टेम्प्लेट के चार क्षेत्र कैसे जुड़ते हैं" summary="यूआई और एजेंट दोनों समान क्रियाओं के माध्यम से SQL तक पहुंचते हैं; एप्लिकेशन स्थिति और पोलिंग सिंक उन्हें संरेखित रखते हैं।"
 {
-  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React UI<br><small class=\"diagram-muted\">app/routes · components</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL via Drizzle<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">Polling sync</div></div>",
+  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React इंटरफेस<br><small class=\"diagram-muted\">app/routes · कंपोनेंट्स</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">क्रियाएँ</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Drizzle के ज़रिए SQL<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">पोलing sync</div></div>",
   "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -137,9 +137,9 @@ export default runMigrations(
 
 उपयोगकर्ता या संगठन डेटा रखने वाले स्कीमा जोड़ने से पहले [Database](/docs/database) और [Security](/docs/security) दस्तावेज़ों का उपयोग करें।
 
-## संचालन को Actions के रूप में परिभाषित करें {#actions}
+## संचालन को क्रियाएँ के रूप में परिभाषित करें {#actions}
 
-Actions ऐप व्यवहार के लिए सत्य का एकमात्र स्रोत है। एजेंट उन्हें टूल के रूप में कॉल करता है, फ्रंटएंड उन्हें हुक के माध्यम से कॉल करता है, और अन्य ऐप्स MCP/A2A के माध्यम से उन तक पहुंच सकते हैं।
+क्रियाएँ ऐप व्यवहार के लिए सत्य का एकमात्र स्रोत है। एजेंट उन्हें टूल के रूप में कॉल करता है, फ्रंटएंड उन्हें हुक के माध्यम से कॉल करता है, और अन्य ऐप्स MCP/A2A के माध्यम से उन तक पहुंच सकते हैं।
 
 ```an-annotated-code title="actions/create-project.ts"
 {
@@ -148,9 +148,9 @@ Actions ऐप व्यवहार के लिए सत्य का एक
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});",
   "annotations": [
     { "lines": "2", "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`." },
-    { "lines": "8", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this action as a tool." },
+    { "lines": "8", "label": "उपकरण सतह", "note": "`description` वह है जिसे एजेंट यह तय करने के लिए पढ़ता है कि इस क्रिया को टूल के रूप में कब कॉल करना है।" },
     { "lines": "9-11", "label": "टाइप किया हुआ अनुबंध", "note": "एक zod `schema` agent, UI, HTTP, MCP और A2A से आने वाले input को validate करता है।" },
-    { "lines": "18-19", "label": "Scoped write", "note": "Stamp `ownerEmail` / `orgId` from `ctx` so the row is correctly scoped for sharing and access checks." }
+    { "lines": "18-19", "label": "दायरा लिखें", "note": "`ctx` से `ownerEmail` / `orgId` स्टांप करें ताकि पंक्ति साझा करने और पहुंच जांच के लिए सही ढंग से दायरा हो।" }
   ]
 }
 ```
@@ -278,21 +278,21 @@ export default defineAction({
 सूचकांक:
 
 ```markdown
-# My Template
+# मेरा टेम्पलेट
 
 One workspace for projects, tasks, and notes.
 
-## Core Rules
+## मूल नियम
 
-- Data lives in SQL via Drizzle. Use actions for all writes; schema is additive.
+- Data lives in Drizzle के ज़रिए SQL. Use actions for all writes; schema is additive.
 - Use `view-screen` before acting on "this project" if the screen is unclear.
 
-## Application State
+## आवेदन स्थिति
 
 - `navigation.view`: `home` | `project`
 - `navigation.projectId`: selected project on a project page
 
-## Actions
+## क्रियाएँ
 
 | Action           | Purpose                  |
 | ---------------- | ------------------------ |
@@ -316,11 +316,11 @@ name: project-imports
 description: How to import projects from the legacy CSV export.
 ---
 
-# Project Imports
+# परियोजना आयात
 
 Use this skill when the user uploads a legacy project CSV.
 
-## Rules
+## नियम
 
 - Validate required columns before creating rows.
 - Use `create-project` for each project so ownership and sync are correct.

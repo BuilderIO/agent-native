@@ -12,7 +12,7 @@ El envío es el **plano de control del espacio de trabajo**. Mientras que otras 
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>What should we do next?</strong><div class='wf-box'>Ask Analytics for this week's signups and draft a Slack update.</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>Create app</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>Slack DM needs reply</div><div class='wf-box'>A2A task completed</div><div class='wf-box'>Approval required</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>¿Qué hacemos ahora?</strong><div class='wf-box'>Pide a Analytics los registros de esta semana y redacta una actualización para Slack.</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>Crear app</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>DM de Slack needs reply</div><div class='wf-box'>Tarea A2A completada</div><div class='wf-box'>Aprobación requerida</div></div></div>"
 }
 ```
 
@@ -20,7 +20,7 @@ Si está ejecutando un [multi-app workspace](/docs/multi-app-workspace) con much
 
 ```an-diagram title="Orquesta, no te especializas" summary="Los mensajes de todos los canales llegan a una bandeja de entrada; el orquestador clasifica y delega el trabajo de dominio en la aplicación especializada adecuada a través de A2A: los secretos, los recursos y las aprobaciones siguen siendo centrales."
 {
-  "html": "<div class=\"diagram-dispatch\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack · Telegram</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">A2A requests</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Orchestrator</span><small class=\"diagram-muted\">central inbox · triage · route</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Mail agent</div><div class=\"diagram-node\">Analytics agent</div><div class=\"diagram-node\">Brain · Slides &hellip;</div></div></div><div class=\"diagram-shared\"><span class=\"diagram-pill\">Secrets vault</span><span class=\"diagram-pill\">Workspace resources</span><span class=\"diagram-pill warn\">Approvals</span><span class=\"diagram-pill\">Scheduled jobs</span></div>",
+  "html": "<div class=\"diagram-dispatch\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack · Telegram</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">Solicitudes A2A</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Orchestrator</span><small class=\"diagram-muted\">bandeja central · triaje · enruta</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Agente de Mail</div><div class=\"diagram-node\">Agente de Analytics</div><div class=\"diagram-node\">Brain · Slides &hellip;</div></div></div><div class=\"diagram-shared\"><span class=\"diagram-pill\">Bóveda de secretos</span><span class=\"diagram-pill\">Recursos del espacio de trabajo</span><span class=\"diagram-pill warn\">Approvals</span><span class=\"diagram-pill\">Trabajos programados</span></div>",
   "css": ".diagram-dispatch{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-dispatch .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-dispatch .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-dispatch .diagram-arrow{font-size:20px;line-height:1}.diagram-shared{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}"
 }
 ```
@@ -88,10 +88,10 @@ _Cómo funciona internamente (para desarrolladores)._
 - **Slack / Complementos de Telegram.** Complementos de servidor que registran webhooks y reenvían mensajes entrantes al agente orquestador.
 - **Recursos del espacio de trabajo MCP.** Agregue definiciones de servidor HTTP MCP en `mcp-servers/*.json` en Recursos y luego alíselas a Todas las aplicaciones o concesiones de aplicaciones seleccionadas como skills y contexto.
 
-```an-schema title="Secrets vault schema" summary="Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
+```an-schema title="Esquema de la bóveda de secretos" summary="Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
 {
   "entities": [
-    { "id": "secrets", "name": "vault_secrets", "note": "Stored credential values", "fields": [
+    { "id": "secrets", "name": "vault_secrets", "note": "Valores de credenciales almacenados", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "owner_email", "type": "text" },
       { "name": "org_id", "type": "text", "nullable": true },
@@ -100,14 +100,14 @@ _Cómo funciona internamente (para desarrolladores)._
       { "name": "value", "type": "text", "note": "secret value" },
       { "name": "provider", "type": "text", "nullable": true }
     ] },
-    { "id": "grants", "name": "vault_grants", "note": "Per-app access grant", "fields": [
+    { "id": "grants", "name": "vault_grants", "note": "Concesión de acceso por aplicación", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "secret_id", "type": "text", "fk": "vault_secrets.id" },
       { "name": "app_id", "type": "text" },
       { "name": "granted_by", "type": "text" },
       { "name": "status", "type": "text" }
     ] },
-    { "id": "requests", "name": "vault_requests", "note": "Access request + review", "fields": [
+    { "id": "requests", "name": "vault_requests", "note": "Solicitud de acceso + revisión", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "credential_key", "type": "text" },
       { "name": "app_id", "type": "text" },
@@ -115,7 +115,7 @@ _Cómo funciona internamente (para desarrolladores)._
       { "name": "status", "type": "text" },
       { "name": "reviewed_by", "type": "text", "nullable": true }
     ] },
-    { "id": "audit", "name": "vault_audit_log", "note": "Who used which secret when", "fields": [
+    { "id": "audit", "name": "vault_audit_log", "note": "¿Quién usó qué secreto cuando?", "fields": [
       { "name": "id", "type": "text", "pk": true },
       { "name": "secret_id", "type": "text", "fk": "vault_secrets.id", "nullable": true },
       { "name": "app_id", "type": "text", "nullable": true },
@@ -171,7 +171,7 @@ pnpm action create-dream-report --allSources true --sourceTimeoutMs 30000 --limi
 
 ```bash
 npx @agent-native/core@latest create my-platform
-# pick "Dispatch" in the multi-select picker, plus whichever domain apps you want
+# elija "Dispatch" en el selector de selección múltiple, además de las aplicaciones de dominio que desee
 ```
 
 Si prefieres nombrar la plantilla directamente en lugar de utilizar el selector:

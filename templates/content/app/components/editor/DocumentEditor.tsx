@@ -28,6 +28,7 @@ import {
   emailToColor,
   emailToName,
   useSession,
+  useT,
   appApiPath,
   agentNativePath,
   type CollabUser,
@@ -103,6 +104,8 @@ function DocumentEditorSkeleton() {
 }
 
 function DocumentUnavailable({ onOpenHome }: { onOpenHome: () => void }) {
+  const t = useT();
+
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center bg-background px-6">
       <div className="flex max-w-sm flex-col items-center text-center">
@@ -110,14 +113,13 @@ function DocumentUnavailable({ onOpenHome }: { onOpenHome: () => void }) {
           <IconLock size={22} />
         </div>
         <h1 className="text-2xl font-semibold tracking-normal">
-          Document unavailable
+          {t("empty.documentUnavailable")}
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          This page may have been deleted, or it has not been shared with your
-          account.
+          {t("empty.documentUnavailableDescription")}
         </p>
         <Button className="mt-6" variant="outline" onClick={onOpenHome}>
-          Go to documents
+          {t("empty.goToDocuments")}
         </Button>
       </div>
     </div>
@@ -209,6 +211,7 @@ function DatabaseMembershipBreadcrumb({
 }
 
 function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
+  const t = useT();
   const updateDocument = useUpdateDocument();
   const queryClient = useQueryClient();
   // The block render context (asset/upload resolvers, inline markdown reader,
@@ -371,7 +374,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       .then((result) => {
         if (cancelled) return;
         if (!result.ok) {
-          toast.error("Could not read local source file", {
+          toast.error(t("editor.couldNotReadLocalSourceFile"), {
             description: result.error,
           });
           return;
@@ -410,9 +413,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       })
       .catch((error) => {
         if (cancelled) return;
-        toast.error("Could not read local source file", {
+        toast.error(t("editor.couldNotReadLocalSourceFile"), {
           description:
-            error instanceof Error ? error.message : "Something went wrong",
+            error instanceof Error ? error.message : t("empty.genericError"),
         });
       });
 
@@ -533,7 +536,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         );
         if (!result.ok) {
           if (!localSourceWriteErrorShownRef.current) {
-            toast.error("Could not save local file", {
+            toast.error(t("editor.couldNotSaveLocalFile"), {
               description: result.error,
             });
             localSourceWriteErrorShownRef.current = true;
@@ -551,9 +554,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         });
       } catch (error) {
         if (!isLinkedLocalSource) throw error;
-        toast.warning("Local file saved, but history was not updated", {
+        toast.warning(t("editor.localFileSavedHistoryNotUpdated"), {
           description:
-            error instanceof Error ? error.message : "Something went wrong",
+            error instanceof Error ? error.message : t("empty.genericError"),
         });
         queryClient.setQueryData(
           ["action", "get-document", { id: documentId }],
@@ -929,8 +932,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                     pm?.focus();
                   }
                 }}
-                aria-label="Document title"
-                placeholder="Title"
+                aria-label={t("editor.documentTitle")}
+                placeholder={t("editor.title")}
                 readOnly={!canEdit}
                 style={{ fieldSizing: "content" } as any}
                 className={cn(

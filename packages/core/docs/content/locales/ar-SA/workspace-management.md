@@ -11,7 +11,7 @@ description: "التفرع، CODEOWNERS، مراجعة العلاقات العا
 
 ```an-diagram title="طائرتان للحكم" summary="Git يحكم التعليمات البرمجية؛ Dispatch يحكم وقت التشغيل. إنهما متكاملان، فلا تنسخ أحدهما داخل الآخر."
 {
-  "html": "<div class=\"gov\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Git / GitHub</span><strong>Code governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">CODEOWNERS</span><span class=\"diagram-pill\">branch protection</span><span class=\"diagram-pill\">PR review</span><span class=\"diagram-pill\">git log / blame</span></div></div><div class=\"diagram-pill diagram-muted\">+</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Dispatch</span><strong>Runtime governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">vault secrets &amp; grants</span><span class=\"diagram-pill\">workspace resources</span><span class=\"diagram-pill\">agent profiles</span><span class=\"diagram-pill\">approvals &amp; audit</span></div></div></div>",
+  "html": "<div class=\"gov\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Git وGitHub</span><strong>حوكمة الكود</strong><div class=\"gov-list\"><span class=\"diagram-pill\">CODEOWNERS</span><span class=\"diagram-pill\">branch protection</span><span class=\"diagram-pill\">مراجعة PR</span><span class=\"diagram-pill\">git log / blame</span></div></div><div class=\"diagram-pill diagram-muted\">+</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Dispatch</span><strong>Runtime governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">vault secrets &amp; grants</span><span class=\"diagram-pill\">workspace resources</span><span class=\"diagram-pill\">agent profiles</span><span class=\"diagram-pill\">approvals &amp; audit</span></div></div></div>",
   "css": ".gov{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.gov .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:240px}.gov .gov-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}"
 }
 ```
@@ -64,16 +64,16 @@ main                         ← production
 # Framework core — affects every app; platform team reviews all changes
 packages/core/                     @your-org/platform-team
 
-# Dispatch control plane — secrets, integrations, workspace resources
+# مستوى التحكم في الإرسال - الأسرار، والتكامل، وموارد مساحة العمل
 templates/dispatch/                @your-org/platform-team
 
-# Per-app ownership — each team reviews their own app
+# ملكية كل تطبيق — يقوم كل فريق بمراجعة التطبيق الخاص به
 templates/mail/                    @your-org/mail-team
 templates/analytics/               @your-org/analytics-team
 templates/calendar/                @your-org/calendar-team
 # ... add an entry per app
 
-# Workspace-level config — broad review since it affects everyone
+# التكوين على مستوى مساحة العمل — مراجعة واسعة النطاق نظرًا لأنه يؤثر على الجميع
 .github/                           @your-org/platform-team
 package.json                       @your-org/platform-team
 pnpm-workspace.yaml                @your-org/platform-team

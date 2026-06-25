@@ -22,7 +22,7 @@ A2A 是此框架中跨应用程序委派的基础 - 最显着的是 [Dispatch](/
 
 ```an-diagram title="一名代理人将工作交给另一名代理人" summary="邮件代理发现分析代理的卡，发送 JSON-RPC 消息，并返回已完成的任务。"
 {
-  "html": "<div class=\"diagram-handoff\"><div class=\"diagram-card\"><strong>Mail agent</strong><small class=\"diagram-muted\">needs analytics</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">GET /.well-known/agent-card.json</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">POST /_agent-native/a2a<br><small class=\"diagram-muted\">message/send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-pill ok\">task · completed</div></div><div class=\"diagram-card\" data-rough><strong>Analytics agent</strong><small class=\"diagram-muted\">runs run-query, returns result</small></div></div>",
+  "html": "<div class=\"diagram-handoff\"><div class=\"diagram-card\"><strong>邮件 Agent</strong><small class=\"diagram-muted\">needs analytics</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">GET /.well-known/agent-card.json</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">POST /_agent-native/a2a<br><small class=\"diagram-muted\">message/send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-pill ok\">任务 · 已完成</div></div><div class=\"diagram-card\" data-rough><strong>分析 Agent</strong><small class=\"diagram-muted\">运行 run-query，返回结果</small></div></div>",
   "css": ".diagram-handoff{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-handoff .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-handoff .diagram-arrow{font-size:20px;line-height:1}"
 }
 ```
@@ -119,11 +119,11 @@ _（版本可能有所不同；在 `/.well-known/agent-card.json` 获取当前 `
 | `tasks/get`      | 按 ID 获取任务 - 用于轮询异步任务是否完成                              | `id`                          |
 | `tasks/cancel`   | 取消正在运行的任务                                                     | `id`                          |
 
-```an-api title="Primary A2A endpoint" summary="All JSON-RPC methods are POSTed here. message/send shown."
+```an-api title="主要 A2A 端点" summary="所有 JSON-RPC 方法都是这里的 POSTed。显示message/send。"
 {
   "method": "POST",
   "path": "/_agent-native/a2a",
-  "summary": "Send a message and wait for the completed task",
+  "summary": "发送消息并等待任务完成",
   "description": "JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `tasks/cancel`. Pass `async: true` to return immediately in `working` state and poll with `tasks/get`.",
   "auth": "JWT bearer signed with A2A_SECRET (or legacy apiKeyEnv static token)",
   "params": [
@@ -148,7 +148,7 @@ _（版本可能有所不同；在 `/.well-known/agent-card.json` 获取当前 `
 
 ```an-diagram title="无服务器上的异步任务生命周期" summary="async:true 在几毫秒内返回工作，然后在调用者轮询时重新执行运行代理循环。"
 {
-  "html": "<div class=\"diagram-async\"><div class=\"diagram-box\" data-rough>message/send<br><small class=\"diagram-muted\">async: true</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">enqueue task</span><span class=\"diagram-pill warn\">return working</span><small class=\"diagram-muted\">~milliseconds</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>self-fire POST /_agent-native/a2a/_process-task<br><small class=\"diagram-muted\">HMAC token · fresh execution · full timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">tasks/get (poll)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">completed</div></div></div>",
+  "html": "<div class=\"diagram-async\"><div class=\"diagram-box\" data-rough>message/send<br><small class=\"diagram-muted\">async: true</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">enqueue task</span><span class=\"diagram-pill warn\">return working</span><small class=\"diagram-muted\">约毫秒级</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>自触发 POST /_agent-native/a2a/_process-task<br><small class=\"diagram-muted\">HMAC token · 全新执行 · 完整超时</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">tasks/get (poll)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">completed</div></div></div>",
   "css": ".diagram-async{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-async .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-arrow{font-size:20px;line-height:1}",
   "caption": "A recurring sweeper re-claims any task left in flight if the function execution dies mid-run."
 }
@@ -165,9 +165,9 @@ _（版本可能有所不同；在 `/.well-known/agent-card.json` 获取当前 `
   "language": "json",
   "code": "{\n  \"role\": \"user\",\n  \"parts\": [\n    { \"type\": \"text\", \"text\": \"Show signups by source\" },\n    { \"type\": \"data\", \"data\": { \"dateRange\": \"last-30d\" } },\n    {\n      \"type\": \"file\",\n      \"file\": { \"name\": \"report.csv\", \"mimeType\": \"text/csv\", \"bytes\": \"...\" }\n    }\n  ]\n}",
   "annotations": [
-    { "lines": "4", "label": "text part", "note": "Plain natural-language instruction the agent reads." },
-    { "lines": "5", "label": "data part", "note": "Structured JSON arguments — e.g. a date range — passed alongside the prompt." },
-    { "lines": "6-9", "label": "file part", "note": "Attach a file by name, `mimeType`, and base64 `bytes`." }
+    { "lines": "4", "label": "text part", "note": "代理阅读简单的自然语言指令。" },
+    { "lines": "5", "label": "data part", "note": "结构化 JSON 参数 - e.g。日期范围 - 与提示一起传递。" },
+    { "lines": "6-9", "label": "file part", "note": "按名称 `mimeType` 和 base64 `bytes` 附加文件。" }
   ]
 }
 ```

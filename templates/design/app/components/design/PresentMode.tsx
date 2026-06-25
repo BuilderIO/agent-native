@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useRef } from "react";
+import { useT } from "@agent-native/core/client";
 
 interface PresentModeProps {
   content: string;
@@ -6,6 +7,7 @@ interface PresentModeProps {
 }
 
 export function PresentMode({ content, onExit }: PresentModeProps) {
+  const t = useT();
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const handleKeyDown = useCallback(
@@ -59,7 +61,7 @@ export function PresentMode({ content, onExit }: PresentModeProps) {
         srcDoc={srcdoc}
         sandbox="allow-scripts"
         className="w-full h-full border-0"
-        title="Present Mode"
+        title={t("designEditor.presentMode")}
       />
     </div>
   );

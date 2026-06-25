@@ -10,7 +10,7 @@ Design es un estudio de creación de prototipos HTML nativo del agente. En lugar
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Product launch page</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Generated HTML prototype</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Make the hero denser and the CTA clearer.</span><div style='flex:1'></div><button class='primary'>Apply revision</button></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Página de lanzamiento del producto</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Prototipo HTML generado</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Haz el hero más denso y el CTA más claro.</span><div style='flex:1'></div><button class='primary'>Aplicar revisión</button></div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ Cuando abre la aplicación, el prototipo generado es el centro del espacio de tr
 
 ```an-diagram title="Un artefacto, sin traducción" summary="El agente genera Alpine/Tailwind HTML independiente; el iframe, la fuente editable y cada exportación leen los mismos archivos. Un sistema de diseño vinculado introduce tokens en cada pasada."
 {
-  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">Prompt<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">Design system</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Agent generate</span><small class=\"diagram-muted\">standalone HTML / JSX files</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">tweak knobs · Cmd+I refine</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · handoff</small></div></div>",
+  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">Prompt<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">Sistema de diseño</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Generación del agente</span><small class=\"diagram-muted\">archivos HTML / JSX independientes</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">ajusta controles · refina con Cmd+I</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · entrega</small></div></div>",
   "css": ".diagram-design{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-design .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-design .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-design .diagram-arrow{font-size:20px;line-height:1}.diagram-design .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -85,7 +85,7 @@ Todos los datos residen en SQL a través de Drizzle ORM. Esquema: `templates/des
 | `design_systems`                         | Tokens de marca reutilizables: `data` (colores/tipografía/espaciado), `assets`, `custom_instructions` y una bandera `is_default`                   |
 | `design_shares` / `design_system_shares` | El marco comparte tablas que asignan principales (usuarios u organizaciones) a roles (visor, editor, administrador)                                |
 
-```an-schema title="Design data model" summary="A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
+```an-schema title="Modelo de datos de diseño" summary="Un diseño posee sus archivos e instantáneas versionadas y, opcionalmente, vincula un sistema de diseño reutilizable. Tanto los diseños como los sistemas son propios, cada uno con una tabla de acciones de marco."
 {
   "entities": [
     { "id": "designs", "name": "designs", "note": "A design project (ownable)", "fields": [
@@ -96,13 +96,13 @@ Todos los datos residen en SQL a través de Drizzle ORM. Esquema: `templates/des
       { "name": "data", "type": "json", "note": "starts as {}" },
       { "name": "design_system_id", "type": "id", "fk": "design_systems.id", "nullable": true }
     ] },
-    { "id": "files", "name": "design_files", "note": "Files in a design", "fields": [
+    { "id": "files", "name": "design_files", "note": "Archivos en un diseño.", "fields": [
       { "name": "design_id", "type": "id", "fk": "designs.id" },
       { "name": "filename", "type": "text" },
       { "name": "content", "type": "text" },
       { "name": "file_type", "type": "text", "note": "defaults to html" }
     ] },
-    { "id": "versions", "name": "design_versions", "note": "History / rollback", "fields": [
+    { "id": "versions", "name": "design_versions", "note": "Historial / reversión", "fields": [
       { "name": "design_id", "type": "id", "fk": "designs.id" },
       { "name": "snapshot", "type": "json" },
       { "name": "label", "type": "text", "nullable": true }
@@ -114,11 +114,11 @@ Todos los datos residen en SQL a través de Drizzle ORM. Esquema: `templates/des
       { "name": "custom_instructions", "type": "text", "nullable": true },
       { "name": "is_default", "type": "boolean" }
     ] },
-    { "id": "design_shares", "name": "design_shares", "note": "Framework shares table", "fields": [
+    { "id": "design_shares", "name": "design_shares", "note": "Tabla de acciones del marco", "fields": [
       { "name": "design_id", "type": "id", "fk": "designs.id" },
       { "name": "role", "type": "text", "note": "viewer / editor / admin" }
     ] },
-    { "id": "system_shares", "name": "design_system_shares", "note": "Framework shares table", "fields": [
+    { "id": "system_shares", "name": "design_system_shares", "note": "Tabla de acciones del marco", "fields": [
       { "name": "design_system_id", "type": "id", "fk": "design_systems.id" },
       { "name": "role", "type": "text", "note": "viewer / editor / admin" }
     ] }

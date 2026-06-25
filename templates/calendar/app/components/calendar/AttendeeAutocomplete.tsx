@@ -28,6 +28,7 @@ import {
   usePeopleContacts,
   type PeopleSearchResult,
 } from "@/hooks/use-people";
+import { useT } from "@agent-native/core/client";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -69,14 +70,17 @@ function parseEmails(value: string): string[] {
   );
 }
 
-function sourceLabel(source?: PeopleSearchResult["source"]) {
+function sourceLabel(
+  t: ReturnType<typeof useT>,
+  source?: PeopleSearchResult["source"],
+) {
   switch (source) {
     case "directory":
-      return "Directory";
+      return t("attendees.directory");
     case "otherContact":
-      return "Other contacts";
+      return t("attendees.otherContacts");
     default:
-      return "Contacts";
+      return t("attendees.contacts");
   }
 }
 
@@ -122,6 +126,7 @@ export const AttendeeAutocomplete = forwardRef<
   },
   ref,
 ) {
+  const t = useT();
   const [inputValue, setInputValue] = useState("");
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -324,7 +329,9 @@ export const AttendeeAutocomplete = forwardRef<
                         onRemove(attendee.email);
                       }}
                       className="text-muted-foreground hover:text-foreground"
-                      aria-label={`Remove ${attendee.email}`}
+                      aria-label={t("attendees.removeAttendee", {
+                        email: attendee.email,
+                      })}
                     >
                       <IconX className="h-3 w-3" />
                     </button>
@@ -353,7 +360,9 @@ export const AttendeeAutocomplete = forwardRef<
               }}
               onKeyDown={handleKeyDown}
               placeholder={
-                attendees.length === 0 ? placeholder : "Add another guest"
+                attendees.length === 0
+                  ? placeholder
+                  : t("attendees.addAnotherGuest")
               }
               className={cn(
                 "min-w-[120px] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60",
@@ -370,7 +379,7 @@ export const AttendeeAutocomplete = forwardRef<
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => commitActiveOrManual()}
               >
-                Add
+                {t("bookingLinks.add")}
               </Button>
             )}
           </div>
@@ -388,7 +397,7 @@ export const AttendeeAutocomplete = forwardRef<
           {searching && visibleResults.length === 0 && (
             <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-              Searching people
+              {t("attendees.searchingPeople")}
             </div>
           )}
 
@@ -437,7 +446,7 @@ export const AttendeeAutocomplete = forwardRef<
                 </span>
                 <span className="flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
                   <SourceIcon source={person.source} />
-                  {sourceLabel(person.source)}
+                  {sourceLabel(t, person.source)}
                 </span>
               </button>
             );
@@ -454,7 +463,9 @@ export const AttendeeAutocomplete = forwardRef<
             >
               <IconUserCircle className="h-4 w-4 text-muted-foreground" />
               <span className="truncate">
-                Invite {parseEmails(inputValue)[0]}
+                {t("attendees.inviteEmail", {
+                  email: parseEmails(inputValue)[0],
+                })}
               </span>
             </button>
           )}
@@ -464,7 +475,7 @@ export const AttendeeAutocomplete = forwardRef<
             !canAddManual &&
             scopeRequired && (
               <div className="px-3 py-2 text-xs text-muted-foreground">
-                Contacts or directory access needs to be reconnected.
+                {t("attendees.contactsReconnect")}
               </div>
             )}
         </div>

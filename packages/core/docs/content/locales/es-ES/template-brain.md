@@ -21,7 +21,7 @@ superficies para conectar datos, aprobar propuestas e inspeccionar la memoria ci
 
 ```an-diagram title="De la fuente a la respuesta citada" summary="Brain ingiere fuentes aprobadas en capturas sin procesar, destila memoria duradera, la revisa y solo entonces responde con citas."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Sources</span><small class=\"diagram-muted\">Slack · Granola · GitHub · Clips · webhooks</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Raw captures<br><small class=\"diagram-muted\">deduped, redacted</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Distill<br><small class=\"diagram-muted\">facts · decisions · processes</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Review</span><small class=\"diagram-muted\">sensitive / low-confidence queue</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Knowledge</span><small class=\"diagram-muted\">approved, atomic</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Ask</span><small class=\"diagram-muted\">cited answer</small></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Sources</span><small class=\"diagram-muted\">Slack · Granola · GitHub · Clips · webhooks</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Capturas sin procesar<br><small class=\"diagram-muted\">deduplicado, redactado</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Distill<br><small class=\"diagram-muted\">hechos · decisiones · procesos</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Review</span><small class=\"diagram-muted\">sensitive / low-confidence queue</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Knowledge</span><small class=\"diagram-muted\">aprobado, atómico</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Ask</span><small class=\"diagram-muted\">cited answer</small></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px}.diagram-flow .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-flow .diagram-arrow{font-size:20px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -29,7 +29,7 @@ superficies para conectar datos, aprobar propuestas e inspeccionar la memoria ci
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Ask company memory</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='Search'></span><strong style='flex:1'>Why did we choose usage pricing?</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>The team chose usage pricing after pilots showed seat counts undercounted automation value.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>Pricing RFC</span><span class='wf-pill'>Launch retro</span><span class='wf-pill'>Sales notes</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Source timeline</strong><div class='wf-box'>May 3 · Decision captured</div><div class='wf-box'>May 8 · Customer evidence added</div><div class='wf-box'>May 12 · Legal note approved</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Preguntar a la memoria de la empresa</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='Buscar'></span><strong style='flex:1'>¿Por qué elegimos precios por uso?</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>El equipo eligió precios por uso después de que los pilotos mostraran que el recuento de asientos subestimaba el valor de la automatización.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>RFC de precios</span><span class='wf-pill'>Retro de lanzamiento</span><span class='wf-pill'>Notas de ventas</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Cronología de fuentes</strong><div class='wf-box'>3 de mayo · Decisión capturada</div><div class='wf-box'>8 de mayo · Evidencia de cliente añadida</div><div class='wf-box'>12 de mayo · Nota legal aprobada</div></div></div>"
 }
 ```
 
@@ -152,10 +152,10 @@ El esquema del cerebro vive en `templates/brain/server/db/schema.ts`. Ocho mesas
 | `brain_sync_runs`        | Registro de auditoría de sincronización: proveedor, estado, estadísticas JSON, error, marcas de tiempo de inicio/finalización                                            |
 | `brain_ingest_queue`     | Cola de destilación en segundo plano: operación, estado, prioridad, recuento de reintentos, `run_after`                                                                  |
 
-```an-schema title="Brain data model" summary="Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
+```an-schema title="Modelo de datos Brain" summary="Los conectores producen capturas sin procesar; la destilación las convierte en conocimiento revisable; las propuestas protegen las entradas sensibles. Las ejecuciones de sincronización y la cola de ingesta rastrean el trabajo en segundo plano."
 {
   "entities": [
-    { "id": "sources", "name": "brain_sources", "note": "Connector config", "fields": [
+    { "id": "sources", "name": "brain_sources", "note": "Configuración del conector", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "provider", "type": "text", "note": "slack / granola / github / clips / webhook" },
       { "name": "ingest_token_hash", "type": "text" },
@@ -165,14 +165,14 @@ El esquema del cerebro vive en `templates/brain/server/db/schema.ts`. Ocho mesas
     { "id": "source_shares", "name": "brain_source_shares", "note": "viewer / editor / admin", "fields": [
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" }
     ] },
-    { "id": "captures", "name": "brain_raw_captures", "note": "Ingested raw payloads", "fields": [
+    { "id": "captures", "name": "brain_raw_captures", "note": "Cargas útiles sin procesar ingeridas", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" },
       { "name": "external_id", "type": "text", "note": "dedupe key" },
       { "name": "content_hash", "type": "text" },
       { "name": "kind", "type": "text" }
     ] },
-    { "id": "knowledge", "name": "brain_knowledge", "note": "Distilled atomic entries", "fields": [
+    { "id": "knowledge", "name": "brain_knowledge", "note": "Entradas atómicas destiladas", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "kind", "type": "text", "note": "decision / fact / process" },
       { "name": "topic", "type": "text" },
@@ -183,19 +183,19 @@ El esquema del cerebro vive en `templates/brain/server/db/schema.ts`. Ocho mesas
     { "id": "knowledge_shares", "name": "brain_knowledge_shares", "fields": [
       { "name": "knowledge_id", "type": "id", "fk": "brain_knowledge.id" }
     ] },
-    { "id": "proposals", "name": "brain_proposals", "note": "Pending review items", "fields": [
+    { "id": "proposals", "name": "brain_proposals", "note": "Artículos pendientes de revisión", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "op", "type": "text", "note": "create / update / archive" }
     ] },
     { "id": "proposal_shares", "name": "brain_proposal_shares", "fields": [
       { "name": "proposal_id", "type": "id", "fk": "brain_proposals.id" }
     ] },
-    { "id": "sync_runs", "name": "brain_sync_runs", "note": "Sync audit log", "fields": [
+    { "id": "sync_runs", "name": "brain_sync_runs", "note": "Sincronizar registro de auditoría", "fields": [
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" },
       { "name": "status", "type": "text" },
       { "name": "stats", "type": "json" }
     ] },
-    { "id": "ingest_queue", "name": "brain_ingest_queue", "note": "Background distillation queue", "fields": [
+    { "id": "ingest_queue", "name": "brain_ingest_queue", "note": "Cola de destilación en segundo plano", "fields": [
       { "name": "operation", "type": "text" },
       { "name": "status", "type": "text" },
       { "name": "priority", "type": "int" },
@@ -259,11 +259,11 @@ una fuente con un `sourceKey` para recibir un token al portador y luego enviar u
 use la misma forma de carga útil para transcripciones de llamadas, investigación de clientes e importaciones
 notas o cualquier otra fuente que pueda producir una captura limitada.
 
-```an-api title="Signed ingest webhook" summary="Clips and generic transcript/capture imports post a RawCapturePayload with a per-source bearer token."
+```an-api title="Webhook de ingesta firmado" summary="Las importaciones Clips y transcript/capture genéricas publican un RawCapturePayload con un token al portador por fuente."
 {
   "method": "POST",
   "path": "/api/_agent-native/brain/ingest",
-  "summary": "Import a raw capture from Clips or a generic source",
+  "summary": "Importe una captura sin procesar desde Clips o una fuente genérica",
   "auth": "Bearer <ingestToken> issued per source via its sourceKey",
   "request": {
     "contentType": "application/json",

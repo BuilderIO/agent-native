@@ -287,9 +287,9 @@ export function DocumentSidebar({
           navigateToDocument(created.id);
           onNavigate?.();
         } catch (err) {
-          toast.error("Failed to create page", {
+          toast.error(t("sidebar.failedCreatePage"), {
             description:
-              err instanceof Error ? err.message : "Something went wrong",
+              err instanceof Error ? err.message : t("empty.genericError"),
           });
         }
         return;
@@ -359,9 +359,9 @@ export function DocumentSidebar({
           queryKey: ["action", "get-document", { id }],
         });
         navigate("/");
-        toast.error("Failed to create page", {
+        toast.error(t("sidebar.failedCreatePage"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
@@ -429,9 +429,9 @@ export function DocumentSidebar({
             flushSync: true,
           });
         }
-        toast.error("Failed to delete page", {
+        toast.error(t("sidebar.failedDeletePage"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
@@ -473,8 +473,8 @@ export function DocumentSidebar({
       );
       if (changed.length === 0) return;
       if (changed.some((doc) => doc.canEdit === false)) {
-        toast.error("Cannot reorder pages", {
-          description: "One of the affected pages is read-only.",
+        toast.error(t("sidebar.cannotReorderPages"), {
+          description: t("sidebar.oneAffectedPageReadOnly"),
         });
         return;
       }
@@ -505,9 +505,9 @@ export function DocumentSidebar({
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        toast.error("Failed to move page", {
+        toast.error(t("sidebar.failedMovePage"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
@@ -573,7 +573,7 @@ export function DocumentSidebar({
       onClick={() => handleCreatePage()}
     >
       <IconPlus size={14} className="shrink-0" />
-      <span>New page</span>
+      <span>{t("sidebar.newPage")}</span>
     </button>
   );
 
@@ -588,7 +588,9 @@ export function DocumentSidebar({
       onClick={() => navigate("/local-files")}
     >
       <IconFolderOpen size={15} className="shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-start">Local files</span>
+      <span className="min-w-0 flex-1 truncate text-start">
+        {t("sidebar.localFiles")}
+      </span>
     </button>
   );
 
@@ -707,7 +709,7 @@ export function DocumentSidebar({
               <IconLayoutSidebarLeftExpand size={18} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Expand sidebar</TooltipContent>
+          <TooltipContent>{t("sidebar.expand")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -718,7 +720,7 @@ export function DocumentSidebar({
               <IconPlus size={16} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>New page</TooltipContent>
+          <TooltipContent>{t("sidebar.newPage")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -734,7 +736,7 @@ export function DocumentSidebar({
               <IconFolderOpen size={16} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Local files</TooltipContent>
+          <TooltipContent>{t("sidebar.localFiles")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -793,7 +795,7 @@ export function DocumentSidebar({
                 <IconSearch size={16} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Search</TooltipContent>
+            <TooltipContent>{t("sidebar.search")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -804,7 +806,7 @@ export function DocumentSidebar({
                 <IconLayoutSidebarLeftCollapse size={16} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Collapse sidebar</TooltipContent>
+            <TooltipContent>{t("sidebar.collapse")}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -815,7 +817,7 @@ export function DocumentSidebar({
           <input
             autoFocus
             type="text"
-            placeholder="Search pages..."
+            placeholder={t("sidebar.searchPages")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -836,11 +838,11 @@ export function DocumentSidebar({
             <>
               <div>
                 <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Results
+                  {t("sidebar.results")}
                 </div>
                 {filteredDocuments.length === 0 ? (
                   <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                    No pages found
+                    {t("sidebar.noPagesFound")}
                   </div>
                 ) : (
                   filteredDocuments.map((doc) => (
@@ -863,7 +865,7 @@ export function DocumentSidebar({
                         <DocumentSidebarIcon document={doc} />
                       </span>
                       <span className="min-w-0 flex-1 truncate">
-                        {doc.title || "Untitled"}
+                        {doc.title || t("sidebar.untitled")}
                       </span>
                     </button>
                   ))
@@ -878,7 +880,7 @@ export function DocumentSidebar({
                 <div className="mb-2">
                   <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
                     <IconStar size={10} />
-                    Favorites
+                    {t("sidebar.favorites")}
                   </div>
                   {favorites.map((doc) => (
                     <button
@@ -898,7 +900,7 @@ export function DocumentSidebar({
                         <DocumentSidebarIcon document={doc} />
                       </span>
                       <span className="min-w-0 flex-1 truncate">
-                        {doc.title || "Untitled"}
+                        {doc.title || t("sidebar.untitled")}
                       </span>
                     </button>
                   ))}
@@ -909,17 +911,17 @@ export function DocumentSidebar({
                 <>
                   {renderTreeSection({
                     id: "local-files",
-                    label: "Local files",
+                    label: t("sidebar.localFiles"),
                     nodes: localFileTree,
-                    emptyLabel: "No files yet",
+                    emptyLabel: t("sidebar.noFilesYet"),
                     footer: renderNewPageButton(),
                   })}
                   {databaseTree.length > 0
                     ? renderTreeSection({
                         id: "shared-copies",
-                        label: "Shared copies",
+                        label: t("sidebar.sharedCopies"),
                         nodes: databaseTree,
-                        emptyLabel: "No shared copies yet",
+                        emptyLabel: t("sidebar.noSharedCopiesYet"),
                         className: "mt-3",
                       })
                     : null}
@@ -929,26 +931,26 @@ export function DocumentSidebar({
                   {localFileTree.length > 0 &&
                     renderTreeSection({
                       id: "local-files",
-                      label: "Local files",
+                      label: t("sidebar.localFiles"),
                       nodes: localFileTree,
-                      emptyLabel: "No local files yet",
+                      emptyLabel: t("sidebar.noLocalFilesYet"),
                       className: "mb-2",
                     })}
 
                   {renderTreeSection({
                     id: "private",
-                    label: "Private",
+                    label: t("sidebar.private"),
                     nodes: privateTree,
-                    emptyLabel: "No private pages yet",
+                    emptyLabel: t("sidebar.noPrivatePagesYet"),
                     footer: renderNewPageButton(),
                   })}
 
                   {!isLoading &&
                     renderTreeSection({
                       id: "organization",
-                      label: "Organization",
+                      label: t("sidebar.organization"),
                       nodes: organizationTree,
-                      emptyLabel: "No organization pages yet",
+                      emptyLabel: t("sidebar.noOrganizationPagesYet"),
                       className: "mt-3",
                     })}
                 </>

@@ -1,9 +1,18 @@
 import { LibraryGrid } from "@/components/library/library-grid";
+import { useT } from "@agent-native/core/client";
+import enMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: "Archive · Clips" }];
+  return [{ title: enMessages.clipsFinalRaw.archivePageTitle }];
 }
 
 export default function ArchiveRoute() {
-  return <LibraryGrid view="archive" emptyKind="archive" title="Archive" />;
+  const t = useT();
+  return (
+    <LibraryGrid
+      view="archive"
+      emptyKind="archive"
+      title={t("navigation.archive")}
+    />
+  );
 }

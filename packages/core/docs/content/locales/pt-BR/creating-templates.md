@@ -69,7 +69,7 @@ As quatro áreas de cada modelo se conectam por meio de uma superfície de açã
 
 ```an-diagram title="Como as quatro áreas de um modelo se conectam" summary="A UI e o agente alcançam SQL através das mesmas ações; o estado do aplicativo e a sincronização de pesquisa os mantêm alinhados."
 {
-  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React UI<br><small class=\"diagram-muted\">app/routes · components</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL via Drizzle<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">Polling sync</div></div>",
+  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">UI React<br><small class=\"diagram-muted\">app/routes · componentes</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Ações</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL com Drizzle<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">Sincronização por polling</div></div>",
   "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -137,9 +137,9 @@ export default runMigrations(
 
 Use os documentos [Database](/docs/database) e [Security](/docs/security) antes de adicionar esquemas que contenham dados do usuário ou da organização.
 
-## Definir operações como Actions {#actions}
+## Definir operações como Ações {#actions}
 
-Actions são a única fonte de verdade sobre o comportamento do aplicativo. O agente os chama como ferramentas, o frontend os chama por meio de ganchos e outros aplicativos podem alcançá-los por meio de MCP/A2A.
+Ações são a única fonte de verdade sobre o comportamento do aplicativo. O agente os chama como ferramentas, o frontend os chama por meio de ganchos e outros aplicativos podem alcançá-los por meio de MCP/A2A.
 
 ```an-annotated-code title="actions/create-project.ts"
 {
@@ -148,9 +148,9 @@ Actions são a única fonte de verdade sobre o comportamento do aplicativo. O ag
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});",
   "annotations": [
     { "lines": "2", "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`." },
-    { "lines": "8", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this action as a tool." },
+    { "lines": "8", "label": "Superfície da ferramenta", "note": "O `description` é o que o agente lê para decidir quando chamar esta ação como ferramenta." },
     { "lines": "9-11", "label": "Contrato tipado", "note": "Um zod `schema` valida a entrada do agente, da UI, de HTTP, MCP e A2A." },
-    { "lines": "18-19", "label": "Scoped write", "note": "Stamp `ownerEmail` / `orgId` from `ctx` so the row is correctly scoped for sharing and access checks." }
+    { "lines": "18-19", "label": "Escrita com escopo", "note": "Carimbe `ownerEmail` / `orgId` de `ctx` para que a linha tenha o escopo correto para verificações de compartilhamento e acesso." }
   ]
 }
 ```
@@ -278,21 +278,21 @@ linha de propósito, regras básicas, chaves de estado do aplicativo, uma tabela
 índice:
 
 ```markdown
-# My Template
+# Meu modelo
 
 One workspace for projects, tasks, and notes.
 
-## Core Rules
+## Regras Básicas
 
-- Data lives in SQL via Drizzle. Use actions for all writes; schema is additive.
+- Data lives in SQL com Drizzle. Use actions for all writes; schema is additive.
 - Use `view-screen` before acting on "this project" if the screen is unclear.
 
-## Application State
+## Estado do aplicativo
 
 - `navigation.view`: `home` | `project`
 - `navigation.projectId`: selected project on a project page
 
-## Actions
+## Ações
 
 | Action           | Purpose                  |
 | ---------------- | ------------------------ |
@@ -316,11 +316,11 @@ name: project-imports
 description: How to import projects from the legacy CSV export.
 ---
 
-# Project Imports
+# Importações de projetos
 
 Use this skill when the user uploads a legacy project CSV.
 
-## Rules
+## Regras
 
 - Validate required columns before creating rows.
 - Use `create-project` for each project so ownership and sync are correct.

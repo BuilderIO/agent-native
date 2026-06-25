@@ -113,7 +113,7 @@ await deleteRun("run-id", "steve@builder.io");
 | `GET`    | `/_agent-native/runs/:id`         |
 | `DELETE` | `/_agent-native/runs/:id`         |
 
-```an-api title="List active runs" method="GET" path="/_agent-native/runs"
+```an-api title="قائمة عمليات التشغيل النشطة" method="GET" path="/_agent-native/runs"
 {
   "method": "GET",
   "path": "/_agent-native/runs",
@@ -182,7 +182,7 @@ event: run.progress.updated
 condition: "status is failed"
 mode: agentic
 ---
-Notify me that run {{runId}} has failed.
+إشعار me that run {{runId}} has failed.
 ```
 
 ## كيفية العمل {#internals}

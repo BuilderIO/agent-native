@@ -9,9 +9,10 @@ import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import changelog from "../../CHANGELOG.md?raw";
+import { messagesByLocale } from "@/i18n-data";
 
 export function meta() {
-  return [{ title: "Settings - Content" }];
+  return [{ title: messagesByLocale["en-US"].settings.metaTitle }];
 }
 
 export default function SettingsRoute() {

@@ -215,7 +215,7 @@ const run = startAgentHarnessRun({
 
 ```an-diagram title="الاستئناف عبر المنعطفات والعمليات والنشر" summary="يقوم كل دور بفصل حالة السيرة الذاتية المبهمة إلى SQL؛ المنعطف التالي يعيده مرة أخرى إلى createSession بدلاً من إعادة تشغيل سجل الدردشة."
 {
-  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Turn N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opaque · SQL harness session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Turn N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
+  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>الدور N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">معتم · جلسة حاضنة SQL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>الدور N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
   "css": ".diagram-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-resume .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -267,7 +267,7 @@ const last = await getLatestAgentHarnessSessionForThread(threadId);
 حمولة `mcpApp` للأدوات الأصلية)، `approval-request`، `file-change`،
 `compaction`، و`usage`، و`error`، و`done`. لأن نتائج الأداة تتدفق عبر
 نفس الترجمة، ولا تزال الأدوات الأصلية التي تم الإعلان عنها عن إجراء تعرض - راجع
-[Native Chat UI](/docs/native-chat-ui).
+[Native واجهة الدردشة](/docs/native-chat-ui).
 
 ## يعمل في الخلفية وUI {#background-runs}
 
@@ -341,7 +341,7 @@ registerAgentHarness({
 
 ## المستندات ذات الصلة {#related-docs}
 
-- [Native Chat UI](/docs/native-chat-ui) — ضع وكيلك الخاص خلف الدردشة UI مع `AgentChatRuntime`.
+- [Native واجهة الدردشة](/docs/native-chat-ui) — ضع وكيلك الخاص خلف الدردشة UI مع `AgentChatRuntime`.
 - [Agent Surfaces](/docs/agent-surfaces) - اختر التطبيق بلا رأس، أو الدردشة، أو السيارة الجانبية، أو التطبيق الكامل.
 - [Agent-Native Code UI](/docs/code-agents-ui) — سطح مساحة عمل البرمجة القابلة لإعادة الاستخدام.
 - [Custom Agents & Teams](/docs/agent-teams) — عمليات التشغيل في الخلفية وتفويض الوكيل الفرعي.

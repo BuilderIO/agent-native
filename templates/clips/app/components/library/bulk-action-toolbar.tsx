@@ -1,4 +1,5 @@
 import { IconArchive, IconFolder, IconTrash, IconX } from "@tabler/icons-react";
+import { useT } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -36,6 +37,7 @@ export function BulkActionToolbar({
   moveTargets = [],
   isPending = false,
 }: BulkActionToolbarProps) {
+  const t = useT();
   if (count === 0) return null;
   const canMove = Boolean(onMove && moveTargets.length > 0);
 
@@ -47,7 +49,7 @@ export function BulkActionToolbar({
       )}
     >
       <span className="pe-2 text-xs font-medium text-foreground">
-        {count} selected
+        {t("clipsFinalRaw.selectedCount", { count })}
       </span>
       <div className="h-4 w-px bg-border" />
       <Button
@@ -57,7 +59,7 @@ export function BulkActionToolbar({
         onClick={onArchive}
         disabled={isPending}
       >
-        <IconArchive className="h-3.5 w-3.5" /> Archive
+        <IconArchive className="h-3.5 w-3.5" /> {t("navigation.archive")}
       </Button>
       {canMove && (
         <DropdownMenu>
@@ -68,11 +70,13 @@ export function BulkActionToolbar({
               className="h-8 gap-1.5"
               disabled={isPending}
             >
-              <IconFolder className="h-3.5 w-3.5" /> Move
+              <IconFolder className="h-3.5 w-3.5" /> {t("clipsFinalRaw.move")}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="center" side="top" className="w-64">
-            <DropdownMenuLabel>Move {count} selected</DropdownMenuLabel>
+            <DropdownMenuLabel>
+              {t("clipsFinalRaw.moveSelected", { count })}
+            </DropdownMenuLabel>
             <DropdownMenuSeparator />
             {moveTargets.map((target, index) => (
               <DropdownMenuItem
@@ -88,7 +92,7 @@ export function BulkActionToolbar({
                 </span>
                 {target.disabled && (
                   <span className="ms-auto text-xs text-muted-foreground">
-                    Current
+                    {t("clipsFinalRaw.current")}
                   </span>
                 )}
               </DropdownMenuItem>
@@ -103,14 +107,14 @@ export function BulkActionToolbar({
         onClick={onTrash}
         disabled={isPending}
       >
-        <IconTrash className="h-3.5 w-3.5" /> Trash
+        <IconTrash className="h-3.5 w-3.5" /> {t("navigation.trash")}
       </Button>
       <div className="h-4 w-px bg-border mx-1" />
       <button
         type="button"
         onClick={onClear}
         className="rounded p-1 text-muted-foreground hover:bg-accent"
-        aria-label="Clear selection"
+        aria-label={t("clipsFinalRaw.clearSelection")}
       >
         <IconX className="h-3.5 w-3.5" />
       </button>

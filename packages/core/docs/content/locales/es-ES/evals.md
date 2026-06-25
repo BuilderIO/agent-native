@@ -16,7 +16,7 @@ El ejecutor resuelve un motor/modelo independiente del proveedor a partir del re
 
 ```an-diagram title="De entrada fija a puerta desplegable" summary="En realidad, el corredor ejecuta el ciclo del agente en cada caso, califica la salida y sale con un valor distinto de cero si algún puntaje cae por debajo del umbral, lo que la convierte en una puerta de CI directa."
 {
-  "html": "<div class=\"eval-flow\"><div class=\"diagram-node\">*.eval.ts<br><small class=\"diagram-muted\">prompt + expected behavior</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Run the agent loop<br><small class=\"diagram-muted\">real engine/model</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Scorers<br><small class=\"diagram-muted\">every one must pass threshold</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box ok\">exit 0 &rarr; deploy</div><div class=\"diagram-box warn\">exit 1 &rarr; block</div></div></div>",
+  "html": "<div class=\"eval-flow\"><div class=\"diagram-node\">*.eval.ts<br><small class=\"diagram-muted\">prompt + expected behavior</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Ejecutar el bucle del agente<br><small class=\"diagram-muted\">real engine/model</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Scorers<br><small class=\"diagram-muted\">every one must pass threshold</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box ok\">exit 0 &rarr; deploy</div><div class=\"diagram-box warn\">exit 1 &rarr; block</div></div></div>",
   "css": ".eval-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.eval-flow .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.eval-flow .diagram-col{display:flex;flex-direction:column;gap:8px}.eval-flow .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -122,7 +122,7 @@ const concise = createScorer({
 
 ```bash
 agent-native eval                    # run every *.eval.ts; non-zero exit on failure
-agent-native eval billing            # only files whose path contains "billing"
+agent-native eval billing            # sólo archivos cuya ruta contenga "facturación"
 agent-native eval --json             # machine-readable report (for CI)
 agent-native eval --threshold 0.8    # override every eval's pass threshold (0..1)
 ```

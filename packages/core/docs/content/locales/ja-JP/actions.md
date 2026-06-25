@@ -21,7 +21,7 @@ Actions は、アプリの動作に関する唯一の信頼できる情報源で
 
 ```an-diagram title="1 つの定義、7 人の消費者" summary="単一の defineAction() は、1 つの検証済みスキーマと 1 つの run() 本体を備えたすべてのサーフェス (エージェント、UI、HTTP、MCP、A2A、および CLI) にファンアウトされます。"
 {
-  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agent tool<br><small class=\"diagram-muted\">JSON Schema in context</small></div><div class=\"diagram-node\">React hooks<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">imperative client</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP tool<br><small class=\"diagram-muted\">external hosts</small></div><div class=\"diagram-node\">A2A tool<br><small class=\"diagram-muted\">other agent-native apps</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
+  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run()、一度だけ定義</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">エージェントツール<br><small class=\"diagram-muted\">コンテキスト内の JSON Schema</small></div><div class=\"diagram-node\">React フック<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">命令型クライアント</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP ツール<br><small class=\"diagram-muted\">外部ホスト</small></div><div class=\"diagram-node\">A2Aツール<br><small class=\"diagram-muted\">他の agent-native アプリ</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
   "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
 }
 ```
@@ -155,7 +155,7 @@ export default defineAction({
   "method": "GET",
   "path": "/_agent-native/actions/get-lead",
   "summary": "すべての action はここに自動でマウントされます。ファイル名が action 名になります。",
-  "description": "デフォルトは POST です。`http: { method: \"GET\" }` で GET になります。React hooks と `callAction` は、`http.path` の上書きに関係なく常にこのパスを名前で呼び出します。",
+  "description": "デフォルトは POST です。`http: { method: \"GET\" }` で GET になります。React フック と `callAction` は、`http.path` の上書きに関係なく常にこのパスを名前で呼び出します。",
   "auth": "セッション cookie。フロントエンド呼び出しには `X-Agent-Native-Frontend: 1` が付きます",
   "params": [
     { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET 引数は query params として届き、POST 引数は JSON body に届きます。" }
@@ -434,7 +434,7 @@ export default defineAction({
 
 組み込みの判別式は `"data-table"`、`"data-chart"`、および
 `"data-insights"`、サーバーセーフなビルダーとスキーマを含む
-`@agent-native/core/data-widgets`。 [Native Chat UI](/docs/native-chat-ui)
+`@agent-native/core/data-widgets`。 [Native チャット UI](/docs/native-chat-ui)
 完全な結果契約と BYO ランタイム ガイダンスの場合、または
 同じアクションを維持する方法については [Agent Surfaces](/docs/agent-surfaces)
 ヘッドレス、チャットでのレンダリング、または全画面表示。

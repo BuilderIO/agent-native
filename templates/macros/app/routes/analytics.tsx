@@ -25,15 +25,15 @@ import { WeeklyCaloriesChart } from "@/components/WeeklyCaloriesChart";
 import { IconCalendar } from "@tabler/icons-react";
 import { useState } from "react";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import messages from "@/i18n/en-US";
 
 const GOAL_CALORIES = 2000;
 
 export function meta() {
-  const description =
-    "Open Source AI macro tracker for reviewing calorie, macro, exercise, and weight trends.";
+  const description = messages.seo.analyticsDescription;
 
   return [
-    { title: "Macro analytics - Open Source Agent-Native Macros" },
+    { title: messages.routeTitles.analytics },
     {
       name: "description",
       content: description,

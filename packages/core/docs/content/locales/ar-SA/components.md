@@ -14,7 +14,7 @@ description: "العناصر الأساسية العامة React للوكيل ا
 
 ```tsx
 import { AgentSidebar } from "@agent-native/core/client";
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { Promptإنشاءr } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/core/client/editor";
@@ -27,7 +27,7 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 
 ```an-diagram title="المنسدلة طبقة، وليس خارج الإطار" summary="تحتفظ كل طبقة بنفس وقت التشغيل — الإجراءات، وحالة مؤشر الترابط، ومزامنة SQL-backed — بينما تمنحك مزيدًا من التحكم في Chrome."
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">الشريط الجانبي بأكمله حول تطبيقك. حالة 80%.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">اللوحة أو صفحة الدردشة في التخطيط الخاص بك.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + وقت التشغيل</span><small class=\"diagram-muted\">امتلك الكروم؛ قم بتمرير BYO AgentChatRuntime بشكل اختياري.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;محادثة الوكيل&gt;</span><small class=\"diagram-muted\">الملحن والنسخة الأولية فقط.</small></div><div class=\"diagram-rail\" data-rough>نفس وقت التشغيل: الإجراءات &middot; حالة الخيط &middot; BYO-backed مزامنة</div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">الشريط الجانبي بأكمله حول تطبيقك. حالة 80%.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">اللوحة أو صفحة الدردشة في التخطيط الخاص بك.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + وقت التشغيل</span><small class=\"diagram-muted\">امتلك الكروم؛ قم بتمرير BYO AgentChatRuntime بشكل اختياري.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;Promptإنشاءr&gt; &middot; &lt;محادثة الوكيل&gt;</span><small class=\"diagram-muted\">الملحن والنسخة الأولية فقط.</small></div><div class=\"diagram-rail\" data-rough>نفس وقت التشغيل: الإجراءات &middot; حالة الخيط &middot; BYO-backed مزامنة</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
@@ -58,7 +58,7 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 المحادثة بينما يحتفظ Agent-Native بالملحن والنص وبطاقات الأدوات و
 عرض القطعة الأصلية. الموصلات أعلاه هي سطح API؛ وقت التشغيل
 يتم تدريس أشكال العقود والأحداث في
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+[Native واجهة الدردشة — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
 إذا كنت تختار بين الوكلاء مقطوعي الرأس، والدردشة الغنية، والعربة الجانبية المضمنة، و
 أشكال التطبيق الكاملة، راجع [Agent Surfaces](/docs/agent-surfaces).
 
@@ -96,7 +96,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 للحصول على نقطة نهاية إحضار الوكيل الخاص بك، أنشئ `AgentChatRuntime` باستخدام أحد
 الموصلات أعلاه وتمريرها إلى `<AssistantChat runtime={...} />`. انظر
-[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+[Native واجهة الدردشة — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
 لاستخدام الموصل، ودفق الأحداث الذي تمت تسويته، ومتى يجب الوصول إليه
 `createHttpAgentChatRuntime()` مقابل موصل خاص بالبروتوكول.
 
@@ -107,18 +107,18 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 | API                               | استخدم عندما                                                                                                                                                     |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<PromptComposer>`                | تحتاج إلى حقل دردشة جاهز للإرسال يحتوي على المرفقات، وأوامر الشرطة المائلة، والمراجع، ومعالجة النص الملصق، واستمرارية المسودة، والإدخال الصوتي، ودلالات الإرسال. |
-| `<AgentComposerFrame>`            | تريد الغلاف المرئي القياسي حول نص الملحن المخصص.                                                                                                                 |
-| `<TiptapComposer>`                | أنت بحاجة إلى حقل الدردشة الغنية ذي المستوى الأدنى. ويجب أن يتم عرضه داخل واجهة المستخدم المساعدة `ThreadPrimitive.Root` / وقت تشغيل الملحن.                     |
-| `buildPromptComposerSubmission()` | تحتاج إلى نفس المرفقات وتسوية النص الملصق قبل استدعاء معالج الإرسال الخاص بك.                                                                                    |
+| `<Promptإنشاءr>`                | تحتاج إلى حقل دردشة جاهز للإرسال يحتوي على المرفقات، وأوامر الشرطة المائلة، والمراجع، ومعالجة النص الملصق، واستمرارية المسودة، والإدخال الصوتي، ودلالات الإرسال. |
+| `<AgentإنشاءrFrame>`            | تريد الغلاف المرئي القياسي حول نص الملحن المخصص.                                                                                                                 |
+| `<Tiptapإنشاءr>`                | أنت بحاجة إلى حقل الدردشة الغنية ذي المستوى الأدنى. ويجب أن يتم عرضه داخل واجهة المستخدم المساعدة `ThreadPrimitive.Root` / وقت تشغيل الملحن.                     |
+| `buildPromptإنشاءrSubmission()` | تحتاج إلى نفس المرفقات وتسوية النص الملصق قبل استدعاء معالج الإرسال الخاص بك.                                                                                    |
 | `formatPromptWithAttachments()`   | تحتاج إلى عرض بيانات تعريف المرفقات المخفية في سلسلة مطالبة.                                                                                                     |
 
-يجب أن تبدأ معظم UI المخصصة بـ `PromptComposer`:
+يجب أن تبدأ معظم UI المخصصة بـ `Promptإنشاءr`:
 
 ```tsx
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { Promptإنشاءr } from "@agent-native/core/client/composer";
 
-<PromptComposer
+<Promptإنشاءr
   placeholder="Ask the agent..."
   onSubmit={async (text, files, references, options) => {
     await sendMessageToYourRuntime({ text, files, references, options });
@@ -126,7 +126,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 />;
 ```
 
-استخدم `TiptapComposer` فقط إذا كنت تقوم بالفعل بتوصيل عناصر واجهة المستخدم المساعدة
+استخدم `Tiptapإنشاءr` فقط إذا كنت تقوم بالفعل بتوصيل عناصر واجهة المستخدم المساعدة
 نفسك. إنه الحقل، وليس وقت تشغيل الدردشة بالكامل.
 
 ## عرض المحادثة {#conversation}
@@ -151,7 +151,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 داخل الدردشة بدلاً من JSON العادي. تتضمن المخرجات المدمجة القابلة لإعادة الاستخدام
 `DataTableWidget`، و`DataChartWidget`، و`DataWidgetResult`؛ يتم تصديرها
 من `@agent-native/core/client/chat` وإدخال العميل الجذر. انظر
-[Native Chat UI](/docs/native-chat-ui) لعقد نتيجة الإجراء.
+[Native واجهة الدردشة](/docs/native-chat-ui) لعقد نتيجة الإجراء.
 
 | API                              | استخدم عندما                                                                     |
 | -------------------------------- | -------------------------------------------------------------------------------- |

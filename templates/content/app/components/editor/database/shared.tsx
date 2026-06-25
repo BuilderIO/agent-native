@@ -1,3 +1,4 @@
+// i18n-raw-literal-disable-file -- unused shared helper copy; live database editor owns localized UI.
 // Shared UI primitives used by multiple database view modules.
 import type { ReactNode } from "react";
 import { useState } from "react";

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useT } from "@agent-native/core/client";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -120,6 +121,7 @@ export function MicrophoneVisualizer({
   onStatusChange,
   onSignalChange,
 }: MicrophoneVisualizerProps) {
+  const t = useT();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const runIdRef = useRef(0);
@@ -461,7 +463,7 @@ export function MicrophoneVisualizer({
         >
           <canvas
             ref={canvasRef}
-            aria-label="Selected microphone waveform"
+            aria-label={t("clipsFinalRaw.selectedMicrophoneWaveform")}
             className="h-full w-full opacity-75"
           />
           {statusLabel ? (

@@ -21,7 +21,7 @@ description: "由引用的机构记忆、可审查的源代码摄取和可重用
 
 ```an-diagram title="从来源到引用的答案" summary="大脑将经过批准的来源摄取到原始捕获中，提取持久记忆，通过审查对其进行门控，然后才通过引用进行回答。"
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Sources</span><small class=\"diagram-muted\">Slack · Granola · GitHub · Clips · webhooks</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Raw captures<br><small class=\"diagram-muted\">deduped, redacted</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Distill<br><small class=\"diagram-muted\">facts · decisions · processes</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Review</span><small class=\"diagram-muted\">sensitive / low-confidence queue</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Knowledge</span><small class=\"diagram-muted\">approved, atomic</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Ask</span><small class=\"diagram-muted\">cited answer</small></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Sources</span><small class=\"diagram-muted\">Slack · Granola · GitHub · Clips · webhooks</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>原始捕获<br><small class=\"diagram-muted\">已去重、已脱敏</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Distill<br><small class=\"diagram-muted\">事实 · 决策 · 流程</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Review</span><small class=\"diagram-muted\">sensitive / low-confidence queue</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Knowledge</span><small class=\"diagram-muted\">已批准、原子化</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Ask</span><small class=\"diagram-muted\">cited answer</small></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px}.diagram-flow .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-flow .diagram-arrow{font-size:20px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -29,7 +29,7 @@ description: "由引用的机构记忆、可审查的源代码摄取和可重用
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Ask company memory</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='Search'></span><strong style='flex:1'>Why did we choose usage pricing?</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>The team chose usage pricing after pilots showed seat counts undercounted automation value.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>Pricing RFC</span><span class='wf-pill'>Launch retro</span><span class='wf-pill'>Sales notes</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Source timeline</strong><div class='wf-box'>May 3 · Decision captured</div><div class='wf-box'>May 8 · Customer evidence added</div><div class='wf-box'>May 12 · Legal note approved</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>询问公司记忆</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='搜索'></span><strong style='flex:1'>为什么选择按用量定价？</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>试点显示席位数低估了自动化价值后，团队选择了按用量定价。</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>定价 RFC</span><span class='wf-pill'>发布复盘</span><span class='wf-pill'>销售备注</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>来源时间线</strong><div class='wf-box'>5 月 3 日 · 决策已记录</div><div class='wf-box'>5 月 8 日 · 已添加客户证据</div><div class='wf-box'>5 月 12 日 · 法务说明已批准</div></div></div>"
 }
 ```
 
@@ -152,10 +152,10 @@ Brain 的模式位于 `templates/brain/server/db/schema.ts` 中。八张桌子�
 | `brain_sync_runs`        | 同步审核日志 - 提供商、状态、统计信息 JSON、错误、开始/结束时间戳                                               |
 | `brain_ingest_queue`     | 后台蒸馏队列 - 操作、状态、优先级、重试计数、`run_after`                                                        |
 
-```an-schema title="Brain data model" summary="Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
+```an-schema title="大脑数据模型" summary="Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
 {
   "entities": [
-    { "id": "sources", "name": "brain_sources", "note": "Connector config", "fields": [
+    { "id": "sources", "name": "brain_sources", "note": "连接器配置", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "provider", "type": "text", "note": "slack / granola / github / clips / webhook" },
       { "name": "ingest_token_hash", "type": "text" },
@@ -165,14 +165,14 @@ Brain 的模式位于 `templates/brain/server/db/schema.ts` 中。八张桌子�
     { "id": "source_shares", "name": "brain_source_shares", "note": "viewer / editor / admin", "fields": [
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" }
     ] },
-    { "id": "captures", "name": "brain_raw_captures", "note": "Ingested raw payloads", "fields": [
+    { "id": "captures", "name": "brain_raw_captures", "note": "摄取的原始有效负载", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" },
       { "name": "external_id", "type": "text", "note": "dedupe key" },
       { "name": "content_hash", "type": "text" },
       { "name": "kind", "type": "text" }
     ] },
-    { "id": "knowledge", "name": "brain_knowledge", "note": "Distilled atomic entries", "fields": [
+    { "id": "knowledge", "name": "brain_knowledge", "note": "蒸馏原子条目", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "kind", "type": "text", "note": "decision / fact / process" },
       { "name": "topic", "type": "text" },
@@ -183,19 +183,19 @@ Brain 的模式位于 `templates/brain/server/db/schema.ts` 中。八张桌子�
     { "id": "knowledge_shares", "name": "brain_knowledge_shares", "fields": [
       { "name": "knowledge_id", "type": "id", "fk": "brain_knowledge.id" }
     ] },
-    { "id": "proposals", "name": "brain_proposals", "note": "Pending review items", "fields": [
+    { "id": "proposals", "name": "brain_proposals", "note": "待审核项目", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "op", "type": "text", "note": "create / update / archive" }
     ] },
     { "id": "proposal_shares", "name": "brain_proposal_shares", "fields": [
       { "name": "proposal_id", "type": "id", "fk": "brain_proposals.id" }
     ] },
-    { "id": "sync_runs", "name": "brain_sync_runs", "note": "Sync audit log", "fields": [
+    { "id": "sync_runs", "name": "brain_sync_runs", "note": "同步审核日志", "fields": [
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" },
       { "name": "status", "type": "text" },
       { "name": "stats", "type": "json" }
     ] },
-    { "id": "ingest_queue", "name": "brain_ingest_queue", "note": "Background distillation queue", "fields": [
+    { "id": "ingest_queue", "name": "brain_ingest_queue", "note": "后台蒸馏队列", "fields": [
       { "name": "operation", "type": "text" },
       { "name": "status", "type": "text" },
       { "name": "priority", "type": "int" },
@@ -259,11 +259,11 @@ Analytics 风格的 GitHub 报告的替代品。
 对通话记录、客户研究、导入使用相同的有效负载形状
 注释，或任何其他可以生成有界捕获的来源。
 
-```an-api title="Signed ingest webhook" summary="Clips and generic transcript/capture imports post a RawCapturePayload with a per-source bearer token."
+```an-api title="签名摄取 webhook" summary="剪辑和通用 transcript/capture 导入会发布带有每个源不记名令牌的 RawCapturePayload。"
 {
   "method": "POST",
   "path": "/api/_agent-native/brain/ingest",
-  "summary": "Import a raw capture from Clips or a generic source",
+  "summary": "从 Clips 或通用源导入原始捕获",
   "auth": "Bearer <ingestToken> issued per source via its sourceKey",
   "request": {
     "contentType": "application/json",

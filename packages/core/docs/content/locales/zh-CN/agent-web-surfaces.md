@@ -21,7 +21,7 @@ description: "使公共路线可爬行、可读、可引用，并可选择由代
 
 ```an-diagram title="公共路由发布什么" summary="一条公共路线呈扇形展开，形成对代理人友好的代表。读取路线与调用工具是分开的——工具访问保持选择加入。"
 {
-  "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>Public route<br><small class=\"diagram-muted\">derived from route access settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">.md mirror</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">Tools stay private</span><small class=\"diagram-muted\">publicMcp + publicAgent.expose required</small></div></div>",
+  "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>公开路由<br><small class=\"diagram-muted\">derived from route access settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">.md mirror</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">工具保持私有</span><small class=\"diagram-muted\">publicMcp + publicAgent.expose required</small></div></div>",
   "css": ".diagram-web{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-web .diagram-arrow{font-size:22px;line-height:1}.diagram-web .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.diagram-web .gate{display:flex;flex-direction:column;gap:4px;align-items:flex-start}"
 }
 ```
@@ -87,10 +87,10 @@ description: "使公共路线可爬行、可读、可引用，并可选择由代
 {
   "filename": "actions/search-docs.ts",
   "language": "ts",
-  "code": "export default defineAction({\n  description: \"Search published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"Search published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});",
+  "code": "export default defineAction({\n  description: \"搜索 published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"搜索 published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});",
   "annotations": [
-    { "lines": "4", "label": "Explicit opt-in", "note": "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are." },
-    { "lines": "5-7", "label": "Self-describe safety", "note": "Mark it read-only, declare whether it needs auth, and flag whether it is consequential. Public MCP excludes consequential/write actions unless policy explicitly allows them." }
+    { "lines": "4", "label": "明确选择加入", "note": "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are." },
+    { "lines": "5-7", "label": "自我描述安全性", "note": "将其标记为只读，声明它是否需要身份验证，并标记它是否是重要的。除非策略明确允许，否则公共 MCP 排除 consequential/write 操作。" }
   ]
 }
 ```
@@ -122,7 +122,7 @@ const files = buildAgentWebStaticFiles({
       path: "/docs",
       title: "Docs",
       description: "Start here.",
-      markdown: "# Docs\n\nStart here.\n",
+      markdown: "# 文档\n\n从这里开始。\n",
       markdownPath: "/docs/getting-started.md",
       lastmod: new Date(),
     },

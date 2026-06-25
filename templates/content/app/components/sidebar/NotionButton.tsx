@@ -17,7 +17,7 @@ import {
 import { useNotionConnection, useDisconnectNotion } from "@/hooks/use-notion";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { agentNativePath, appApiPath } from "@agent-native/core/client";
+import { agentNativePath, appApiPath, useT } from "@agent-native/core/client";
 import {
   Tooltip,
   TooltipContent,
@@ -47,28 +47,24 @@ function NotionIcon({ className }: { className?: string }) {
 
 const OAUTH_STEPS = [
   {
-    title: "Create a Notion integration",
-    description:
-      'Go to Notion\'s developer portal, click "New integration", name it (e.g. "My Docs Sync"), and select your workspace.',
+    titleKey: "sidebar.notionCreateIntegration",
+    descriptionKey: "sidebar.notionCreateIntegrationDescription",
     url: "https://www.notion.so/profile/integrations",
-    linkText: "Open Notion Integrations",
+    linkTextKey: "sidebar.notionOpenIntegrations",
   },
   {
-    title: "Configure as public integration",
-    description:
-      'Under "Distribution", toggle the integration to "Public". Then under "OAuth Domain & URIs", add this redirect URI:',
+    titleKey: "sidebar.notionConfigurePublicIntegration",
+    descriptionKey: "sidebar.notionConfigurePublicIntegrationDescription",
     showRedirectUri: true,
   },
   {
-    title: "Copy OAuth credentials",
-    description:
-      'Under "OAuth Domain & URIs", copy the OAuth client ID and client secret. Then upload the JSON file or paste them below.',
+    titleKey: "sidebar.notionCopyOAuthCredentials",
+    descriptionKey: "sidebar.notionCopyOAuthCredentialsDescription",
     showUpload: true,
   },
   {
-    title: "Connect your workspace",
-    description:
-      "Click the button below to authorize access to your Notion workspace. You'll be redirected to Notion to grant permission.",
+    titleKey: "sidebar.notionConnectWorkspace",
+    descriptionKey: "sidebar.notionConnectWorkspaceDescription",
     showConnect: true,
   },
 ];
@@ -83,6 +79,7 @@ interface EnvKeyStatus {
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function NotionButton() {
+  const t = useT();
   const { data: connection, refetch } = useNotionConnection();
   const disconnectNotion = useDisconnectNotion();
   const [open, setOpen] = useState(false);
@@ -133,7 +130,7 @@ export function NotionButton() {
         setShowWizard(true);
         return;
       }
-      toast.error("Notion OAuth is not configured.");
+      toast.error(t("sidebar.notionOAuthNotConfigured"));
       return;
     }
     window.open(connection.authUrl, "_blank");
@@ -169,9 +166,13 @@ export function NotionButton() {
   async function handleDisconnect() {
     try {
       await disconnectNotion.mutateAsync();
-      toast.success("Disconnected Notion workspace.");
+      toast.success(t("sidebar.notionDisconnectedWorkspace"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to disconnect.");
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t("sidebar.notionDisconnectFailed"),
+      );
     }
   }
 
@@ -183,7 +184,7 @@ export function NotionButton() {
       const clientId = json.client_id || json.oauth_client_id;
       const clientSecret = json.client_secret || json.oauth_client_secret;
       if (!clientId || !clientSecret) {
-        throw new Error("Could not find client_id and client_secret in JSON");
+        throw new Error(t("sidebar.notionCredentialsNotFound"));
       }
       const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
@@ -197,13 +198,15 @@ export function NotionButton() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save credentials");
+        throw new Error(data.error || t("sidebar.notionCredentialsSaveFailed"));
       }
       await fetchEnvStatus();
-      toast.success("Credentials saved. Reloading...");
+      toast.success(t("sidebar.notionCredentialsSavedReloading"));
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to parse JSON");
+      toast.error(
+        err instanceof Error ? err.message : t("sidebar.notionParseJsonFailed"),
+      );
     } finally {
       setSaving(false);
     }
@@ -225,7 +228,7 @@ export function NotionButton() {
               </button>
             </PopoverTrigger>
           </TooltipTrigger>
-          <TooltipContent>Connect Notion</TooltipContent>
+          <TooltipContent>{t("sidebar.notionConnect")}</TooltipContent>
         </Tooltip>
         <PopoverContent
           side="right"
@@ -237,7 +240,9 @@ export function NotionButton() {
           <div className="p-4 border-b border-border">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold">Connect Notion</h3>
+                <h3 className="text-sm font-semibold">
+                  {t("sidebar.notionConnect")}
+                </h3>
               </div>
               <button
                 className="text-xs text-muted-foreground hover:text-foreground"
@@ -246,11 +251,11 @@ export function NotionButton() {
                   setOpen(false);
                 }}
               >
-                Cancel
+                {t("comments.cancel")}
               </button>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Configure OAuth, then authorize your workspace.
+              {t("sidebar.notionConfigureOAuthAuthorize")}
             </p>
           </div>
 
@@ -298,14 +303,14 @@ export function NotionButton() {
                             : "text-muted-foreground",
                       )}
                     >
-                      {step.title}
+                      {t(step.titleKey)}
                     </span>
                   </button>
 
                   {active && (
                     <div className="mt-2 ms-5 space-y-2">
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        {step.description}
+                        {t(step.descriptionKey)}
                       </p>
 
                       {step.url && (
@@ -316,7 +321,7 @@ export function NotionButton() {
                           className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                         >
                           <IconExternalLink size={11} />
-                          {step.linkText}
+                          {step.linkTextKey ? t(step.linkTextKey) : null}
                         </a>
                       )}
 
@@ -329,10 +334,10 @@ export function NotionButton() {
                             className="shrink-0 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent"
                             onClick={() => {
                               navigator.clipboard.writeText(redirectUri);
-                              toast.success("Copied!");
+                              toast.success(t("sidebar.copied"));
                             }}
                           >
-                            Copy
+                            {t("sidebar.copy")}
                           </button>
                         </div>
                       )}
@@ -341,7 +346,9 @@ export function NotionButton() {
                         <div className="space-y-2">
                           <label className="flex items-center gap-2 cursor-pointer rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:border-foreground/30 hover:text-foreground">
                             <IconUpload size={14} />
-                            {saving ? "Saving..." : "Upload credentials JSON"}
+                            {saving
+                              ? t("sidebar.saving")
+                              : t("sidebar.notionUploadCredentialsJson")}
                             <input
                               type="file"
                               accept=".json"
@@ -386,14 +393,14 @@ export function NotionButton() {
                           className="w-full"
                         >
                           {oauthConfigured ? (
-                            "Connect Notion Workspace"
+                            t("sidebar.notionConnectWorkspace")
                           ) : (
                             <>
                               <IconLoader2
                                 size={12}
                                 className="me-1 animate-spin"
                               />
-                              Complete steps above first
+                              {t("sidebar.completeStepsAboveFirst")}
                             </>
                           )}
                         </Button>
@@ -406,7 +413,7 @@ export function NotionButton() {
                           className="text-xs"
                           onClick={() => setCurrentStep(i + 1)}
                         >
-                          Next step
+                          {t("sidebar.nextStep")}
                         </Button>
                       )}
                     </div>
@@ -441,8 +448,10 @@ export function NotionButton() {
         </TooltipTrigger>
         <TooltipContent>
           {isConnected
-            ? `Notion: ${connection?.workspaceName ?? "Connected"}`
-            : "Connect Notion"}
+            ? t("sidebar.notionConnectedTooltip", {
+                name: connection?.workspaceName ?? t("sidebar.connected"),
+              })
+            : t("sidebar.notionConnect")}
         </TooltipContent>
       </Tooltip>
       <PopoverContent
@@ -462,7 +471,7 @@ export function NotionButton() {
                     {connection?.workspaceName ?? "Notion"}
                   </p>
                   <p className="text-[10px] text-muted-foreground">
-                    Connected via OAuth
+                    {t("sidebar.connectedViaOAuth")}
                   </p>
                 </div>
               </div>
@@ -471,12 +480,12 @@ export function NotionButton() {
               <button
                 onClick={() => {
                   refetch();
-                  toast.success("Synced");
+                  toast.success(t("sidebar.synced"));
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md"
               >
                 <IconRefresh size={12} />
-                Refresh connection
+                {t("sidebar.refreshConnection")}
               </button>
               <button
                 onClick={() => {
@@ -486,7 +495,7 @@ export function NotionButton() {
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md"
               >
                 <IconPlugOff size={12} />
-                Disconnect workspace
+                {t("sidebar.disconnectWorkspace")}
               </button>
             </div>
           </>
@@ -494,10 +503,12 @@ export function NotionButton() {
           <div className="p-4">
             <div className="flex items-center gap-2 mb-2">
               <NotionIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <p className="text-sm font-medium">Connect Notion</p>
+              <p className="text-sm font-medium">
+                {t("sidebar.notionConnect")}
+              </p>
             </div>
             <p className="text-xs text-muted-foreground mb-3">
-              Sync documents with your Notion workspace.
+              {t("sidebar.notionSyncDocumentsDescription")}
             </p>
             <Button
               size="sm"
@@ -510,7 +521,9 @@ export function NotionButton() {
                 }
               }}
             >
-              {needsCredentials ? "Set up Notion" : "Connect Workspace"}
+              {needsCredentials
+                ? t("editor.toolbar.setUpNotion")
+                : t("sidebar.connectWorkspace")}
             </Button>
           </div>
         )}

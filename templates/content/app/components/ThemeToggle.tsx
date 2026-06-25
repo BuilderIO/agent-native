@@ -11,9 +11,9 @@ import { cn } from "@/lib/utils";
 import { useT } from "@agent-native/core/client";
 
 const themeOptions = [
-  { value: "system", label: "System theme", icon: IconDeviceDesktop },
-  { value: "light", label: "Light theme", icon: IconSun },
-  { value: "dark", label: "Dark theme", icon: IconMoon },
+  { value: "system", icon: IconDeviceDesktop },
+  { value: "light", icon: IconSun },
+  { value: "dark", icon: IconMoon },
 ] as const;
 
 const THEME_PREFERENCE_STORAGE_KEY = "content-theme-preference";

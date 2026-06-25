@@ -6,6 +6,7 @@ import {
   openAgentSettings,
   useT,
 } from "@agent-native/core/client";
+import { messagesByLocale } from "@/i18n-data";
 import changelog from "../../CHANGELOG.md?raw";
 import {
   Card,
@@ -17,7 +18,7 @@ import {
 import { Label } from "@/components/ui/label";
 
 export function meta() {
-  return [{ title: "Settings — Design" }];
+  return [{ title: messagesByLocale["en-US"].routeTitles.settingsDesign }];
 }
 
 export default function SettingsRoute() {

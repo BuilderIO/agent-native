@@ -27,7 +27,7 @@ Existem três camadas:
 
 ```an-diagram title="Três camadas em uma loja de execução" summary="CLI, Desktop e a UI compartilhada são superfícies diferentes no mesmo armazenamento e executor de execução apoiado por arquivo; hosts o adaptam por meio do contrato CodeAgentsHost."
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-row\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">CLI</span><small class=\"diagram-muted\">start · resume · status · stop</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Desktop</span><small class=\"diagram-muted\">native terminal · webviews · deep links</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Compartilhard UI</span><small class=\"diagram-muted\">@agent-native/code-agents-ui</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill\">CodeAgentsHost</span><small class=\"diagram-muted\">host contract</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>File-backed run store + executor<br><small class=\"diagram-muted\">@agent-native/core/code-agents</small></div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-row\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">CLI</span><small class=\"diagram-muted\">iniciar · retomar · status · parar</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Desktop</span><small class=\"diagram-muted\">terminal nativo · webviews · deep links</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Compartilhard UI</span><small class=\"diagram-muted\">@agent-native/code-agents-ui</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill\">CodeAgentsHost</span><small class=\"diagram-muted\">host contract</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Run store em arquivos + executor<br><small class=\"diagram-muted\">@agent-native/core/code-agents</small></div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px;align-items:center}.diagram-layers .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-layers .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.diagram-layers .diagram-arrow{font-size:22px;line-height:1}.diagram-layers .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -247,8 +247,8 @@ Os hosts do navegador devem retornar um erro `openTerminal` normal em vez de ten
 
 ## Compositor Compartilhado
 
-O código Agent-Native usa o mesmo `AgentComposerFrame` + `PromptComposer` /
-Pilha `TiptapComposer` exportada de `@agent-native/core/client/composer` como
+O código Agent-Native usa o mesmo `AgentEscreverrFrame` + `PromptEscreverr` /
+Pilha `TiptapEscreverr` exportada de `@agent-native/core/client/composer` como
 barra lateral do agente de estrutura. Não bifurque um separado
 área de texto, seletor de ferramenta de codificação, seletor de upload, botão de voz, seletor de modelo ou Enter-to-submit
 implementação para superfícies semelhantes a código. Se um host precisar de um controle extra, passe
@@ -256,7 +256,7 @@ por meio da extensão do compositor compartilhada aponta para a barra lateral, C
 O bate-papo cerebral mantém o mesmo modelo de interação e campo visual.
 
 A rota Brain's Ask usa `AgentChatSurface`, que já é apoiada pelo
-compositor padrão da barra lateral. O código usa `PromptComposer` diretamente porque o host
+compositor padrão da barra lateral. O código usa `PromptEscreverr` diretamente porque o host
 é responsável pela criação de corridas, transcrições e entrega de acompanhamento.
 
 ## Ferramentas de codificação compartilhadas
@@ -375,18 +375,18 @@ A conexão é somente de saída do Desktop:
 
 ```an-diagram title="Dispatch remoto é somente de saída" summary="O celular nunca se comunica diretamente com o desktop. Desktop faz pesquisas longas em Dispatch, reivindica comandos, direciona o armazenamento de execução local e espelha os resultados de volta."
 {
-  "html": "<div class=\"diagram-remote\"><div class=\"diagram-node\" data-rough>Mobile / Telegram<br><small class=\"diagram-muted\">/code · sessions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Dispatch relay<br><small class=\"diagram-muted\">hosts · runs · transcript</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-node\" data-rough>Desktop<br><small class=\"diagram-muted\">long-polls · claims · drives run store</small></div></div>",
+  "html": "<div class=\"diagram-remote\"><div class=\"diagram-node\" data-rough>Celular / Telegram<br><small class=\"diagram-muted\">/code · sessões</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Relay do Dispatch<br><small class=\"diagram-muted\">hosts · execuções · transcrição</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-node\" data-rough>Desktop<br><small class=\"diagram-muted\">long-polls · assume · controla run store</small></div></div>",
   "css": ".diagram-remote{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-remote .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
 
 Os pontos finais de retransmissão remota canônica são:
 
-```an-api title="Desktop claims queued work"
+```an-api title="Trabalho na fila de declarações de desktop"
 {
   "method": "POST",
   "path": "/_agent-native/integrations/remote/poll",
-  "summary": "Desktop long-polls the relay to claim enqueued commands",
+  "summary": "O desktop pesquisa longamente o relé para reivindicar comandos enfileirados",
   "description": "Outbound-only from a paired Desktop host. Desktop authenticates with its device token and claims work that mobile or Telegram enqueued.",
   "auth": "Desktop device token",
   "responses": [

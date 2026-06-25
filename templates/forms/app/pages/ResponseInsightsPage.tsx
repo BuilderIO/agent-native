@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { useResponseInsights } from "@/hooks/use-responses";
+import { useT } from "@agent-native/core/client";
 import type { ResponseInsightsWidgetResult } from "@shared/types";
 
 function formatNumber(value: number): string {
@@ -129,6 +130,7 @@ function LoadingState() {
 }
 
 export function ResponseInsightsPage() {
+  const t = useT();
   const [params] = useSearchParams();
   const formId = params.get("formId") ?? undefined;
   const { data, isLoading, error, refetch } = useResponseInsights(formId);
@@ -146,9 +148,11 @@ export function ResponseInsightsPage() {
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <IconChartBar className="size-8 text-muted-foreground" />
         <div className="space-y-1">
-          <h1 className="text-base font-semibold">Insights unavailable</h1>
+          <h1 className="text-base font-semibold">
+            {t("responseInsights.unavailable")}
+          </h1>
           <p className="max-w-sm text-sm text-muted-foreground">
-            Response insights could not be loaded for this view.
+            {t("responseInsights.unavailableDescription")}
           </p>
         </div>
         <Button
@@ -159,7 +163,7 @@ export function ResponseInsightsPage() {
           onClick={() => refetch()}
         >
           <IconRefresh className="size-3.5" />
-          Retry
+          {t("common.retry")}
         </Button>
       </div>
     );
@@ -258,7 +262,7 @@ export function ResponseInsightsPage() {
           </div>
           {table.rows.length === 0 ? (
             <div className="flex min-h-64 items-center justify-center p-6 text-center text-sm text-muted-foreground">
-              No responses yet.
+              {t("responseInsights.noResponsesYet")}
             </div>
           ) : (
             <div className="max-h-[calc(100vh-15rem)] overflow-auto">

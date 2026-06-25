@@ -6,6 +6,7 @@ import {
   IconPlus,
   IconCursorText,
 } from "@tabler/icons-react";
+import { useT } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -48,6 +49,7 @@ interface Stroke {
 }
 
 export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
+  const t = useT();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [color, setColor] = useState(PRESET_COLORS[0].color);
   const [lineWidth, setLineWidth] = useState(LINE_WIDTHS[1].value);
@@ -269,7 +271,7 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
             }}
             className="h-7 w-48 border-primary bg-background text-sm"
             autoFocus
-            placeholder="Type annotation..."
+            placeholder={t("visualEditor.typeAnnotation")}
           />
         </div>
       )}
@@ -341,7 +343,7 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
               <IconCursorText className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Type anywhere</TooltipContent>
+          <TooltipContent>{t("visualEditor.typeAnywhere")}</TooltipContent>
         </Tooltip>
 
         {/* Undo */}

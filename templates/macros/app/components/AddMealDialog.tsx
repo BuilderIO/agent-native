@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useActionMutation } from "@agent-native/core/client";
+import { useActionMutation, useT } from "@agent-native/core/client";
 import { formatLocalDate } from "@/lib/utils";
 import {
   Dialog,
@@ -53,6 +53,7 @@ export function AddMealDialog({
   isOpen: controlledOpen,
   currentDate = new Date(),
 }: AddMealDialogProps) {
+  const t = useT();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
   const setOpen =
@@ -80,22 +81,22 @@ export function AddMealDialog({
 
   const createMutation = useActionMutation("log-meal", {
     onSuccess: () => {
-      toast.success("Meal added");
+      toast.success(t("meals.added"));
       setOpen(false);
       form.reset();
       setShowMacros(false);
     },
-    onError: () => toast.error("Failed to add meal"),
+    onError: () => toast.error(t("meals.addFailed")),
   });
 
   const updateMutation = useActionMutation("update-meal", {
     onSuccess: () => {
-      toast.success("Meal updated");
+      toast.success(t("meals.updated"));
       setOpen(false);
       form.reset();
       setShowMacros(false);
     },
-    onError: () => toast.error("Failed to update meal"),
+    onError: () => toast.error(t("meals.updateFailed")),
   });
 
   const onSubmit = (data: FormData) => {
@@ -155,26 +156,28 @@ export function AddMealDialog({
       {!isEditing && (
         <DialogTrigger asChild>
           <Button size="sm" className="gap-1.5 h-8 rounded-md shadow-sm">
-            <IconPlus className="h-3.5 w-3.5" /> Add Meal
+            <IconPlus className="h-3.5 w-3.5" /> {t("meals.add")}
           </Button>
         </DialogTrigger>
       )}
       <DialogContent className="sm:max-w-[425px] gap-6">
         <DialogHeader>
-          <DialogTitle>{isEditing ? "Edit Meal" : "Add New Meal"}</DialogTitle>
+          <DialogTitle>
+            {isEditing ? t("meals.edit") : t("meals.addNew")}
+          </DialogTitle>
           <DialogDescription className="sr-only">
             {isEditing
-              ? "Update the selected meal entry."
-              : "Log a meal with calories and optional macro details."}
+              ? t("meals.updateDescription")
+              : t("meals.logDescription")}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="name">Meal Name</Label>
+            <Label htmlFor="name">{t("meals.nameLabel")}</Label>
             <Input
               id="name"
               {...form.register("name")}
-              placeholder="e.g., Oatmeal"
+              placeholder={t("meals.namePlaceholder")}
               autoFocus
               autoComplete="off"
             />
@@ -207,16 +210,16 @@ export function AddMealDialog({
             <IconChevronDown
               className={`h-4 w-4 transition-transform ${showMacros ? "rotate-180" : ""}`}
             />
-            Add Nutrition Details
+            {t("meals.addNutritionDetails")}
           </button>
           {showMacros && (
             <div className="pt-2 border-t space-y-4 bg-secondary/30 -mx-6 px-6 py-4 rounded">
               <p className="text-xs font-medium text-muted-foreground">
-                Optional
+                {t("common.optional")}
               </p>
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-2">
-                  <Label htmlFor="protein">Protein (g)</Label>
+                  <Label htmlFor="protein">{t("meals.proteinGrams")}</Label>
                   <Input
                     id="protein"
                     type="number"
@@ -226,7 +229,7 @@ export function AddMealDialog({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="carbs">Carbs (g)</Label>
+                  <Label htmlFor="carbs">{t("meals.carbsGrams")}</Label>
                   <Input
                     id="carbs"
                     type="number"
@@ -236,7 +239,7 @@ export function AddMealDialog({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="fat">Fat (g)</Label>
+                  <Label htmlFor="fat">{t("meals.fatGrams")}</Label>
                   <Input
                     id="fat"
                     type="number"
@@ -254,10 +257,10 @@ export function AddMealDialog({
             disabled={createMutation.isPending || updateMutation.isPending}
           >
             {createMutation.isPending || updateMutation.isPending
-              ? "Saving..."
+              ? t("common.saving")
               : isEditing
-                ? "Save Changes"
-                : "Save Meal"}
+                ? t("common.saveChanges")
+                : t("meals.save")}
           </Button>
         </form>
       </DialogContent>

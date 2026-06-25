@@ -12,6 +12,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useT } from "@agent-native/core/client";
 
 type ComponentPropsPanelProps = {
   component: LibraryComponentEntry;
@@ -22,6 +23,7 @@ export function ComponentPropsPanel({
   component,
   onClose,
 }: ComponentPropsPanelProps) {
+  const t = useT();
   const [openSections, setOpenSections] = useState({
     props: true,
     animations: false,
@@ -35,7 +37,9 @@ export function ComponentPropsPanel({
     <div className="w-80 border-l border-border bg-secondary/30 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-foreground">Properties</h2>
+        <h2 className="text-sm font-semibold text-foreground">
+          {t("editor.properties.title")}
+        </h2>
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -45,7 +49,7 @@ export function ComponentPropsPanel({
               <IconX className="w-4 h-4" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Close panel</TooltipContent>
+          <TooltipContent>{t("editor.properties.closePanel")}</TooltipContent>
         </Tooltip>
       </div>
 
@@ -67,14 +71,16 @@ export function ComponentPropsPanel({
               )}
             />
             <IconFileText className="w-4 h-4" />
-            <span className="text-sm font-medium">Component Props</span>
+            <span className="text-sm font-medium">
+              {t("editor.properties.componentProps")}
+            </span>
           </summary>
 
           {openSections.props && (
             <div className="px-4 py-3 space-y-4 bg-secondary/20">
               {component.propTypes.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  No configurable props
+                  {t("editor.properties.noConfigurableProps")}
                 </p>
               ) : (
                 component.propTypes.map((prop) => (
@@ -93,7 +99,9 @@ export function ComponentPropsPanel({
                     )}
 
                     <div className="text-xs">
-                      <span className="text-muted-foreground">Default: </span>
+                      <span className="text-muted-foreground">
+                        {t("editor.properties.defaultValue")}{" "}
+                      </span>
                       <code className="px-1.5 py-0.5 bg-secondary rounded font-mono">
                         {typeof prop.defaultValue === "string"
                           ? `"${prop.defaultValue}"`
@@ -126,36 +134,42 @@ export function ComponentPropsPanel({
               )}
             />
             <IconAdjustmentsHorizontal className="w-4 h-4" />
-            <span className="text-sm font-medium">Animations</span>
+            <span className="text-sm font-medium">
+              {t("editor.properties.animations")}
+            </span>
           </summary>
 
           {openSections.animations && (
             <div className="px-4 py-3 space-y-3 bg-secondary/20">
               <p className="text-xs text-muted-foreground">
-                This component includes default hover and click animations.
-                Animations are controlled by the interaction system and can be
-                customized through the animation API.
+                {t("editor.properties.animationsDescription")}
               </p>
 
               <div className="space-y-2">
                 <div className="text-xs">
-                  <div className="font-medium mb-1">Hover Animation</div>
+                  <div className="font-medium mb-1">
+                    {t("editor.properties.hoverAnimation")}
+                  </div>
                   <div className="text-muted-foreground">
-                    Scale effect with smooth transition
+                    {t("editor.properties.hoverAnimationDescription")}
                   </div>
                 </div>
 
                 <div className="text-xs">
-                  <div className="font-medium mb-1">Click Animation</div>
+                  <div className="font-medium mb-1">
+                    {t("editor.properties.clickAnimation")}
+                  </div>
                   <div className="text-muted-foreground">
-                    Press down effect on click
+                    {t("editor.properties.clickAnimationDescription")}
                   </div>
                 </div>
               </div>
 
               {component.tracks && component.tracks.length > 0 && (
                 <div className="pt-3 border-t border-border">
-                  <div className="text-xs font-medium mb-2">Tracks</div>
+                  <div className="text-xs font-medium mb-2">
+                    {t("editor.properties.tracks")}
+                  </div>
                   <div className="space-y-1.5">
                     {component.tracks.map((track) => (
                       <div
@@ -179,14 +193,18 @@ export function ComponentPropsPanel({
         {/* Component Info */}
         <div className="px-4 py-3 space-y-3 text-xs text-muted-foreground">
           <div>
-            <div className="font-medium text-foreground mb-1">Dimensions</div>
+            <div className="font-medium text-foreground mb-1">
+              {t("editor.properties.dimensions")}
+            </div>
             <div>
               {component.width} × {component.height}px
             </div>
           </div>
 
           <div>
-            <div className="font-medium text-foreground mb-1">Duration</div>
+            <div className="font-medium text-foreground mb-1">
+              {t("editor.properties.duration")}
+            </div>
             <div>
               {component.durationInFrames} frames @ {component.fps}fps (
               {(component.durationInFrames / component.fps).toFixed(1)}s)
@@ -194,7 +212,9 @@ export function ComponentPropsPanel({
           </div>
 
           <div>
-            <div className="font-medium text-foreground mb-1">Component ID</div>
+            <div className="font-medium text-foreground mb-1">
+              {t("editor.properties.componentId")}
+            </div>
             <code className="px-1.5 py-0.5 bg-secondary rounded font-mono">
               {component.id}
             </code>

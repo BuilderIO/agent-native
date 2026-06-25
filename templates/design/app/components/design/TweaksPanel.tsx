@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { IconX, IconGripHorizontal, IconPlus } from "@tabler/icons-react";
+import { useT } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -28,6 +29,7 @@ export function TweaksPanel({
   onRequestTweaks,
   visible,
 }: TweaksPanelProps) {
+  const t = useT();
   const [collapsed, setCollapsed] = useState(false);
   const [position, setPosition] = useState({ x: 16, y: 64 });
   const panelRef = useRef<HTMLDivElement>(null);
@@ -95,7 +97,7 @@ export function TweaksPanel({
             onClick={() => setCollapsed((c) => !c)}
             className="cursor-pointer text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-muted-foreground"
           >
-            Tweaks
+            {t("designEditor.tweaks")}
           </button>
         </div>
         <div className="flex items-center gap-0.5">
@@ -112,12 +114,12 @@ export function TweaksPanel({
                     onRequestTweaks(e.currentTarget);
                   }}
                   className="size-6 cursor-pointer text-muted-foreground/70 hover:text-foreground"
-                  aria-label="Add tweaks"
+                  aria-label={t("designEditor.addTweaks")}
                 >
                   <IconPlus className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Add tweaks</TooltipContent>
+              <TooltipContent>{t("designEditor.addTweaks")}</TooltipContent>
             </Tooltip>
           )}
           <button
@@ -128,7 +130,7 @@ export function TweaksPanel({
               onClose();
             }}
             className="flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-muted-foreground"
-            aria-label="Close tweaks"
+            aria-label={t("designEditor.closeTweaks")}
           >
             <IconX className="h-3 w-3" />
           </button>
@@ -150,7 +152,7 @@ export function TweaksPanel({
           ) : (
             <div className="space-y-2 rounded-lg border border-dashed border-border/80 bg-muted/20 p-3">
               <p className="text-xs leading-relaxed text-muted-foreground">
-                No tweak controls yet.
+                {t("designEditor.noTweakControls")}
               </p>
               {onRequestTweaks && (
                 <Button
@@ -161,7 +163,7 @@ export function TweaksPanel({
                   onClick={(e) => onRequestTweaks(e.currentTarget)}
                 >
                   <IconPlus className="h-3.5 w-3.5" />
-                  Add tweak controls
+                  {t("designEditor.addTweakControls")}
                 </Button>
               )}
             </div>

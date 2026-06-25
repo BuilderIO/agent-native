@@ -10,7 +10,7 @@ Générez des présentations complètes à partir d'une invite, modifiez visuell
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Board Update</h1><span class='wf-pill accent'>Title slide</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>Partager</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>Q3 Board Update</strong><br/><small>Maya Chen · CEO</small><div style='height:46px'></div><span class='wf-pill'>Product momentum</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>Slide outline</strong><div class='wf-box'>1 Title</div><div class='wf-box'>2 Agenda</div><div class='wf-box'>3 Metrics</div><div class='wf-box'>4 Shipped</div></div><div class='wf-card' style='flex:1'><strong>Speaker notes</strong><p class='wf-muted' style='margin:8px 0 0'>Open with launch progress and retention story.</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 Title</div><div class='wf-box'>2 Agenda</div><div class='wf-box'>3 Metrics</div><div class='wf-box'>4 Shipped</div><div class='wf-box'>5 Risks</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Point au conseil T3</h1><span class='wf-pill accent'>Diapositive de titre</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>Partager</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>Point au conseil T3</strong><br/><small>Maya Chen · PDG</small><div style='height:46px'></div><span class='wf-pill'>Dynamique produit</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>Plan de la diapositive</strong><div class='wf-box'>1 Titre</div><div class='wf-box'>2 Ordre du jour</div><div class='wf-box'>3 Métriques</div><div class='wf-box'>4 Livré</div></div><div class='wf-card' style='flex:1'><strong>Notes du présentateur</strong><p class='wf-muted' style='margin:8px 0 0'>Ouvrir avec l’avancement du lancement et l’histoire de rétention.</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 Titre</div><div class='wf-box'>2 Ordre du jour</div><div class='wf-box'>3 Métriques</div><div class='wf-box'>4 Livré</div><div class='wf-box'>5 Risques</div></div></div>"
 }
 ```
 
@@ -109,9 +109,9 @@ L'agent peut intégrer un aperçu de diapositive en direct directement dans une 
 
 ### Modèle de données
 
-Toutes les données du deck se trouvent dans SQL via Drizzle ORM. Schéma : `templates/slides/server/db/schema.ts`.
+Toutes les données du deck se trouvent dans SQL avec Drizzle ORM. Schéma : `templates/slides/server/db/schema.ts`.
 
-```an-schema title="Slides data model" summary="A deck owns its slides as JSON in decks.data; comments, versions, shares, and design systems hang off it."
+```an-schema title="Modèle de données Slides" summary="Un deck possède ses diapositives sous forme de JSON dans decks.data ; commentaires, versions, partages et systèmes de design s’y rattachent."
 {
   "entities": [
     {
@@ -132,8 +132,8 @@ Toutes les données du deck se trouvent dans SQL via Drizzle ORM. Schéma : `te
       "fields": [
         { "name": "id", "type": "text", "pk": true },
         { "name": "deck_id", "type": "text", "fk": "decks.id" },
-        { "name": "slide_id", "type": "text", "note": "Slide the comment lives on" },
-        { "name": "thread_id", "type": "text", "note": "Threading" },
+        { "name": "slide_id", "type": "text", "note": "Faites glisser le commentaire en direct" },
+        { "name": "thread_id", "type": "text", "note": "Enfilage" },
         { "name": "parent_id", "type": "text", "nullable": true },
         { "name": "content", "type": "text" },
         { "name": "quoted_text", "type": "text", "nullable": true },
@@ -145,11 +145,11 @@ Toutes les données du deck se trouvent dans SQL via Drizzle ORM. Schéma : `te
     {
       "id": "deck_versions",
       "name": "deck_versions",
-      "note": "Point-in-time snapshots for restore",
+      "note": "Instantanés ponctuels pour la restauration",
       "fields": [
         { "name": "deck_id", "type": "text", "fk": "decks.id" },
         { "name": "title", "type": "text" },
-        { "name": "data", "type": "text", "note": "Full deck JSON" },
+        { "name": "data", "type": "text", "note": "Pont complet JSON" },
         { "name": "change_label", "type": "text", "nullable": true }
       ]
     },
@@ -167,11 +167,11 @@ Toutes les données du deck se trouvent dans SQL via Drizzle ORM. Schéma : `te
     {
       "id": "deck_share_links",
       "name": "deck_share_links",
-      "note": "Persisted public share-link snapshots",
+      "note": "Instantanés de liens de partage publics persistants",
       "fields": [
         { "name": "token", "type": "text", "pk": true },
         { "name": "title", "type": "text" },
-        { "name": "slides", "type": "text", "note": "JSON slides snapshot" },
+        { "name": "slides", "type": "text", "note": "Instantané JSON des diapositives" },
         { "name": "aspect_ratio", "type": "text", "nullable": true },
         { "name": "created_at", "type": "text" }
       ]

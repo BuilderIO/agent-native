@@ -17,7 +17,7 @@ kann auch von Codex, Claude Code, dem Agent-Native-Sidebar-Agenten oder einem no
 Herausgeber.
 
 Was den Inhalt angeht, fühlt sich das Produkt dadurch wie Open-Source-Obsidian für MDX an:
-Ihre Dokumente bleiben als Dateien bestehen, während die App einen visuellen Editor, Agent actions, hinzufügt
+Ihre Dokumente bleiben als Dateien bestehen, während die App einen visuellen Editor, Agentenaktionen, hinzufügt
 gemeinsame Kopien und umfangreiche interaktive MDX-Komponenten.
 
 Verwenden Sie den lokalen Dateimodus, wenn Sie einen Repo-First-Workflow wünschen:
@@ -42,13 +42,13 @@ Es gibt zwei Source-of-Truth-Modi:
 | Datenbankmodus     | SQL Zeilen bis Drizzle                          | Gehostete Apps, Zusammenarbeit, Freigabe, Kommentare, Versionsverlauf                      |
 | Lokaler Dateimodus | Repo-Dateien deklariert von `agent-native.json` | Lokale/Entwickler-Workflows, Git-Überprüfung, Coding-Agent-Änderungen, dateinativer Inhalt |
 
-UI und Agent actions sollten in beiden Modi die gleiche Form behalten. Ein Inhalt
+UI und Agentenaktionen sollten in beiden Modi die gleiche Form behalten. Ein Inhalt
 Editor bearbeitet weiterhin Dokumente; Der Unterschied besteht darin, ob diese Dokumente aufgelöst werden
 in SQL Zeilen oder lokale Dateien.
 
 ```an-diagram title="Gleiche Handlungen, zwei Quellen der Wahrheit" summary="Die Benutzeroberfläche und der Agent rufen in beiden Modi identische Aktionen auf. Die Aktionsschicht entscheidet, ob jeder Aufruf in SQL-Zeilen oder Repo-Dateien aufgelöst wird."
 {
-  "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">Content UI</div><div class=\"diagram-node\">Agent + actions<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">Database mode</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">hosted · sharing · comments · history</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">Git review · coding-agent edits</small></div></div></div>",
+  "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">Content-UI</div><div class=\"diagram-node\">Agent + Actions<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">Datenbankmodus</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">gehostet · Teilen · Kommentare · Verlauf</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">Git-Review · Coding-Agent-Edits</small></div></div></div>",
   "css": ".diagram-mode{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mode .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mode .diagram-arrow{font-size:22px;line-height:1}.diagram-mode .resolve{display:flex;gap:12px;flex-wrap:wrap}.diagram-mode .diagram-panel{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
 }
 ```
@@ -165,13 +165,13 @@ das bearbeitbare Dokument:
 
 ```mdx
 ---
-title: "Getting Started"
+title: "Erste Schritte"
 icon: "sparkles"
 isFavorite: true
 updatedAt: "2026-06-12T20:00:00.000Z"
 ---
 
-# Getting Started
+# Erste Schritte
 
 Use <FrameworkTabs value="react" /> to show framework-specific code.
 ```
@@ -251,10 +251,10 @@ Dann verwenden Sie es aus einer beliebigen lokalen MDX-Datei:
 
 ```mdx
 ---
-title: "Launch Notes"
+title: "Notizen starten"
 ---
 
-# Launch Notes
+# Notizen starten
 
 <ImpactCounter label="wins" />
 ```
@@ -417,7 +417,7 @@ lokale Dateien zurück zu diesem CMS.
 
 ## Produktionssicherheit
 
-Der lokale Dateimodus gewährt der App actions direkten Schreibzugriff auf den konfigurierten Arbeitsbereich
+Der lokale Dateimodus gewährt der App-Actions direkten Schreibzugriff auf den konfigurierten Arbeitsbereich
 Dateien. Dies eignet sich für die lokale Entwicklung und vertrauenswürdige Single-Tenant-Dateien
 Brücken, aber es ist nicht das Standard-Produktionssicherheitsmodell.
 

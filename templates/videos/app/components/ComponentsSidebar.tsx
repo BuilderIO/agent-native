@@ -1,6 +1,7 @@
 import { libraryComponents } from "@/remotion/componentRegistry";
 import { cn } from "@/lib/utils";
 import { IconBox, IconStack2 } from "@tabler/icons-react";
+import { useT } from "@agent-native/core/client";
 
 type ComponentsSidebarProps = {
   open: boolean;
@@ -13,6 +14,8 @@ export function ComponentsSidebar({
   selectedComponentId,
   onSelectComponent,
 }: ComponentsSidebarProps) {
+  const t = useT();
+
   if (!open) return null;
 
   return (
@@ -24,7 +27,7 @@ export function ComponentsSidebar({
           Components
         </h2>
         <p className="text-xs text-muted-foreground mt-1">
-          Reusable UI components
+          {t("raw.componentsSidebar.reusable")}
         </p>
       </div>
 
@@ -33,8 +36,10 @@ export function ComponentsSidebar({
         {libraryComponents.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground text-sm">
             <IconBox className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p>No components yet</p>
-            <p className="text-xs mt-1">Components will appear here</p>
+            <p>{t("raw.componentsSidebar.emptyTitle")}</p>
+            <p className="text-xs mt-1">
+              {t("raw.componentsSidebar.emptyDescription")}
+            </p>
           </div>
         ) : (
           libraryComponents.map((component) => (

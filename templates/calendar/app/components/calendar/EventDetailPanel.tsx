@@ -11,6 +11,7 @@ import {
   IconAlignLeft,
   IconVideo,
 } from "@tabler/icons-react";
+import { useT } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -85,6 +86,7 @@ export function EventDetailPanel({
   onDelete,
   onTitleSave,
 }: EventDetailPanelProps) {
+  const t = useT();
   const { setEventDetailSidebar } = useCalendarContext();
   useViewPreferences();
   const isOpen = event !== null;
@@ -175,8 +177,8 @@ export function EventDetailPanel({
           ...guestNotification,
         },
         {
-          onSuccess: () => toast("Google Meet added"),
-          onError: () => toast.error("Failed to add Google Meet"),
+          onSuccess: () => toast(t("eventForm.googleMeetAdded")),
+          onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
         },
       );
     })();
@@ -203,7 +205,7 @@ export function EventDetailPanel({
               {/* Header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Event
+                  {t("eventForm.event")}
                 </span>
                 <div className="flex items-center gap-0.5">
                   <Tooltip>
@@ -218,7 +220,7 @@ export function EventDetailPanel({
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom">
-                      <p>Use popover instead</p>
+                      <p>{t("eventForm.usePopoverInstead")}</p>
                     </TooltipContent>
                   </Tooltip>
                   <Button
@@ -261,7 +263,7 @@ export function EventDetailPanel({
                       }
                       setIsEditingTitle(false);
                     }}
-                    placeholder="Add title"
+                    placeholder={t("eventForm.addTitle")}
                     className="w-full text-lg font-semibold text-foreground leading-tight bg-transparent border-none outline-none placeholder:text-muted-foreground/50 focus:ring-0"
                   />
                 ) : (
@@ -282,7 +284,7 @@ export function EventDetailPanel({
                   <div>
                     {event.allDay ? (
                       <span>
-                        All day &middot;{" "}
+                        {t("eventForm.allDay")} &middot;{" "}
                         {format(parseISO(event.start), "MMMM d, yyyy")}
                       </span>
                     ) : (
@@ -318,7 +320,11 @@ export function EventDetailPanel({
                       className="ml-0.5 size-2 shrink-0 rounded-full ring-1 ring-border"
                       style={{ backgroundColor: event.ownerColor }}
                     />
-                    <span>Viewing {ownerLabel}'s calendar</span>
+                    <span>
+                      {t("eventForm.viewingOwnerCalendar", {
+                        owner: ownerLabel,
+                      })}
+                    </span>
                   </div>
                 )}
 
@@ -330,7 +336,7 @@ export function EventDetailPanel({
                     className="flex items-center justify-center rounded-lg bg-[#4965E0] px-3 py-2 text-sm font-semibold text-white hover:bg-[#5A75F0]"
                   >
                     <IconVideo className="mr-2 h-4 w-4 opacity-80" />
-                    Join meeting
+                    {t("eventForm.joinMeeting")}
                   </a>
                 ) : !isOverlay ? (
                   <Button
@@ -342,7 +348,7 @@ export function EventDetailPanel({
                     onClick={handleAddGoogleMeet}
                   >
                     <IconVideo className="h-4 w-4" />
-                    Google Meet
+                    {t("eventForm.googleMeet")}
                   </Button>
                 ) : null}
 
@@ -426,7 +432,7 @@ export function EventDetailPanel({
                     onClick={() => onDelete(event.id)}
                   >
                     <IconTrash className="mr-1.5 h-3.5 w-3.5" />
-                    Delete
+                    {t("eventForm.delete")}
                   </Button>
                   {event.htmlLink && (
                     <Button
@@ -441,7 +447,7 @@ export function EventDetailPanel({
                         rel="noopener noreferrer"
                       >
                         <IconExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                        Google Calendar
+                        {t("eventForm.googleCalendar")}
                       </a>
                     </Button>
                   )}

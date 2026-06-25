@@ -21,7 +21,7 @@ surfaces permettant de connecter les données, d'approuver les propositions et d
 
 ```an-diagram title="De la source à la réponse citée" summary="Le cerveau ingère les sources approuvées dans des captures brutes, distille une mémoire durable, la contrôle et répond ensuite seulement par des citations."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Sources</span><small class=\"diagram-muted\">Slack · Granola · GitHub · Clips · webhooks</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Raw captures<br><small class=\"diagram-muted\">deduped, redacted</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Distill<br><small class=\"diagram-muted\">facts · decisions · processes</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Review</span><small class=\"diagram-muted\">sensitive / low-confidence queue</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Knowledge</span><small class=\"diagram-muted\">approved, atomic</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Ask</span><small class=\"diagram-muted\">cited answer</small></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Sources</span><small class=\"diagram-muted\">Slack · Granola · GitHub · Clips · webhooks</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Captures brutes<br><small class=\"diagram-muted\">dédupliqué, expurgé</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Distill<br><small class=\"diagram-muted\">faits · décisions · processus</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Review</span><small class=\"diagram-muted\">sensitive / low-confidence queue</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Knowledge</span><small class=\"diagram-muted\">approuvé, atomique</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Ask</span><small class=\"diagram-muted\">cited answer</small></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px}.diagram-flow .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-flow .diagram-arrow{font-size:20px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -29,7 +29,7 @@ surfaces permettant de connecter les données, d'approuver les propositions et d
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Ask company memory</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='Search'></span><strong style='flex:1'>Why did we choose usage pricing?</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>The team chose usage pricing after pilots showed seat counts undercounted automation value.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>Pricing RFC</span><span class='wf-pill'>Launch retro</span><span class='wf-pill'>Sales notes</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Source timeline</strong><div class='wf-box'>May 3 · Decision captured</div><div class='wf-box'>May 8 · Customer evidence added</div><div class='wf-box'>May 12 · Legal note approved</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Interroger la mémoire de l’entreprise</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='Rechercher'></span><strong style='flex:1'>Pourquoi avons-nous choisi la tarification à l’usage ?</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>L’équipe a choisi une tarification à l’usage après que les pilotes ont montré que le nombre de sièges sous-estimait la valeur de l’automatisation.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>RFC de tarification</span><span class='wf-pill'>Rétro de lancement</span><span class='wf-pill'>Notes commerciales</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Chronologie des sources</strong><div class='wf-box'>3 mai · Décision capturée</div><div class='wf-box'>8 mai · Preuve client ajoutée</div><div class='wf-box'>12 mai · Note juridique approuvée</div></div></div>"
 }
 ```
 
@@ -152,10 +152,10 @@ Le schéma du cerveau réside dans `templates/brain/server/db/schema.ts`. Huit t
 | `brain_sync_runs`        | Journal d'audit de synchronisation : fournisseur, statut, statistiques JSON, erreur, horodatages de début/fin                                                                   |
 | `brain_ingest_queue`     | File d'attente de distillation en arrière-plan : opération, état, priorité, nombre de tentatives, `run_after`                                                                   |
 
-```an-schema title="Brain data model" summary="Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
+```an-schema title="Modèle de données Brain" summary="Les connecteurs produisent des captures brutes ; la distillation les transforme en connaissances révisables ; les propositions contrôlent les entrées sensibles. Les exécutions de synchronisation et la file d’ingestion suivent le travail en arrière-plan."
 {
   "entities": [
-    { "id": "sources", "name": "brain_sources", "note": "Connector config", "fields": [
+    { "id": "sources", "name": "brain_sources", "note": "Configuration du connecteur", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "provider", "type": "text", "note": "slack / granola / github / clips / webhook" },
       { "name": "ingest_token_hash", "type": "text" },
@@ -165,14 +165,14 @@ Le schéma du cerveau réside dans `templates/brain/server/db/schema.ts`. Huit t
     { "id": "source_shares", "name": "brain_source_shares", "note": "viewer / editor / admin", "fields": [
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" }
     ] },
-    { "id": "captures", "name": "brain_raw_captures", "note": "Ingested raw payloads", "fields": [
+    { "id": "captures", "name": "brain_raw_captures", "note": "Charges utiles brutes ingérées", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" },
       { "name": "external_id", "type": "text", "note": "dedupe key" },
       { "name": "content_hash", "type": "text" },
       { "name": "kind", "type": "text" }
     ] },
-    { "id": "knowledge", "name": "brain_knowledge", "note": "Distilled atomic entries", "fields": [
+    { "id": "knowledge", "name": "brain_knowledge", "note": "Entrées atomiques distillées", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "kind", "type": "text", "note": "decision / fact / process" },
       { "name": "topic", "type": "text" },
@@ -183,19 +183,19 @@ Le schéma du cerveau réside dans `templates/brain/server/db/schema.ts`. Huit t
     { "id": "knowledge_shares", "name": "brain_knowledge_shares", "fields": [
       { "name": "knowledge_id", "type": "id", "fk": "brain_knowledge.id" }
     ] },
-    { "id": "proposals", "name": "brain_proposals", "note": "Pending review items", "fields": [
+    { "id": "proposals", "name": "brain_proposals", "note": "Éléments en attente d'examen", "fields": [
       { "name": "id", "type": "id", "pk": true },
       { "name": "op", "type": "text", "note": "create / update / archive" }
     ] },
     { "id": "proposal_shares", "name": "brain_proposal_shares", "fields": [
       { "name": "proposal_id", "type": "id", "fk": "brain_proposals.id" }
     ] },
-    { "id": "sync_runs", "name": "brain_sync_runs", "note": "Sync audit log", "fields": [
+    { "id": "sync_runs", "name": "brain_sync_runs", "note": "Journal d'audit de synchronisation", "fields": [
       { "name": "source_id", "type": "id", "fk": "brain_sources.id" },
       { "name": "status", "type": "text" },
       { "name": "stats", "type": "json" }
     ] },
-    { "id": "ingest_queue", "name": "brain_ingest_queue", "note": "Background distillation queue", "fields": [
+    { "id": "ingest_queue", "name": "brain_ingest_queue", "note": "File d'attente de distillation en arrière-plan", "fields": [
       { "name": "operation", "type": "text" },
       { "name": "status", "type": "text" },
       { "name": "priority", "type": "int" },
@@ -259,11 +259,11 @@ une source avec un `sourceKey` pour recevoir un jeton de porteur, puis envoyer u
 utiliser la même forme de charge utile pour les transcriptions d'appels, la recherche client, importées
 notes, ou toute autre source pouvant produire une capture limitée.
 
-```an-api title="Signed ingest webhook" summary="Clips and generic transcript/capture imports post a RawCapturePayload with a per-source bearer token."
+```an-api title="Webhook d'ingestion signé" summary="Les importations Clips et transcript/capture génériques affichent un RawCapturePayload avec un jeton de porteur par source."
 {
   "method": "POST",
   "path": "/api/_agent-native/brain/ingest",
-  "summary": "Import a raw capture from Clips or a generic source",
+  "summary": "Importer une capture brute depuis Clips ou une source générique",
   "auth": "Bearer <ingestToken> issued per source via its sourceKey",
   "request": {
     "contentType": "application/json",

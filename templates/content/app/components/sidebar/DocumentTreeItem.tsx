@@ -39,6 +39,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useT } from "@agent-native/core/client";
 
 interface DocumentTreeItemProps {
   node: DocumentTreeNode;
@@ -96,6 +97,7 @@ export function DocumentTreeItem({
   onDelete,
   onToggleFavorite,
 }: DocumentTreeItemProps) {
+  const t = useT();
   const expanded = expandedIds.has(node.id);
   const hasChildren = node.children.length > 0;
   const isActive = node.id === activeId;
@@ -245,7 +247,7 @@ export function DocumentTreeItem({
                     }}
                   >
                     <IconTrash size={14} className="me-2" />
-                    Delete
+                    {t("database.delete")}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -265,7 +267,7 @@ export function DocumentTreeItem({
                   <IconPlus size={14} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Add sub-page</TooltipContent>
+              <TooltipContent>{t("sidebar.addSubPage")}</TooltipContent>
             </Tooltip>
           )}
         </div>
@@ -297,19 +299,22 @@ export function DocumentTreeItem({
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete page?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("sidebar.deletePageQuestion")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{node.title || "Untitled"}&rdquo; and all its sub-pages
-              will be permanently deleted. This cannot be undone.
+              {t("sidebar.deletePageDescription", {
+                title: node.title || t("sidebar.untitled"),
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => onDelete(node.id)}
             >
-              Delete
+              {t("database.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,4 +1,5 @@
 import { IconPlus } from "@tabler/icons-react";
+import { useT } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { EventRow } from "./EventRow";
 import type { ExplorerEvent } from "../types";
@@ -10,6 +11,7 @@ interface EventPanelProps {
 }
 
 export function EventPanel({ events, onChange }: EventPanelProps) {
+  const t = useT();
   const updateEvent = (index: number, event: ExplorerEvent) => {
     const next = [...events];
     next[index] = event;
@@ -26,7 +28,9 @@ export function EventPanel({ events, onChange }: EventPanelProps) {
 
   return (
     <div className="space-y-3">
-      <div className="text-sm font-medium text-muted-foreground">Events</div>
+      <div className="text-sm font-medium text-muted-foreground">
+        {t("explorer.events")}
+      </div>
       {events.map((ev, i) => (
         <EventRow
           key={i}
@@ -37,7 +41,7 @@ export function EventPanel({ events, onChange }: EventPanelProps) {
       ))}
       <Button variant="outline" size="sm" className="w-full" onClick={addEvent}>
         <IconPlus className="h-4 w-4 mr-1" />
-        Add Event
+        {t("explorer.addEvent")}
       </Button>
     </div>
   );

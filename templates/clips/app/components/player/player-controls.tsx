@@ -30,6 +30,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { PLAYBACK_SPEED_OPTIONS } from "@/lib/playback-speed";
+import { useT } from "@agent-native/core/client";
 
 export const SPEED_OPTIONS = PLAYBACK_SPEED_OPTIONS;
 
@@ -62,6 +63,7 @@ export interface PlayerControlsProps {
 }
 
 export function PlayerControls(props: PlayerControlsProps) {
+  const t = useT();
   const {
     isPlaying,
     durationMs,
@@ -197,7 +199,7 @@ export function PlayerControls(props: PlayerControlsProps) {
                 </button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>Playback speed</TooltipContent>
+            <TooltipContent>{t("playerControls.playbackSpeed")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent
             align="end"

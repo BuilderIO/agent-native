@@ -5,6 +5,7 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
+import { useT } from "@agent-native/core/client";
 import type { Meal } from "@shared/types";
 
 interface MealCardProps {
@@ -22,6 +23,7 @@ export function MealCard({
   isDeleting,
   isPending,
 }: MealCardProps) {
+  const t = useT();
   return (
     <div className="group relative flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] hover:bg-white/[0.04] overflow-hidden">
       <div className="flex items-center justify-center w-9 h-9 shrink-0 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
@@ -52,7 +54,7 @@ export function MealCard({
         {isPending ? (
           <div
             className="flex h-9 w-9 items-center justify-center text-muted-foreground/60 md:h-7 md:w-7"
-            aria-label="Saving meal"
+            aria-label={t("meals.saving")}
           >
             <IconLoader2 className="h-4 w-4 animate-spin md:h-3.5 md:w-3.5" />
           </div>
@@ -61,7 +63,7 @@ export function MealCard({
             <Button
               variant="ghost"
               size="icon"
-              aria-label={`Edit ${meal.name}`}
+              aria-label={t("common.editNamed", { name: meal.name })}
               className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-foreground hover:bg-white/5"
               onClick={() => onEdit(meal)}
             >
@@ -70,7 +72,7 @@ export function MealCard({
             <Button
               variant="ghost"
               size="icon"
-              aria-label={`Delete ${meal.name}`}
+              aria-label={t("common.deleteNamed", { name: meal.name })}
               className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-red-400 hover:bg-red-500/10"
               onClick={() => meal.id && onDelete(meal.id)}
               disabled={isDeleting}

@@ -222,7 +222,7 @@ export function ComposeModal({
     if (!activeDraft || !activeId) return;
     if (sendingIdsRef.current.has(activeId)) return;
     if (!activeDraft.to.trim()) {
-      toast.error("Please add at least one recipient");
+      toast.error(t("mail.toasts.pleaseAddRecipient"));
       return;
     }
     sendingIdsRef.current.add(activeId);
@@ -307,7 +307,7 @@ export function ComposeModal({
             }
           },
           onError: () => {
-            toast.error("Failed to send email");
+            toast.error(t("mail.toasts.failedToSendEmail"));
             // Reopen composer on failure
             const { id: _id, ...reopenData } = draftSnapshot;
             onReopen(reopenData);
@@ -320,7 +320,7 @@ export function ComposeModal({
   const handleSendLater = async (runAt: number) => {
     if (!activeDraft || !activeId) return;
     if (!activeDraft.to.trim()) {
-      toast.error("Please add at least one recipient");
+      toast.error(t("mail.toasts.pleaseAddRecipient"));
       return;
     }
 
@@ -352,7 +352,7 @@ export function ComposeModal({
       });
       toast(`Scheduled for ${scheduledDate}`);
     } catch {
-      toast.error("Failed to schedule email — draft kept open");
+      toast.error(t("mail.toasts.failedToScheduleEmailDraftKeptOpen"));
     }
   };
 
@@ -377,7 +377,7 @@ export function ComposeModal({
     if (!generatePrompt.trim() || !activeId || !activeDraft) return;
     if (!(await canUseAgentGenerate())) {
       toast.error(
-        "Connect Builder or another AI engine before using Generate.",
+        t("mail.toasts.aiEngineRequired"),
       );
       window.dispatchEvent(new CustomEvent("agent-panel:open"));
       return;
@@ -445,7 +445,7 @@ export function ComposeModal({
       const existing = activeDraft.attachments ?? [];
       onUpdate(activeId, { attachments: [...existing, ...attachments] });
     } catch {
-      toast.error("Failed to attach file");
+      toast.error(t("mail.toasts.failedToAttachFile"));
     }
   };
 

@@ -30,7 +30,7 @@ npx @agent-native/core@latest deploy
 
 ```an-diagram title="एक मूल, अनेक ऐप्स" summary="प्रत्येक कार्यक्षेत्र ऐप अपने स्वयं के आधार पथ के साथ बनाया गया है और एक ही मूल पर पथ उपसर्ग के तहत माउंट किया गया है - इसलिए लॉगिन और क्रॉस-ऐप A2A समान-मूल और मुफ़्त हैं।"
 {
-  "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">zero-config cross-app A2A</span></div></div>",
+  "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">बिना कॉन्फिग क्रॉस-ऐप A2A</span></div></div>",
   "css": ".diagram-ws{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-ws .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-ws .diagram-row{display:flex;align-items:center;gap:8px}.diagram-ws .wins{display:flex;flex-direction:column;gap:8px;align-items:flex-start}"
 }
 ```
@@ -70,7 +70,7 @@ npx @agent-native/core@latest deploy --preset vercel
 
 जब आप `npx @agent-native/core@latest build` चलाते हैं, तो Nitro क्लाइंट SPA और सर्वर API दोनों को `.output/` में बनाता है:
 
-```an-file-tree title="Build output files"
+```an-file-tree title="आउटपुट बनाएं files"
 {
   "entries": [
     { "path": ".output/", "note": "self-contained: किसी भी environment में copy करके चलाएँ" },
@@ -85,7 +85,7 @@ npx @agent-native/core@latest deploy --preset vercel
 
 ```an-diagram title="तैनात करने के लिए निर्माण करें" summary="एक स्रोत वृक्ष Nitro प्रीसेट बनाता है; वही स्व-निहित आउटपुट Node, Vercel, Netlify, Cloudflare, AWS, या Deno पर चलता है। प्रत्येक उदाहरण एक ही निरंतर DATABASE_URL पर इंगित करता है।"
 {
-  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>App source</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Persistent DATABASE_URL<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
+  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>ऐप स्रोत</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>स्थायी DATABASE_URL<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
   "css": ".diagram-deploy{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-deploy .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-deploy .diagram-arrow{font-size:22px;line-height:1}.diagram-deploy .diagram-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}"
 }
 ```
@@ -137,8 +137,8 @@ RUN pnpm build
 FROM node:24-slim
 WORKDIR /app
 COPY --from=build /app/.output .output
-# data/ is a runtime-created SQLite directory — do not copy a dev DB into prod.
-# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+# data/ एक रनटाइम-निर्मित SQLite निर्देशिका है - किसी डेव DB को उत्पाद में कॉपी न करें।
+# उत्पादन के लिए, DATABASE_URL को होस्ट किए गए Postgres या Turso इंस्टेंस पर सेट करें।
 RUN mkdir -p /app/data
 ENV PORT=3000
 EXPOSE 3000

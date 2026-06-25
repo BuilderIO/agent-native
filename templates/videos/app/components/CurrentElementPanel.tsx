@@ -34,6 +34,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useT } from "@agent-native/core/client";
 
 /**
  * ANIMATION PROPERTY DEFAULTS
@@ -55,7 +56,6 @@ import {
 const PROPERTY_OPTIONS = [
   {
     value: "scale",
-    label: "Scale",
     unit: "x",
     min: 0,
     max: 3,
@@ -65,7 +65,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "translateX",
-    label: "Translate X",
     unit: "px",
     min: -500,
     max: 500,
@@ -75,7 +74,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "translateY",
-    label: "Translate Y",
     unit: "px",
     min: -500,
     max: 500,
@@ -85,7 +83,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "translateZ",
-    label: "Translate Z",
     unit: "px",
     min: -500,
     max: 500,
@@ -95,7 +92,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "rotateX",
-    label: "Rotate X",
     unit: "deg",
     min: -360,
     max: 360,
@@ -105,7 +101,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "rotateY",
-    label: "Rotate Y",
     unit: "deg",
     min: -360,
     max: 360,
@@ -115,7 +110,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "rotateZ",
-    label: "Rotate Z",
     unit: "deg",
     min: -360,
     max: 360,
@@ -125,7 +119,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "opacity",
-    label: "Opacity",
     unit: "",
     min: 0,
     max: 1,
@@ -135,7 +128,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "brightness",
-    label: "Brightness",
     unit: "x",
     min: 0,
     max: 3,
@@ -145,7 +137,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "blur",
-    label: "Blur",
     unit: "px",
     min: 0,
     max: 20,
@@ -155,7 +146,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "skewX",
-    label: "Skew X",
     unit: "deg",
     min: -45,
     max: 45,
@@ -165,7 +155,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "skewY",
-    label: "Skew Y",
     unit: "deg",
     min: -45,
     max: 45,
@@ -175,7 +164,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "borderRadius",
-    label: "Border Radius",
     unit: "px",
     min: 0,
     max: 100,
@@ -185,7 +173,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "borderWidth",
-    label: "Border Width",
     unit: "px",
     min: 0,
     max: 20,
@@ -195,7 +182,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "borderOpacity",
-    label: "Border Opacity",
     unit: "",
     min: 0,
     max: 1,
@@ -205,7 +191,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "backgroundOpacity",
-    label: "Background Opacity",
     unit: "",
     min: 0,
     max: 1,
@@ -215,7 +200,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "shadowBlur",
-    label: "Shadow Blur",
     unit: "px",
     min: 0,
     max: 100,
@@ -225,7 +209,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "shadowSpread",
-    label: "Shadow Spread",
     unit: "px",
     min: -50,
     max: 50,
@@ -237,7 +220,6 @@ const PROPERTY_OPTIONS = [
   // This prevents color flashing by starting from the element's actual resting color
   {
     value: "backgroundColor",
-    label: "Background Color",
     unit: "",
     defaultStart: "#1e293b",
     defaultEnd: "#ef4444",
@@ -245,7 +227,6 @@ const PROPERTY_OPTIONS = [
   },
   {
     value: "borderColor",
-    label: "Border Color",
     unit: "",
     defaultStart: "#9ca3af",
     defaultEnd: "#fbbf24",
@@ -254,6 +235,7 @@ const PROPERTY_OPTIONS = [
 ] as const;
 
 export const CurrentElementPanel: React.FC = () => {
+  const t = useT();
   const {
     currentElement,
     getAnimationsForElement,
@@ -278,11 +260,10 @@ export const CurrentElementPanel: React.FC = () => {
       <div className="text-center py-8 px-4 bg-muted/30 rounded-lg border border-dashed border-border m-4">
         <IconClick className="w-8 h-8 mx-auto mb-3 text-green-400/40" />
         <p className="text-xs font-medium text-muted-foreground">
-          No component selected
+          {t("editor.currentElement.noComponentSelected")}
         </p>
         <p className="text-[10px] text-muted-foreground/60 mt-1 leading-relaxed">
-          Hover over an interactive element in the preview to edit its cursor
-          behavior and animations
+          {t("editor.currentElement.noComponentSelectedHelp")}
         </p>
       </div>
     );
@@ -510,8 +491,10 @@ export const CurrentElementPanel: React.FC = () => {
           }
         >
           <Icon className="w-3.5 h-3.5 text-green-400" />
-          <span className="text-xs font-medium capitalize">
-            {animation.triggerType} state
+          <span className="text-xs font-medium">
+            {animation.triggerType === "hover"
+              ? t("editor.currentElement.hoverState")
+              : t("editor.currentElement.clickState")}
           </span>
           <Button
             variant="ghost"
@@ -534,7 +517,9 @@ export const CurrentElementPanel: React.FC = () => {
           <div className="p-3 space-y-3">
             {/* Duration */}
             <div className="space-y-1.5">
-              <Label className="text-xs">Duration (seconds)</Label>
+              <Label className="text-xs">
+                {t("editor.currentElement.durationSeconds")}
+              </Label>
               <input
                 key={`duration-${animation.id}-${animation.duration}`}
                 type="number"
@@ -556,14 +541,14 @@ export const CurrentElementPanel: React.FC = () => {
             <MotionCurveSelect
               value={(animation.easing as EasingKey) || "linear"}
               onChange={(easing) => handleUpdateEasing(animation.id, easing)}
-              label="Motion Curve"
+              label={t("editor.currentElement.motionCurve")}
               accentColor="green-400"
             />
 
             {/* Add Property Section */}
             <div className="space-y-1.5 pb-4">
               <Label className="text-xs text-muted-foreground">
-                Add Property
+                {t("editor.currentElement.addProperty")}
               </Label>
               <div className="flex gap-2">
                 <Button
@@ -582,12 +567,16 @@ export const CurrentElementPanel: React.FC = () => {
                   onValueChange={(val) => setSelectedPropertyToAdd(val)}
                 >
                   <SelectTrigger className="flex-1 h-auto text-xs bg-secondary border border-border rounded-lg pl-2.5 py-1.5 text-foreground focus:outline-none focus:ring-2 focus:ring-green-400/40 cursor-pointer">
-                    <SelectValue placeholder="Select a property" />
+                    <SelectValue
+                      placeholder={t("editor.currentElement.selectProperty")}
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {PROPERTY_OPTIONS.map((opt) => (
                       <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
+                        {t(`editor.currentElement.properties.${opt.value}`, {
+                          defaultValue: opt.value,
+                        })}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -598,7 +587,7 @@ export const CurrentElementPanel: React.FC = () => {
             {/* Animated Properties */}
             {animation.properties.length > 0 && (
               <Label className="text-xs text-muted-foreground">
-                Animated Properties
+                {t("editor.currentElement.animatedProperties")}
               </Label>
             )}
             <div className="space-y-2">
@@ -623,7 +612,11 @@ export const CurrentElementPanel: React.FC = () => {
                     className="group flex items-center gap-2"
                   >
                     <span className="text-xs font-medium capitalize text-green-400 min-w-[80px] flex-shrink-0">
-                      {prop.property.replace(/([A-Z])/g, " $1").trim()}
+                      {t(`editor.currentElement.properties.${prop.property}`, {
+                        defaultValue: prop.property
+                          .replace(/([A-Z])/g, " $1")
+                          .trim(),
+                      })}
                     </span>
                     <Button
                       variant="ghost"
@@ -690,7 +683,7 @@ export const CurrentElementPanel: React.FC = () => {
       <div className="space-y-2 pb-3 border-b border-border">
         <div className="flex items-center justify-between">
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-            Editing Component
+            {t("editor.currentElement.editingComponent")}
           </div>
         </div>
         <div className="px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg">
@@ -706,7 +699,9 @@ export const CurrentElementPanel: React.FC = () => {
       {/* Cursor Type Section */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label className="text-xs">Cursor Type</Label>
+          <Label className="text-xs">
+            {t("editor.currentElement.cursorType")}
+          </Label>
           {storedCursorType && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -719,7 +714,9 @@ export const CurrentElementPanel: React.FC = () => {
                   <IconTrash className="w-3 h-3 text-muted-foreground hover:text-green-400" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Reset to default</TooltipContent>
+              <TooltipContent>
+                {t("editor.currentElement.resetToDefault")}
+              </TooltipContent>
             </Tooltip>
           )}
         </div>
@@ -742,7 +739,9 @@ export const CurrentElementPanel: React.FC = () => {
                 </div>
               </button>
             </TooltipTrigger>
-            <TooltipContent>Arrow (Default)</TooltipContent>
+            <TooltipContent>
+              {t("editor.currentElement.arrowDefault")}
+            </TooltipContent>
           </Tooltip>
 
           {/* Pointer Hand */}
@@ -763,7 +762,9 @@ export const CurrentElementPanel: React.FC = () => {
                 </div>
               </button>
             </TooltipTrigger>
-            <TooltipContent>Pointer (Hand)</TooltipContent>
+            <TooltipContent>
+              {t("editor.currentElement.pointerHand")}
+            </TooltipContent>
           </Tooltip>
 
           {/* Text I-Beam */}
@@ -784,13 +785,15 @@ export const CurrentElementPanel: React.FC = () => {
                 </div>
               </button>
             </TooltipTrigger>
-            <TooltipContent>Text (I-beam)</TooltipContent>
+            <TooltipContent>
+              {t("editor.currentElement.textIBeam")}
+            </TooltipContent>
           </Tooltip>
         </div>
         <p className="text-xs text-muted-foreground">
           {storedCursorType
-            ? "Custom cursor type (click trash to reset)"
-            : "Using inferred cursor type"}
+            ? t("editor.currentElement.customCursorType")
+            : t("editor.currentElement.usingInferredCursorType")}
         </p>
       </div>
 
@@ -810,7 +813,7 @@ export const CurrentElementPanel: React.FC = () => {
             onClick={() => handleAddAnimation("hover")}
           >
             <IconPointer className="w-3 h-3 mr-1" />
-            Add Hover
+            {t("editor.currentElement.addHover")}
           </Button>
         )}
         {!clickAnimation && (
@@ -821,7 +824,7 @@ export const CurrentElementPanel: React.FC = () => {
             onClick={() => handleAddAnimation("click")}
           >
             <IconClick className="w-3 h-3 mr-1" />
-            Add click state
+            {t("editor.currentElement.addClickState")}
           </Button>
         )}
       </div>

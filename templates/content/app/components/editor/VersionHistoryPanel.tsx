@@ -27,7 +27,7 @@ import {
 } from "@/hooks/use-document-versions";
 import { toast } from "sonner";
 import type { DocumentVersion } from "@shared/api";
-import type { CollabUser } from "@agent-native/core/client";
+import { useT, type CollabUser } from "@agent-native/core/client";
 
 function formatRelativeTime(dateStr: string): string {
   const now = Date.now();
@@ -60,6 +60,7 @@ export function VersionHistoryPanel({
   canRestore = true,
   activeUsers = [],
 }: VersionHistoryPanelProps) {
+  const t = useT();
   const { data: versions, isLoading } = useDocumentVersions(
     open ? documentId : null,
   );
@@ -78,11 +79,11 @@ export function VersionHistoryPanel({
         documentId,
         versionId: version.id,
       });
-      toast.success("Version restored.");
+      toast.success(t("editor.versionRestored"));
       setSelectedVersion(null);
       onOpenChange(false);
     } catch {
-      toast.error("Failed to restore version.");
+      toast.error(t("editor.versionRestoreFailed"));
     }
   };
 
@@ -112,14 +113,14 @@ export function VersionHistoryPanel({
                   className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
                 >
                   <IconArrowLeft size={14} />
-                  <span>Back to history</span>
+                  <span>{t("editor.versionBackToHistory")}</span>
                 </button>
               ) : (
-                "Version history"
+                t("editor.toolbar.versionHistory")
               )}
             </SheetTitle>
             <SheetDescription className="sr-only">
-              Browse previous versions of this document.
+              {t("editor.versionHistoryDescription")}
             </SheetDescription>
           </SheetHeader>
 
@@ -157,7 +158,7 @@ export function VersionHistoryPanel({
                     ) : (
                       <IconRotate size={14} className="mr-1.5" />
                     )}
-                    Restore this version
+                    {t("editor.versionRestoreThisVersion")}
                   </Button>
                 </div>
               ) : null}
@@ -173,9 +174,9 @@ export function VersionHistoryPanel({
                 </div>
               ) : !versions?.length ? (
                 <div className="py-12 text-center text-xs text-muted-foreground">
-                  No version history yet.
+                  {t("editor.versionNoHistoryYet")}
                   <br />
-                  Versions are saved automatically as you edit.
+                  {t("editor.versionSavedAutomatically")}
                 </div>
               ) : (
                 <div className="p-1.5">
@@ -211,17 +212,20 @@ export function VersionHistoryPanel({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Restore this version?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("editor.versionRestoreThisVersionQuestion")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {activeUsers.length === 1
-                ? "Another person is editing this document right now."
-                : `${activeUsers.length} people are editing this document right now.`}{" "}
-              Restoring will replace the live content for everyone and cannot be
-              undone (though the current state is saved as a version first).
+                ? t("editor.versionAnotherPersonEditing")
+                : t("editor.versionPeopleEditing", {
+                    count: activeUsers.length,
+                  })}{" "}
+              {t("editor.versionRestoreWarning")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 if (pendingRestoreVersion) {
@@ -231,7 +235,7 @@ export function VersionHistoryPanel({
                 }
               }}
             >
-              Restore anyway
+              {t("editor.versionRestoreAnyway")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

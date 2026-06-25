@@ -11,7 +11,7 @@ search: "سجلات متصفح Clips، سجلات المطورين، سجلات 
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Engineering clips</h1><span class='wf-pill accent'>مكتبة</span><span class='wf-pill'>الاجتماعات</span><span class='wf-pill'>الإملاء</span><div style='flex:1'></div><button>يستورد</button><button class='primary'>سِجِلّ</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>OKRs review</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Onboarding flow</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Bug repro</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>وكيل قابل للقراءة</span><span>Transcript + frames ready for share links</span><div style='flex:1'></div><button>يشارك</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>بحث النص</strong><div class='wf-box'>Matched chapter 03:12 · rollout risks and owner handoff</div><div class='wf-box'>Meeting summary and action items</div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>مقاطع هندسية</h1><span class='wf-pill accent'>مكتبة</span><span class='wf-pill'>الاجتماعات</span><span class='wf-pill'>الإملاء</span><div style='flex:1'></div><button>يستورد</button><button class='primary'>سِجِلّ</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>مراجعة OKR</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>مسار الإعداد</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>إعادة إنتاج الخطأ</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>وكيل قابل للقراءة</span><span>النص والإطارات جاهزة لروابط المشاركة</span><div style='flex:1'></div><button>يشارك</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>بحث النص</strong><div class='wf-box'>الفصل المطابق 03:12 · مخاطر الطرح وتسليم المالك</div><div class='wf-box'>ملخص الاجتماع وبنود العمل</div></div></div>"
 }
 ```
 
@@ -91,11 +91,11 @@ API، لذا فإن النماذج التي تقبل النص أو الصور ا
 كلمة المرور، أو نتيجة انتهاء الصلاحية، أو علامة الأرشيف، أو علامة سلة المهملات. لا تزال المقاطع الأخرى تحصل على
 البيانات الوصفية العادية لعنوان الصفحة/الصورة المصغرة وتتطلب فتح المقاطع.
 
-```an-api title="Agent context entry point"
+```an-api title="نقطة إدخال سياق الوكيل"
 {
   "method": "GET",
   "path": "/api/agent-context.json",
-  "summary": "Compact, agent-readable description of a shared clip",
+  "summary": "وصف مضغوط وسهل القراءة للمقطع المشترك",
   "description": "Returns clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript and frame APIs. Advertised by the public share page so a text- or image-only agent can understand a recording without ingesting raw video.",
   "auth": "Same public / password / expiry rules as the share page",
   "params": [
@@ -107,11 +107,11 @@ API، لذا فإن النماذج التي تقبل النص أو الصور ا
 }
 ```
 
-```an-api title="Timestamped transcript"
+```an-api title="نص ذو طابع زمني"
 {
   "method": "GET",
   "path": "/api/agent-transcript.json",
-  "summary": "Timestamped transcript segments for a shared clip",
+  "summary": "مقاطع نصية ذات طابع زمني لمقطع مشترك",
   "params": [
     { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
   ],
@@ -121,11 +121,11 @@ API، لذا فإن النماذج التي تقبل النص أو الصور ا
 }
 ```
 
-```an-api title="Frame at a timestamp"
+```an-api title="إطار في طابع زمني"
 {
   "method": "GET",
   "path": "/api/agent-frame.jpg",
-  "summary": "A JPEG frame extracted from the video at an original-video timestamp",
+  "summary": "إطار JPEG مستخرج من الفيديو بطابع زمني للفيديو الأصلي",
   "params": [
     { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" },
     { "name": "atMs", "in": "query", "type": "integer", "required": true, "description": "Original-video timestamp in milliseconds" }
@@ -251,7 +251,7 @@ Clips عبارة عن قالب أكبر حجمًا يحتوي على مسجل أ
 
 تعيش جميع البيانات في SQL عبر Drizzle ORM. المخطط: `templates/clips/server/db/schema.ts`. تحمل التسجيلات والاجتماعات والإملاءات وحسابات التقويم والمفردات معيار `ownableColumns` ولها جدول مشاركات إطار عمل مطابق، لذا يتم إدخالها في نموذج المشاركة لكل مستخدم / لكل مؤسسة.
 
-```an-schema title="Clips core data model" summary="recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
+```an-schema title="نموذج البيانات الأساسية للمقاطع" summary="recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
 {
   "entities": [
     {
@@ -263,15 +263,15 @@ Clips عبارة عن قالب أكبر حجمًا يحتوي على مسجل أ
         { "name": "title", "type": "text" },
         { "name": "video_url", "type": "text", "note": "plus format / size / duration / thumbnails" },
         { "name": "status", "type": "text" },
-        { "name": "edits_json", "type": "text", "note": "Non-destructive edits" },
+        { "name": "edits_json", "type": "text", "note": "تعديلات غير مدمرة" },
         { "name": "chapters_json", "type": "text", "nullable": true },
-        { "name": "password", "type": "text", "nullable": true, "note": "Privacy: password / expiry" }
+        { "name": "password", "type": "text", "nullable": true, "note": "الخصوصية: كلمة المرور / انتهاء الصلاحية" }
       ]
     },
     {
       "id": "recording_transcripts",
       "name": "recording_transcripts",
-      "note": "Split out so the library and transcript views render fast",
+      "note": "قم بالتقسيم بحيث يتم عرض طرق عرض المكتبة والنص بسرعة",
       "fields": [
         { "name": "recording_id", "type": "text", "fk": "recordings.id" },
         { "name": "segments_json", "type": "text", "note": "{ startMs, endMs, text }" },
@@ -298,9 +298,9 @@ Clips عبارة عن قالب أكبر حجمًا يحتوي على مسجل أ
       "note": "Push-to-talk dictation history; ownableColumns",
       "fields": [
         { "name": "id", "type": "text", "pk": true },
-        { "name": "full_text", "type": "text", "note": "Raw" },
+        { "name": "full_text", "type": "text", "note": "الخام" },
         { "name": "cleaned_text", "type": "text", "nullable": true },
-        { "name": "source", "type": "text", "note": "fn-hold, etc." },
+        { "name": "source", "type": "text", "note": "فريق الجبهة الوطنية، وما إلى ذلك." },
         { "name": "target_app", "type": "text", "nullable": true }
       ]
     }

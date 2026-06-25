@@ -17,7 +17,7 @@ import {
   useMentionMembers,
   type MentionMember,
 } from "@/hooks/use-mention-members";
-import { sendToAgentChat, emailToName } from "@agent-native/core/client";
+import { sendToAgentChat, emailToName, useT } from "@agent-native/core/client";
 import {
   IconCheck,
   IconMessageCircle,
@@ -153,6 +153,7 @@ export function CommentsSidebar({
   onActiveThreadChange,
   currentUserEmail,
 }: CommentsSidebarProps) {
+  const t = useT();
   const { data: threads, isLoading } = useComments(documentId);
   const { data: members = [] } = useMentionMembers();
   const createComment = useCreateComment();
@@ -230,10 +231,10 @@ export function CommentsSidebar({
       .map((c) => `${c.author_name ?? c.author_email}: ${c.content}`)
       .join("\n");
     const context = thread.quotedText
-      ? `Regarding this text: "${thread.quotedText}"\n\n`
+      ? `${t("comments.agentRegardingText", { text: thread.quotedText })}\n\n`
       : "";
     sendToAgentChat({
-      message: `${context}Comment thread:\n${commentTexts}\n\nPlease help with this.`,
+      message: `${context}${t("comments.agentThreadHeader")}\n${commentTexts}\n\n${t("comments.agentHelp")}`,
     });
   };
 
@@ -386,7 +387,7 @@ export function CommentsSidebar({
               }, 200);
             }}
             members={members}
-            placeholder="Add a comment…"
+            placeholder={t("comments.add")}
             autoFocus
           />
           <div className="flex justify-end gap-1 mt-1.5">
@@ -394,14 +395,14 @@ export function CommentsSidebar({
               onClick={handlePendingCancel}
               className="px-2.5 py-1 text-xs rounded-md text-muted-foreground hover:bg-accent"
             >
-              Cancel
+              {t("comments.cancel")}
             </button>
             <button
               onClick={handlePendingSubmit}
               disabled={!pendingText.trim()}
               className="px-2.5 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
             >
-              Comment
+              {t("comments.submit")}
             </button>
           </div>
         </div>
@@ -437,6 +438,7 @@ export function CommentsSidebar({
           onSubmitReply={() => handleReply(thread.threadId)}
           onResolve={() => handleResolve(thread)}
           onSendToAI={() => handleSendToAI(thread)}
+          t={t}
         />
       ))}
 
@@ -451,7 +453,7 @@ export function CommentsSidebar({
               size={14}
               className={showResolved ? "" : "-rotate-90 transition-transform"}
             />
-            Resolved ({resolvedThreads.length})
+            {t("comments.resolved", { count: resolvedThreads.length })}
           </button>
           {showResolved && (
             <div className="mt-1.5 space-y-1.5">
@@ -460,6 +462,7 @@ export function CommentsSidebar({
                   key={thread.threadId}
                   thread={thread}
                   onReopen={() => handleReopen(thread)}
+                  t={t}
                 />
               ))}
             </div>
@@ -485,6 +488,7 @@ function ThreadView({
   onSubmitReply,
   onResolve,
   onSendToAI,
+  t,
 }: {
   thread: CommentThread;
   marginTop: number;
@@ -500,6 +504,7 @@ function ThreadView({
   onSubmitReply: () => void;
   onResolve: () => void;
   onSendToAI: () => void;
+  t: ReturnType<typeof useT>;
 }) {
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -537,7 +542,7 @@ function ThreadView({
                 <IconMessageCircle size={14} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Ask AI</TooltipContent>
+            <TooltipContent>{t("comments.askAi")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -551,7 +556,7 @@ function ThreadView({
                 <IconCheck size={14} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Resolve</TooltipContent>
+            <TooltipContent>{t("comments.resolve")}</TooltipContent>
           </Tooltip>
         </div>
 
@@ -609,7 +614,7 @@ function ThreadView({
                 }, 200);
               }}
               members={members}
-              placeholder="Reply…"
+              placeholder={t("comments.reply")}
               rows={1}
               className="w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none pr-16"
             />
@@ -632,9 +637,11 @@ function ThreadView({
 function ResolvedThreadView({
   thread,
   onReopen,
+  t,
 }: {
   thread: CommentThread;
   onReopen: () => void;
+  t: ReturnType<typeof useT>;
 }) {
   const first = thread.comments[0];
   return (
@@ -663,7 +670,7 @@ function ResolvedThreadView({
               <IconArrowBackUp size={14} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Reopen</TooltipContent>
+          <TooltipContent>{t("comments.reopen")}</TooltipContent>
         </Tooltip>
       </div>
     </div>

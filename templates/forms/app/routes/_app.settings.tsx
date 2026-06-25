@@ -6,6 +6,7 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
+import messages from "@/i18n/en-US";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -18,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
-  return [{ title: "Settings - Forms" }];
+  return [{ title: messages.routeTitles.settingsForms }];
 }
 
 export default function SettingsRoute() {

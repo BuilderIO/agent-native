@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useT } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import type { PlanPrototype } from "@shared/plan-content";
 import { Wireframe } from "./wireframe/Wireframe";
@@ -16,6 +17,7 @@ export function PrototypeViewer({
   standalone = false,
   className,
 }: PrototypeViewerProps) {
+  const t = useT();
   const screenById = useMemo(
     () => new Map(prototype.screens.map((screen) => [screen.id, screen])),
     [prototype.screens],
@@ -58,7 +60,7 @@ export function PrototypeViewer({
         className,
       )}
       data-plan-prototype-viewer
-      aria-label="Prototype viewer"
+      aria-label={t("raw.visual.prototype")}
     >
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(var(--plan-grid-line)_1px,transparent_1px),linear-gradient(90deg,var(--plan-grid-line)_1px,transparent_1px)] bg-[length:28px_28px]" />
 

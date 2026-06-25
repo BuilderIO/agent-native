@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { IconLink } from "@tabler/icons-react";
 import { CodeSurface } from "@agent-native/core/blocks";
+import { useT } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { PlanImageViewer } from "./PlanImageViewer";
 import { detectPlanTextDirection } from "./planTextDirection";
@@ -76,6 +77,7 @@ export function PlanMarkdownReader({
   // Reset the counter each render (new markdown / blockId) so ids are stable.
   headingIndexRef.current = 0;
   const textDirection = detectPlanTextDirection(markdown);
+  const t = useT();
 
   const makeHeading = useCallback(
     (Tag: ElementType, { children }: { children?: ReactNode }) => {
@@ -90,7 +92,7 @@ export function PlanMarkdownReader({
           {children}
           <a
             href={`#${id}`}
-            aria-label="Copy link to this section"
+            aria-label={t("raw.markdown.copySectionLink")}
             className="plan-heading-anchor ml-2 inline-flex size-4 cursor-pointer items-center justify-center rounded opacity-0 transition-opacity group-hover/heading:opacity-60 hover:!opacity-100"
             onClick={(event) => {
               event.preventDefault();
@@ -111,7 +113,7 @@ export function PlanMarkdownReader({
         </Tag>
       );
     },
-    [blockId],
+    [blockId, t],
   );
 
   return (

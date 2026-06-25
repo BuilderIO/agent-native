@@ -26,7 +26,7 @@ En cada impulso de relaciones públicas, el flujo de trabajo:
 
 ```an-diagram title="¿Qué sucede en cada impulso de relaciones públicas?" summary="Una diferencia limitada alimenta a un agente de codificación real, que elabora un resumen; el flujo de trabajo toma una captura de pantalla y agrega un comentario adhesivo."
 {
-  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">PR push<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Coding agent<br><small class=\"diagram-muted\">Claude Code / Codex reads diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Headless Chrome<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">One sticky PR comment<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
+  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">Push del PR<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Agente de código<br><small class=\"diagram-muted\">Claude Code / Codex lee el diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Chrome sin interfaz<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Un comentario fijo de PR<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
   "css": ".diagram-recap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-recap .diagram-arrow{font-size:20px;line-height:1}.diagram-recap .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-recap .diagram-foot{flex-basis:100%;margin-top:10px;font-size:13px}"
 }
 ```
@@ -159,7 +159,7 @@ Para instalarlo, copie el archivo de [BuilderIO/agent-native](https://github.com
 
 ```an-diagram title="Puerta de consentimiento de relaciones públicas de bifurcación" summary="Los PR de bifurcación no obtienen secretos de forma predeterminada; Los autores confiables se ejecutan automáticamente y los contribuyentes externos requieren una nueva etiqueta de resumen del mantenedor."
 {
-  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">Fork PR opened<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Trusted author</span><small class=\"diagram-muted\">OWNER, MEMBER, or COLLABORATOR runs automatically</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Outside contributor</span><small class=\"diagram-muted\">maintainer reviews diff, then applies <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Gate checks<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Recap runs<br><small class=\"diagram-muted\">base-repo code only · fork diff is text input</small></div></div>",
+  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">PR de fork abierto<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Autor de confianza</span><small class=\"diagram-muted\">OWNER, MEMBER o COLLABORATOR se ejecuta automáticamente</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Colaborador externo</span><small class=\"diagram-muted\">el mantenedor revisa el diff y luego lo aplica <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Comprobaciones de puerta<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Ejecuciones de recapitulación<br><small class=\"diagram-muted\">solo código del repo base · el diff del fork es entrada de texto</small></div></div>",
   "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-arrow{font-size:20px;line-height:1}.diagram-fork .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}"
 }
 ```
@@ -272,15 +272,15 @@ En casos excepcionales, un repositorio tiene dispositivos de prueba intencionale
 Cada línea que no está en blanco ni es un comentario es una **subcadena literal** o un patrón **`/regex/flags`**:
 
 ```
-# Lines starting with # are comments.
+# Las líneas que comienzan con # son comentarios.
 
-# Literal substring — any diff line containing this string is allowed.
+# Subcadena literal: se permite cualquier línea de diferenciación que contenga esta cadena.
 sk-test-fixture1234567890abcdef
 
 # Regex pattern — written as /pattern/flags (JS syntax).
 /^.STRIPE_KEY=sk-test-/i
 
-# Another literal.
+# Otro literal.
 EXAMPLE_API_KEY=placeholder-value
 ```
 
@@ -315,10 +315,10 @@ Esto es lo que escribe `npx @agent-native/core@latest recap setup --reusable` (o
 ```yaml
 name: PR Visual Recap
 
-# Thin caller — the full workflow logic lives in BuilderIO/agent-native.
-# Fixes and improvements reach this repo automatically on each run.
-# To pin a specific version for reproducibility replace '@main' with a
-# tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
+# Llamada ligera: toda la lógica del flujo de trabajo se encuentra en BuilderIO/agent-native.
+# Las correcciones y mejoras llegan a este repositorio automáticamente en cada ejecución.
+# Para fijar una versión específica para la reproducibilidad, reemplace '@main' con un
+# etiqueta o SHA, p.e. '@v1.2.3' o '@abc1234'.
 
 on:
   pull_request:
@@ -351,10 +351,10 @@ Se aplican los mismos secretos y variables descritos en [Secrets and variables](
 ### Instalación mediante CLI
 
 ```bash
-# Write the thin caller instead of the full copy:
+# Escriba la persona que llama en lugar de la copia completa:
 npx @agent-native/core@latest recap setup --reusable
 
-# Or with a pinned ref for reproducibility:
+# O con una referencia fijada para mayor reproducibilidad:
 npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
 ```
 

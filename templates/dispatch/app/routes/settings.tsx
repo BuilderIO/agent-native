@@ -6,6 +6,7 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { Button } from "@agent-native/dispatch/components/ui/button";
+import { messagesByLocale } from "@/i18n-data";
 import {
   Card,
   CardContent,
@@ -17,7 +18,7 @@ import { Label } from "@agent-native/dispatch/components/ui/label";
 import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
-  return [{ title: "Settings - Dispatch" }];
+  return [{ title: messagesByLocale["en-US"].routeTitles.settings }];
 }
 
 export default function SettingsRoute() {

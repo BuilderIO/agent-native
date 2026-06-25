@@ -182,7 +182,7 @@ export const InlineReplyComposer = forwardRef<
   const handleSend = async () => {
     if (sendingRef.current) return;
     if (!draft.to.trim()) {
-      toast.error("Please add at least one recipient");
+      toast.error(t("mail.toasts.pleaseAddRecipient"));
       return;
     }
     sendingRef.current = true;
@@ -248,7 +248,7 @@ export const InlineReplyComposer = forwardRef<
         },
         {
           onError: () => {
-            toast.error("Failed to send email");
+            toast.error(t("mail.toasts.failedToSendEmail"));
             const { id: _id, ...reopenData } = draftSnapshot;
             onReopen(reopenData);
           },
@@ -278,7 +278,7 @@ export const InlineReplyComposer = forwardRef<
     if (!generatePrompt.trim()) return;
     if (!(await canUseAgentGenerate())) {
       toast.error(
-        "Connect Builder or another AI engine before using Generate.",
+        t("mail.toasts.aiEngineRequired"),
       );
       window.dispatchEvent(new CustomEvent("agent-panel:open"));
       return;
@@ -408,7 +408,7 @@ export const InlineReplyComposer = forwardRef<
       const existing = draft.attachments ?? [];
       onUpdate(draft.id, { attachments: [...existing, ...attachments] });
     } catch {
-      toast.error("Failed to attach file");
+      toast.error(t("mail.toasts.failedToAttachFile"));
     }
   };
 

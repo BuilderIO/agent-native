@@ -17,6 +17,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
+import { useT } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -93,6 +94,7 @@ interface Stroke {
  * be `position: relative`.
  */
 export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [color, setColor] = useState(PRESET_COLORS[0].color);
@@ -228,9 +230,9 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
     setStrokes([]);
     setTextAnnotations([]);
     setRedoStrokes([]);
-    toast("Cleared all annotations", {
+    toast(t("visualEditor.clearedAllAnnotations"), {
       action: {
-        label: "Undo",
+        label: t("visualEditor.undo"),
         onClick: () => {
           setStrokes(prevStrokes);
           setTextAnnotations(prevTexts);
@@ -349,7 +351,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
             }}
             className="h-7 w-48 border-primary bg-background text-sm"
             autoFocus
-            placeholder="Type annotation…"
+            placeholder={t("visualEditor.typeAnnotationFancy")}
           />
         </div>
       )}
@@ -424,7 +426,9 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
               <IconCursorText className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Type anywhere on the canvas</TooltipContent>
+          <TooltipContent>
+            {t("visualEditor.typeAnywhereOnCanvas")}
+          </TooltipContent>
         </Tooltip>
 
         {/* Undo last stroke */}
@@ -438,7 +442,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
               <IconArrowBackUp className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Undo stroke</TooltipContent>
+          <TooltipContent>{t("visualEditor.undoStroke")}</TooltipContent>
         </Tooltip>
 
         {/* Redo */}
@@ -452,7 +456,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
               <IconArrowForwardUp className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Redo stroke</TooltipContent>
+          <TooltipContent>{t("visualEditor.redoStroke")}</TooltipContent>
         </Tooltip>
 
         {/* Clear all */}
@@ -466,7 +470,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
               <IconEraser className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Clear all</TooltipContent>
+          <TooltipContent>{t("visualEditor.clearAll")}</TooltipContent>
         </Tooltip>
 
         <div className="mx-1 h-4 w-px bg-border" />
@@ -479,7 +483,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
             if (e.key === "Enter" && hasContent) send();
             if (e.key === "Escape") onClose();
           }}
-          placeholder="Tell the agent what to do…"
+          placeholder={t("visualEditor.tellAgentWhatToDo")}
           className="h-7 w-56 border-border bg-background text-xs"
         />
 
@@ -491,7 +495,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
           disabled={!hasContent}
         >
           <IconSend className="h-3 w-3" />
-          Send
+          {t("visualEditor.send")}
         </Button>
 
         {/* Close */}
@@ -504,7 +508,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
               <IconX className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Exit draw mode</TooltipContent>
+          <TooltipContent>{t("visualEditor.exitDrawMode")}</TooltipContent>
         </Tooltip>
       </div>
     </div>

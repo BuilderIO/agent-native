@@ -12,7 +12,7 @@ description: "一个最小的聊天优先代理本机应用程序：持久的聊
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>How can I help?</h1><p class='wf-muted' style='margin:10px 0 0'>Chat about anything. Add actions, components, pages, jobs, or your own backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Message the agent...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>我能帮什么？</h1><p class='wf-muted' style='margin:10px 0 0'>聊任何事情。添加 actions、组件、页面、任务或你自己的后端。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>给代理发消息...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
 }
 ```
 
@@ -37,7 +37,7 @@ description: "一个最小的聊天优先代理本机应用程序：持久的聊
 
 ```an-diagram title="Chat shell 中包含哪些内容" summary="框架标准运行时上的精简聊天界面（操作、持久线程、实时同步和身份验证），有空间添加您自己的 UI。"
 {
-  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">Thread list<br><small class=\"diagram-muted\">create · reopen · pin · archive</small></div><div class=\"diagram-node\">Full-page chat<br><small class=\"diagram-muted\">framework chat surface on /</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">Core SQL tables<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">Live sync &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">login · orgs · sessions</small></div></div></div>",
+  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">线程列表<br><small class=\"diagram-muted\">创建 · 重新打开 · 固定 · 归档</small></div><div class=\"diagram-node\">整页聊天<br><small class=\"diagram-muted\">/ 上的框架聊天界面</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">核心 SQL 表<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">实时同步 &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">登录 · 组织 · 会话</small></div></div></div>",
   "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -125,5 +125,5 @@ export default function ChatRoute() {
 - [**Getting Started**](/docs) — 在无头、聊天和域模板之间进行选择
 - [**Agent Surfaces**](/docs/agent-surfaces) — 无头、聊天、嵌入式和完整应用模式
 - [**Actions**](/docs/actions) - 操作系统聊天和 UI 都调用
-- [**Native Chat UI**](/docs/native-chat-ui) — 聊天界面基元和运行时选项
+- [**Native 聊天界面**](/docs/native-chat-ui) — 聊天界面基元和运行时选项
 - [**Pure-Agent Apps**](/docs/pure-agent-apps) - 仅限操作的应用程序，稍后可以发展为聊天

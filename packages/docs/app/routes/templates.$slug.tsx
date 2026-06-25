@@ -20,6 +20,7 @@ import {
 import { TemplateDocsLink } from "../components/template-docs";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 import { useT } from "@agent-native/core/client";
+import enUS from "../i18n/en-US";
 
 function findTemplate(slug: string | undefined) {
   if (slug === "videos") slug = "video";
@@ -40,13 +41,18 @@ export const meta = ({ params }: { params: { slug?: string } }) => {
   const template = findTemplate(params.slug);
   if (!template) {
     return withDefaultSocialImage([
-      { title: "Template Not Found — Agent-Native" },
+      { title: enUS.templateDetail.notFoundMetaTitle },
     ]);
   }
+  const templateCopy =
+    enUS.templates[template.slug as keyof typeof enUS.templates];
   return withTemplateSocialImage(
     [
       { title: `Agent-Native ${template.name} Template` },
-      { name: "description", content: template.description },
+      {
+        name: "description",
+        content: templateCopy.description,
+      },
     ],
     template.name,
   );

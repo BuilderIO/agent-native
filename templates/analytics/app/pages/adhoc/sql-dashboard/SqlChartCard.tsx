@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useT } from "@agent-native/core/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   IconGripVertical,
@@ -62,6 +63,7 @@ export function SqlChartCard({
   onSaveSql,
   editable = true,
 }: SqlChartCardProps) {
+  const t = useT();
   const {
     attributes,
     listeners,
@@ -151,19 +153,21 @@ export function SqlChartCard({
                     <DropdownMenuTrigger asChild>
                       <button
                         className="p-1 rounded text-muted-foreground hover:text-foreground"
-                        aria-label="Section options"
+                        aria-label={t("sqlDashboard.sectionOptions")}
                       >
                         <IconDotsVertical className="h-3.5 w-3.5" />
                       </button>
                     </DropdownMenuTrigger>
                   </TooltipTrigger>
-                  <TooltipContent>Section options</TooltipContent>
+                  <TooltipContent>
+                    {t("sqlDashboard.sectionOptions")}
+                  </TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-40">
                   {onEdit && (
                     <DropdownMenuItem onSelect={() => onEdit()}>
                       <IconPencil className="h-4 w-4 mr-2" />
-                      Edit
+                      {t("sidebar.edit")}
                     </DropdownMenuItem>
                   )}
                   {onEdit && <DropdownMenuSeparator />}
@@ -174,7 +178,7 @@ export function SqlChartCard({
                     }}
                   >
                     <IconTrash className="h-4 w-4 mr-2" />
-                    Delete
+                    {t("sidebar.delete")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -182,14 +186,16 @@ export function SqlChartCard({
                 <TooltipTrigger asChild>
                   <button
                     className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
-                    aria-label="Drag to reorder"
+                    aria-label={t("sqlDashboard.dragToReorder")}
                     {...attributes}
                     {...listeners}
                   >
                     <IconGripVertical className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Drag to reorder</TooltipContent>
+                <TooltipContent>
+                  {t("sqlDashboard.dragToReorder")}
+                </TooltipContent>
               </Tooltip>
             </div>
           ) : null}
@@ -203,20 +209,24 @@ export function SqlChartCard({
           <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete section?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  {t("sqlDashboard.deleteSectionTitle")}
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  Delete &quot;{panel.title}&quot;? This cannot be undone.
+                  {t("sqlDashboard.deleteSectionDescription", {
+                    title: panel.title,
+                  })}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={() => {
                     setConfirmOpen(false);
                     onRemove();
                   }}
                 >
-                  Delete
+                  {t("sidebar.delete")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -249,18 +259,18 @@ export function SqlChartCard({
                     <DropdownMenuTrigger asChild>
                       <button
                         className="p-1 rounded text-muted-foreground hover:text-foreground"
-                        aria-label="Panel options"
+                        aria-label={t("sqlDashboard.panelOptions")}
                       >
                         <IconDotsVertical className="h-3.5 w-3.5" />
                       </button>
                     </DropdownMenuTrigger>
                   </TooltipTrigger>
-                  <TooltipContent>Panel options</TooltipContent>
+                  <TooltipContent>{t("sqlDashboard.panelOptions")}</TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-44">
                   <DropdownMenuItem onSelect={() => setExpanded(true)}>
                     <IconMaximize className="h-4 w-4 mr-2" />
-                    Full screen
+                    {t("sqlDashboard.fullScreen")}
                   </DropdownMenuItem>
                   {editable || panel.chartType === "table" ? (
                     <DropdownMenuSeparator />
@@ -271,7 +281,7 @@ export function SqlChartCard({
                       onSelect={() => exportCsv?.()}
                     >
                       <IconDownload className="h-4 w-4 mr-2" />
-                      Download CSV
+                      {t("sqlDashboard.downloadCsv")}
                     </DropdownMenuItem>
                   )}
                   {editable && panel.chartType === "table" ? (
@@ -285,7 +295,7 @@ export function SqlChartCard({
                     >
                       <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
                         <IconCode className="h-4 w-4 mr-2" />
-                        View SQL
+                        {t("sqlDashboard.viewSql")}
                       </DropdownMenuItem>
                     </ViewSqlPopover>
                   ) : null}
@@ -293,7 +303,7 @@ export function SqlChartCard({
                   {editable && onEdit && (
                     <DropdownMenuItem onSelect={() => onEdit()}>
                       <IconPencil className="h-4 w-4 mr-2" />
-                      Edit
+                      {t("sidebar.edit")}
                     </DropdownMenuItem>
                   )}
                   {editable ? (
@@ -304,7 +314,7 @@ export function SqlChartCard({
                       }}
                     >
                       <IconTrash className="h-4 w-4 mr-2" />
-                      Delete
+                      {t("sidebar.delete")}
                     </DropdownMenuItem>
                   ) : null}
                 </DropdownMenuContent>
@@ -315,14 +325,16 @@ export function SqlChartCard({
                 <TooltipTrigger asChild>
                   <button
                     className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
-                    aria-label="Drag to reorder"
+                    aria-label={t("sqlDashboard.dragToReorder")}
                     {...attributes}
                     {...listeners}
                   >
                     <IconGripVertical className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Drag to reorder</TooltipContent>
+                <TooltipContent>
+                  {t("sqlDashboard.dragToReorder")}
+                </TooltipContent>
               </Tooltip>
             ) : null}
           </div>
@@ -354,20 +366,24 @@ export function SqlChartCard({
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete panel?</AlertDialogTitle>
+              <AlertDialogTitle>
+                {t("sqlDashboard.deletePanelTitle")}
+              </AlertDialogTitle>
               <AlertDialogDescription>
-                Delete "{panel.title}"? This cannot be undone.
+                {t("sqlDashboard.deletePanelDescription", {
+                  title: panel.title,
+                })}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => {
                   setConfirmOpen(false);
                   onRemove();
                 }}
               >
-                Delete
+                {t("sidebar.delete")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

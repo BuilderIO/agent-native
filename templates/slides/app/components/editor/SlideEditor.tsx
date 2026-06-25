@@ -11,6 +11,7 @@ import {
   agentNativePath,
   sendToAgentChat,
   usePinchZoom,
+  useT,
   useAvatarUrl,
   type CollabUser,
 } from "@agent-native/core/client";
@@ -402,7 +403,7 @@ function rectsIntersect(
 ): boolean {
   return !(
     a.right < b.left ||
-    a.left > b.right ||
+    a.left > b.right || // i18n-ignore geometry comparison
     a.bottom < b.top ||
     a.top > b.bottom
   );
@@ -514,6 +515,7 @@ export default function SlideEditor({
   onInlineEditStart,
   presentUsers = [],
 }: SlideEditorProps) {
+  const t = useT();
   const content = typeof slide.content === "string" ? slide.content : "";
   const isHtmlSlide =
     content.includes('class="fmd-slide"') ||
@@ -1406,12 +1408,12 @@ export default function SlideEditor({
                       className="h-6 w-6 cursor-pointer"
                       onClick={canvasZoomOut}
                       disabled={canvasZoom <= MIN_CANVAS_ZOOM}
-                      aria-label="Zoom out"
+                      aria-label={t("raw.zoomOut")}
                     >
                       <IconZoomOut className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Zoom out</TooltipContent>
+                  <TooltipContent>{t("raw.zoomOut")}</TooltipContent>
                 </Tooltip>
                 <span className="w-11 text-center text-xs tabular-nums text-muted-foreground">
                   {canvasZoom}%
@@ -1427,12 +1429,12 @@ export default function SlideEditor({
                         canvasZoom >=
                         CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1]
                       }
-                      aria-label="Zoom in"
+                      aria-label={t("raw.zoomIn")}
                     >
                       <IconZoomIn className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Zoom in</TooltipContent>
+                  <TooltipContent>{t("raw.zoomIn")}</TooltipContent>
                 </Tooltip>
                 <div className="mx-0.5 h-4 w-px bg-border" />
                 <Tooltip>
@@ -1442,12 +1444,12 @@ export default function SlideEditor({
                       size="icon"
                       className="h-6 w-6 cursor-pointer"
                       onClick={fitCanvasToScreen}
-                      aria-label="Fit slide to screen"
+                      aria-label={t("raw.fitSlideToScreen")}
                     >
                       <IconMaximize className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Fit to screen</TooltipContent>
+                  <TooltipContent>{t("raw.fitToScreen")}</TooltipContent>
                 </Tooltip>
               </div>
               <div
@@ -1487,7 +1489,7 @@ export default function SlideEditor({
                       {/* Double-click hint — only shown for HTML slides that support inline editing */}
                       {isHoveringText && !editingEl && isHtmlSlide && (
                         <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded bg-black/60 px-2 py-0.5 text-xs text-white/40 pointer-events-none select-none">
-                          Double-click any text to edit
+                          {t("raw.doubleClickEdit")}
                         </div>
                       )}
                       {agentActive && (

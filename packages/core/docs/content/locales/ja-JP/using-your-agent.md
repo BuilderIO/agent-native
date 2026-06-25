@@ -1,6 +1,6 @@
 ---
 title: "エージェントの使用"
-description: "エージェントとの日々の作業のループ。エージェントは、あなたが見ているものを見て、それを指示し、埋め込み、UI-light を実行し、一緒に共同編集します。"
+description: "エージェントとの日々の作業のループ。エージェントは、あなたが見ているものを見て、それを指示し、埋め込み、軽量UI を実行し、一緒に共同編集します。"
 ---
 
 # エージェントの使用
@@ -11,7 +11,7 @@ description: "エージェントとの日々の作業のループ。エージェ
 
 ```an-diagram title="日々のループ" summary="ドッキングされたエージェントを操作する 5 つの方法 - それぞれがこのセクションのページです。"
 {
-  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>UI-light</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">Co-edit</span><small class=\"diagram-muted\">live, side by side</small></div></div>",
+  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>軽量UI</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">共同編集</span><small class=\"diagram-muted\">ライブで並列</small></div></div>",
   "css": ".diagram-loop{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-loop .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px;flex:1}.diagram-loop .diagram-arrow{align-self:center;font-size:22px;line-height:1}"
 }
 ```
@@ -49,7 +49,7 @@ description: "エージェントとの日々の作業のループ。エージェ
 → [**Drop-in Agent**](/docs/drop-in-agent) — `<AgentPanel>`、`<AgentSidebar>`、および `sendToAgentChat()` を任意の React アプリにマウントします。
 → [**Agent Surfaces**](/docs/agent-surfaces) — ワークフローをヘッドレス、チャットファースト、埋め込み、または完全なアプリのいずれにするかを選択します。
 
-## UI-light に行くことができます {#ui-light}
+## 軽量UI に行くことができます {#ui-light}
 
 すべてのアプリに完全なダッシュボードが必要なわけではありません。エージェントが製品である場合、カスタム UI のほとんどをスキップできます。アプリを開いて必要なものを尋ね、残りはエージェントに任せます。エージェントには履歴、ワークスペース、設定などの管理画面がまだありますが、主な操作はクリックではなく会話です。
 
@@ -67,5 +67,5 @@ description: "エージェントとの日々の作業のループ。エージェ
 - [**Agent Mentions**](/docs/agent-mentions) — `@` メンションで指示
 - [**Voice Input**](/docs/voice-input) — 話すことで指示
 - [**Drop-in Agent**](/docs/drop-in-agent) — React アプリに埋め込みます
-- [**Pure-Agent Apps**](/docs/pure-agent-apps) — エージェントが製品の場合は UI-light に移行します
+- [**Pure-Agent Apps**](/docs/pure-agent-apps) — エージェントが製品の場合は 軽量UI に移行します
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — 同じドキュメントを一緒に共同編集します

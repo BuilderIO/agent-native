@@ -4,7 +4,7 @@ import { normalizeFields } from "@/lib/normalize-fields";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { isInAgentEmbed, postNavigate } from "@agent-native/core/client";
+import { isInAgentEmbed, postNavigate, useT } from "@agent-native/core/client";
 import {
   IconAlertCircle,
   IconExternalLink,
@@ -22,18 +22,18 @@ import {
 } from "@tabler/icons-react";
 import type { FormFieldType } from "@shared/types";
 
-const FIELD_TYPE_LABELS: Record<FormFieldType, string> = {
-  text: "Text",
-  email: "Email",
-  number: "Number",
-  textarea: "Long Text",
-  select: "Dropdown",
-  multiselect: "Multi-select",
-  checkbox: "Checkbox",
-  radio: "Radio",
-  date: "Date",
-  rating: "Rating",
-  scale: "Scale",
+const FIELD_TYPE_LABEL_KEYS: Record<FormFieldType, string> = {
+  text: "fieldProperties.fieldTypes.text", // i18n-ignore stable catalog key
+  email: "fieldProperties.fieldTypes.email", // i18n-ignore stable catalog key
+  number: "fieldProperties.fieldTypes.number", // i18n-ignore stable catalog key
+  textarea: "fieldProperties.fieldTypes.textarea", // i18n-ignore stable catalog key
+  select: "fieldProperties.fieldTypes.select", // i18n-ignore stable catalog key
+  multiselect: "fieldProperties.fieldTypes.multiselect", // i18n-ignore stable catalog key
+  checkbox: "fieldProperties.fieldTypes.checkbox", // i18n-ignore stable catalog key
+  radio: "fieldProperties.fieldTypes.radio", // i18n-ignore stable catalog key
+  date: "fieldProperties.fieldTypes.date", // i18n-ignore stable catalog key
+  rating: "fieldProperties.fieldTypes.rating", // i18n-ignore stable catalog key
+  scale: "fieldProperties.fieldTypes.scale", // i18n-ignore stable catalog key
 };
 
 const FIELD_TYPE_ICONS: Record<FormFieldType, React.ElementType> = {
@@ -51,6 +51,7 @@ const FIELD_TYPE_ICONS: Record<FormFieldType, React.ElementType> = {
 };
 
 export default function FormPreviewRoute() {
+  const t = useT();
   const [searchParams] = useSearchParams();
   const id = searchParams.get("id") ?? "";
   const { data: form, isLoading, error } = useForm(id);
@@ -60,13 +61,11 @@ export default function FormPreviewRoute() {
       <div className="min-h-screen bg-background flex items-center justify-center p-6">
         <div className="flex flex-col items-center gap-3 text-center">
           <IconAlertCircle className="h-8 w-8 text-muted-foreground" />
-          <p className="text-sm font-medium">Missing form id</p>
+          <p className="text-sm font-medium">
+            {t("formPreview.missingFormId")}
+          </p>
           <p className="text-xs text-muted-foreground">
-            Add{" "}
-            <code className="font-mono bg-muted px-1 rounded">
-              ?id=&lt;form-id&gt;
-            </code>{" "}
-            to the URL.
+            {t("formPreview.addIdToUrl", { idParam: "?id=<form-id>" })}
           </p>
         </div>
       </div>
@@ -96,11 +95,9 @@ export default function FormPreviewRoute() {
       <div className="min-h-screen bg-background flex items-center justify-center p-6">
         <div className="flex flex-col items-center gap-3 text-center">
           <IconAlertCircle className="h-8 w-8 text-destructive" />
-          <p className="text-sm font-medium">Form not found</p>
+          <p className="text-sm font-medium">{t("formPreview.formNotFound")}</p>
           <p className="text-xs text-muted-foreground">
-            The form with id{" "}
-            <code className="font-mono bg-muted px-1 rounded">{id}</code> does
-            not exist or you don&apos;t have access.
+            {t("formPreview.missingAccess", { id })}
           </p>
         </div>
       </div>
@@ -140,7 +137,7 @@ export default function FormPreviewRoute() {
                   onClick={() => postNavigate(`/forms/${form.id}`)}
                 >
                   <IconExternalLink className="h-3.5 w-3.5" />
-                  Open in app
+                  {t("formPreview.openInApp")}
                 </Button>
               )}
             </div>
@@ -155,7 +152,7 @@ export default function FormPreviewRoute() {
         {/* Field list */}
         {fields.length === 0 ? (
           <p className="text-xs text-muted-foreground py-4 text-center">
-            This form has no fields yet.
+            {t("formPreview.noFields")}
           </p>
         ) : (
           <div className="space-y-2">
@@ -167,7 +164,9 @@ export default function FormPreviewRoute() {
                 const Icon =
                   FIELD_TYPE_ICONS[field.type as FormFieldType] ?? IconTextSize;
                 const typeLabel =
-                  FIELD_TYPE_LABELS[field.type as FormFieldType] ?? field.type;
+                  field.type in FIELD_TYPE_LABEL_KEYS
+                    ? t(FIELD_TYPE_LABEL_KEYS[field.type as FormFieldType])
+                    : field.type;
                 return (
                   <div
                     key={field.id}

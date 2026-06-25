@@ -108,7 +108,7 @@ export default function Present() {
 
       {/* Exit hint */}
       <div className="fixed top-4 right-4 text-xs text-white/20">
-        Press Esc to exit
+        {t("pages.presentExitHint")}
       </div>
     </div>
   );

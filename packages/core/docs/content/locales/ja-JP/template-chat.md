@@ -12,7 +12,7 @@ description: "最小限のチャットファーストのエージェントネイ
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>How can I help?</h1><p class='wf-muted' style='margin:10px 0 0'>Chat about anything. Add actions, components, pages, jobs, or your own backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Message the agent...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>何をお手伝いできますか？</h1><p class='wf-muted' style='margin:10px 0 0'>何でもチャットできます。actions、コンポーネント、ページ、ジョブ、独自バックエンドを追加できます。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>エージェントにメッセージ...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
 }
 ```
 
@@ -37,7 +37,7 @@ description: "最小限のチャットファーストのエージェントネイ
 
 ```an-diagram title="Chat シェルに同梱されるもの" summary="フレームワークの標準ランタイム (アクション、耐久性のあるスレッド、ライブ同期、認証) 上の薄いチャット サーフェス。独自の UI を追加する余地があります。"
 {
-  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">Thread list<br><small class=\"diagram-muted\">create · reopen · pin · archive</small></div><div class=\"diagram-node\">Full-page chat<br><small class=\"diagram-muted\">framework chat surface on /</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">Core SQL tables<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">Live sync &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">login · orgs · sessions</small></div></div></div>",
+  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">スレッド一覧<br><small class=\"diagram-muted\">作成 · 再開 · 固定 · アーカイブ</small></div><div class=\"diagram-node\">全画面チャット<br><small class=\"diagram-muted\">/ 上のフレームワークチャット画面</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">コア SQL テーブル<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">ライブ同期 &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">ログイン · 組織 · セッション</small></div></div></div>",
   "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -125,5 +125,5 @@ export default function ChatRoute() {
 - [**Getting Started**](/docs) — ヘッドレス、チャット、ドメイン テンプレートから選択します
 - [**Agent Surfaces**](/docs/agent-surfaces) — ヘッドレス、チャット、埋め込み、フルアプリのパターン
 - [**Actions**](/docs/actions) — アクション システム チャットと UI の両方を呼び出します
-- [**Native Chat UI**](/docs/native-chat-ui) — チャット サーフェス プリミティブとランタイム オプション
+- [**Native チャット UI**](/docs/native-chat-ui) — チャット サーフェス プリミティブとランタイム オプション
 - [**Pure-Agent Apps**](/docs/pure-agent-apps) — 後でチャットに成長できるアクション専用アプリ

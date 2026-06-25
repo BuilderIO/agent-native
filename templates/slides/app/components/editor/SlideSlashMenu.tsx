@@ -20,6 +20,7 @@ import {
   IconLetterT,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { useT } from "@agent-native/core/client";
 
 const SLASH_MENU_KEY = new PluginKey("slideSlashMenu");
 
@@ -27,55 +28,55 @@ const SLASH_MENU_KEY = new PluginKey("slideSlashMenu");
 type AnyIcon = React.ComponentType<any>;
 
 interface SlashCommand {
-  title: string;
-  description: string;
+  titleKey: string;
+  descriptionKey: string;
   icon: AnyIcon;
   command: (editor: Editor) => void;
 }
 
 const SLASH_COMMANDS: SlashCommand[] = [
   {
-    title: "Text",
-    description: "Plain paragraph",
+    titleKey: "slideSlashMenu.text",
+    descriptionKey: "slideSlashMenu.plainParagraph",
     icon: IconLetterT,
     command: (editor) => editor.chain().focus().setParagraph().run(),
   },
   {
-    title: "Heading 1",
-    description: "Large slide heading",
+    titleKey: "slideSlashMenu.heading1",
+    descriptionKey: "slideSlashMenu.largeSlideHeading",
     icon: IconH1,
     command: (editor) =>
       editor.chain().focus().toggleHeading({ level: 1 }).run(),
   },
   {
-    title: "Heading 2",
-    description: "Medium heading",
+    titleKey: "slideSlashMenu.heading2",
+    descriptionKey: "slideSlashMenu.mediumHeading",
     icon: IconH2,
     command: (editor) =>
       editor.chain().focus().toggleHeading({ level: 2 }).run(),
   },
   {
-    title: "Heading 3",
-    description: "Small heading",
+    titleKey: "slideSlashMenu.heading3",
+    descriptionKey: "slideSlashMenu.smallHeading",
     icon: IconH3,
     command: (editor) =>
       editor.chain().focus().toggleHeading({ level: 3 }).run(),
   },
   {
-    title: "Bullet List",
-    description: "Unordered list",
+    titleKey: "slideSlashMenu.bulletList",
+    descriptionKey: "slideSlashMenu.unorderedList",
     icon: IconList,
     command: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
-    title: "Numbered List",
-    description: "Ordered list",
+    titleKey: "slideSlashMenu.numberedList",
+    descriptionKey: "slideSlashMenu.orderedList",
     icon: IconListNumbers,
     command: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
-    title: "Quote",
-    description: "Blockquote",
+    titleKey: "slideSlashMenu.quote",
+    descriptionKey: "slideSlashMenu.blockquote",
     icon: IconBlockquote,
     command: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
@@ -93,13 +94,19 @@ export const SlashMenuUI = forwardRef<
   { moveUp: () => void; moveDown: () => void; select: () => void },
   SlashMenuUIProps
 >(({ position, query, onCommand }, ref) => {
+  const t = useT();
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const filtered = SLASH_COMMANDS.filter(
-    (cmd) =>
-      !query ||
-      cmd.title.toLowerCase().includes(query.toLowerCase()) ||
-      cmd.description.toLowerCase().includes(query.toLowerCase()),
+    (cmd) => {
+      const title = t(cmd.titleKey);
+      const description = t(cmd.descriptionKey);
+      return (
+        !query ||
+        title.toLowerCase().includes(query.toLowerCase()) ||
+        description.toLowerCase().includes(query.toLowerCase())
+      );
+    },
   );
 
   useImperativeHandle(ref, () => ({
@@ -127,13 +134,15 @@ export const SlashMenuUI = forwardRef<
       style={{ top: position.y, left: position.x }}
     >
       <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-widest">
-        Blocks
+        {t("slideSlashMenu.blocks")}
       </div>
       {filtered.map((cmd, i) => {
         const Icon = cmd.icon;
+        const title = t(cmd.titleKey);
+        const description = t(cmd.descriptionKey);
         return (
           <button
-            key={cmd.title}
+            key={cmd.titleKey}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2 text-left",
               i === selectedIndex
@@ -148,10 +157,10 @@ export const SlashMenuUI = forwardRef<
             </div>
             <div>
               <div className="text-sm font-medium leading-tight">
-                {cmd.title}
+                {title}
               </div>
               <div className="text-xs text-muted-foreground leading-tight">
-                {cmd.description}
+                {description}
               </div>
             </div>
           </button>

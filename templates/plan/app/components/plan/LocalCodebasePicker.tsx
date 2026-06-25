@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { setClientAppState } from "@agent-native/core/client";
+import { setClientAppState, useT } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   IconAlertCircle,
@@ -62,6 +62,7 @@ function statusClasses(kind: SyncState["kind"]) {
 }
 
 export function LocalCodebasePicker() {
+  const t = useT();
   const queryClient = useQueryClient();
   const supported = useMemo(supportsLocalCodebasePicker, []);
   const [active, setActive] = useState<RestoredLocalCodebase | null>(null);
@@ -155,9 +156,11 @@ export function LocalCodebasePicker() {
       await queryClient.invalidateQueries({ queryKey: ["resources"] });
       setSyncState({
         kind: "success",
-        message: `${fileCountLabel(nextSummary)} synced`,
+        message: t("raw.localCodebase.filesSynced", {
+          count: fileCountLabel(nextSummary),
+        }),
       });
-      toast.success("Codebase synced", {
+      toast.success(t("raw.localCodebase.codebaseSynced"), {
         description: `${selection.name} is ready for Ask Plan.`,
       });
     },
@@ -169,7 +172,7 @@ export function LocalCodebasePicker() {
     if (chosen.ok === false) {
       if (!chosen.canceled) {
         setSyncState({ kind: "error", message: chosen.error });
-        toast.error("Could not choose folder", {
+        toast.error(t("raw.localCodebase.chooseFolderFailed"), {
           description: chosen.error,
         });
       }
@@ -190,9 +193,13 @@ export function LocalCodebasePicker() {
       await syncSelection(selection);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Could not sync local codebase.";
+        err instanceof Error
+          ? err.message
+          : t("raw.localCodebase.syncLocalFailed");
       setSyncState({ kind: "error", message });
-      toast.error("Codebase sync failed", { description: message });
+      toast.error(t("raw.localCodebase.codebaseSyncFailed"), {
+        description: message,
+      });
     }
   }, [active, cleanupLocalResources, syncSelection]);
 
@@ -206,7 +213,7 @@ export function LocalCodebasePicker() {
     if (previous) {
       await cleanupLocalResources(previous);
     }
-    toast("Codebase unlinked");
+    toast(t("raw.localCodebase.codebaseUnlinked"));
   }, [active, cleanupLocalResources, syncAppState]);
 
   const resync = useCallback(async () => {
@@ -215,9 +222,13 @@ export function LocalCodebasePicker() {
       await syncSelection(active);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Could not sync local codebase.";
+        err instanceof Error
+          ? err.message
+          : t("raw.localCodebase.syncLocalFailed");
       setSyncState({ kind: "error", message });
-      toast.error("Codebase sync failed", { description: message });
+      toast.error(t("raw.localCodebase.codebaseSyncFailed"), {
+        description: message,
+      });
     }
   }, [active, syncSelection]);
 
@@ -234,11 +245,11 @@ export function LocalCodebasePicker() {
               disabled
             >
               <IconFolderOpen className="size-4" />
-              Choose codebase
+              {t("raw.localCodebase.chooseCodebase")}
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            Folder access is unavailable in this browser.
+            {t("raw.localCodebase.folderUnavailable")}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -258,7 +269,7 @@ export function LocalCodebasePicker() {
         >
           <IconFolderOpen className="size-4 shrink-0" />
           <span className="truncate">
-            {summary ? summary.name : "Choose codebase"}
+            {summary ? summary.name : t("raw.localCodebase.chooseCodebase")}
           </span>
         </Button>
 
@@ -275,7 +286,9 @@ export function LocalCodebasePicker() {
                 </Badge>
               </TooltipTrigger>
               <TooltipContent>
-                Last synced {updatedLabel(summary)}
+                {t("raw.localCodebase.lastSynced", {
+                  date: updatedLabel(summary),
+                })}
               </TooltipContent>
             </Tooltip>
 
@@ -288,7 +301,7 @@ export function LocalCodebasePicker() {
                   className="size-8 rounded-md"
                   onClick={resync}
                   disabled={syncState.kind === "syncing"}
-                  aria-label="Sync codebase"
+                  aria-label={t("raw.localCodebase.syncCodebase")}
                 >
                   <IconRefresh
                     className={cn(
@@ -298,7 +311,9 @@ export function LocalCodebasePicker() {
                   />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Sync codebase</TooltipContent>
+              <TooltipContent>
+                {t("raw.localCodebase.syncCodebase")}
+              </TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -309,12 +324,14 @@ export function LocalCodebasePicker() {
                   size="icon"
                   className="size-8 rounded-md"
                   onClick={clearSelection}
-                  aria-label="Clear codebase"
+                  aria-label={t("raw.localCodebase.clearCodebase")}
                 >
                   <IconX className="size-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Clear codebase</TooltipContent>
+              <TooltipContent>
+                {t("raw.localCodebase.clearCodebase")}
+              </TooltipContent>
             </Tooltip>
           </>
         )}

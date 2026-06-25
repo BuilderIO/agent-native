@@ -21,7 +21,7 @@ La configuración de `publicMcp: true` también expone el actions habilitado com
 
 ```an-diagram title="Lo que publica una vía pública" summary="Una ruta pública se abre hacia representaciones amigables para los agentes. Leer la ruta es independiente de llamar a las herramientas: el acceso a las herramientas sigue siendo opcional."
 {
-  "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>Public route<br><small class=\"diagram-muted\">derived from route access settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">.md mirror</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">Tools stay private</span><small class=\"diagram-muted\">publicMcp + publicAgent.expose required</small></div></div>",
+  "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>Ruta pública<br><small class=\"diagram-muted\">derived from route access settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">.md mirror</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">Las herramientas siguen privadas</span><small class=\"diagram-muted\">publicMcp + publicAgent.expose required</small></div></div>",
   "css": ".diagram-web{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-web .diagram-arrow{font-size:22px;line-height:1}.diagram-web .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.diagram-web .gate{display:flex;flex-direction:column;gap:4px;align-items:flex-start}"
 }
 ```
@@ -87,10 +87,10 @@ Para exponer una acción a través de un protocolo de agente público, la acció
 {
   "filename": "actions/search-docs.ts",
   "language": "ts",
-  "code": "export default defineAction({\n  description: \"Search published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"Search published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});",
+  "code": "export default defineAction({\n  description: \"Buscar published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"Buscar published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});",
   "annotations": [
-    { "lines": "4", "label": "Explicit opt-in", "note": "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are." },
-    { "lines": "5-7", "label": "Self-describe safety", "note": "Mark it read-only, declare whether it needs auth, and flag whether it is consequential. Public MCP excludes consequential/write actions unless policy explicitly allows them." }
+    { "lines": "4", "label": "Opción explícita", "note": "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are." },
+    { "lines": "5-7", "label": "Seguridad autodescriptiva", "note": "Márquelo como de solo lectura, declare si necesita autenticación y señale si es consecuente. El MCP público excluye las acciones consecuentes o de escritura a menos que la política las permita explícitamente." }
   ]
 }
 ```
@@ -122,7 +122,7 @@ const files = buildAgentWebStaticFiles({
       path: "/docs",
       title: "Docs",
       description: "Start here.",
-      markdown: "# Docs\n\nStart here.\n",
+      markdown: "# Documentos\n\nStart aquí.\n",
       markdownPath: "/docs/getting-started.md",
       lastmod: new Date(),
     },

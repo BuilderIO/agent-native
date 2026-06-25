@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { appBasePath } from "@agent-native/core/client";
+import { appBasePath, useT } from "@agent-native/core/client";
 import {
   VideoPlayer,
   type VideoPlayerHandle,
@@ -53,6 +53,7 @@ function parseTimeParam(raw: string | null): number {
 }
 
 export default function EmbedRoute() {
+  const t = useT();
   const { shareId } = useParams<{ shareId: string }>();
   const [searchParams] = useSearchParams();
   const playerRef = useRef<VideoPlayerHandle | null>(null);
@@ -143,7 +144,7 @@ export default function EmbedRoute() {
       <AccessPasswordPrompt
         onSubmit={onSubmitPassword}
         error={pwError}
-        title="Password required"
+        title={t("embedRoute.passwordRequired")}
       />
     );
   }
@@ -151,7 +152,7 @@ export default function EmbedRoute() {
   if (!recording) {
     return (
       <div className="flex items-center justify-center h-screen w-full bg-black text-white">
-        <p className="text-sm">Clip unavailable.</p>
+        <p className="text-sm">{t("embedRoute.unavailable")}</p>
       </div>
     );
   }

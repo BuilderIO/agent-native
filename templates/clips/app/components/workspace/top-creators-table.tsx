@@ -7,6 +7,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useT } from "@agent-native/core/client";
 
 export interface TopCreatorRow {
   email: string;
@@ -25,10 +26,11 @@ function initials(email: string): string {
 }
 
 export function TopCreatorsTable({ rows }: TopCreatorsTableProps) {
+  const t = useT();
   if (!rows.length) {
     return (
       <div className="py-6 text-center text-sm text-muted-foreground">
-        No creators yet.
+        {t("clipsFinalRaw.noCreatorsYet")}
       </div>
     );
   }
@@ -38,10 +40,16 @@ export function TopCreatorsTable({ rows }: TopCreatorsTableProps) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Creator</TableHead>
-            <TableHead className="text-end w-24">Recordings</TableHead>
-            <TableHead className="text-end w-20">Views</TableHead>
-            <TableHead className="text-end w-28">Engagement</TableHead>
+            <TableHead>{t("clipsFinalRaw.creator")}</TableHead>
+            <TableHead className="text-end w-24">
+              {t("insightsHub.recordings")}
+            </TableHead>
+            <TableHead className="text-end w-20">
+              {t("insightsHub.views")}
+            </TableHead>
+            <TableHead className="text-end w-28">
+              {t("clipsFinalRaw.engagement")}
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

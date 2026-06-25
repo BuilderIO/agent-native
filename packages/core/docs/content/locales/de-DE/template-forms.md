@@ -10,7 +10,7 @@ Forms ist ein agentennativer Formularersteller. Beschreiben Sie das gewünschte 
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Beta-Anmeldung</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>Teilen</button><button class='primary'>Veröffentlichung aufheben</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>Bearbeiten</span><span class='wf-pill'>Ergebnisse 187</span><span class='wf-pill'>Einstellungen</span><span class='wf-pill'>Integrationen</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>Beta-Anmeldung</h2><p class='wf-muted' style='margin:0'>Reserve a spot in the upcoming private beta cohort.</p><div class='wf-card'><strong>Vollständiger Name</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>Arbeits-E-Mail</strong><input value='you@company.com'/></div><div class='wf-card'><strong>Ihre Rolle</strong><input value='Select...'/></div><div class='wf-card'><strong>Teamgröße</strong><input value='Select...'/></div></div></div>"
+  "html": "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Beta-Anmeldung</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>Teilen</button><button class='primary'>Veröffentlichung aufheben</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>Bearbeiten</span><span class='wf-pill'>Ergebnisse 187</span><span class='wf-pill'>Einstellungen</span><span class='wf-pill'>Integrationen</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>Beta-Anmeldung</h2><p class='wf-muted' style='margin:0'>Reserviere einen Platz in der kommenden privaten Beta.</p><div class='wf-card'><strong>Vollständiger Name</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>Arbeits-E-Mail</strong><input value='you@company.com'/></div><div class='wf-card'><strong>Ihre Rolle</strong><input value='Select...'/></div><div class='wf-card'><strong>Teamgröße</strong><input value='Select...'/></div></div></div>"
 }
 ```
 
@@ -18,7 +18,7 @@ Wenn Sie die App öffnen, sehen Sie Ihre Formulare, den aktuellen Editor und ein
 
 ```an-diagram title="Erstellen, veröffentlichen, sammeln" summary="Der Agent und der visuelle Editor bearbeiten eine SQL-backed-Formulardefinition. Die öffentliche Ausfüllseite ist nicht authentifiziert und Übermittlungen werden serverseitig an Ihre Ziele weitergeleitet."
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Agent prompt<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">Visual editor<br><small class=\"diagram-muted\">labels, validation, order</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">fields JSON, settings JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL via Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Public fill page<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / Sheets</small></div></div></div>",
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Agentenprompt<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">Visueller Editor<br><small class=\"diagram-muted\">Labels, Validierung, Reihenfolge</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">Felder-JSON, Einstellungs-JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL über Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Öffentliche Ausfüllseite<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / Webhook / Sheets</small></div></div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -94,7 +94,7 @@ Alle Daten leben in SQL über Drizzle ORM. Schema: `templates/forms/server/db/sc
 
 Die Formen `fields` und `settings` JSON sind in `templates/forms/shared/types.ts` (`FormField`, `FormSettings`) definiert. Besitzerprivate Einstellungen wie Integrations-Webhooks URLs und zulässige Ursprünge werden entfernt, bevor Daten über `toPublicFormSettings` die öffentliche Füllseite erreichen.
 
-```an-schema title="Forms data model" summary="Three tables. Fields and integrations are JSON columns on forms, so the agent's edits are surgical patches rather than cross-table row changes."
+```an-schema title="Forms Datenmodell" summary="Drei Tische. Felder und Integrationen sind JSON-Spalten in Formularen, sodass es sich bei den Bearbeitungen des Agenten eher um chirurgische Korrekturen als um tabellenübergreifende Zeilenänderungen handelt."
 {
   "entities": [
     {
@@ -106,9 +106,9 @@ Die Formen `fields` und `settings` JSON sind in `templates/forms/shared/types.ts
         { "name": "title", "type": "string" },
         { "name": "description", "type": "string", "nullable": true },
         { "name": "slug", "type": "string", "note": "unique; public URL" },
-        { "name": "fields", "type": "json", "note": "FormField[] — all field types" },
-        { "name": "settings", "type": "json", "note": "FormSettings — integrations, etc." },
-        { "name": "status", "type": "enum", "note": "draft | published | closed" },
+        { "name": "fields", "type": "json", "note": "FormField[] – alle Feldtypen" },
+        { "name": "settings", "type": "json", "note": "FormSettings – Integrationen usw." },
+        { "name": "status", "type": "enum", "note": "Entwurf | veröffentlicht | geschlossen" },
         { "name": "deleted_at", "type": "datetime", "nullable": true, "note": "soft delete" },
         { "name": "owner_email", "type": "string" },
         { "name": "org_id", "type": "id", "nullable": true }
@@ -117,7 +117,7 @@ Die Formen `fields` und `settings` JSON sind in `templates/forms/shared/types.ts
     {
       "id": "responses",
       "name": "responses",
-      "note": "One submission per row",
+      "note": "Eine Einreichung pro Zeile",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "form_id", "type": "id", "fk": "forms.id" },
@@ -130,12 +130,12 @@ Die Formen `fields` und `settings` JSON sind in `templates/forms/shared/types.ts
     {
       "id": "form_shares",
       "name": "form_shares",
-      "note": "Framework shares table — principals to roles per form",
+      "note": "Framework-Anteilstabelle – Prinzipale zu Rollen pro Formular",
       "fields": [
         { "name": "id", "type": "id", "pk": true },
         { "name": "form_id", "type": "id", "fk": "forms.id" },
         { "name": "principal", "type": "string", "note": "user or org" },
-        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+        { "name": "role", "type": "enum", "note": "Zuschauer | Herausgeber | Administrator" }
       ]
     }
   ],

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useT } from "@agent-native/core/client";
 import {
   IconClick,
   IconLayoutBoard,
@@ -56,6 +57,7 @@ export function PlanVisualSurface({
   onVisualModeChange,
   onDesignElementStyleChange,
 }: PlanVisualSurfaceProps) {
+  const t = useT();
   const designCanvas = isDesignCanvas(canvas);
   const [selectedDesignElement, setSelectedDesignElement] =
     useState<DesignElementSelection | null>(null);
@@ -128,7 +130,7 @@ export function PlanVisualSurface({
         <div
           className="absolute left-4 top-4 z-40"
           data-plan-interactive
-          aria-label="Visual review mode"
+          aria-label={t("raw.visual.visualReviewMode")}
         >
           <TabsList className="h-9 rounded-lg border border-plan-line bg-plan-chrome/90 p-1 shadow-xl backdrop-blur">
             <TabsTrigger
@@ -136,7 +138,7 @@ export function PlanVisualSurface({
               className="h-7 gap-1.5 px-2.5 text-xs"
             >
               <IconClick className="size-3.5" aria-hidden="true" />
-              Prototype
+              {t("raw.visual.prototype")}
             </TabsTrigger>
             <TabsTrigger
               value="wireframes"
@@ -147,7 +149,9 @@ export function PlanVisualSurface({
               ) : (
                 <IconLayoutBoard className="size-3.5" aria-hidden="true" />
               )}
-              {designCanvas ? "Design" : "Wireframes"}
+              {designCanvas
+                ? t("raw.visual.design")
+                : t("raw.visual.wireframes")}
             </TabsTrigger>
           </TabsList>
         </div>
@@ -239,6 +243,7 @@ function DesignStyleInspector({
     styles: Record<string, string | null>,
   ) => Promise<void> | void;
 }) {
+  const t = useT();
   if (!selection) return null;
   const canEdit = Boolean(onStyleChange);
   const apply = (property: string, value: string) => {
@@ -254,7 +259,7 @@ function DesignStyleInspector({
       <div className="mb-3 flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-semibold uppercase tracking-[0.12em] text-plan-muted">
-            Design element
+            {t("raw.visual.designElement")}
           </p>
           <p className="mt-0.5 truncate text-sm font-semibold text-plan-text">
             {selection.elementId}
@@ -270,7 +275,7 @@ function DesignStyleInspector({
           size="icon"
           className="size-7"
           onClick={onClear}
-          aria-label="Clear design selection"
+          aria-label={t("raw.visual.clearDesignSelection")}
         >
           <IconX className="size-4" />
         </Button>
