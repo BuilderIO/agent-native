@@ -59,9 +59,7 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
   const { data: variants } = useQuery({
     queryKey: stateQueryKey,
     queryFn: async ({ signal }) =>
-      threadId
-        ? readClientAppState<AssetVariantState>(stateKey, { signal })
-        : null,
+      readClientAppState<AssetVariantState>(stateKey, { signal }),
     refetchInterval: 1000,
   });
   const { data: librariesData } = useActionQuery("list-libraries", {
@@ -90,7 +88,8 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
     [variants?.slots],
   );
   const belongsToThread = Boolean(
-    threadId && variants && variants.threadId === threadId,
+    variants &&
+    (threadId ? variants.threadId === threadId : !variants.threadId),
   );
 
   useEffect(() => {

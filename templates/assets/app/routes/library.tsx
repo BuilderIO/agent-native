@@ -12,7 +12,6 @@ import {
   type EmbeddedAppBridge,
 } from "@agent-native/core/embedding/bridge";
 import {
-  agentNativePath,
   appPath,
   getBrowserTabId,
   getEmbedAuthToken,
@@ -24,7 +23,9 @@ import {
   updateMcpAppModelContext,
   useActionMutation,
   useActionQuery,
+  useAgentChatGenerating,
   useT,
+  writeClientAppState,
 } from "@agent-native/core/client";
 import {
   IconArrowUpRight,
@@ -79,6 +80,7 @@ import {
   sortLibrariesByUsage,
   type ImageLibrarySummary,
 } from "@/lib/libraries";
+import { buildPickerChatHandoffPrompt } from "@/lib/picker-chat-handoff";
 import {
   BrandKitDetailRoute,
   LiveCandidatesStage,
@@ -2050,7 +2052,6 @@ export function AssetPickerSurface() {
   const {
     data: presetData,
     isLoading: presetsLoading,
-    isFetching: presetsFetching,
     isPending: presetsPending,
   } = useActionQuery(
     "list-generation-presets",
@@ -2059,7 +2060,6 @@ export function AssetPickerSurface() {
   ) as {
     data?: { presets?: GenerationPreset[] };
     isLoading?: boolean;
-    isFetching?: boolean;
     isPending?: boolean;
   };
   const generationPresets =
@@ -2069,12 +2069,15 @@ export function AssetPickerSurface() {
       ? null
       : (generationPresets.find((preset) => preset.id === presetId) ?? null);
   const effectiveAspectRatio = selectedPreset?.aspectRatio || aspectRatio;
+  const waitingForPresetData =
+    !presetData && (presetsLoading || presetsPending);
   const waitingForRequestedPreset =
     mediaType === "image" &&
     presetId !== "none" &&
     !usingStarterLibrary &&
     Boolean(selectedLibraryId) &&
-    (presetsLoading || presetsFetching || presetsPending || !selectedPreset);
+    !selectedPreset &&
+    Boolean(waitingForPresetData);
   const mediaLabel = mediaType === "video" ? "video" : "image";
   const assetsParams = useMemo(
     () => ({
@@ -2124,6 +2127,12 @@ export function AssetPickerSurface() {
       ? visibleStarterAssets
       : []
     : (assetData?.assets ?? []);
+  const currentLibrary = useMemo(
+    () =>
+      displayLibraries.find((library) => library.id === selectedLibraryId) ??
+      null,
+    [displayLibraries, selectedLibraryId],
+  );
   const assets = useMemo(
     () => allAssets.filter((asset) => assetMatchesTab(asset, assetTab)),
     [allAssets, assetTab],
@@ -2266,10 +2275,34 @@ export function AssetPickerSurface() {
       },
     } as any,
   );
+  const [chatGenerating, sendToAgent] = useAgentChatGenerating();
 
   const runGenerate = useCallback(() => {
     if (!selectedLibraryId || !prompt.trim()) return;
     if (waitingForRequestedPreset) return;
+    if (!embedded) {
+      sendToAgent({
+        message: buildPickerChatHandoffPrompt({
+          mediaType,
+          prompt,
+          count,
+          aspectRatio: effectiveAspectRatio,
+          libraryId: usingStarterLibrary ? null : selectedLibraryId,
+          libraryTitle: usingStarterLibrary
+            ? null
+            : (currentLibrary?.title ?? null),
+          presetId: selectedPreset?.id ?? null,
+          presetTitle: selectedPreset?.title ?? null,
+          tier: hostConfig.tier,
+          styleStrength: hostConfig.styleStrength ?? "balanced",
+          includeLogo: hostConfig.includeLogo ?? false,
+        }),
+        submit: true,
+        openSidebar: true,
+        newTab: true,
+      });
+      return;
+    }
     setVisibleCandidateRunIds([]);
     const variantScopeId =
       pickerVariantScopeId ?? `picker:${getBrowserTabId()}`;
@@ -2292,49 +2325,44 @@ export function AssetPickerSurface() {
     } as any);
   }, [
     count,
+    currentLibrary?.title,
+    embedded,
     effectiveAspectRatio,
     generateBatch,
     hostConfig.callerAppId,
     hostConfig.includeLogo,
     hostConfig.styleStrength,
     hostConfig.tier,
+    mediaType,
     prompt,
     pickerVariantScopeId,
+    sendToAgent,
     setVisibleCandidateRunIds,
     selectedLibraryId,
     selectedPreset,
+    usingStarterLibrary,
     waitingForRequestedPreset,
   ]);
 
   useEffect(() => {
-    const hostCandidateFilterMatches =
-      hostConfig.candidateRunIds?.length &&
-      normalizeMediaType(hostConfig.mediaType) === mediaType &&
-      (hostConfig.libraryId ?? "") === (selectedLibraryId ?? "") &&
-      (hostConfig.prompt ?? "") === prompt &&
-      (hostConfig.aspectRatio ?? "16:9") === aspectRatio &&
-      (hostConfig.presetId ?? "none") === presetId &&
-      (hostConfig.count ?? 3) === count;
-    if (hostCandidateFilterMatches) return;
-    setVisibleCandidateRunIds([]);
+    if (!visibleCandidateRunIds.length) return;
+    if (normalizeMediaType(hostConfig.mediaType) !== mediaType) {
+      setVisibleCandidateRunIds([]);
+      return;
+    }
+    if (
+      hostConfig.libraryId &&
+      selectedLibraryId &&
+      hostConfig.libraryId !== selectedLibraryId
+    ) {
+      setVisibleCandidateRunIds([]);
+    }
   }, [
-    aspectRatio,
-    count,
-    hostConfig.aspectRatio,
-    hostConfig.candidateRunIds,
-    hostConfig.count,
-    hostConfig.callerAppId,
-    hostConfig.includeLogo,
     hostConfig.libraryId,
     hostConfig.mediaType,
-    hostConfig.presetId,
-    hostConfig.prompt,
-    hostConfig.styleStrength,
-    hostConfig.tier,
     mediaType,
-    presetId,
-    prompt,
     selectedLibraryId,
+    visibleCandidateRunIds.length,
   ]);
 
   useEffect(() => {
@@ -2364,25 +2392,17 @@ export function AssetPickerSurface() {
   }, []);
 
   useEffect(() => {
-    fetch(
-      agentNativePath(
-        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
-      ),
+    void writeClientAppState(
+      `navigation:${getBrowserTabId()}`,
       {
-        method: "PUT",
-        headers: {
-          "content-type": "application/json",
-          "x-request-source": "assets-picker-ui",
-        },
-        body: JSON.stringify({
-          view: "picker",
-          mediaType,
-          libraryId: selectedLibraryId || null,
-          query,
-          prompt,
-          aspectRatio,
-        }),
+        view: "picker",
+        mediaType,
+        libraryId: selectedLibraryId || null,
+        query,
+        prompt,
+        aspectRatio,
       },
+      { requestSource: "assets-picker-ui" },
     ).catch(() => {});
   }, [aspectRatio, mediaType, prompt, query, selectedLibraryId]);
 
@@ -2392,7 +2412,7 @@ export function AssetPickerSurface() {
     !usingStarterLibrary &&
     Boolean(prompt.trim()) &&
     !waitingForRequestedPreset &&
-    !(embedded && generateBatch.isPending);
+    !(embedded ? generateBatch.isPending : chatGenerating);
   const setupNeeded = mediaType === "image" && config?.configured === false;
   const setupMessage =
     typeof config?.lastIssue?.message === "string"
@@ -2415,27 +2435,30 @@ export function AssetPickerSurface() {
     (waitingForLibraries ||
       needsGenerationLibrary ||
       preparingGenerationLibrary);
-  const generationButtonLabel =
-    embedded && generateBatch.isPending
-      ? t("library.generating")
-      : waitingForRequestedPreset
-        ? t("library.loadingPreset")
-        : setupNeeded
-          ? t("library.setupNeeded")
-          : preparingAutoLibrary
-            ? t("library.preparing")
-            : embedded
-              ? t("library.generate")
-              : t("library.openChat");
+  const generationButtonLabel = (
+    embedded ? generateBatch.isPending : chatGenerating
+  )
+    ? t("library.generating")
+    : waitingForRequestedPreset
+      ? t("library.loadingPreset")
+      : setupNeeded
+        ? t("library.setupNeeded")
+        : preparingAutoLibrary
+          ? t("library.preparing")
+          : embedded
+            ? t("library.generate")
+            : t("library.openChat");
   const generationStatus = preparingAutoLibrary
     ? waitingForLibraries
       ? t("library.checkingImageLibraries")
       : t("library.preparingImageLibrary")
     : embedded && generateBatch.isPending
       ? t("library.generatingCandidates")
-      : waitingForRequestedPreset
-        ? t("library.loadingRequestedPreset")
-        : null;
+      : !embedded && chatGenerating
+        ? t("library.generating")
+        : waitingForRequestedPreset
+          ? t("library.loadingRequestedPreset")
+          : null;
 
   useEffect(() => {
     if (!selectedPreset?.aspectRatio) return;
@@ -2468,8 +2491,8 @@ export function AssetPickerSurface() {
   useEffect(() => {
     if (!hostConfig.autoGenerate) return;
     if (!prompt.trim() || mediaType !== "image") return;
-    if (!canGenerate || setupNeeded || (embedded && generateBatch.isPending))
-      return;
+    if (!embedded) return;
+    if (!canGenerate || setupNeeded || generateBatch.isPending) return;
     if (waitingForRequestedPreset) return;
     const key = [
       selectedLibraryId,
@@ -2553,9 +2576,8 @@ export function AssetPickerSurface() {
         <section className="shrink-0 border-b border-border px-3 py-3">
           {mediaType === "image" ? (
             <div className="mt-2 rounded-lg border border-border/80 bg-background focus-within:ring-1 focus-within:ring-ring">
-              <Textarea
-                autoGrow
-                rows={1}
+              <Input
+                type="text"
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 onKeyDown={(event) => {
@@ -2570,7 +2592,7 @@ export function AssetPickerSurface() {
                   if (canGenerate) runGenerate();
                 }}
                 placeholder={t("library.generateImagePlaceholder")}
-                className="min-h-11 max-h-40 border-0 bg-transparent px-3 py-2.5 leading-6 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="h-11 border-0 bg-transparent px-3 py-2.5 leading-6 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
               />
               <div className="flex items-center gap-1 px-2 pb-2">
                 <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">
@@ -2636,18 +2658,21 @@ export function AssetPickerSurface() {
                   ) : null}
                 </div>
                 <Button
-                  className="h-7 shrink-0 px-3 text-xs"
+                  className="h-7 min-w-[5.75rem] shrink-0 px-3 text-xs"
                   disabled={!canGenerate}
                   onClick={runGenerate}
                 >
                   {generationButtonLabel}
                 </Button>
               </div>
-              {generationStatus && (
-                <div className="-mt-1 px-3 pb-2 text-[11px] leading-4 text-muted-foreground">
-                  {generationStatus}
-                </div>
-              )}
+              <div
+                className={cn(
+                  "-mt-1 min-h-6 px-3 pb-2 text-[11px] leading-4 text-muted-foreground",
+                  !generationStatus && "invisible",
+                )}
+              >
+                {generationStatus || t("library.ready")}
+              </div>
             </div>
           ) : null}
 
