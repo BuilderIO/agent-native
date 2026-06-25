@@ -19,8 +19,8 @@ export async function loader({
   return doc;
 }
 
-export const meta = ({ data }: { data?: DocEntry } = {}) => {
-  const doc = data ?? getDoc(GETTING_STARTED_SLUG);
+export const meta = ({ loaderData }: { loaderData?: DocEntry } = {}) => {
+  const doc = loaderData ?? getDoc(GETTING_STARTED_SLUG);
   if (!doc) {
     return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
   }

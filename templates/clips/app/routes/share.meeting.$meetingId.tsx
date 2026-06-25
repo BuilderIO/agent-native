@@ -116,8 +116,8 @@ export async function loader({
   };
 }
 
-export const meta: MetaFunction<typeof loader> = ({ data }) => {
-  const m = data?.meeting;
+export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
+  const m = loaderData?.meeting;
   const title = m?.title ? `${m.title} · Clips` : "Meeting notes · Clips";
   const description = m?.title
     ? `AI meeting notes for "${m.title}"`

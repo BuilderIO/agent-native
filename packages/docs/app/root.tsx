@@ -97,8 +97,8 @@ async function initialMessagesForLocale(locale: DocsLocale) {
   return loadDocsMessages(locale);
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  const locale = resolveLayoutLocale(new URL(request.url).pathname);
+export async function loader({ url }: LoaderFunctionArgs) {
+  const locale = resolveLayoutLocale(url.pathname);
   return {
     locale,
     preference: { locale },

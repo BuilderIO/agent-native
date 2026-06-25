@@ -13,8 +13,8 @@ export async function loader({ params }: Route.LoaderArgs) {
   return { planMeta };
 }
 
-export const meta: Route.MetaFunction = ({ data }) => {
-  const planMeta = data?.planMeta;
+export const meta: Route.MetaFunction = ({ loaderData }) => {
+  const planMeta = loaderData?.planMeta;
   if (!planMeta) {
     return [
       { title: APP_TITLE },

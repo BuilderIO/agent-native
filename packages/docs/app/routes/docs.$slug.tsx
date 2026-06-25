@@ -37,13 +37,13 @@ export async function loader({ params }: LoaderFunctionArgs) {
 }
 
 export const meta = ({
-  data,
+  loaderData,
   params,
 }: {
-  data?: DocEntry;
+  loaderData?: DocEntry;
   params: { slug: string };
 }) => {
-  const doc = data ?? getDoc(params.slug);
+  const doc = loaderData ?? getDoc(params.slug);
   if (!doc)
     return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
   return withDocsSocialImage(

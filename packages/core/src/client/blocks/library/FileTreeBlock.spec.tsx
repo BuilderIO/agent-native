@@ -101,26 +101,22 @@ describe("FileTreeBlock", () => {
       { path: "AGENTS.md", note: "Always-on agent instructions." },
     ]);
 
-    const fileButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => (button.textContent ?? "").includes("AGENTS.md"),
-    );
+    const fileRow = container.querySelector('[data-file-path="AGENTS.md"]');
 
-    expect(fileButton).toBeTruthy();
-    expect(fileButton?.disabled).toBe(true);
-    expect(fileButton?.hasAttribute("aria-expanded")).toBe(false);
+    expect(fileRow).toBeTruthy();
+    expect(fileRow?.tagName).toBe("DIV");
+    expect(fileRow?.hasAttribute("aria-expanded")).toBe(false);
     expect(
-      fileButton?.querySelector('[class*="tabler-icon-chevron-right"]'),
+      fileRow?.querySelector('[class*="tabler-icon-chevron-right"]'),
     ).toBeNull();
-    expect(fileButton?.textContent).toContain("Always-on agent instructions.");
+    expect(fileRow?.textContent).toContain("Always-on agent instructions.");
 
-    const note = Array.from(fileButton?.querySelectorAll("span") ?? []).find(
-      (span) =>
-        span.textContent === "Always-on agent instructions." &&
-        span.className.includes("an-file-tree-note"),
+    const note = Array.from(fileRow?.querySelectorAll("span") ?? []).find(
+      (span) => span.textContent === "Always-on agent instructions.",
     );
-    expect(note?.className).toContain("an-file-tree-note");
-    expect(note?.className).toContain("break-words");
-    expect(note?.className).not.toContain("truncate");
+    expect(note?.className).toContain("truncate");
+    expect(note?.getAttribute("title")).toBeNull();
+    expect(note?.getAttribute("data-state")).toBe("closed");
   });
 
   it("flags data-files-expanded only while focused with an open file", () => {

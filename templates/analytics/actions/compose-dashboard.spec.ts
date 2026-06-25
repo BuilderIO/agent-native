@@ -209,6 +209,18 @@ describe("compose-dashboard", () => {
     }
   });
 
+  it("excludes unassigned telemetry from per-template activity panels", () => {
+    for (const metric of [
+      "dau-over-time",
+      "wau-over-time",
+      "one-day-retention-by-template",
+      "seven-day-retention-by-template",
+    ]) {
+      const panel = buildPanel(metric)!;
+      expect(panel.sql).toContain("<> 'unknown'");
+    }
+  });
+
   it("adds shared filters when appending filtered panels to an existing dashboard", async () => {
     store.set("existing-unfiltered", {
       config: {

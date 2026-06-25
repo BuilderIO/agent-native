@@ -31,7 +31,7 @@ import {
   IconAlignLeft,
   IconLoader2,
 } from "@tabler/icons-react";
-import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
+import { canFormatPanelSql, safeFormatPanelSql } from "@/lib/format-sql";
 import {
   clampDashboardColumns,
   clampPanelWidth,
@@ -248,14 +248,13 @@ function PanelEditorContent({
 
   const handleFormatSql = () => {
     if (!canFormat) return;
-    try {
-      setForm((f) => ({ ...f, sql: formatPanelSql(f.sql, f.source) }));
+    const result = safeFormatPanelSql(form.sql, form.source);
+    setForm((f) => ({ ...f, sql: result.sql }));
+    if (result.error) {
+      setError(result.error);
+      toast.error(result.error);
+    } else {
       setError(null);
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to format SQL";
-      setError(message);
-      toast.error(message);
     }
   };
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconChevronRight,
   IconFile,
@@ -8,6 +8,12 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../../components/ui/tooltip.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type {
@@ -296,6 +302,61 @@ function flattenVisibleRows(
 const INDENT_STEP = 14; // px per nesting level — the explorer guide spacing.
 const DEFAULT_VISIBLE_TREE_ROWS = 10;
 
+function OverflowNoteTooltip({
+  className,
+  note,
+}: {
+  className: string;
+  note: string;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+
+    const checkOverflow = () => {
+      setIsOverflowing(element.scrollWidth > element.clientWidth + 1);
+    };
+
+    checkOverflow();
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(checkOverflow);
+    resizeObserver?.observe(element);
+    window.addEventListener("resize", checkOverflow);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", checkOverflow);
+    };
+  }, [note]);
+
+  const text = (
+    <span ref={ref} className={className}>
+      {note}
+    </span>
+  );
+
+  if (!isOverflowing) return text;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{text}</TooltipTrigger>
+      <TooltipContent
+        align="start"
+        side="top"
+        className="max-w-[min(28rem,calc(100vw-2rem))] whitespace-normal break-words text-xs leading-5"
+      >
+        {note}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 /**
  * Read-only renderer for a `file-tree` block — a VS Code / GitHub-explorer file
  * and change tree. The flat `entries` are folded into a nested tree of
@@ -432,9 +493,10 @@ export function FileTreeRead({
               {node.name}
             </span>
             {note && (
-              <span className="ml-1 min-w-0 flex-1 truncate text-xs text-plan-muted">
-                {note}
-              </span>
+              <OverflowNoteTooltip
+                className="ml-1 min-w-0 flex-1 truncate text-xs text-plan-muted"
+                note={note}
+              />
             )}
           </button>
         </div>
@@ -447,70 +509,87 @@ export function FileTreeRead({
     const snippet = entry.snippet?.trim();
     const hasDetail = Boolean(snippet);
     const isOpen = openFiles[node.index] ?? false;
-
-    return (
-      <div key={`f:${node.index}`}>
-        <button
-          type="button"
-          data-plan-interactive
-          data-file-path={node.path}
-          disabled={!hasDetail}
-          aria-expanded={hasDetail ? isOpen : undefined}
-          onClick={hasDetail ? () => toggleFile(node.index) : undefined}
-          style={{ paddingLeft: indent + 8 }}
-          className={cn(
-            "group flex w-full items-start gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] transition-colors",
-            hasDetail ? "hover:bg-accent/40" : "cursor-default",
-          )}
-        >
-          {/* Chevron slot — present only for files with expandable snippets so
-              note-only files read as plain files instead of pseudo-folders. */}
-          {hasDetail ? (
-            <IconChevronRight
-              className={cn(
-                "mt-0.5 size-3.5 shrink-0 text-plan-muted transition-transform",
-                isOpen && "rotate-90",
-              )}
-            />
-          ) : (
-            <span className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-          )}
-          <IconFile
+    const fileRowContents = (
+      <>
+        {/* Chevron slot — present only for files with expandable snippets so
+            note-only files read as plain files instead of pseudo-folders. */}
+        {hasDetail ? (
+          <IconChevronRight
             className={cn(
-              "mt-0.5 size-4 shrink-0",
-              change === "removed" ? "text-plan-muted" : "text-plan-muted/80",
+              "mt-0.5 size-3.5 shrink-0 text-plan-muted transition-transform",
+              isOpen && "rotate-90",
             )}
           />
-          <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="inline-flex min-w-0 max-w-full shrink-0 items-center gap-1.5">
+        ) : (
+          <span className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+        )}
+        <IconFile
+          className={cn(
+            "mt-0.5 size-4 shrink-0",
+            change === "removed" ? "text-plan-muted" : "text-plan-muted/80",
+          )}
+        />
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span className="inline-flex min-w-0 shrink-0 items-center gap-1.5">
+            <span
+              className={cn(
+                "min-w-0 truncate font-medium",
+                change ? CHANGE_NAME_INK[change] : "text-plan-text",
+              )}
+            >
+              {node.name}
+            </span>
+            {change && (
               <span
+                title={CHANGE_LABEL[change]}
+                aria-label={CHANGE_LABEL[change]}
                 className={cn(
-                  "min-w-0 truncate font-medium",
-                  change ? CHANGE_NAME_INK[change] : "text-plan-text",
+                  "flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold leading-none",
+                  CHANGE_BADGE[change],
                 )}
               >
-                {node.name}
-              </span>
-              {change && (
-                <span
-                  title={CHANGE_LABEL[change]}
-                  aria-label={CHANGE_LABEL[change]}
-                  className={cn(
-                    "flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold leading-none",
-                    CHANGE_BADGE[change],
-                  )}
-                >
-                  {CHANGE_GLYPH[change]}
-                </span>
-              )}
-            </span>
-            {note && !isOpen && (
-              <span className="min-w-[min(16rem,100%)] flex-1 text-xs leading-5 text-plan-muted">
-                <span className="an-file-tree-note break-words">{note}</span>
+                {CHANGE_GLYPH[change]}
               </span>
             )}
           </span>
-        </button>
+          {note && !isOpen && (
+            <OverflowNoteTooltip
+              className="min-w-0 flex-1 truncate text-xs text-plan-muted"
+              note={note}
+            />
+          )}
+        </span>
+      </>
+    );
+    const rowClassName = cn(
+      "group flex w-full items-start gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] transition-colors",
+      hasDetail ? "hover:bg-accent/40" : "cursor-default",
+    );
+
+    return (
+      <div key={`f:${node.index}`}>
+        {hasDetail ? (
+          <button
+            type="button"
+            data-plan-interactive
+            data-file-path={node.path}
+            aria-expanded={isOpen}
+            onClick={() => toggleFile(node.index)}
+            style={{ paddingLeft: indent + 8 }}
+            className={rowClassName}
+          >
+            {fileRowContents}
+          </button>
+        ) : (
+          <div
+            data-plan-interactive
+            data-file-path={node.path}
+            style={{ paddingLeft: indent + 8 }}
+            className={rowClassName}
+          >
+            {fileRowContents}
+          </div>
+        )}
 
         {/* Expanded file detail: the note + a fenced snippet. */}
         {hasDetail && isOpen && (
@@ -581,36 +660,38 @@ export function FileTreeRead({
         </div>
 
         {/* The tree itself. */}
-        <div className="py-1.5">
-          {tree.length > 0 ? (
-            <>
-              {displayedRows.map(renderRow)}
-              {shouldLimitRows && (
-                <div className="px-2 pt-1">
-                  <button
-                    type="button"
-                    data-plan-interactive
-                    aria-expanded={showAllRows}
-                    onClick={() => setShowAllRows((current) => !current)}
-                    className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md text-xs font-medium text-plan-muted transition-colors hover:bg-accent/40 hover:text-plan-text"
-                  >
-                    <IconChevronRight
-                      className={cn(
-                        "size-3.5 shrink-0 transition-transform",
-                        showAllRows ? "-rotate-90" : "rotate-90",
-                      )}
-                    />
-                    {showAllRows
-                      ? "Show fewer"
-                      : `Show all ${visibleRows.length} rows`}
-                  </button>
-                </div>
-              )}
-            </>
-          ) : (
-            <p className="px-3 py-2 text-xs text-plan-muted">No files yet.</p>
-          )}
-        </div>
+        <TooltipProvider delayDuration={180}>
+          <div className="py-1.5">
+            {tree.length > 0 ? (
+              <>
+                {displayedRows.map(renderRow)}
+                {shouldLimitRows && (
+                  <div className="px-2 pt-1">
+                    <button
+                      type="button"
+                      data-plan-interactive
+                      aria-expanded={showAllRows}
+                      onClick={() => setShowAllRows((current) => !current)}
+                      className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md text-xs font-medium text-plan-muted transition-colors hover:bg-accent/40 hover:text-plan-text"
+                    >
+                      <IconChevronRight
+                        className={cn(
+                          "size-3.5 shrink-0 transition-transform",
+                          showAllRows ? "-rotate-90" : "rotate-90",
+                        )}
+                      />
+                      {showAllRows
+                        ? "Show fewer"
+                        : `Show all ${visibleRows.length} rows`}
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="px-3 py-2 text-xs text-plan-muted">No files yet.</p>
+            )}
+          </div>
+        </TooltipProvider>
       </div>
 
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}

@@ -98,6 +98,7 @@ function fixed(sql: string): (window?: MetricWindow) => string {
 
 const TEMPLATE_EXPR =
   "COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')";
+const KNOWN_TEMPLATE_FILTER = `${TEMPLATE_EXPR} <> 'unknown'`;
 const LOCAL_EVENT_DATE_SQL = "substr(timestamp, 1, 10)";
 
 function daysAgoSql(days: number): string {
@@ -155,11 +156,11 @@ export function usesFirstPartyDashboardFilters(sql: string): boolean {
 
 const TOTAL_SIGNUPS_SQL = `SELECT COUNT(*) AS signups FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}`;
 const SIGNUPS_OVER_TIME_SQL = `WITH offsets AS (SELECT (ROW_NUMBER() OVER (ORDER BY timestamp) - 1)::int AS n FROM analytics_events LIMIT 800), signup_events AS (SELECT substr(timestamp, 1, 10) AS date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), bounds AS (SELECT MIN(date::date) AS start_date, MAX(date::date) AS end_date FROM signup_events), dates AS (SELECT to_char(bounds.start_date + offsets.n, 'YYYY-MM-DD') AS date FROM bounds CROSS JOIN offsets WHERE bounds.start_date IS NOT NULL AND bounds.start_date + offsets.n <= bounds.end_date), templates AS (SELECT DISTINCT template FROM signup_events), daily AS (SELECT date, template, COUNT(*) AS count FROM signup_events GROUP BY date, template) SELECT dates.date, templates.template, COALESCE(daily.count, 0) AS count FROM dates CROSS JOIN templates LEFT JOIN daily ON daily.date = dates.date AND daily.template = templates.template ORDER BY dates.date, templates.template`;
-const ONE_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key, ${TEMPLATE_EXPR} AS template, substr(timestamp, 1, 10) AS event_date, user_id FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, template, MIN(event_date) AS cohort_date FROM base GROUP BY user_key, template), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= ${daysAgoSql(1)} AND ${dashboardTimeRangeFilter("cohort_date")}) SELECT c.cohort_date AS date, c.template, COALESCE(COUNT(DISTINCT c.user_key) FILTER (WHERE b.event_date = to_char(c.cohort_date::date + INTERVAL '1 day', 'YYYY-MM-DD'))::float / NULLIF(COUNT(DISTINCT c.user_key), 0), 0) AS rate FROM cohorts c LEFT JOIN base b ON b.user_key = c.user_key AND b.template = c.template GROUP BY c.cohort_date, c.template ORDER BY c.cohort_date, c.template`;
-const SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key, ${TEMPLATE_EXPR} AS template, substr(timestamp, 1, 10) AS event_date, user_id FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, template, MIN(event_date) AS cohort_date FROM base GROUP BY user_key, template), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= ${daysAgoSql(7)} AND ${dashboardTimeRangeFilter("cohort_date")}) SELECT c.cohort_date AS date, c.template, COALESCE(COUNT(DISTINCT c.user_key) FILTER (WHERE b.event_date = to_char(c.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD'))::float / NULLIF(COUNT(DISTINCT c.user_key), 0), 0) AS rate FROM cohorts c LEFT JOIN base b ON b.user_key = c.user_key AND b.template = c.template GROUP BY c.cohort_date, c.template ORDER BY c.cohort_date, c.template`;
+const ONE_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key, ${TEMPLATE_EXPR} AS template, substr(timestamp, 1, 10) AS event_date, user_id FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_TEMPLATE_FILTER}), first_seen AS (SELECT user_key, template, MIN(event_date) AS cohort_date FROM base GROUP BY user_key, template), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= ${daysAgoSql(1)} AND ${dashboardTimeRangeFilter("cohort_date")}) SELECT c.cohort_date AS date, c.template, COALESCE(COUNT(DISTINCT c.user_key) FILTER (WHERE b.event_date = to_char(c.cohort_date::date + INTERVAL '1 day', 'YYYY-MM-DD'))::float / NULLIF(COUNT(DISTINCT c.user_key), 0), 0) AS rate FROM cohorts c LEFT JOIN base b ON b.user_key = c.user_key AND b.template = c.template GROUP BY c.cohort_date, c.template ORDER BY c.cohort_date, c.template`;
+const SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key, ${TEMPLATE_EXPR} AS template, substr(timestamp, 1, 10) AS event_date, user_id FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_TEMPLATE_FILTER}), first_seen AS (SELECT user_key, template, MIN(event_date) AS cohort_date FROM base GROUP BY user_key, template), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= ${daysAgoSql(7)} AND ${dashboardTimeRangeFilter("cohort_date")}) SELECT c.cohort_date AS date, c.template, COALESCE(COUNT(DISTINCT c.user_key) FILTER (WHERE b.event_date = to_char(c.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD'))::float / NULLIF(COUNT(DISTINCT c.user_key), 0), 0) AS rate FROM cohorts c LEFT JOIN base b ON b.user_key = c.user_key AND b.template = c.template GROUP BY c.cohort_date, c.template ORDER BY c.cohort_date, c.template`;
 const SIGNUPS_BY_TEMPLATE_SQL = `SELECT ${TEMPLATE_EXPR} AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} GROUP BY ${TEMPLATE_EXPR} ORDER BY count DESC`;
-const DAU_BY_TEMPLATE_SQL = `SELECT substr(timestamp, 1, 10) AS date, ${TEMPLATE_EXPR} AS template, COUNT(DISTINCT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))) AS users FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} GROUP BY substr(timestamp, 1, 10), ${TEMPLATE_EXPR} ORDER BY date, template`;
-const WAU_BY_TEMPLATE_SQL = `WITH base AS (SELECT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key, ${TEMPLATE_EXPR} AS template, substr(timestamp, 1, 10) AS event_date, user_id FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ${DASHBOARD_EMAIL_FILTER}), days AS (SELECT DISTINCT event_date AS date FROM base WHERE ${DASHBOARD_EVENT_DATE_RANGE_FILTER}) SELECT d.date, b.template, COUNT(DISTINCT b.user_key) AS users FROM days d JOIN base b ON b.event_date >= to_char(d.date::date - INTERVAL '6 days', 'YYYY-MM-DD') AND b.event_date <= d.date GROUP BY d.date, b.template ORDER BY d.date, b.template`;
+const DAU_BY_TEMPLATE_SQL = `SELECT substr(timestamp, 1, 10) AS date, ${TEMPLATE_EXPR} AS template, COUNT(DISTINCT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))) AS users FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_TEMPLATE_FILTER} GROUP BY substr(timestamp, 1, 10), ${TEMPLATE_EXPR} ORDER BY date, template`;
+const WAU_BY_TEMPLATE_SQL = `WITH base AS (SELECT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key, ${TEMPLATE_EXPR} AS template, substr(timestamp, 1, 10) AS event_date, user_id FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_TEMPLATE_FILTER}), days AS (SELECT DISTINCT event_date AS date FROM base WHERE ${DASHBOARD_EVENT_DATE_RANGE_FILTER}) SELECT d.date, b.template, COUNT(DISTINCT b.user_key) AS users FROM days d JOIN base b ON b.event_date >= to_char(d.date::date - INTERVAL '6 days', 'YYYY-MM-DD') AND b.event_date <= d.date GROUP BY d.date, b.template ORDER BY d.date, b.template`;
 
 /**
  * Catalog entries. Order here is the default panel order when a caller passes
@@ -583,7 +584,7 @@ const ENTRIES: FirstPartyMetric[] = [
         valueKey: "rate",
       },
       description:
-        "Per-template first-seen cohorts in the selected range. A user is retained when they return to the same template the next day.",
+        "Per-template first-seen cohorts in the selected range, excluding unassigned telemetry. A user is retained when they return to the same template the next day.",
     },
   },
   {
@@ -604,7 +605,7 @@ const ENTRIES: FirstPartyMetric[] = [
         valueKey: "rate",
       },
       description:
-        "Per-template first-seen cohorts in the selected range. A user is retained when they return to the same template seven days later.",
+        "Per-template first-seen cohorts in the selected range, excluding unassigned telemetry. A user is retained when they return to the same template seven days later.",
     },
   },
   {
@@ -626,7 +627,7 @@ const ENTRIES: FirstPartyMetric[] = [
       },
       stacked: true,
       description:
-        "Distinct active users per day in the selected time range, stacked by template. Uses user_id first, then anonymous_id.",
+        "Distinct active users per day in the selected time range, stacked by inferred template/app. Unassigned telemetry is excluded.",
     },
   },
   {
@@ -648,7 +649,7 @@ const ENTRIES: FirstPartyMetric[] = [
       },
       stacked: true,
       description:
-        "Trailing 7-day distinct active users for each active date in the selected time range, stacked by template.",
+        "Trailing 7-day distinct active users for each active date in the selected time range, stacked by inferred template/app. Unassigned telemetry is excluded.",
     },
   },
 

@@ -82,8 +82,8 @@ export async function loader({
   };
 }
 
-export const meta: MetaFunction<typeof loader> = ({ data }) => {
-  const title = data?.deck?.title ?? "Shared Presentation";
+export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
+  const title = loaderData?.deck?.title ?? "Shared Presentation";
   return [{ title }];
 };
 

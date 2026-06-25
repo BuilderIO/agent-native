@@ -127,14 +127,13 @@ function shouldShowGeneratedTitleSkeleton(
   return true;
 }
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ params, url }: LoaderFunctionArgs) {
   const id = params.shareId;
-  const requestUrl = new URL(request.url);
   if (!id)
     return {
       recording: null,
       agentContextUrl: null,
-      origin: requestUrl.origin,
+      origin: url.origin,
       shareUrl: null,
     };
 
@@ -160,7 +159,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     return {
       recording: null,
       agentContextUrl: null,
-      origin: requestUrl.origin,
+      origin: url.origin,
       shareUrl: null,
     };
 
@@ -171,7 +170,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
       return {
         recording: null,
         agentContextUrl: null,
-        origin: requestUrl.origin,
+        origin: url.origin,
         shareUrl: null,
       };
   }
@@ -199,12 +198,12 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const canExposeOwnerAgentContext = canExposeAgentContext && Boolean(token);
   return {
     recording,
-    origin: requestUrl.origin,
-    shareUrl: `${requestUrl.origin}${requestUrl.pathname}`,
+    origin: url.origin,
+    shareUrl: `${url.origin}${url.pathname}`,
     agentContextUrl:
       canExposeAnonymousAgentContext || canExposeOwnerAgentContext
         ? buildAgentApiUrls(id, {
-            origin: requestUrl.origin,
+            origin: url.origin,
             basePath:
               process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "",
             token,
@@ -213,11 +212,11 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   };
 }
 
-export const meta: MetaFunction<typeof loader> = ({ data }) => {
+export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
   return buildClipsShareMeta({
-    recording: data?.recording ?? null,
-    origin: data?.origin ?? null,
-    shareUrl: data?.shareUrl ?? null,
+    recording: loaderData?.recording ?? null,
+    origin: loaderData?.origin ?? null,
+    shareUrl: loaderData?.shareUrl ?? null,
   });
 };
 

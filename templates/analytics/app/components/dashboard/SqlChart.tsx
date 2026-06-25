@@ -835,6 +835,8 @@ interface SqlChartProps {
   className?: string;
   loadData?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
+  onRefreshChange?: (handler: (() => Promise<void>) | null) => void;
+  onRefreshingChange?: (refreshing: boolean) => void;
 }
 
 export function SqlChart({
@@ -842,12 +844,19 @@ export function SqlChart({
   resolvedSql,
   loadData = true,
   onExportCsvChange,
+  onRefreshChange,
+  onRefreshingChange,
 }: SqlChartProps) {
   // Hooks must be called unconditionally before any early return.
   const isSection = panel.chartType === "section";
   const shouldQuery = !isSection && loadData;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
-  const { data: result, isLoading } = useSqlQuery(
+  const {
+    data: result,
+    isFetching,
+    isLoading,
+    refetch,
+  } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
     sql,
     panel.source,
@@ -857,6 +866,24 @@ export function SqlChart({
 
   const rawRows = result?.rows ?? [];
   const error = result?.error;
+  const handleRefresh = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
+
+  useEffect(() => {
+    if (!onRefreshChange) return;
+    if (!shouldQuery) {
+      onRefreshChange(null);
+      return;
+    }
+    onRefreshChange(handleRefresh);
+    return () => onRefreshChange(null);
+  }, [handleRefresh, onRefreshChange, shouldQuery]);
+
+  useEffect(() => {
+    onRefreshingChange?.(shouldQuery && isFetching && !isLoading);
+    return () => onRefreshingChange?.(false);
+  }, [isFetching, isLoading, onRefreshingChange, shouldQuery]);
 
   const { rows, forcedYKeys } = useMemo(() => {
     if (panel.config?.pivot && rawRows.length) {

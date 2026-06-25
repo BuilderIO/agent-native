@@ -29,7 +29,7 @@ function requireLocale(value: unknown): DocsLocale {
   throw new Response("Not Found", { status: 404 });
 }
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ params, url }: LoaderFunctionArgs) {
   const locale = requireLocale(params.locale);
   const slug = params.slug!;
 
@@ -42,8 +42,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     throw redirect(docsPathForSlug(target, locale), 301);
   }
 
-  const requestPathname = new URL(request.url).pathname;
-  if (requestPathname.startsWith("/docs/")) {
+  if (url.pathname.startsWith("/docs/")) {
     throw redirect(docsPathForSlug(slug, locale), 301);
   }
 
@@ -55,16 +54,17 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 }
 
 export const meta = ({
-  data,
+  loaderData,
   params,
 }: {
-  data?: DocEntry;
+  loaderData?: DocEntry;
   params: { locale?: string; slug?: string };
 }) => {
   const locale = isDocsLocale(params.locale)
     ? params.locale
     : DEFAULT_DOCS_LOCALE;
-  const doc = data ?? (params.slug ? getDoc(params.slug, locale) : undefined);
+  const doc =
+    loaderData ?? (params.slug ? getDoc(params.slug, locale) : undefined);
   if (!doc)
     return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
   return withDocsSocialImage(
