@@ -1410,6 +1410,7 @@ const koKR = {
     cliAdapters: "CLI 어댑터",
     processors: "인루프 프로세서",
     durableResume: "내구성 있는 재개",
+    durableBackgroundRuns: "지속형 백그라운드 실행",
     blueprintInstaller: "Blueprint Installer",
     chat: "Chat",
     calendar: "Calendar",

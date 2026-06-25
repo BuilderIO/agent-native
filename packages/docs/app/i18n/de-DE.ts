@@ -1413,6 +1413,7 @@ const deDE = {
     cliAdapters: "CLI-Adapter",
     processors: "In-Loop-Prozessoren",
     durableResume: "Dauerhafte Wiederaufnahme",
+    durableBackgroundRuns: "Dauerhafte Hintergrundausführungen",
     blueprintInstaller: "Blueprint Installer",
     chat: "Chat",
     calendar: "Calendar",

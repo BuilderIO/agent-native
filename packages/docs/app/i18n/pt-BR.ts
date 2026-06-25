@@ -1413,6 +1413,7 @@ const ptBR = {
     cliAdapters: "Adaptadores CLI",
     processors: "Processadores in-loop",
     durableResume: "Retomada durável",
+    durableBackgroundRuns: "Execuções em segundo plano duráveis",
     blueprintInstaller: "Instalador Blueprint",
     chat: "Chat",
     calendar: "Calendar",

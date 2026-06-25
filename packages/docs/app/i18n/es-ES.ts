@@ -1415,6 +1415,7 @@ const esES = {
     cliAdapters: "Adaptadores CLI",
     processors: "Procesadores in-loop",
     durableResume: "Reanudación duradera",
+    durableBackgroundRuns: "Ejecuciones en segundo plano duraderas",
     blueprintInstaller: "Instalador Blueprint",
     chat: "Chat",
     calendar: "Calendar",
