@@ -8,7 +8,6 @@ import {
   IconFolder,
   IconArchive,
   IconTrash,
-  IconEdit,
   IconCheck,
   IconAlertTriangle,
 } from "@tabler/icons-react";
@@ -73,10 +72,8 @@ interface RecordingCardProps {
   onToggleSelect?: (id: string) => void;
   onShare?: (rec: RecordingSummary) => void;
   onMove?: (rec: RecordingSummary) => void;
-  onRename?: (rec: RecordingSummary) => void;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
-  canRenameTitle?: boolean;
 }
 
 export function RecordingCard({
@@ -86,10 +83,8 @@ export function RecordingCard({
   onToggleSelect,
   onShare,
   onMove,
-  onRename,
   onArchive,
   onTrash,
-  canRenameTitle = false,
 }: RecordingCardProps) {
   const navigate = useNavigate();
   const [hovered, setHovered] = useState(false);
@@ -264,7 +259,6 @@ export function RecordingCard({
             <EditableRecordingTitle
               recordingId={recording.id}
               title={recording.title}
-              canEdit={canRenameTitle}
               displayTitle={
                 isDefaultTitle(recording.title)
                   ? "Untitled Clip"
@@ -309,14 +303,6 @@ export function RecordingCard({
               <DropdownMenuItem onSelect={() => onMove?.(recording)}>
                 <IconFolder className="h-4 w-4 me-2" /> Move to folder
               </DropdownMenuItem>
-              {onRename ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => onRename(recording)}>
-                    <IconEdit className="h-4 w-4 me-2" /> Rename
-                  </DropdownMenuItem>
-                </>
-              ) : null}
               <DropdownMenuSeparator />
               {recording.archivedAt ? (
                 <DropdownMenuItem onSelect={() => onArchive?.(recording)}>
