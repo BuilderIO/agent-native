@@ -197,6 +197,10 @@ function readMode(): PrebuildMode {
   process.exit(1);
 }
 
+function pnpmExecutable(): string {
+  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+}
+
 function firstMissingOutput(target: PackageTarget): string | null {
   for (const output of target.expectedOutputs) {
     if (!existsSync(path.join(target.dir, output))) return output;
@@ -243,7 +247,7 @@ console.log(
     .map((target) => target.name)
     .join(", ")}`,
 );
-execFileSync("pnpm", [...filters, "run", "build"], {
+execFileSync(pnpmExecutable(), [...filters, "run", "build"], {
   cwd: process.cwd(),
   stdio: "inherit",
 });
