@@ -83,6 +83,8 @@ async function clearBlockDatabaseOwnershipAfterParentChange({
     return;
   }
 
+  await assertAccess("document", database.ownerDocumentId, "editor");
+
   await db
     .update(schema.contentDatabases)
     .set({

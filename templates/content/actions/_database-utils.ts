@@ -226,6 +226,35 @@ export async function getContentDatabaseResponse(
   };
 }
 
+export async function isSoftDeletedDatabaseDocument(documentId: string) {
+  const db = getDb();
+  const [ownedDatabase] = await db
+    .select({ id: schema.contentDatabases.id })
+    .from(schema.contentDatabases)
+    .where(
+      and(
+        eq(schema.contentDatabases.documentId, documentId),
+        sql`${schema.contentDatabases.deletedAt} IS NOT NULL`,
+      ),
+    );
+  if (ownedDatabase) return true;
+
+  const [databaseItem] = await db
+    .select({ id: schema.contentDatabaseItems.id })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.contentDatabases,
+      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.documentId, documentId),
+        sql`${schema.contentDatabases.deletedAt} IS NOT NULL`,
+      ),
+    );
+  return !!databaseItem;
+}
+
 export async function getDatabaseByDocumentId(
   documentId: string,
   options: { includeDeleted?: boolean } = {},

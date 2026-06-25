@@ -1,5 +1,13 @@
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, asc, eq, inArray, sql, type InferSelectModel } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  sql,
+  type InferSelectModel,
+} from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
   DEFAULT_BLOCKS_FIELD_NAME,
@@ -77,7 +85,12 @@ export async function getDatabaseForDocument(
   const [database] = await db
     .select()
     .from(schema.contentDatabases)
-    .where(eq(schema.contentDatabases.documentId, documentId));
+    .where(
+      and(
+        eq(schema.contentDatabases.documentId, documentId),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    );
   return database ?? null;
 }
 
@@ -98,7 +111,12 @@ export async function getDatabaseMembershipForDocument(
       schema.contentDatabases,
       eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
     )
-    .where(eq(schema.contentDatabaseItems.documentId, documentId));
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.documentId, documentId),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    );
   return row ?? null;
 }
 
@@ -118,7 +136,12 @@ export async function getDatabaseById(
   const [database] = await db
     .select()
     .from(schema.contentDatabases)
-    .where(eq(schema.contentDatabases.id, databaseId));
+    .where(
+      and(
+        eq(schema.contentDatabases.id, databaseId),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    );
   return database ?? null;
 }
 

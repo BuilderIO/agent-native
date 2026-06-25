@@ -22,8 +22,12 @@ let restoreContentDatabaseAction: typeof import("./restore-content-database.js")
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
 let listDocumentsAction: typeof import("./list-documents.js").default;
 let listTrashedContentDatabasesAction: typeof import("./list-trashed-content-databases.js").default;
+let getDocumentAction: typeof import("./get-document.js").default;
+let listDocumentPropertiesAction: typeof import("./list-document-properties.js").default;
+let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 
 const OWNER = "owner@example.com";
+const COLLABORATOR = "collaborator@example.com";
 
 beforeAll(async () => {
   const dbModule = await import("../server/db/index.js");
@@ -41,6 +45,10 @@ beforeAll(async () => {
   listTrashedContentDatabasesAction = (
     await import("./list-trashed-content-databases.js")
   ).default;
+  getDocumentAction = (await import("./get-document.js")).default;
+  listDocumentPropertiesAction = (await import("./list-document-properties.js"))
+    .default;
+  addDatabaseItemAction = (await import("./add-database-item.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60000);
@@ -342,6 +350,62 @@ describe("content database soft-delete actions and reads", () => {
     expect(listedIds.has(rowDocumentId)).toBe(false);
   });
 
+  it("blocks direct document and property reads for soft-deleted database pages", async () => {
+    const deletedAt = new Date().toISOString();
+    const { databaseId, databaseDocumentId } = await createDatabase({
+      deletedAt,
+    });
+    const rowDocumentId = await createDocument({
+      parentId: databaseDocumentId,
+      title: "Row",
+    });
+    const db = getDb();
+    await db.insert(schema.contentDatabaseItems).values({
+      id: nextId("item"),
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: rowDocumentId,
+      position: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        getDocumentAction.run({ id: databaseDocumentId }),
+      ),
+    ).rejects.toThrow(`Document "${databaseDocumentId}" not found`);
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        getDocumentAction.run({ id: rowDocumentId }),
+      ),
+    ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        listDocumentPropertiesAction.run({ documentId: rowDocumentId }),
+      ),
+    ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
+  });
+
+  it("blocks row mutations for soft-deleted databases", async () => {
+    const { databaseId } = await createDatabase({
+      deletedAt: new Date().toISOString(),
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        addDatabaseItemAction.run({ databaseId, title: "Should not write" }),
+      ),
+    ).rejects.toThrow(`Database "${databaseId}" not found`);
+
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+    expect(rows).toEqual([]);
+  });
+
   it("lists only accessible soft-deleted databases for Trash", async () => {
     const deletedAt = new Date().toISOString();
     const ownedDeleted = await createDatabase({
@@ -373,5 +437,33 @@ describe("content database soft-delete actions and reads", () => {
     );
     expect(listedIds.has(active.databaseId)).toBe(false);
     expect(listedIds.has(otherDeleted.databaseId)).toBe(false);
+  });
+
+  it("requires host document edit access before detaching inline database ownership", async () => {
+    const hostDocumentId = await createDocument({ title: "Host" });
+    const { databaseId, databaseDocumentId } = await createDatabase({
+      hostDocumentId,
+      ownerBlockId: nextId("inline_database"),
+    });
+    const db = getDb();
+    await db.insert(schema.documentShares).values({
+      id: nextId("share"),
+      resourceId: databaseDocumentId,
+      principalType: "user",
+      principalId: COLLABORATOR,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+        moveDocumentAction.run({ id: databaseDocumentId, parentId: null }),
+      ),
+    ).rejects.toThrow(`No access to document ${hostDocumentId}`);
+
+    const database = await databaseRow(databaseId);
+    expect(database?.ownerDocumentId).toBe(hostDocumentId);
+    expect(database?.ownerBlockId).toEqual(expect.any(String));
   });
 });

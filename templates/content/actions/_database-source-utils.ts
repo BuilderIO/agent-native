@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import type {
   ContentDatabase,
@@ -507,14 +507,24 @@ export async function resolveDatabaseForSourceMutation(args: {
     const [database] = await db
       .select()
       .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, args.databaseId));
+      .where(
+        and(
+          eq(schema.contentDatabases.id, args.databaseId),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      );
     return database ?? null;
   }
   if (args.documentId) {
     const [database] = await db
       .select()
       .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.documentId, args.documentId));
+      .where(
+        and(
+          eq(schema.contentDatabases.documentId, args.documentId),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      );
     return database ?? null;
   }
   return null;
@@ -523,6 +533,9 @@ export async function resolveDatabaseForSourceMutation(args: {
 export async function getContentDatabaseSourceSnapshot(
   database: ContentDatabaseRow | ContentDatabase,
 ): Promise<ContentDatabaseSource | null> {
+  if ("deletedAt" in database && database.deletedAt) {
+    throw new Error(`Database "${database.id}" not found`);
+  }
   const db = getDb();
   const [source] = await db
     .select()
@@ -541,6 +554,9 @@ export async function getContentDatabaseSourceSnapshot(
 export async function getAllContentDatabaseSourceSnapshots(
   database: ContentDatabaseRow | ContentDatabase,
 ): Promise<ContentDatabaseSource[]> {
+  if ("deletedAt" in database && database.deletedAt) {
+    throw new Error(`Database "${database.id}" not found`);
+  }
   const db = getDb();
   const sources = await db
     .select()
