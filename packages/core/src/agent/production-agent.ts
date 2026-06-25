@@ -153,11 +153,14 @@ export { PROVIDER_TO_ENV };
 /**
  * Grace window + poll interval for the foreground circuit-breaker that confirms
  * a background worker actually CLAIMED a 202-dispatched run before recovering
- * inline. The grace is long enough for a cold-start worker to win the claim
- * (~1-2s typical) and short enough to recover quickly within the foreground's
- * ~40s soft-timeout.
+ * inline. The grace must cover the worker's cold-start + per-request init before
+ * it reaches `claimBackgroundRun`: light apps win the claim in ~1-2s, but heavy
+ * apps (e.g. analytics) were observed in prod taking >8s, so an 8s grace made
+ * their worker lose the race every time and always fall back to inline (adding
+ * ~8s latency with no background budget). 15s covers the slow apps while staying
+ * well within the foreground's ~40s soft-timeout.
  */
-export const BACKGROUND_CLAIM_GRACE_MS = 8_000;
+export const BACKGROUND_CLAIM_GRACE_MS = 15_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
 
 export type BackgroundDispatchOutcome =
