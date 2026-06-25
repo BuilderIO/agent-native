@@ -3847,6 +3847,54 @@ export function createProductionAgentHandler(
       Number.isFinite(backgroundRunMarker.continuationCount)
         ? Math.max(0, Math.floor(backgroundRunMarker.continuationCount))
         : 0;
+    // CLAIM UP-FRONT (before the heavy handler setup further down). A heavy
+    // app's setup — system-prompt build, thread-data read, action loading — can
+    // run longer than the foreground's claim grace. Claiming only in the worker
+    // branch, which executes AFTER all that setup, lets the foreground recover
+    // the turn inline before we ever flip the run to `background-processing`, so
+    // the 15-min worker budget is never used (observed on analytics: the worker
+    // stalls at `auth_passed` with NO crash — it is just slow through setup).
+    // Claiming here, up front, makes the foreground see the claim within the
+    // grace and subscribe to this worker instead of re-running inline. Uses the
+    // marker's pre-claimed runId (identical to the `runId` resolved later for a
+    // background worker).
+    if (isBackgroundWorker) {
+      const claimRunId = backgroundRunMarker!.runId as string;
+      await recordRunDiagnostic(
+        claimRunId,
+        RUN_DIAG_STAGE.workerEntered,
+        `runsInBackgroundFunction=${runsInBackgroundFunction} continuationCount=${backgroundContinuationCount}`,
+      ).catch(() => {});
+      // Chained continuation chunks were minted by the prior chunk and never
+      // inserted by a foreground POST, so insert the row now (idempotent: a
+      // duplicate delivery PK-collides and the claim below dedups). The first
+      // chunk's row was already inserted by the foreground.
+      if (backgroundContinuationCount > 0) {
+        const claimThreadId = threadId ?? claimRunId;
+        const claimTurnId =
+          typeof backgroundRunMarker!.turnId === "string" &&
+          backgroundRunMarker!.turnId.trim()
+            ? backgroundRunMarker!.turnId.trim()
+            : (requestTurnId ?? claimRunId);
+        await insertRun(claimRunId, claimThreadId, claimTurnId, {
+          dispatchMode: "background",
+        }).catch(() => {});
+      }
+      const won = await claimBackgroundRun(claimRunId);
+      if (!won) {
+        // Already claimed by an earlier delivery — benign ack so Netlify does
+        // not retry a successful handoff.
+        await recordRunDiagnostic(
+          claimRunId,
+          RUN_DIAG_STAGE.workerClaimLost,
+        ).catch(() => {});
+        return { ok: true, skipped: "already-claimed" };
+      }
+      await recordRunDiagnostic(claimRunId, RUN_DIAG_STAGE.workerClaimed).catch(
+        () => {},
+      );
+      await updateRunHeartbeat(claimRunId).catch(() => {});
+    }
     // The foreground POST decides whether to dispatch into a background
     // function. The background worker itself never re-dispatches.
     const dispatchToBackground =
@@ -4809,49 +4857,11 @@ export function createProductionAgentHandler(
           }
         : undefined;
 
-    // Background worker: claim the pre-inserted run idempotently before
-    // executing. A duplicate Netlify delivery loses the claim and no-ops here,
-    // so the run can never be double-executed. Bump the heartbeat immediately
-    // on entry so a slow cold-start doesn't leave the row looking stale to the
-    // reaper before startRun's 1.5s heartbeat timer takes over.
-    if (isBackgroundWorker) {
-      // DIAGNOSTIC: the re-entered handler recognized itself as the background
-      // worker. Record the runtime regime too — `isInBackgroundFunctionRuntime()`
-      // reads a globalThis marker set by the bg-fn entry, which may NOT be set in
-      // this isolate; recording the ACTUAL resolved value reveals whether the
-      // worker is on the 13-min `-background` budget or the 40s clamp. This is
-      // the proof the worker reached its own code (vs. dying at auth before it).
-      await recordRunDiagnostic(
-        runId,
-        RUN_DIAG_STAGE.workerEntered,
-        `runsInBackgroundFunction=${runsInBackgroundFunction} continuationCount=${backgroundContinuationCount}`,
-      ).catch(() => {});
-      // A chained continuation chunk's runId was minted by the prior chunk and
-      // never inserted, so insert its background row now (idempotently — a
-      // duplicate Netlify delivery that already inserted it just PK-collides and
-      // the claim below dedups). The first chunk's row was inserted by the
-      // foreground, so skip the insert there.
-      if (isChainedBackgroundContinuation) {
-        await insertRun(runId, effectiveThreadId, effectiveTurnId, {
-          dispatchMode: "background",
-        }).catch(() => {});
-      }
-      const won = await claimBackgroundRun(runId);
-      if (!won) {
-        // Already claimed by an earlier delivery — return a benign ack so
-        // Netlify doesn't retry a successful handoff.
-        await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimLost).catch(
-          () => {},
-        );
-        return { ok: true, skipped: "already-claimed" };
-      }
-      // DIAGNOSTIC: this worker won the claim and now OWNS the run. If a run
-      // ever stalls at this stage it means the loop below failed to start.
-      await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimed).catch(
-        () => {},
-      );
-      await updateRunHeartbeat(runId).catch(() => {});
-    }
+    // Background worker claim now happens UP-FRONT — right after the marker is
+    // recognized, before the heavy handler setup above — so a slow-setup app
+    // still flips to `background-processing` within the foreground's claim grace.
+    // See the "CLAIM UP-FRONT" block earlier in this handler. (A lost claim from
+    // a duplicate Netlify delivery already returned there.)
 
     startRun(
       runId,
