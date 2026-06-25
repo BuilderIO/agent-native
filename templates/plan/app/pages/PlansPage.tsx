@@ -593,22 +593,25 @@ export function shouldShowPlanLoadError(input: {
   hasSelectedId: boolean;
   localPlanMode: boolean;
   hasBundle: boolean;
-  planQueryPending: boolean;
+  planQueryInitialPending: boolean;
   planQueryError: boolean;
   planQueryPaused: boolean;
-  accessStatusPending: boolean;
+  accessStatusInitialPending: boolean;
   accessStatusPaused: boolean;
   accessDenied: boolean;
 }): boolean {
   if (!input.hasSelectedId || input.localPlanMode || input.hasBundle) {
     return false;
   }
-  // While a read is actively in flight, keep showing the skeleton.
-  if (input.planQueryPending) return false;
   if (input.planQueryError) return true;
+  if (!input.accessStatusInitialPending && input.accessDenied) return true;
+  // While the first read is actively in flight, keep showing the skeleton.
+  // Background refetches must not hide a settled access/error card.
+  if (input.planQueryInitialPending || input.accessStatusInitialPending) {
+    return false;
+  }
   // Paused/stalled read that will never settle on its own input.
   if (input.planQueryPaused || input.accessStatusPaused) return true;
-  if (!input.accessStatusPending && input.accessDenied) return true;
   return false;
 }
 
@@ -3125,17 +3128,16 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     Boolean(selectedId && !bundle && !localPlanMode),
   );
   const planAccessStatus = planAccessStatusQuery.data ?? null;
-  const planQueryPending = planQuery.isLoading || planQuery.isFetching;
-  const planAccessStatusPending =
-    planAccessStatusQuery.isLoading || planAccessStatusQuery.isFetching;
+  const planQueryInitialPending = planQuery.isLoading;
+  const planAccessStatusInitialPending = planAccessStatusQuery.isLoading;
   const showPlanLoadError = shouldShowPlanLoadError({
     hasSelectedId: Boolean(selectedId),
     localPlanMode,
     hasBundle: Boolean(bundle),
-    planQueryPending,
+    planQueryInitialPending,
     planQueryError: planQuery.isError,
     planQueryPaused: planQuery.isPaused,
-    accessStatusPending: planAccessStatusPending,
+    accessStatusInitialPending: planAccessStatusInitialPending,
     accessStatusPaused: planAccessStatusQuery.isPaused,
     accessDenied: Boolean(planAccessStatus && !planAccessStatus.hasAccess),
   });
