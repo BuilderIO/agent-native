@@ -540,6 +540,8 @@ export const RUN_DIAG_STAGE = {
   workerClaimLost: "worker_claim_lost",
   /** The agent loop started (startRun fired). */
   workerStarted: "worker_started",
+  /** Pre-claim setup timing breakdown (diagnostic). */
+  setupTimings: "setup_timings",
   /** The worker threw before/while running the loop (message carried in detail). */
   workerThrew: "worker_threw",
   /** The route handler caught an error from the worker invocation. */
