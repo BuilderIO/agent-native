@@ -4080,6 +4080,9 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     pollIntervalMs: 5,
     sleep: async () => {},
   };
+  // diag_stage is persisted as JSON ({stage, detail?, at}) by recordRunDiagnostic,
+  // so model that here — exercises the parser the circuit-breaker relies on.
+  const diag = (stage: string) => JSON.stringify({ stage, at: 1 });
 
   it("202 + worker claims within grace -> stream, no inline claim", async () => {
     const claim = vi.fn();
@@ -4161,7 +4164,7 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     const alive = {
       dispatchMode: "background",
       status: "running",
-      diagStage: "auth_passed",
+      diagStage: diag("auth_passed"),
     };
     const readClaim = vi
       .fn()
@@ -4172,7 +4175,7 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
       .mockResolvedValue({
         dispatchMode: "background-processing",
         status: "running",
-        diagStage: "worker_claimed",
+        diagStage: diag("worker_claimed"),
       });
     const outcome = await resolveBackgroundDispatchOutcome({
       ...base,
@@ -4216,7 +4219,7 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     const readClaim = vi.fn().mockResolvedValue({
       dispatchMode: "background",
       status: "running",
-      diagStage: "route_threw",
+      diagStage: diag("route_threw"),
     });
     const claim = vi.fn().mockResolvedValue(true);
     const outcome = await resolveBackgroundDispatchOutcome({

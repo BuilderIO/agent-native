@@ -112,6 +112,7 @@ import {
   readBackgroundRunClaim,
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
+  UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
 } from "./run-store.js";
 import {
   classifyToolCallJournal,
@@ -168,11 +169,22 @@ export const BACKGROUND_CLAIM_GRACE_MS = 15_000;
  * base grace to build the system prompt + load actions before claiming; without
  * the extension the foreground abandons a live worker mid-setup and recovers
  * inline, wasting the background budget. A dead handoff never records those
- * stages, so it is NOT extended and still recovers at the base grace. Kept below
- * the foreground's ~40s soft-timeout so inline recovery still has room if it
- * ultimately fires.
+ * stages, so it is NOT extended and still recovers at the base grace.
+ *
+ * MUST stay UNDER `UNCLAIMED_BACKGROUND_RUN_GRACE_MS`: an unclaimed background
+ * row is reaped by `reapUnclaimedBackgroundRun` (fired by `/runs/active`
+ * polling) once it has been unclaimed that long, which would kill a slow-but-
+ * live worker mid-setup. Capping the foreground wait just below that window lets
+ * the foreground claim the run inline (flipping it out of `background`) BEFORE
+ * the reaper can fire, so the extended wait and the reaper never race. (A setup
+ * slower than this cap therefore falls back to inline rather than the background
+ * worker — if that bites a real app, optimize its setup rather than widening the
+ * window past the reaper.) Stays within the foreground's ~40s soft-timeout.
  */
-export const EXTENDED_BACKGROUND_CLAIM_GRACE_MS = 30_000;
+export const EXTENDED_BACKGROUND_CLAIM_GRACE_MS = Math.max(
+  BACKGROUND_CLAIM_GRACE_MS,
+  UNCLAIMED_BACKGROUND_RUN_GRACE_MS - 2_000,
+);
 export const BACKGROUND_CLAIM_POLL_MS = 400;
 
 export type BackgroundDispatchOutcome =
@@ -182,6 +194,23 @@ export type BackgroundDispatchOutcome =
       action: "inline";
       reason: "dispatch-failed" | "worker-never-claimed" | "no-row";
     };
+
+/**
+ * `diag_stage` is persisted as a JSON payload (`{ stage, detail?, at }`) by
+ * `recordRunDiagnostic`. Extract the bare stage name so it can be compared to
+ * `RUN_DIAG_STAGE` constants. Falls back to the raw value when it is not JSON
+ * (defensive — legacy rows or tests may store a bare stage).
+ */
+function parseRunDiagStage(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { stage?: unknown };
+    if (parsed && typeof parsed.stage === "string") return parsed.stage;
+  } catch {
+    // Not JSON — treat the raw value as the stage name.
+  }
+  return typeof raw === "string" ? raw : null;
+}
 
 /**
  * Decide what the foreground should do after attempting a durable background
@@ -259,8 +288,11 @@ export async function resolveBackgroundDispatchOutcome(opts: {
       ) {
         return { action: "stream" };
       }
+      // `diag_stage` is stored as JSON ({stage, detail?, at}); compare on the
+      // bare stage name, not the raw payload.
+      const stage = parseRunDiagStage(claim?.diagStage);
       // Worker recorded a pre-claim death — no point waiting out the grace.
-      if (claim?.diagStage && DIED_BEFORE_CLAIM.has(claim.diagStage)) break;
+      if (stage && DIED_BEFORE_CLAIM.has(stage)) break;
       const elapsedNow = now();
       // ADAPTIVE GRACE: the base window elapsed but the worker is alive and still
       // in setup (heavy cold start) — extend ONCE to the longer cap so a live
@@ -271,8 +303,8 @@ export async function resolveBackgroundDispatchOutcome(opts: {
         deadline < maxDeadline &&
         elapsedNow >= baseDeadline &&
         claim?.status === "running" &&
-        claim.diagStage &&
-        ALIVE_IN_SETUP.has(claim.diagStage)
+        stage &&
+        ALIVE_IN_SETUP.has(stage)
       ) {
         deadline = maxDeadline;
       }
