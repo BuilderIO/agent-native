@@ -1,22 +1,23 @@
 {
   "name": "@agent-native/scheduling",
-  "version": "0.1.11",
-  "type": "module",
+  "version": "0.1.14",
   "description": "Scheduling primitives for agent-native apps — event types, availability, bookings, team scheduling, workflows, and routing forms.",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/BuilderIO/agent-native",
     "directory": "packages/scheduling"
   },
-  "bugs": {
-    "url": "https://github.com/BuilderIO/agent-native/issues"
-  },
-  "homepage": "https://github.com/BuilderIO/agent-native#readme",
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
+  "files": [
+    "dist",
+    "docs",
+    "src"
+  ],
+  "type": "module",
   "exports": {
     ".": "./dist/index.js",
     "./schema": "./dist/schema/index.js",
@@ -41,15 +42,14 @@
     "./docs/*": "./docs/*",
     "./skills/*": "./docs/skills/*"
   },
-  "files": [
-    "dist",
-    "docs",
-    "src"
-  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
-    "build": "tsc && node scripts/build-llms-full.mjs",
-    "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit",
+    "build": "tsgo && node scripts/build-llms-full.mjs",
+    "dev": "tsgo --watch",
+    "typecheck": "tsgo --noEmit",
     "test": "vitest --run",
     "prepublishOnly": "npm run build"
   },
@@ -59,6 +59,18 @@
     "nanoid": "^5.1.9",
     "rrule": "^2.8.1",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@agent-native/core": "workspace:*",
+    "@libsql/client": "^0.15.8",
+    "@tabler/icons-react": "^3.0.0",
+    "@types/node": "^24.2.1",
+    "@types/react": "^19.2.14",
+    "@typescript/native-preview": "catalog:",
+    "drizzle-orm": "^0.45.2",
+    "react": "^19.2.5",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
   },
   "peerDependencies": {
     "@agent-native/core": ">=0.8.0",
@@ -77,16 +89,5 @@
     "react-dom": {
       "optional": true
     }
-  },
-  "devDependencies": {
-    "@agent-native/core": "workspace:*",
-    "@libsql/client": "^0.15.8",
-    "@tabler/icons-react": "^3.0.0",
-    "@types/node": "^24.2.1",
-    "@types/react": "^19.2.14",
-    "drizzle-orm": "^0.45.2",
-    "react": "^19.2.5",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.5"
   }
 }

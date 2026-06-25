@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
 import type { RenderedImage, ResvgRenderOptions } from "@resvg/resvg-js";
 
 export interface BookingOgImageInput {
@@ -266,8 +267,6 @@ export function renderBookingOgImageSvg(input: BookingOgImageInput): string {
   </defs>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#grid)"/>
-  <rect x="64" y="64" width="1072" height="502" rx="28" fill="${BG}" fill-opacity="0.72" stroke="${BORDER}" stroke-width="1"/>
-  <path d="M80 154 H1120" stroke="${BORDER}"/>
   <g transform="translate(80 86)">
     <g transform="scale(0.62)">
       ${LOGO_MARK}

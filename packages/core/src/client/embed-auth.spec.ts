@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   EMBED_TARGET_HEADER,
   EMBED_TOKEN_QUERY_PARAM,
@@ -44,6 +45,42 @@ describe("embed auth client", () => {
 
     const reloadedModule = await loadEmbedAuth();
     expect(reloadedModule.getEmbedAuthToken()).toBe("signed-token");
+  });
+
+  it("keeps the URL token in opaque-origin frames so document reloads stay authenticated", async () => {
+    // MCP App embeds always load in a sandboxed iframe without
+    // allow-same-origin, so window.location.origin is "null". The embed session
+    // cookie cannot be delivered to an opaque context, so stripping the token
+    // would make any full document reload land on the sign-in page.
+    window.history.replaceState(
+      null,
+      "",
+      `/library?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+    );
+    const originalOrigin = Object.getOwnPropertyDescriptor(
+      window.location,
+      "origin",
+    );
+    Object.defineProperty(window.location, "origin", {
+      configurable: true,
+      get: () => "null",
+    });
+
+    try {
+      const first = await loadEmbedAuth();
+      first.ensureEmbedAuthFetchInterceptor();
+
+      expect(window.location.search).toBe(
+        `?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+      );
+      expect(sessionStorage.getItem(STORAGE_KEY)).toBe("signed-token");
+    } finally {
+      if (originalOrigin) {
+        Object.defineProperty(window.location, "origin", originalOrigin);
+      } else {
+        delete (window.location as unknown as { origin?: string }).origin;
+      }
+    }
   });
 
   it("persists the MCP chat bridge flag when stripping the URL token", async () => {

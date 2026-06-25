@@ -15,6 +15,66 @@ export interface PivotResult {
   seriesKeys: string[];
 }
 
+const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_DAILY_GAP_FILL_DAYS = 800;
+
+function dayToUtcMs(day: string): number | null {
+  if (!ISO_DAY_RE.test(day)) return null;
+  const [year, month, date] = day.split("-").map(Number);
+  const ms = Date.UTC(year, month - 1, date);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function utcMsToDay(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+function fillMissingSeries(
+  row: Record<string, unknown>,
+  seriesKeys: string[],
+): Record<string, unknown> {
+  for (const key of seriesKeys) {
+    if (!(key in row)) row[key] = 0;
+  }
+  return row;
+}
+
+function fillMissingDailyRows(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  seriesKeys: string[],
+): Record<string, unknown>[] {
+  if (rows.length < 2 || seriesKeys.length === 0) return rows;
+
+  const first = rows[0]?.[xKey];
+  const last = rows[rows.length - 1]?.[xKey];
+  if (typeof first !== "string" || typeof last !== "string") return rows;
+
+  const startMs = dayToUtcMs(first);
+  const endMs = dayToUtcMs(last);
+  if (startMs == null || endMs == null || endMs < startMs) return rows;
+
+  const dayCount = Math.floor((endMs - startMs) / 86_400_000) + 1;
+  if (dayCount > MAX_DAILY_GAP_FILL_DAYS) return rows;
+
+  const byDay = new Map<string, Record<string, unknown>>();
+  for (const row of rows) {
+    const day = row[xKey];
+    if (typeof day === "string" && ISO_DAY_RE.test(day)) {
+      byDay.set(day, row);
+    }
+  }
+
+  const filled: Record<string, unknown>[] = [];
+  for (let ms = startMs; ms <= endMs; ms += 86_400_000) {
+    const day = utcMsToDay(ms);
+    filled.push(
+      fillMissingSeries(byDay.get(day) ?? { [xKey]: day }, seriesKeys),
+    );
+  }
+  return filled;
+}
+
 export function pivotRows(
   rows: Record<string, unknown>[],
   config: PivotConfig,
@@ -52,8 +112,11 @@ export function pivotRows(
     if (emitted.has(x)) continue;
     emitted.add(x);
     const bucket = byX.get(x);
-    if (bucket) orderedRows.push(bucket);
+    if (bucket) orderedRows.push(fillMissingSeries(bucket, seriesKeys));
   }
 
-  return { rows: orderedRows, seriesKeys };
+  return {
+    rows: fillMissingDailyRows(orderedRows, xKey, seriesKeys),
+    seriesKeys,
+  };
 }

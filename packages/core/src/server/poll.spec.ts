@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-
 // The poll module uses module-level state (_version, _buffer).
 // We re-import for each test suite to get fresh state via dynamic import.
 // But since module caching means we share state, we test in order.

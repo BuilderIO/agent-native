@@ -1,19 +1,20 @@
 import { defineAction } from "@agent-native/core";
 import {
+  readAppState,
   writeAppState,
   deleteAppState,
 } from "@agent-native/core/application-state";
-import { z } from "zod";
-import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
-import { assertAccess } from "@agent-native/core/sharing";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import { createAssetFromBuffer } from "../server/lib/assets.js";
-import { compositeLogo } from "../server/lib/image-processing.js";
 import { applyPromptTemplate } from "../server/lib/generation-presets.js";
 import {
   compilePrompt,
@@ -22,8 +23,9 @@ import {
   isImageGenerationSetupError,
   selectReferences,
 } from "../server/lib/generation.js";
-import { getObject } from "../server/lib/storage.js";
+import { compositeLogo } from "../server/lib/image-processing.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
+import { getObject } from "../server/lib/storage.js";
 import {
   ASPECT_RATIOS,
   GENERATION_INTENTS,
@@ -53,6 +55,28 @@ function resolveModelForTier(
   return ["hero", "landing", "logo", "campaign"].includes(category ?? "")
     ? "gemini-3-pro-image"
     : "gemini-3.1-flash-image";
+}
+
+/**
+ * The user's default image model, chosen from the composer's model picker and
+ * persisted in per-user application state. Used as a fallback when no explicit
+ * model, tier, or preset model is supplied. Returns undefined when unset or
+ * invalid so the hardcoded default still applies.
+ */
+async function readUserDefaultImageModel(): Promise<ImageModel | undefined> {
+  try {
+    const stored = await readAppState("imageGenerationModel");
+    const model = stored?.model;
+    if (
+      typeof model === "string" &&
+      (IMAGE_MODELS as readonly string[]).includes(model)
+    ) {
+      return model as ImageModel;
+    }
+  } catch {
+    // No request context or read failure — fall back to defaults below.
+  }
+  return undefined;
 }
 
 export default defineAction({
@@ -226,6 +250,7 @@ export default defineAction({
     const resolvedModel = (args.model ??
       resolveModelForTier(resolvedTier, category) ??
       preset?.model ??
+      (await readUserDefaultImageModel()) ??
       "gemini-3.1-flash-image") as (typeof IMAGE_MODELS)[number];
     const resolvedCategories =
       args.categories ??

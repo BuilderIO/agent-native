@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState, useEffect } from "react";
+import { useT } from "@agent-native/core/client";
 import {
   IconCamera,
   IconMouse,
@@ -6,8 +6,8 @@ import {
   IconTrash,
   IconRotate,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useRef, useCallback, useState, useEffect } from "react";
+
 import {
   AlertDialog,
   AlertDialogContent,
@@ -18,6 +18,13 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
 import type { AnimationTrack, EasingKey } from "@/types";
 import {
   frameToViewPct,
@@ -25,11 +32,6 @@ import {
   pxDeltaToFrameDelta,
   clampFrame,
 } from "@/utils/timelineCoordinates";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 type DragMode = "move" | "resize-start" | "resize-end";
 
@@ -401,7 +403,7 @@ function RangeBar({
     window.addEventListener("mouseup", onMouseUp);
   };
 
-  const isZoomed = viewStart > 0 || viewEnd < durationInFrames;
+  const isZoomed = viewStart > 0 || viewEnd < durationInFrames; // i18n-ignore scanner false positive
   const HANDLE_COLOR = isZoomed
     ? "rgba(0,181,255,0.85)"
     : "rgba(148,163,184,0.65)";
@@ -512,6 +514,7 @@ export function Timeline({
   onCameraKeyframeClick,
   isPlaying = false,
 }: TimelineProps) {
+  const t = useT();
   const isMobile = useIsMobile();
   const LABEL_WIDTH = isMobile ? LABEL_WIDTH_MOBILE : LABEL_WIDTH_DESKTOP;
   const barAreaRef = useRef<HTMLDivElement>(null);
@@ -1922,7 +1925,7 @@ export function Timeline({
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-3 text-sm">
               <IconAlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0" />
-              Keyframe overlap
+              {t("raw.timeline.keyframeOverlap")}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-xs leading-relaxed">
               Moving the keyframe(s) would create an overlap at frame{" "}
@@ -1967,7 +1970,7 @@ export function Timeline({
               }}
               className="w-full"
             >
-              Replace Existing Keyframes
+              {t("raw.timeline.replaceExistingKeyframes")}
             </AlertDialogAction>
             <AlertDialogCancel
               onClick={() => {
@@ -1987,7 +1990,7 @@ export function Timeline({
               }}
               className="w-full"
             >
-              Undo Move
+              {t("raw.timeline.undoMove")}
             </AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2046,14 +2049,14 @@ export function Timeline({
                   className="w-full px-3 py-1.5 text-left text-xs hover:bg-secondary transition-colors flex items-center gap-2 text-foreground/80 hover:text-foreground"
                 >
                   <IconRotate className="w-3.5 h-3.5 text-muted-foreground" />
-                  Clear track
+                  {t("raw.timeline.clearTrack")}
                 </button>
                 <button
                   onClick={() => handleDeleteTrack(contextMenu.trackId)}
                   className="w-full px-3 py-1.5 text-left text-xs hover:bg-destructive/10 transition-colors flex items-center gap-2 text-foreground/80 hover:text-destructive"
                 >
                   <IconTrash className="w-3.5 h-3.5 text-muted-foreground" />
-                  Delete track
+                  {t("raw.timeline.deleteTrack")}
                 </button>
               </div>
             </div>

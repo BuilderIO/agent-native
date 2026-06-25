@@ -1,0 +1,259 @@
+---
+title: "التحليلات"
+description: "اطرح أسئلة تحليلية باللغة الإنجليزية البسيطة، واحصل على المخططات ولوحات المعلومات مرة أخرى. بديل مفتوح المصدر لـ Amplitude وMixpanel وLooker."
+---
+
+# التحليلات
+
+اطرح أسئلة تحليلية باللغة الإنجليزية البسيطة، واحصل على المخططات ولوحات المعلومات مرة أخرى. يتصل الوكيل بـ BigQuery، وGA4، وAmplitude، ومجمع أحداث الطرف الأول المدمج، وHubSpot، وJira، وعشرات المصادر الأخرى، ويكتب الاستعلام نيابةً عنك، ويتحقق من صحته، ويعرض الإجابة كمخطط أو جدول أو لوحة معلومات محفوظة.
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>قوالب Agent-Native</h1><p class='wf-muted' style='margin:0'>التبني والتفاعل خلال آخر 12 أسبوعا.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>المستخدمون النشطون أسبوعيًا</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>تسجيلات جديدة</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>إيرادات MRR</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>المستخدمون النشطون أسبوعيًا</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>الإيرادات بمرور الوقت</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>التسجيلات حسب المصدر</strong><br/><small class='wf-muted'>يبدأ المخطط السفلي أسفل المخططات الرئيسية.</small></div></div>"
+}
+```
+
+إنه بديل مفتوح المصدر لـ Amplitude وMixpanel وLooker - للفرق التي ترغب في امتلاك التعليمات البرمجية والاستعلامات والبيانات.
+
+```an-diagram title="سؤال للرسم البياني" summary="يراجع الوكيل قاموس البيانات، ويكتب SQL، ويتحقق من صحته مقابل المستودع، ثم يعرض مخططًا أو يحفظ لوحة."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">بلغة بسيطة<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>يكتب SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">تحقق تجريبي dry-run</div><small class=\"diagram-muted\">BigQuery / المصدر</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">مخطط، جدول، أو<br>saved panel</div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## ما يمكنك فعله به
+
+- **اطرح الأسئلة المتعلقة بالبيانات باللغة الإنجليزية البسيطة.** "ما النسبة المئوية لعمليات الاشتراك التي تم تحويلها الشهر الماضي إلى مدفوعة؟" أو "اعرض لي المستخدمين النشطين أسبوعيًا خلال الأشهر الستة الماضية." يختار الوكيل المصدر الصحيح، ويكتب SQL، ويعرض المخطط.
+- **إنشاء لوحات معلومات SQL قابلة لإعادة الاستخدام** باستخدام عوامل التصفية وطرق العرض المحفوظة والاستعلامات المعلمية.
+- **تشغيل التحليلات المخصصة** التي تشير إلى مصادر بيانات متعددة - ويتم حفظها كتحقيقات قابلة لإعادة التشغيل مع السؤال الأصلي والتعليمات والنتائج.
+- **احتفظ بقاموس بيانات حي** يضم المقاييس والجداول ووصفات SQL بحيث يستخدم الوكيل أسماء الأعمدة الصحيحة في كل مرة (لم تعد هناك حاجة إلى تخمين `is_closed` عندما يكون `hs_is_closed` فعليًا).
+- **مشاركة لوحات التحكم** مع فريقك - خاصة بشكل افتراضي، وقابلة للمشاركة لكل مستخدم أو لكل مؤسسة مع أدوار المشاهد/المحرر/المشرف.
+- **الاتصال بالعديد من المصادر** خارج الصندوق: BigQuery، وGA4، وMixpanel، وAmplitude، وPostHog، وHubSpot، وJira، وApollo، وPylon، وGong، وCommon Room، وTwitter، بالإضافة إلى مصادر SEO الخاصة بالتطبيق.
+- **إعادة استخدام عمليات تكامل مساحة العمل** عندما تكون مساحة العمل متصلة بالفعل و
+  منح موفرًا لبرنامج Analytics. موفر مخازن التكامل المشترك
+  مراجع الهوية وبيانات الاعتماد؛ يحتفظ Analytics باختيار المصدر الخاص بالتطبيق،
+  إدخالات قاموس البيانات، ولوحة المعلومات SQL، وسجل التحليل.
+
+## البدء
+
+عرض توضيحي مباشر: [analytics.agent-native.com](https://analytics.agent-native.com).
+
+عند فتح التطبيق لأول مرة:
+
+1. سجل الدخول باستخدام Google.
+2. افتح صفحة **مصادر البيانات** من الشريط الجانبي.
+3. يحتوي كل مصدر على إرشادات تفصيلية — قم بتوصيل المصادر التي تحتاج إليها (ابدأ بمصدر، مثل BigQuery، أو GA4، أو Amplitude، أو تتبع الطرف الأول).
+4. افتح محادثة جديدة مع الوكيل واطرح سؤالاً: "كم عدد الاشتراكات التي حصلنا عليها الأسبوع الماضي؟"
+
+السؤال الأول كافي لتأكيد عمل الاتصال. ومن هناك، اطلب من الوكيل "حفظ هذا كلوحة تحكم" أو "إنشاء لوحة تحكم نظرة عامة مكونة من 4 لوحات لمقاييسنا الرئيسية."
+
+### مطالبات مفيدة
+
+- "أنشئ لوحة تحكم تعرض المستخدمين النشطين أسبوعيًا خلال الأشهر الستة الماضية."
+- "ما النسبة المئوية لعمليات الاشتراك الشهر الماضي التي تم تحويلها إلى اشتراكات مدفوعة؟"
+- "أضف مخططًا يقارن الإيرادات حسب الخطة إلى لوحة المعلومات هذه."
+- "أعد ترتيب اللوحات في لوحة المعلومات هذه بحيث يأتي مقياس MRR أولاً."
+- "تحليل صفقاتنا المغلقة الخاسرة من الربع الأول وحفظ التحليل."
+- "أعد تشغيل تحليل التراجع باستخدام بيانات هذا الشهر."
+- "قم بتوثيق هذا المقياس في قاموس البيانات."
+
+يعرف الوكيل دائمًا ما تنظر إليه - لوحة التحكم الحالية، والمرشحات، والعرض - لذا يمكنك أن تقول "لوحة التحكم هذه" أو "تلك اللوحة" دون أن تكون صريحًا.
+
+## ثلاثة أشياء يجب معرفتها
+
+يحتوي التطبيق على ثلاثة أسطح أساسية ستقضي وقتًا فيها:
+
+- **لوحات المعلومات SQL** — لوحات قابلة لإعادة الاستخدام مع عوامل التصفية وطرق العرض المحفوظة. الأفضل للمقاييس التي تتحقق منها بانتظام.
+- **التحليلات المخصصة** — تحقيقات طويلة يتم سحبها من مصادر متعددة، مع حفظ تعليمات إعادة التشغيل بجانبها. من الأفضل طرح الأسئلة لمرة واحدة والتي قد ترغب في إعادة النظر فيها.
+- **قاموس البيانات** — الكتالوج الأساسي للمقاييس والجداول والأعمدة ووصفات SQL. يستشيره الوكيل قبل كتابة أي SQL، لذلك فهو يستخدم أسماء أعمدة المستودعات الحقيقية ويعرف التحذيرات مثل "يستبعد رسائل البريد الإلكتروني الداخلية".
+
+يتم تصنيف القاموس عن طريق مطالبة الوكيل بما يلي: "استيراد تعريفات dbt الخاصة بنا" أو "سحب المقاييس من دليل Notion الخاص بنا" وسيقوم هو بالمهمة.
+
+## للمطورين
+
+باقي هذا المستند مخصص لأي شخص يقوم بتعديل نموذج Analytics أو توسيعه.
+
+### بداية سريعة
+
+إنشاء تطبيق Analytics جديد من CLI:
+
+```bash
+npx @agent-native/core@latest create my-analytics --standalone --template analytics
+```
+
+التطوير المحلي:
+
+```bash
+cd my-analytics
+pnpm install
+pnpm dev
+```
+
+يطبع CLI جهاز التطوير المحلي URL. سجل الدخول باستخدام Google، ثم افتح صفحة **مصادر البيانات** لربط BigQuery وGA4 وتتبع الطرف الأول وHubSpot وJira والباقي.
+
+### الميزات الرئيسية
+
+**اطرح الأسئلة واحصل على الرسوم البيانية.** يختار الوكيل مصدر البيانات، ويكتب SQL ويتحقق من صحته، ثم يعرض مخططًا أو جدولًا أو مقياسًا أو لوحة محفوظة.
+
+**لوحات المعلومات والتحقيقات.** تحتفظ لوحات المعلومات القابلة لإعادة الاستخدام بلوحات SQL والمرشحات وطرق العرض المحفوظة والمشاركة؛ تعمل التحليلات المخصصة على حفظ النتائج الأطول مع تعليمات إعادة التشغيل.
+
+**قاموس البيانات الحية.** تمنح تعريفات المقاييس والمالكين وجداول المصدر والتحذيرات المعروفة الوكيل مفردات المستودع الحقيقية قبل أن يكتب الاستعلامات.
+
+**سطح موصل واسع.** تأتي أحداث BigQuery وGA4 وتحليلات المنتج وCRM والدعم والمجتمع وGitHub/Jira وSEO وأحداث `/track` للطرف الأول من خلال actions التي يمكن للوكيل الاتصال بها.
+
+### العمل مع الوكيل
+
+يعرف الوكيل دائمًا ما تنظر إليه. يتم إدخال حالة الشاشة الحالية في كل رسالة ككتلة `<current-screen>` - فهي تحتوي على العرض النشط، ولوحة المعلومات المفتوحة أو التحليل، وأي عوامل تصفية محددة.
+
+يحصل موجه نظام الوكيل على كتلة `<data-dictionary>` المحقونة بإدخالات القياس المعتمدة للمؤسسة النشطة. عندما تطلب لوحة معلومات، يراجع الوكيل القاموس أولاً ويستخدم `table` / `columns` / `queryTemplate` حرفيًا — ولا يخمن أسماء الأعمدة.
+
+**السياق الذي يحتوي عليه تلقائيًا:**
+
+- **العرض الحالي** — `overview`، أو `adhoc` (مع `dashboardId`)، أو `analyses` (مع `analysisId`)، أو `data-dictionary`، أو `data-sources`، أو `settings`.
+- **المؤسسة النشطة** — تحدد نطاق جميع الاستعلامات وعمليات الكتابة.
+- **إدخالات القاموس المعتمدة** — لمساحة العمل النشطة.
+
+**تحريرات لوحة المعلومات.** يستخدم الوكيل الإجراء `update-dashboard` لتحرير لوحات المعلومات. وهو يدعم وضعين:
+
+- `ops` — تصحيحات مؤشر JSON للتعديلات الجراحية (حرك لوحة، واستبدل سلسلة SQL، وأزل مرشحًا).
+- `config` — الاستبدال الكامل لتكوين لوحة المعلومات.
+
+يتم تشغيل SQL لكل لوحة BigQuery في المستودع قبل حفظ لوحة المعلومات. إذا كان العمود خاطئًا، فسيتم رفض الحفظ مع خطأ BigQuery — يقوم الوكيل بإصلاح SQL وإعادة المحاولة بدلاً من استمرار اللوحات المعطلة.
+
+### توصيل مصادر البيانات
+
+افتح صفحة **مصادر البيانات** (`/data-sources`) للاتصال بموفري الخدمة. كل
+يكشف المصدر عن قائمة مفاتيح البيئة، وإرشادات تفصيلية، وزر **اختبار الاتصال**.
+عند تشغيل Analytics في مساحة عمل، يقدم `data-source-status` أيضًا تقارير
+تم منح اتصالات مساحة عمل قابلة لإعادة الاستخدام لـ `appId=analytics` حتى يتمكن الوكيل من ذلك
+اطلب منح التطبيق بدلاً من الحصول على نسخة أخرى من نفس مفتاح الموفر.
+بالنسبة للموفرين القابلين لإعادة الاستخدام مثل Slack، وHubSpot، وNotion، وGitHub، فإن البيانات
+تعرض المصادر UI حالة التكامل المشترك مباشرةً: جاهزة عبر مساحة العمل،
+يحتاج إلى منحة، أو يحتاج إلى بيانات اعتماد، أو بيانات اعتماد محلية.
+
+عمليات تكامل مساحة العمل القابلة لإعادة الاستخدام هي اتجاه وقت التشغيل للموفرين المشتركين:
+يخزن إطار العمل هوية الموفر، وبيانات تعريف الحساب، ومراجع بيانات الاعتماد، و
+المنح لكل تطبيق مرة واحدة؛ يقوم Analytics بتخزين تفسير مصدر البيانات، مصدر
+اختيارات الحقيقة وتعريفات المقاييس ولوحات المعلومات والتحليلات.
+
+يتم تخزين بيانات الاعتماد عبر إعدادات إطار العمل/طبقة البيئة - لا توجد أسرار في git. يتطلب الإنتاج:
+
+| متغير                                    | الغرض                                                          |
+| ---------------------------------------- | -------------------------------------------------------------- |
+| `DATABASE_URL`                           | اتصال SQL الدائم URL                                           |
+| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | المصادقة                                                       |
+| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | العميل المفضل لتسجيل الدخول إلى Google (OAuth 2.0)             |
+| `GOOGLE_CLIENT_ID` / `_SECRET`           | الإجراء الاحتياطي القديم لتسجيل الدخول / عميل تكامل Google API |
+| `BIGQUERY_PROJECT_ID`                    | مشروع BigQuery                                                 |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | حساب خدمة BigQuery JSON                                        |
+| `ANTHROPIC_API_KEY`                      | دردشة الوكيل                                                   |
+
+يتم توثيق المفاتيح الخاصة بالموفر (HubSpot، وJira، وGong، وPylon، وما إلى ذلك) في الإرشادات التفصيلية لكل مصدر في صفحة مصادر البيانات. إذا قمت بإضافة إجراء جديد يحتاج إلى مفتاح API، فسيظهر كمصدر جديد على تلك الصفحة عبر تسجيل تأهيل القالب.
+
+ملاحظة: بيانات اعتماد BigQuery OAuth لتسجيل الدخول إلى Google هي **منفصلة**
+بيانات الاعتماد من حساب خدمة BigQuery JSON. أنشئ عميل تسجيل الدخول على
+وحدة التحكم GCP → APIs والخدمات → بيانات الاعتماد → معرف العميل OAuth، ويفضل
+أسماء البيئة `GOOGLE_SIGN_IN_CLIENT_ID` / `GOOGLE_SIGN_IN_CLIENT_SECRET` لذلك
+يظل عميل تسجيل الدخول منخفض النطاق منفصلاً عن عملاء تكامل Google API.
+
+### نموذج البيانات
+
+الجداول الأساسية (راجع `templates/analytics/server/db/schema.ts`):
+
+```an-schema title="نموذج بيانات التحليلات" summary="Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
+{
+  "entities": [
+    {
+      "id": "dashboards",
+      "name": "dashboards",
+      "note": "المستكشف ولوحات المعلومات SQL",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "kind", "type": "text", "note": "\"explorer\" or \"sql\"" },
+        { "name": "config", "type": "text", "note": "JSON مطابقة SqlDashboardConfig" }
+      ]
+    },
+    {
+      "id": "dashboard_views",
+      "name": "dashboard_views",
+      "note": "الإعدادات المسبقة للمرشح المحفوظة لكل لوحة معلومات",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "dashboard_id", "type": "text", "fk": "dashboards.id" }
+      ]
+    },
+    {
+      "id": "analyses",
+      "name": "analyses",
+      "note": "التحقيقات المخصصة القابلة لإعادة التشغيل",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "question", "type": "text" },
+        { "name": "instructions", "type": "text", "note": "أعد تنفيذ الخطوات" },
+        { "name": "dataSources", "type": "text", "note": "تم لمس المصادر" },
+        { "name": "resultMarkdown", "type": "text" },
+        { "name": "resultData", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "id": "bigquery_cache",
+      "name": "bigquery_cache",
+      "note": "نتيجة مفتاح تجزئة SQL ذاكرة التخزين المؤقت",
+      "fields": [
+        { "name": "sql_hash", "type": "text", "pk": true },
+        { "name": "bytes_processed", "type": "integer" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "dashboards", "to": "dashboard_views", "kind": "1-n", "label": "saved views" }
+  ]
+}
+```
+
+بالإضافة إلى جداول المشاركة لكل مورد (`dashboard_shares`، `analysis_shares`) والجداول التنظيمية (`organizations`، `org_members`، `org_invitations`) المقدمة من `@agent-native/core/org`. يوجد قاموس البيانات في جدول `settings` الخاص بإطار العمل ضمن المفاتيح المحددة النطاق.
+
+- **`dashboards`** — لوحتا معلومات Explorer وSQL. `kind` هو `"explorer"` أو `"sql"`؛ `config` عبارة عن كائن ثنائي كبير الحجم JSON يطابق `SqlDashboardConfig`.
+- **`dashboard_shares`** — منح المشاركة لكل مورد (الرئيسي، الدور).
+- **`dashboard_views`** — إعدادات التصفية المحفوظة مسبقًا لكل لوحة معلومات.
+- **`analyses`** — تحقيقات مخصصة باستخدام `question`، و`instructions`، و`dataSources`، و`resultMarkdown`، و`resultData` الاختيارية.
+- **`analysis_shares`** — منح المشاركة لكل مورد لإجراء التحليلات.
+- **`bigquery_cache`** — ذاكرة التخزين المؤقت لنتائج الاستعلام التي يتم إدخالها بواسطة تجزئة SQL مع المحاسبة التي تتم معالجتها بالبايت.
+
+بالإضافة إلى الجداول التنظيمية (`organizations`، `org_members`، `org_invitations`) المقدمة من `@agent-native/core/org`.
+
+يعيش قاموس البيانات في جدول `settings` الخاص بإطار العمل ضمن المفاتيح المحددة النطاق؛ راجع `list-data-dictionary` و`save-data-dictionary-entry` actions لمعرفة الشكل الكامل.
+
+### تخصيصه
+
+من المفترض أن يكون قالب Analytics متشعبًا وموسعًا. كل شيء يعيش في `templates/analytics/`:
+
+- **`AGENTS.md`** — دليل المستوى الأعلى للوكيل. طرق عرض المستندات وactions وسير العمل.
+- **`actions/`** — كل عملية يمكن استدعاءها من قبل الوكيل. أضف ملفًا جديدًا لإضافة إجراء جديد. أبرزها:
+  - `update-dashboard.ts` — تعديلات لوحة التحكم (عمليات + استبدال كامل)
+  - `save-analysis.ts` / `list-analyses.ts` — التحليلات المخصصة
+  - `save-data-dictionary-entry.ts` / `list-data-dictionary.ts` — القاموس
+  - `bigquery.ts` — تنفيذ BigQuery الأولي
+  - `view-screen.ts` / `navigate.ts` — الوعي بالسياق
+- **`app/routes/`** — المسارات المستندة إلى الملف. كل مسار عبارة عن غلاف رفيع حول صفحة في `app/pages/`.
+- **`app/pages/adhoc/sql-dashboard/`** — عارض لوحة المعلومات SQL، ومحرر اللوحة، وشريط التصفية، وطرق العرض المحفوظة.
+- **`app/pages/analyses/`** — قائمة التحليلات وعرض التفاصيل.
+- **`app/pages/DataSources.tsx`** — إعداد مصدر البيانات UI.
+- **`app/pages/DataDictionary.tsx`** — متصفح القاموس ومحرره.
+- **`.agents/skills/`** — نمط يرشد الوكيل إلى القراءة عند الطلب:
+  - `dashboard-management` - التخزين، ودقة النطاق، وشكل تكوين لوحة المعلومات
+  - `data-querying` — البرنامج النصي الذي يجب الوصول إليه، وأنماط التصفية
+  - `adhoc-analysis` — سير العمل للتحقيقات عبر المصادر
+  - `data-querying`, `real-time-sync`, `frontend-design`, `storing-data`, `self-modifying-code`
+- **`.builder/skills/<provider>/SKILL.md`** — الأخطاء الخاصة بموفر الخدمة (BigQuery، HubSpot، Jira، GA4، وما إلى ذلك). اقرأ قبل الاستعلام؛ قم بالتحديث عندما تتعلم شيئًا جديدًا.
+- **`server/db/schema.ts`** — مخطط Drizzle للوحات المعلومات، والمشاركات، وطرق العرض، والتحليلات، وذاكرة التخزين المؤقت BigQuery.
+- **`server/lib/dashboards-store.ts`** — قراءة/كتابة لوحة المعلومات مع دقة النطاق وترحيل KV القديم.
+- **`server/lib/bigquery.ts`** — عميل BigQuery، ومدقق التشغيل الجاف، ومنطق ذاكرة التخزين المؤقت.
+
+لإضافة مصدر بيانات جديد، قم بإسقاط برنامج نصي في `actions/` يستدعي الموفر ويعيد النتائج عبر مساعد `output()`. ويصبح متاحًا للوكيل على الفور ويمكن استخدامه داخل لوحات المعلومات (إذا قمت بكشف النتيجة عبر معالج الخادم).
+
+لإضافة نوع مخطط جديد، قم بتوسيع اتحاد `ChartType` في `app/pages/adhoc/sql-dashboard/types.ts`، وتعامل معه في `SqlChartCard.tsx`، ويمكن للوكيل استخدامه في أي لوحة.
+
+للحصول على النمط الأوسع حول توسيع القوالب، راجع [Skills guide](/docs/skills-guide) و[Actions](/docs/actions).

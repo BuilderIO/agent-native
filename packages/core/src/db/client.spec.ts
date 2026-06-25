@@ -32,6 +32,16 @@ describe("db/client dialect detection", () => {
     expect(intType()).toBe("BIGINT");
   });
 
+  it("detects postgres dialect from opt-in pglite: URL", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
+    const { getDialect, isPostgres, intType, isLocalDatabase } =
+      await import("./client.js");
+    expect(getDialect()).toBe("postgres");
+    expect(isPostgres()).toBe(true);
+    expect(intType()).toBe("BIGINT");
+    expect(isLocalDatabase()).toBe(true);
+  });
+
   it("detects sqlite dialect from file: URL", async () => {
     vi.stubEnv("DATABASE_URL", "file:./data/app.db");
     const { getDialect, isPostgres, intType } = await import("./client.js");
@@ -69,6 +79,38 @@ describe("db/client dialect detection", () => {
     vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
     const { getDatabaseUrl } = await import("./client.js");
     expect(getDatabaseUrl()).toBe("postgres://plan.example/db");
+  });
+});
+
+describe("pgliteDataDirFromUrl", () => {
+  it("maps pglite URLs to PGlite dataDir values", async () => {
+    const { pgliteDataDirFromUrl } = await import("./client.js");
+
+    expect(pgliteDataDirFromUrl("pglite:./data/pglite")).toBe("./data/pglite");
+    expect(pgliteDataDirFromUrl("pglite:///tmp/pglite")).toBe("/tmp/pglite");
+    expect(pgliteDataDirFromUrl("pglite:memory")).toBe("memory://");
+    expect(pgliteDataDirFromUrl("pglite:")).toBe("./data/pglite");
+  });
+});
+
+describe("PGlite optional dependency", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("reports setup instructions when pglite: is selected without the package", async () => {
+    const pglitePackage = "@electric-sql/pglite";
+    try {
+      await import(pglitePackage);
+      return;
+    } catch {
+      // Continue only when the optional package is absent in this install.
+    }
+
+    const { createDbExec } = await import("./client.js");
+    await expect(createDbExec({ url: "pglite:memory" })).rejects.toThrow(
+      "PGlite database support requires the optional @electric-sql/pglite package.",
+    );
   });
 });
 
@@ -132,6 +174,32 @@ describe("getDbExec", () => {
     // but after first execute it should resolve
     const a = getDbExec();
     expect(a).toBeDefined();
+  });
+});
+
+describe("sqliteToPostgresParams", () => {
+  it("converts placeholders while preserving question marks inside SQL literals", async () => {
+    const { sqliteToPostgresParams } = await import("./client.js");
+
+    expect(
+      sqliteToPostgresParams(
+        "SELECT substring(referrer from 'https?://([^/?#]+)') AS domain FROM analytics_events WHERE owner_email = ? AND path LIKE ?",
+      ),
+    ).toBe(
+      "SELECT substring(referrer from 'https?://([^/?#]+)') AS domain FROM analytics_events WHERE owner_email = $1 AND path LIKE $2",
+    );
+  });
+
+  it("ignores question marks in identifiers, comments, and dollar-quoted strings", async () => {
+    const { sqliteToPostgresParams } = await import("./client.js");
+
+    expect(
+      sqliteToPostgresParams(
+        'SELECT "weird?column", $$literal ? value$$ FROM analytics_events -- comment ?\nWHERE owner_email = ? /* block ? */ AND org_id = ?',
+      ),
+    ).toBe(
+      'SELECT "weird?column", $$literal ? value$$ FROM analytics_events -- comment ?\nWHERE owner_email = $1 /* block ? */ AND org_id = $2',
+    );
   });
 });
 
@@ -394,3 +462,6 @@ describe("withDbTimeout", () => {
     await new Promise((r) => setTimeout(r, 40));
   });
 });
+
+// Tests for `widenIntColumnsToBigInt` live in `./widen-columns.spec.ts`
+// (the helper moved to `./widen-columns.js`).

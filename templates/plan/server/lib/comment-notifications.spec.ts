@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { PlanBundle, PlanComment } from "../../shared/types.js";
 
 const sendEmailMock = vi.hoisted(() => vi.fn());

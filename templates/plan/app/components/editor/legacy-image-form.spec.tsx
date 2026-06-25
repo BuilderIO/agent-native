@@ -1,13 +1,13 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   SchemaBlockEditor,
   type BlockRenderContext,
 } from "@agent-native/core/blocks";
 import { imageDataSchema } from "@shared/plan-content";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 let container: HTMLElement;
 let root: Root;

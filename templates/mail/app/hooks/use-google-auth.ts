@@ -1,15 +1,51 @@
+import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
 
-interface GoogleAuthStatus {
+export interface GoogleAuthAccount {
+  email: string;
+  displayName?: string;
+  expiresAt?: string;
+  photoUrl?: string;
+}
+
+export interface GoogleAuthStatus {
   connected: boolean;
-  accounts: Array<{
-    email: string;
-    displayName?: string;
-    expiresAt?: string;
-    photoUrl?: string;
-  }>;
+  accounts: GoogleAuthAccount[];
+}
+
+const stablePhotoUrls = new Map<string, string>();
+
+export function mergeStableGoogleAuthStatus(
+  status: GoogleAuthStatus,
+  photoCache: Map<string, string> = stablePhotoUrls,
+): GoogleAuthStatus {
+  if (!status.connected || status.accounts.length === 0) {
+    photoCache.clear();
+    return status;
+  }
+
+  const accountEmails = new Set(
+    status.accounts.map((account) => account.email),
+  );
+  for (const email of photoCache.keys()) {
+    if (!accountEmails.has(email)) photoCache.delete(email);
+  }
+
+  let changed = false;
+  const accounts = status.accounts.map((account) => {
+    if (account.photoUrl) {
+      photoCache.set(account.email, account.photoUrl);
+      return account;
+    }
+
+    const cachedPhotoUrl = photoCache.get(account.email);
+    if (!cachedPhotoUrl) return account;
+    changed = true;
+    return { ...account, photoUrl: cachedPhotoUrl };
+  });
+
+  return changed ? { ...status, accounts } : status;
 }
 
 /**
@@ -86,8 +122,10 @@ export function useGoogleAuthStatus() {
   return useQuery<GoogleAuthStatus>({
     queryKey: ["google-status"],
     queryFn: async () => {
-      return fetchJson<GoogleAuthStatus>(
-        agentNativePath("/_agent-native/google/status"),
+      return mergeStableGoogleAuthStatus(
+        await fetchJson<GoogleAuthStatus>(
+          agentNativePath("/_agent-native/google/status"),
+        ),
       );
     },
   });

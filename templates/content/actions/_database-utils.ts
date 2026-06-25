@@ -1,4 +1,5 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   parseDocumentFavorite,
@@ -121,7 +122,13 @@ export async function getContentDatabaseResponse(
     .from(schema.contentDatabases)
     .where(eq(schema.contentDatabases.id, databaseId));
 
-  if (!database) throw new Error(`Database "${databaseId}" not found`);
+  if (!database || database.deletedAt) {
+    throw new Error(`Database "${databaseId}" not found`);
+  }
+
+  // PURE read: the primary "Content" Blocks field is seeded at create time and
+  // by the one-time startup repair — never here. Reading a database (including a
+  // shared one a viewer is opening) must not mutate schema.
 
   const { limit, offset } = normalizeContentDatabasePageOptions(options);
   const [itemCount] = await db
@@ -220,17 +227,60 @@ export async function getContentDatabaseResponse(
   };
 }
 
-export async function getDatabaseByDocumentId(documentId: string) {
+export async function isSoftDeletedDatabaseDocument(documentId: string) {
   const db = getDb();
+  const [ownedDatabase] = await db
+    .select({ id: schema.contentDatabases.id })
+    .from(schema.contentDatabases)
+    .where(
+      and(
+        eq(schema.contentDatabases.documentId, documentId),
+        sql`${schema.contentDatabases.deletedAt} IS NOT NULL`,
+      ),
+    );
+  if (ownedDatabase) return true;
+
+  const [databaseItem] = await db
+    .select({ id: schema.contentDatabaseItems.id })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.contentDatabases,
+      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.documentId, documentId),
+        sql`${schema.contentDatabases.deletedAt} IS NOT NULL`,
+      ),
+    );
+  return !!databaseItem;
+}
+
+export async function getDatabaseByDocumentId(
+  documentId: string,
+  options: { includeDeleted?: boolean } = {},
+) {
+  const db = getDb();
+  const clauses = [eq(schema.contentDatabases.documentId, documentId)];
+  if (!options.includeDeleted) {
+    clauses.push(isNull(schema.contentDatabases.deletedAt));
+  }
   const [database] = await db
     .select()
     .from(schema.contentDatabases)
-    .where(eq(schema.contentDatabases.documentId, documentId));
+    .where(and(...clauses));
   return database ?? null;
 }
 
-export async function getDatabaseItemByDocumentId(documentId: string) {
+export async function getDatabaseItemByDocumentId(
+  documentId: string,
+  options: { includeDeleted?: boolean } = {},
+) {
   const db = getDb();
+  const clauses = [eq(schema.contentDatabaseItems.documentId, documentId)];
+  if (!options.includeDeleted) {
+    clauses.push(isNull(schema.contentDatabases.deletedAt));
+  }
   const [row] = await db
     .select({
       item: schema.contentDatabaseItems,
@@ -241,7 +291,7 @@ export async function getDatabaseItemByDocumentId(documentId: string) {
       schema.contentDatabases,
       eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
     )
-    .where(eq(schema.contentDatabaseItems.documentId, documentId));
+    .where(and(...clauses));
   return row ?? null;
 }
 
@@ -250,7 +300,9 @@ export async function deleteDatabaseDataForDocument(
   ownerEmail: string,
 ) {
   const db = getDb();
-  const database = await getDatabaseByDocumentId(documentId);
+  const database = await getDatabaseByDocumentId(documentId, {
+    includeDeleted: true,
+  });
   if (database) {
     const definitions = await db
       .select({ id: schema.documentPropertyDefinitions.id })
@@ -261,6 +313,11 @@ export async function deleteDatabaseDataForDocument(
       await db
         .delete(schema.documentPropertyValues)
         .where(eq(schema.documentPropertyValues.propertyId, definition.id));
+      // Independent Blocks-field content is keyed by property id; drop it so
+      // deleting a database leaves no orphaned document_block_field_contents.
+      await db
+        .delete(schema.documentBlockFieldContents)
+        .where(eq(schema.documentBlockFieldContents.propertyId, definition.id));
     }
     const sources = await db
       .select({ id: schema.contentDatabaseSources.id })
@@ -299,7 +356,9 @@ export async function deleteDatabaseDataForDocument(
       .where(eq(schema.contentDatabases.id, database.id));
   }
 
-  const item = await getDatabaseItemByDocumentId(documentId);
+  const item = await getDatabaseItemByDocumentId(documentId, {
+    includeDeleted: true,
+  });
   if (item) {
     await db
       .delete(schema.documentPropertyValues)
@@ -309,6 +368,12 @@ export async function deleteDatabaseDataForDocument(
           eq(schema.documentPropertyValues.ownerEmail, ownerEmail),
         ),
       );
+    // A deleted row document's independent Blocks-field content is keyed by
+    // document id; drop it so no document_block_field_contents rows are
+    // orphaned when the row is removed.
+    await db
+      .delete(schema.documentBlockFieldContents)
+      .where(eq(schema.documentBlockFieldContents.documentId, documentId));
     await db
       .delete(schema.contentDatabaseItems)
       .where(eq(schema.contentDatabaseItems.documentId, documentId));

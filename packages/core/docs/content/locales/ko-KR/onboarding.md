@@ -1,0 +1,216 @@
+---
+title: "온보딩 및 API 키"
+description: "최초 실행 구성을 위한 설정 체크리스트 — API 키, OAuth 및 공급자 연결"
+---
+
+# 온보딩
+
+에이전트 네이티브 프레임워크에 구축된 앱을 처음 열면 다음이 표시됩니다.
+**설정** 상담원 사이드바의 체크리스트. 첫 실행 구성을 닫아 둡니다
+에이전트 채팅: AI 엔진을 연결하고 선택적으로 앱을 공유 위치로 지정
+인프라를 구축하고 필요할 때만 공급자를 추가하세요.
+
+```an-diagram title="설정 체크리스트" summary="AI 엔진 연결만 필요합니다. 패널은 완료를 추적하고 필요한 모든 작업이 완료되면 자동으로 숨겨집니다."
+{
+  "html": "<div class=\"ob\"><div class=\"diagram-card\"><span class=\"diagram-pill warn\">required</span><strong>AI 엔진 연결</strong><small class=\"diagram-muted\">Connect Builder (one click) or paste an LLM key</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Database</strong><small class=\"diagram-muted\">set <code>DATABASE_URL</code></small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Authentication</strong><small class=\"diagram-muted\">OAuth / access token</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>이메일 전달</strong><small class=\"diagram-muted\">Resend / SendGrid</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">all required done &rarr; panel auto-hides</div></div>",
+  "css": ".ob{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ob .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 14px}.ob .diagram-arrow{font-size:22px}"
+}
+```
+
+## 최종 사용자용
+
+### 볼 내용
+
+- 'AI 연결'과 같은 체크리스트가 포함된 상담원 채팅 위의 **설정** 패널
+  엔진', '이메일 전달' 등
+- 상단의 카운터(예: "1/4")는 준비된 단계 수를 보여줍니다.
+- 현재 단계가 확장되었습니다. 완료된 단계에는 녹색 확인 표시가 표시되고 그대로 유지됩니다.
+  열면 읽을 수 있습니다.
+- 필수 단계에는 작은 빨간색 **필수** 알약이 표시됩니다. 패널은 계속 표시됩니다.
+  모든 필수 단계가 완료될 때까지
+- 필요한 모든 작업이 완료되면 패널이 자동으로 숨겨집니다.
+- 오른쪽 상단에 있는 갈매기 모양으로 전체 패널을 접을 수 있습니다. 또는
+  하단의 **Hide setup**으로 완전히 숨겨졌습니다.
+
+### 각 단계를 완료하는 방법
+
+단계는 하나 이상의 **방법**을 제공합니다 — 동일한 사항을 만족시키는 다양한 방법
+요구 사항. 기본 경로가 먼저 표시됩니다. 보조 경로는 컴팩트하게 유지됩니다.
+단계에 여러 동등한 제공자가 있는 경우 선택기 또는 공개 뒤에
+
+- **서비스 연결(한 번의 클릭)** — 예: _관리 대상에 Builder_ 연결
+  AI 게이트웨이. 버튼을 클릭하면 창이 열리고 로그인하면 창이 닫힙니다.
+  단계가 완료로 표시됩니다. 복사할 키가 없습니다.
+- **API 키를 붙여넣거나 양식을 작성하세요** — 예: LLM 공급자, 데이터베이스를 선택하세요.
+  OAuth 제공업체 또는 이메일 제공업체인 경우 값을 붙여넣고 **저장**을 클릭하세요.
+  비밀 필드는 비밀번호 입력을 사용하므로 값이 화면에 표시되지 않습니다. 저장됨
+  값은 로컬 `.env`(또는 작업 공간 설정)에 적용됩니다.
+  [Security](/docs/security)는 그들이 사는 곳입니다.
+- **링크 열기** — 일부 단계는 로그인 페이지 또는 문서를 가리킵니다. 클릭
+  **계속**하고 새 탭에서 흐름을 완료하세요.
+- **상담원에게 문의** — 몇 단계를 거치면 "상담원이 설정하도록 허용" 옵션이 제공됩니다.
+  클릭하면 상담원이 채팅을 통해 안내해 드립니다.
+  외부 설정(OAuth 자격 증명 생성 등)
+
+### 일반적으로 표시되는 기본 제공 단계
+
+- **AI 엔진 연결**(필수) - 유일한 필수 단계입니다. 연결
+  원클릭 관리 게이트웨이의 경우 Builder 또는 보조 공급자 키 열기
+  자신의 LLM 키를 선택하여 붙여넣으세요.
+- **데이터베이스** (선택 사항) — 특정 데이터베이스를 사용하려면 `DATABASE_URL`를 설정하세요.
+  SQL 데이터베이스 연결 문자열.
+- **인증** (선택 사항) — 내장된 이메일/비밀번호 계정은
+  기본값. 해당 경로를 원할 때만 OAuth 또는 액세스 토큰 로그인을 추가하세요.
+- **이메일 전달**(선택 사항) — 비밀번호 재설정을 위해 배포하기 전에 유용합니다.
+  팀 초대 및 알림 공유. 이미 사용하고 있는 제공업체를 이용하세요.
+  로컬 개발은 그것 없이 실행될 수 있습니다.
+
+템플릿은 이 위에 자체 단계를 추가할 수 있습니다. CRM 템플릿은
+"Connect Gmail"를 추가하면 문서 템플릿에 "기본 작업 공간 선택"이 추가될 수 있습니다. 참조
+로그인 설정 세부정보는 [Authentication](/docs/authentication)를 참조하세요.
+
+### 체크리스트로 돌아가기
+
+**설정 숨기기**를 누르면 해당 브라우저 세션에 대한 패널이 사라집니다.
+아직 완료되지 않은 필수 단계는 다음 로드 시 다시 표시됩니다. 한 번
+필요한 모든 작업이 완료되었으며 패널은 영원히 자동으로 숨겨집니다. 아무것도 없습니다.
+할 일이 남았습니다.
+
+## 개발자용
+
+템플릿을 작성하는 경우 온보딩 단계를 등록하여 표시되도록 합니다.
+사용자의 사이드바 체크리스트. 프레임워크는 렌더링, 완료를 처리합니다.
+추적 및 해제 - 단계가 무엇인지, 어떻게 진행되는지 선언하면 됩니다.
+만족합니다.
+
+시스템이 **자동 마운트**됩니다. 템플릿을 얻기 위해 아무것도 연결할 필요가 없습니다.
+4가지 기본 제공 단계(LLM, 데이터베이스, 인증, 이메일). 특정 앱을 추가하려면
+단계(Gmail, Slack, Notion 등), a에서 `registerOnboardingStep()`를 호출
+서버 플러그인.
+
+### 자동 마운트된 경로
+
+모든 경로는 `/_agent-native/onboarding/`에 속합니다:
+
+| 경로                                                | 목적                           |
+| --------------------------------------------------- | ------------------------------ |
+| `GET /_agent-native/onboarding/steps`               | 완료 상태가 포함된 단계 나열   |
+| `POST /_agent-native/onboarding/steps/:id/complete` | 단계 완료 표시(재정의)         |
+| `POST /_agent-native/onboarding/dismiss`            | 온보딩 배너 닫기               |
+| `POST /_agent-native/onboarding/reopen`             | 해제 해제(패널 다시 표시)      |
+| `GET /_agent-native/onboarding/dismissed`           | 읽기 취소 + allComplete 플래그 |
+
+```an-api title="온보딩 단계 나열"
+{
+  "method": "GET",
+  "path": "/_agent-native/onboarding/steps",
+  "summary": "등록된 모든 단계를 완료 상태와 함께 나열합니다.",
+  "description": "Drives the sidebar checklist — returns each step's id, title, methods, required flag, and whether `isComplete` currently passes.",
+  "responses": [
+    { "status": "200", "description": "Array of steps with completion status for the current user/app." }
+  ]
+}
+```
+
+### 템플릿에서 단계 추가
+
+```an-annotated-code title="사용자 정의 온보딩 단계 등록"
+{
+  "filename": "server/plugins/my-onboarding.ts",
+  "language": "ts",
+  "code": "import { defineNitroPlugin } from \"@agent-native/core/server\";\nimport { registerOnboardingStep } from \"@agent-native/core/onboarding\";\nimport { listOAuthAccounts } from \"@agent-native/core/oauth-tokens\";\n\nexport default defineNitroPlugin(() => {\n  registerOnboardingStep({\n    id: \"gmail\",\n    order: 100,\n    title: \"Connect Gmail\",\n    description: \"Grant read/send access so the agent can work with email.\",\n    methods: [\n      {\n        id: \"oauth\",\n        kind: \"link\",\n        primary: true,\n        label: \"Sign in with Google\",\n        payload: { url: \"/_agent-native/google/auth-url?scope=mail\", external: false },\n      },\n      {\n        id: \"delegate\",\n        kind: \"agent-task\",\n        label: \"Let the agent set it up\",\n        badge: \"beta\",\n        payload: { prompt: \"Walk me through connecting Gmail. Set env vars as needed.\" },\n      },\n    ],\n    isComplete: async () => {\n      const accounts = await listOAuthAccounts(\"google\");\n      return accounts.length > 0;\n    },\n  });\n});",
+  "annotations": [
+    { "lines": "5", "label": "자동 마운트", "note": "Nitro 플러그인에서 등록하세요. 프레임워크가 렌더링, 완료 추적 및 해제를 처리합니다." },
+    { "lines": "7", "label": "안정적인 ID", "note": "기본 로드 후 동일한 `id`을 다시 등록하면 기본 제공 단계가 재정의됩니다." },
+    { "lines": "12-19", "label": "기본 방법", "note": "`primary: true` marks the big CTA. `kind: \"link\"` sends the user into the OAuth flow." },
+    { "lines": "20-26", "label": "대리인 경로", "note": "`kind: \"agent-task\"` hands the setup to the agent chat with a prompt." },
+    { "lines": "28-31", "label": "완료 확인", "note": "`isComplete`은 서버측에서 실행됩니다. OAuth 토큰은 `oauth_tokens` 저장소에 있습니다. `process.env.GMAIL_REFRESH_TOKEN`가 아니라 확인하세요." }
+  ]
+}
+```
+
+### 온보딩에서 작업공간 연결 확인
+
+외부 서비스(예: Slack, Google Workspace, GitHub 또는 HubSpot)와 상호작용하는 템플릿을 구축할 때 작업공간이 이미 연결되어 있고 해당 공급자 연결을 애플리케이션에 부여했는지 확인해야 합니다. 이렇게 하면 중앙 관리 연결이 존재할 때 사용자가 로컬 환경 변수에 자격 증명(예: API 키 또는 새로 고침 토큰)을 복제할 필요가 없습니다.
+
+연결 카탈로그 APIs를 사용하여 `isComplete` 콜백에서 연결 준비 상태를 확인할 수 있습니다.
+
+```ts
+import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
+
+// Inside registerOnboardingStep:
+isComplete: async () => {
+  // Check if a managed workspace connection exists and is ready
+  const catalog = await listWorkspaceConnectionProviderCatalogForApp({
+    appId: "mail",
+    templateUse: "mail",
+    provider: "gmail",
+  });
+  const connection = catalog.providers[0];
+
+  if (
+    connection?.readiness.status === "ready" &&
+    connection.workspaceConnection.grantState === "granted"
+  ) {
+    return true;
+  }
+
+  // Fall back to local environment variable check
+  return !!process.env.GMAIL_REFRESH_TOKEN;
+};
+```
+
+연결 공급자 카탈로그 방법의 전체 목록은 [Workspace Connections](/docs/workspace-connections) 문서를 참조하세요.
+
+### 메소드 종류
+
+| 종류               | 페이로드                                              | 사용                                          |
+| ------------------ | ----------------------------------------------------- | --------------------------------------------- |
+| `link`             | `{ url, external? }`                                  | 사용자를 OAuth 흐름 또는 문서 페이지로 보내기 |
+| `form`             | `{ fields, writeScope? }`                             | 환경 변수(키, 비밀, URL) 수집                 |
+| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)        |
+| `agent-task`       | `{ prompt }`                                          | 처리할 상담원 채팅에 메시지를 보냅니다.       |
+
+`primary: true` 플래그는 메서드를 해당 단계의 큰 CTA로 표시합니다.
+설정 경로가 표시되어야 하는 경우 `badge: "soon"`와 `disabled: true`를 사용하세요.
+사용 가능하기 전에
+
+### 내장 단계
+
+| 아이디     | 필수       | 설명                                      |
+| ---------- | ---------- | ----------------------------------------- |
+| `llm`      | 그렇습니다 | Builder 연결 또는 공급자 LLM 키           |
+| `database` | 아니요     | 기본 데이터베이스 또는 SQL `DATABASE_URL` |
+| `auth`     | 아니요     | 내장 계정, 선택적 OAuth 또는 액세스 토큰  |
+| `email`    | 아니요     | 거래 이메일을 위한 재전송 또는 SendGrid   |
+
+이들 중 하나는 동일한 `id`에 다시 등록하여 재정의할 수 있습니다.
+기본 로드.
+
+### 클라이언트 사용량
+
+패널이 이미 `<AgentPanel>` 내부에 있습니다. 사용자 정의 레이아웃을 구축하려면:
+
+```tsx
+import {
+  OnboardingPanel,
+  OnboardingBanner,
+  useOnboarding,
+} from "@agent-native/core/client/onboarding";
+
+function MySidebar() {
+  const { allComplete, dismissed, currentStepId } = useOnboarding();
+  if (allComplete || dismissed) return <Chat />;
+  return (
+    <>
+      <OnboardingPanel />
+      <Chat />
+    </>
+  );
+}
+```
+
+단계 값이 저장되는 위치와 비밀이 처리되는 방법에 대한 배경 정보는
+[Security](/docs/security)를 참조하세요. 최종 사용자 메시지 터치포인트(초대,
+비밀번호 재설정) **이메일 전달** 단계에 따라 다릅니다.
+[Messaging](/docs/messaging).

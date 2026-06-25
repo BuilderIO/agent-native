@@ -1,0 +1,39 @@
+---
+title: "纯代理应用"
+description: "代理是整个产品的应用程序：应用程序代理循环是前门，仅在人们需要时才添加 UI。"
+---
+
+# 纯代理应用
+
+纯代理应用程序是代理本机的最小端：应用程序代理循环是
+产品，而不是仪表板。您从终端、Slack、电子邮件、
+预定的工作、另一个代理或聊天 - “总结我未读的电子邮件”、“发布
+每日指标为 Slack” - 代理会在任何地方执行操作并返回结果
+属于。它仍然是一个真实的应用程序：actions、会话、应用程序状态、历史记录，
+设置、凭据和共享记录均位于 SQL 中。
+
+```an-diagram title="应用程序代理循环是前门" summary="许多入口点通过 SQL-backed 操作和状态到达一个代理循环；结果返回到请求来自的地方。仅当需要人类监督时才添加 UI。"
+{
+  "html": "<div class=\"diagram-pure\"><div class=\"diagram-col\"><div class=\"diagram-pill\">Terminal</div><div class=\"diagram-pill\">Slack · 邮件</div><div class=\"diagram-pill\">定时任务</div><div class=\"diagram-pill\">Another agent (A2A)</div><div class=\"diagram-pill\">Chat</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">应用代理循环</span><small class=\"diagram-muted\">操作 · 会话 · SQL 中的应用状态</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>结果返回<br><small class=\"diagram-muted\">to where it belongs</small></div></div>",
+  "css": ".diagram-pure{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-pure .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-pure .diagram-arrow{font-size:22px;line-height:1}.diagram-pure .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+当工作在后台运行时，达到此形状，输出离开
+应用程序，域是一次性的，或者您正在制作原型。代理仍然需要 UI —
+不是仪表板，而是人类监督、配置和引导它的地方 -
+这就是为什么即使是纯代理应用程序通常也会安装内置的 Chat shell。
+
+这是**无头**产品形状。完整的决策指南，包含哪些内容
+盒子、脚手架、存储库访问和运行共享现在位于一个地方：
+
+→ [**Agent Surfaces — Headless agent**](/docs/agent-surfaces#headless)
+
+## 下一步是什么
+
+- [**Agent Surfaces — Headless**](/docs/agent-surfaces#headless) — 完整的无头决策指南和 API
+- [**Getting Started**](/docs/getting-started) - 首先创建聊天应用程序或无头代理
+- [**Dispatch**](/docs/template-dispatch) — 工作区模板是一个很好的纯代理起点
+- [**Messaging the agent**](/docs/messaging) — 用户如何通过网络、Slack、电报、电子邮件与代理交谈
+- [**Recurring Jobs**](/docs/recurring-jobs) — 代理自行运行的预定提示
+- [**Actions**](/docs/actions) - 您的纯代理将调用的工具

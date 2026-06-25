@@ -146,6 +146,10 @@ function scopedCacheKey(
   ].join("|");
 }
 
+function serviceScopedCacheKey(origin: string, orgId: string): string {
+  return [origin, `service-org:${orgId}`].join("|");
+}
+
 /**
  * Fetch the org's first-party sibling apps from the org directory.
  *
@@ -162,6 +166,7 @@ function scopedCacheKey(
 export async function fetchOrgApps(opts?: {
   selfId?: string;
   selfOrigin?: string;
+  serviceOrgId?: string;
   env?: NodeJS.ProcessEnv;
 }): Promise<OrgApp[]> {
   const env = opts?.env ?? process.env;
@@ -182,24 +187,32 @@ export async function fetchOrgApps(opts?: {
   let cacheKey: string | null = null;
   let apps: OrgApp[] = [];
   let ttl = EMPTY_TTL_MS;
+  const serviceOrgId = opts?.serviceOrgId?.trim();
+  if (serviceOrgId) {
+    const serviceCacheKey = serviceScopedCacheKey(origin, serviceOrgId);
+    const cached = cache.get(serviceCacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return stripSelf(cached.apps);
+    }
+    cacheKey = serviceCacheKey;
+  }
   try {
-    // Reuse the existing A2A caller-auth: it reads userEmail + orgId from the
-    // request context, loads the org A2A secret via getOrgA2ASecret (falling
-    // back to the global A2A_SECRET env), and signs the same bearer JWT A2A
-    // peers already use. No new secret loading is invented here.
-    const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
-    const auth = await resolveA2ACallerAuth();
+    const auth = serviceOrgId
+      ? await resolveOrgDirectoryServiceAuth(serviceOrgId)
+      : await resolveOrgDirectoryCallerAuth();
     if (!auth.apiKey) {
       // No signed token available (no A2A secret / no caller identity) — the
       // directory requires the org bearer, so degrade silently to local-only.
       return [];
     }
 
-    const now = Date.now();
-    cacheKey = scopedCacheKey(origin, auth);
-    const cached = cache.get(cacheKey);
-    if (cached && cached.expiresAt > now) {
-      return stripSelf(cached.apps);
+    if (!cacheKey) {
+      const now = Date.now();
+      cacheKey = scopedCacheKey(origin, auth);
+      const cached = cache.get(cacheKey);
+      if (cached && cached.expiresAt > now) {
+        return stripSelf(cached.apps);
+      }
     }
 
     const res = await fetch(`${origin}/_agent-native/org/apps`, {
@@ -235,4 +248,50 @@ export async function fetchOrgApps(opts?: {
 /** Test-only: clear the in-memory cache between cases. */
 export function _resetOrgDirectoryCache(): void {
   cache.clear();
+}
+
+async function resolveOrgDirectoryCallerAuth(): Promise<{
+  apiKey?: string;
+  userEmail?: string;
+  orgId?: string;
+  orgDomain?: string;
+}> {
+  // Reuse the existing A2A caller-auth: it reads userEmail + orgId from the
+  // request context, loads the org A2A secret via getOrgA2ASecret (falling
+  // back to the global A2A_SECRET env), and signs the same bearer JWT A2A
+  // peers already use. No new secret loading is invented for normal callers.
+  const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
+  return resolveA2ACallerAuth();
+}
+
+async function resolveOrgDirectoryServiceAuth(orgId: string): Promise<{
+  apiKey?: string;
+  userEmail?: string;
+  orgId?: string;
+  orgDomain?: string;
+}> {
+  const trimmedOrgId = orgId.trim();
+  if (!trimmedOrgId) return {};
+  let orgDomain: string | undefined;
+  let orgSecret: string | undefined;
+  try {
+    const { getOrgDomain, getOrgA2ASecret } = await import("../org/context.js");
+    orgDomain = (await getOrgDomain(trimmedOrgId)) ?? undefined;
+    orgSecret = (await getOrgA2ASecret(trimmedOrgId)) ?? undefined;
+  } catch {}
+  try {
+    const [{ signA2AToken }, { serviceIdentityEmail }] = await Promise.all([
+      import("../a2a/client.js"),
+      import("./connect-store.js"),
+    ]);
+    const userEmail = serviceIdentityEmail("mcp-client", trimmedOrgId);
+    const apiKey = await signA2AToken(userEmail, orgDomain, orgSecret, {
+      expiresIn: "5m",
+      preferGlobalSecret: !orgSecret,
+      extraClaims: { org_id: trimmedOrgId },
+    });
+    return { apiKey, userEmail, orgId: trimmedOrgId, orgDomain };
+  } catch {
+    return { orgId: trimmedOrgId, orgDomain };
+  }
 }

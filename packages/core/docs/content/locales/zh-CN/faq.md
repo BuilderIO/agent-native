@@ -1,0 +1,142 @@
+---
+title: "FAQ"
+description: "有关原生代理的常见问题 - 它是什么、它的用途、您可以构建什么以及它如何工作。"
+---
+
+# FAQ
+
+有关代理原生的常见问题，从“我只是在寻找”到“我现在正在连接身份验证”。
+
+## 基础知识 {#general}
+
+### 什么是代理原生？ {#what-is-agent-native}
+
+Agent-native 是一个用于构建应用程序的框架，其中 AI 代理及其周围的产品表面是平等的合作伙伴。该界面可以从一个无头代理开始，通过一个自定义操作，发展成为丰富的聊天，或者成为一个完整的 UI。不变的是智能体和人类共享相同的 actions、数据库和状态。完整解释请参见 [What Is Agent-Native?](/docs/what-is-agent-native)。
+
+### 这是给谁的？ {#who-is-this-for}
+
+Agent-native 适合那些想要真正的应用程序和 AI 代理使用相同数据和 actions 工作的人。常见的路径是：
+
+- **如果您需要邮件、日历、表单、计划或其他无需设置的成品模板，请使用托管应用程序** - 从 [template gallery](/templates) 开始。
+- **从聊天开始**如果您想要一个用户可以立即交谈的基本应用程序，然后使用 actions 和屏幕进行扩展 - 从 [Getting Started](/docs/getting-started) 或 [Chat](/docs/template-chat) 开始。
+- **如果您想要在提交到 UI 之前执行一个操作和一个无头应用程序代理循环，请先启动原语优先** — 从 [Getting Started](/docs/getting-started) 开始。
+- **分叉并自定义模板**如果您想要自己的 SaaS 产品，并且已连接身份验证、数据库、UI 和代理 actions — 请参阅 [Templates](/docs/cloneable-saas)。
+- **从头开始构建**如果您想要新的代理驱动产品的框架原语 - 从 [Getting Started](/docs/getting-started) 开始。
+- **如果您希望 Claude、ChatGPT、Codex、Cursor 或 GitHub Copilot / VS Code 使用代理本机应用程序，请连接另一个代理或代码工具** - 请参阅 [External Agents](/docs/external-agents) 和 [Skills Guide](/docs/skills-guide)。
+
+### 这与向现有应用添加 AI 有何不同？ {#how-is-this-different}
+
+大多数应用程序将人工智能作为事后的想法，实际上无法在应用程序中*做*事情。在代理原生应用程序中，代理是一等公民，与 UI 共享相同的 actions、数据库和状态，因此它可以执行按钮可以执行的任何操作 - 并修改应用程序自己的代码。参见[What Is Agent-Native?](/docs/what-is-agent-native#the-ladder)。
+
+```an-diagram title="附加人工智能与 agent-native" summary="螺栓固定的聊天侧边栏有自己的世界。 agent-native 代理与 UI 共享相同的操作、数据库和状态。"
+{
+  "html": "<div class=\"diagram-vs\"><div class=\"diagram-col\"><span class=\"diagram-pill warn\">外挂式 AI</span><div class=\"diagram-node\">聊天侧边栏</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>独立的 AI 世界<br><small class=\"diagram-muted\">无法操作应用</small></div><div class=\"diagram-box diagram-muted\">App UI &amp; data</div></div><div class=\"diagram-divider\" aria-hidden=\"true\"></div><div class=\"diagram-col\"><span class=\"diagram-pill ok\">Agent-native</span><div class=\"diagram-row2\"><div class=\"diagram-node\">UI</div><div class=\"diagram-node\">Agent</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>shared actions, DB &amp; state</div></div></div>",
+  "css": ".diagram-vs{display:flex;align-items:stretch;gap:18px;flex-wrap:wrap}.diagram-vs .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:center;flex:1;min-width:200px}.diagram-vs .diagram-row2{display:flex;gap:8px}.diagram-vs .diagram-arrow{font-size:20px;line-height:1}.diagram-vs .diagram-divider{width:1px;align-self:stretch;background:currentColor;opacity:.15}"
+}
+```
+
+### 它是开源的吗？ {#is-this-open-source}
+
+是的。该框架和所有模板都是开源的。您可以在本地运行所有内容、自行托管或使用 Builder.io 的云来实现托管、协作和团队功能。
+
+### 需要多少钱？ {#how-much}
+
+框架本身是免费的。您在实践中会看到的两种成本：
+
+- **AI 使用。** 您携带自己的 API 密钥（Anthropic、OpenAI 等）并直接向模型提供商付款。我们没有加价。
+- **托管。** 无论您的主机收费多少。对于小型工作负载，大多数模板都可以在免费套餐（Netlify、Vercel、Cloudflare）上正常运行。
+
+如果您不想管理其中任何内容，`agent-native.com` 上的托管版本（由 Builder.io 运营）可将推理和托管捆绑到每席位计划中。
+
+### 我可以自己主持吗？ {#can-i-self-host}
+
+是的。选择运行 Node 的任何主机 — Netlify、Vercel、Cloudflare、AWS、Deno Deploy、您自己的服务器 — 以及任何 SQL 数据库（Postgres、SQLite、Turso、D1）。该框架是为了可移植而构建的。参见[Deployment](/docs/deployment)。
+
+### 支持哪些AI模型？ {#what-models}
+
+Anthropic Claude、OpenAI（GPT-5 系列）、Google Gemini 以及使用 OpenAI API 形状的任何提供商（包括通过 Ollama 的本地模型）。您可以在设置中配置模型；切换是配置更改，而不是代码重写。该框架最重的测试路径是 Claude，因此这是默认推荐。
+
+### 我需要了解人工智能/机器学习吗？ {#do-i-need-to-know-ai}
+
+没有。您不需要训练模型、微调或处理嵌入。您构建了一个常规的 Web 应用程序 - 在托管版本上，您几乎不需要构建任何东西。该框架处理代理集成：路由消息、运行 actions、同步状态。
+
+### 我可以将现有应用迁移到代理原生吗？ {#can-i-use-existing-code}
+
+可以，但是从头开始构建原生代理效果最好。架构——共享数据库、轮询同步、actions、应用程序状态——需要始终集成。从模板开始并自定义它是推荐的路径。可以把它想象成从桌面优先到移动优先的转变：你*可以*改造，但构建原生更好。
+
+## 模板以及您可以构建的内容 {#templates}
+
+### 有哪些模板可用？ {#what-templates-are-available}
+
+该框架附带了可用于生产的模板，包括 [Chat](/docs/template-chat)、[Mail](/docs/template-mail)、[Calendar](/docs/template-calendar)、[Forms](/docs/template-forms)、[Plan](/docs/template-plan)（视觉计划和 PR 回顾）、[Analytics](/docs/template-analytics)、[Dispatch](/docs/template-dispatch) 等。每个都是一个完整的应用程序，包含 UI、代理 actions、数据库架构和 AI 指令。完整目录请参见 [Templates](/docs/cloneable-saas)。
+
+### 我可以自定义模板吗？ {#can-i-customize-templates}
+
+这就是重点。分叉一个模板并通过询问代理来自定义它。 “向表单添加优先级字段。” “连接到我们的 Salesforce 实例。” “更改配色方案以匹配我们的品牌。”代理修改代码，您的应用程序会随着时间的推移而发展。
+
+### 我可以构建模板未涵盖的内容吗？ {#build-from-scratch}
+
+是的。如果你想要一个基本的聊天应用程序，请运行`npx @agent-native/core@latest create my-chat-app --template chat`；您可以获得持久的聊天线程、actions、身份验证、SQL 支持的运行时状态以及添加您自己的屏幕的空间。如果您想要没有 UI 的最小操作优先应用程序，请运行 `npx @agent-native/core@latest create my-agent --headless`。请参阅 [Getting Started](/docs/getting-started)、[Pure-Agent Apps](/docs/pure-agent-apps) 和 [Chat](/docs/template-chat)。
+
+### 我可以在不分叉模板的情况下尝试它吗？ {#try-with-a-skill}
+
+是的——通过一个命令将一项技能安装到您已经使用的编码代理中，不需要脚手架。请参阅 [Skills Guide](/docs/skills-guide#app-backed-skills) 了解演练。
+
+## 代理能力 {#agent-capabilities}
+
+### 代理真的可以修改应用程序自己的代码吗？ {#can-the-agent-modify-code}
+
+是的，这是一个功能。代理可以安全地编辑组件、路线、样式和 actions。您要求“添加群组分析图表”，代理就会构建它。您询问“连接到我们的 Stripe 帐户”，然后代理会编写集成。一切都是正常的 Git 跟踪代码，因此不良更改很容易恢复。
+
+### 用户可以从应用程序外部与代理交谈吗？ {#external-channels}
+
+是的。相同的代理在您的网络 UI、Slack、Telegram、通过电子邮件以及其他代理（通过 [A2A](/docs/a2a-protocol)）中运行。这是同一个特工，具有相同的内存和相同的 actions，只是通过不同的渠道到达。参见[Messaging the agent](/docs/messaging)。
+
+### 代理可以互相交谈吗？ {#can-agents-talk-to-each-other}
+
+是的，通过 [A2A (Agent-to-Agent) protocol](/docs/a2a-protocol)。每个代理本机应用程序都会自动获取 A2A 端点。从邮件应用程序中，您可以标记分析代理以查询数据。代理发现其他可用代理，通过协议调用它们，并在 UI 中显示结果。无需配置 - 代理卡是根据模板的 actions 自动生成的。
+
+### 客服人员可以在应用程序中看到什么？ {#what-can-the-agent-see}
+
+代理始终知道用户当前正在查看的内容。 UI 在每次路线更改时将导航状态写入数据库 - 打开哪个视图、选择哪个项目。代理在采取行动之前会阅读此内容。如果电子邮件已打开，代理就知道是哪封电子邮件。如果选择了一张幻灯片，代理就知道是哪张幻灯片。参见[Context Awareness](/docs/context-awareness)。
+
+## 开发问题 {#development}
+
+### 哪些人工智能编码工具可与代理原生配合使用？ {#which-ai-tools-work}
+
+任何读取项目指令的人工智能编码工具。该框架使用 AGENTS.md 作为通用标准，并自动为特定工具创建符号链接：
+
+- **Claude 代码** — 读取 CLAUDE.md（通过 CLI 设置从 AGENTS.md 进行符号链接）
+- **光标** - 直接读取 AGENTS.md，或者如果项目中存在 `.cursorrules`（光标的旧位置）
+- **Windsurf** — 读取 .windsurfrules（通过 CLI 设置从 AGENTS.md 进行符号链接）
+- **Codex、Gemini 等** — 通过嵌入式代理面板工作
+- **Builder.io** — 具有可视化编辑和协作功能的云托管代理
+
+### 我可以使用自己的数据库吗？ {#can-i-use-my-own-database}
+
+是的。设置 `DATABASE_URL` ，框架会自动检测它。支持的数据库包括 SQLite、Postgres（Neon、Supabase、plain）、Turso (libSQL) 和 Cloudflare D1。所有 SQL 通过 Drizzle ORM 都是与方言无关的 - 相同的代码在任何地方都可以工作。
+
+### 我可以在哪里部署？ {#where-can-i-deploy}
+
+任何地方。服务器在 Nitro 上运行，可编译为任何部署目标：Node.js、Cloudflare Workers/Pages、Netlify、Vercel、Deno Deploy、AWS Lambda 和 Bun。您还可以使用 Builder.io 的托管进行托管部署。请参阅 [Deployment guide](/docs/deployment)。
+
+## 架构 {#architecture}
+
+### 为什么是 SSE 加轮询而不是 WebSocket？ {#why-polling-not-websockets}
+
+SSE 为同进程写入提供了到浏览器的直接路径，而轻量级版本计数器轮询仍然是后备方案，因为它适用于每个部署环境 - 包括无服务器和边缘，其中持久套接字可能不可用。参见[Key Concepts — 实时同步](/docs/key-concepts#polling-sync)。
+
+```an-diagram title="SSE 首先，轮询后备" summary="同进程即时写流；版本计数器轮询使无服务器、边缘和跨进程写入保持收敛。"
+{
+  "html": "<div class=\"diagram-transport\"><div class=\"diagram-box\" data-rough>数据库写入</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">SSE<br><small class=\"diagram-muted\">/_agent-native/events &middot; instant</small></div><div class=\"diagram-node\">轮询<br><small class=\"diagram-muted\">/_agent-native/poll &middot; universal fallback</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>浏览器重新获取</div></div>",
+  "css": ".diagram-transport{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-transport .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-transport .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+### 为什么UI不能直接调用LLM？ {#why-no-inline-llm-calls}
+
+人工智能是非确定性的，因此您需要对话流来提供反馈和迭代 - 而不是一次性按钮 - 并且代理已经拥有内联调用所缺乏的代码库、指令、skills 和历史记录。通过代理路由所有内容还可以让应用程序从 Slack、Telegram 或其他代理驱动。参见[Key Concepts — Agent chat bridge](/docs/key-concepts#agent-chat-bridge)。
+
+### 为什么这是一个框架而不是一个库？ {#why-framework-not-library}
+
+共享数据库、实时同步、actions 系统和应用程序状态之所以有效，是因为它们从头开始连接在一起 - UI 立即对代理更改做出反应，代理进行通信，并且代理了解用户正在查看的内容。图书馆为你提供作品；这是一个架构。参见[Key Concepts](/docs/key-concepts)。

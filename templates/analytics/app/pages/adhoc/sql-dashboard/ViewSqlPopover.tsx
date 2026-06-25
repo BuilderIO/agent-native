@@ -1,19 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useReconciledState } from "@agent-native/core/client";
-import { toast } from "sonner";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { useReconciledState, useT } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
   IconAlignLeft,
@@ -22,8 +7,25 @@ import {
   IconLoader2,
   IconRotate,
 } from "@tabler/icons-react";
-import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { toast } from "sonner";
+
+import { SqlEditor } from "@/components/SqlEditor";
 import { SqlHighlight } from "@/components/SqlHighlight";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
+
 import type { DataSourceType, SqlPanel } from "./types";
 
 const SOURCE_LABELS: Record<DataSourceType, string> = {
@@ -52,6 +54,7 @@ export function ViewSqlPopover({
   editable = true,
   children,
 }: ViewSqlPopoverProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -94,7 +97,9 @@ export function ViewSqlPopover({
       await onSaveSql(draft);
       setOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+      setError(
+        err instanceof Error ? err.message : t("sqlDashboard.failedToSave"),
+      );
     } finally {
       setSaving(false);
     }
@@ -107,7 +112,7 @@ export function ViewSqlPopover({
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     } catch {
-      toast.error("Couldn't copy SQL");
+      toast.error(t("sqlDashboard.couldNotCopySql"));
     }
   };
 
@@ -122,7 +127,11 @@ export function ViewSqlPopover({
       setDraft(formatPanelSql(draft, panel.source));
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to format SQL");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("sqlDashboard.failedToFormatSql"),
+      );
     }
   };
 
@@ -132,7 +141,7 @@ export function ViewSqlPopover({
       <PopoverContent
         align="end"
         sideOffset={8}
-        aria-label="View SQL"
+        aria-label={t("sqlDashboard.viewSql")}
         className="w-[calc(100vw-2rem)] sm:w-[640px] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto p-4"
         onKeyDown={(e) => {
           if (canEditSql && (e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -163,7 +172,9 @@ export function ViewSqlPopover({
                     Reset
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Discard changes</TooltipContent>
+                <TooltipContent>
+                  {t("sqlDashboard.discardChanges")}
+                </TooltipContent>
               </Tooltip>
             )}
             {canFormat && (
@@ -180,7 +191,7 @@ export function ViewSqlPopover({
                     Format
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Format SQL</TooltipContent>
+                <TooltipContent>{t("sqlDashboard.formatSql")}</TooltipContent>
               </Tooltip>
             )}
             <Tooltip>
@@ -196,35 +207,35 @@ export function ViewSqlPopover({
                   ) : (
                     <IconCopy className="h-3.5 w-3.5 mr-1" />
                   )}
-                  {copied ? "Copied" : "Copy"}
+                  {copied ? t("sqlDashboard.copied") : t("sqlDashboard.copy")}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {showResolved && resolvedSql ? "Copy resolved SQL" : "Copy SQL"}
+                {showResolved && resolvedSql
+                  ? t("sqlDashboard.copyResolvedSql")
+                  : t("sqlDashboard.copySql")}
               </TooltipContent>
             </Tooltip>
           </div>
         </div>
 
-        <Textarea
+        <SqlEditor
+          aria-label="SQL"
           value={draft}
           onChange={(e) => {
             if (canEditSql) setDraft(e.target.value);
           }}
           rows={12}
-          spellCheck={false}
-          className="font-mono text-xs resize-y min-h-[240px]"
+          className="min-h-[240px]"
           placeholder="SELECT ..."
           readOnly={!canEditSql}
         />
         {canEditSql ? (
           <p className="text-[11px] text-muted-foreground mt-1.5">
-            Use <code className="font-mono">{"{{varName}}"}</code> to
-            interpolate filter values. Press{" "}
-            <kbd className="px-1 rounded border bg-muted font-mono text-[10px]">
-              {isMac ? "⌘" : "Ctrl"}+Enter
-            </kbd>{" "}
-            to save.
+            {t("sqlDashboard.filterInterpolationHelp", {
+              example: "{{varName}}",
+              shortcut: `${isMac ? "⌘" : "Ctrl"}+Enter`,
+            })}
           </p>
         ) : null}
 
@@ -235,7 +246,9 @@ export function ViewSqlPopover({
               className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline cursor-pointer"
               onClick={() => setShowResolved((v) => !v)}
             >
-              {showResolved ? "Hide" : "Show"} resolved SQL (with filter values)
+              {showResolved
+                ? t("sqlDashboard.hideResolvedSql")
+                : t("sqlDashboard.showResolvedSql")}
             </button>
             {showResolved && (
               <SqlHighlight
@@ -265,17 +278,17 @@ export function ViewSqlPopover({
             onClick={() => setOpen(false)}
             disabled={saving}
           >
-            Close
+            {t("sqlDashboard.close")}
           </Button>
           {canEditSql ? (
             <Button size="sm" onClick={handleSave} disabled={!dirty || saving}>
               {saving ? (
                 <>
                   <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  Saving...
+                  {t("sqlDashboard.saving")}
                 </>
               ) : (
-                "Save"
+                t("sqlDashboard.save")
               )}
             </Button>
           ) : null}

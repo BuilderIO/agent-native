@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+
+import { createVisualQuestionsSchema } from "../actions/create-visual-questions.js";
+import type { PlanBundle, PlanComment, PlanSection } from "../shared/types.js";
 import {
   buildInitialPlanCommentRows,
   buildPlanHtml,
@@ -9,8 +12,6 @@ import {
 } from "./plans.js";
 import { buildUiPlanHtml } from "./ui-plan-html.js";
 import { buildVisualQuestionsHtml } from "./visual-questions-html.js";
-import { createVisualQuestionsSchema } from "../actions/create-visual-questions.js";
-import type { PlanBundle, PlanComment, PlanSection } from "../shared/types.js";
 
 function section(
   id: string,

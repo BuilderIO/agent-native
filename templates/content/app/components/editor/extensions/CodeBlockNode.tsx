@@ -1,19 +1,22 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useT } from "@agent-native/core/client";
+import { IconChevronDown, IconCheck } from "@tabler/icons-react";
+import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import {
   NodeViewContent,
   NodeViewWrapper,
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react";
-import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
-import { IconChevronDown, IconCheck } from "@tabler/icons-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+
 import { cn } from "@/lib/utils";
 
 const lowlight = createLowlight(common);
 
 const LANGUAGES = [
-  { value: null, label: "Plain text" },
+  { value: null, labelKey: "editor.plainText" },
+  // i18n-ignore Stable programming-language names shown as their canonical names.
   { value: "javascript", label: "JavaScript" },
   { value: "typescript", label: "TypeScript" },
   { value: "python", label: "Python" },
@@ -46,7 +49,15 @@ const LANGUAGES = [
   { value: "diff", label: "Diff" },
 ] as const;
 
+function languageLabel(
+  language: (typeof LANGUAGES)[number],
+  t: ReturnType<typeof useT>,
+) {
+  return "labelKey" in language ? t(language.labelKey) : language.label;
+}
+
 function CodeBlockView({ node, updateAttributes, editor }: NodeViewProps) {
+  const t = useT();
   const [showPicker, setShowPicker] = useState(false);
   const [filter, setFilter] = useState("");
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -54,18 +65,18 @@ function CodeBlockView({ node, updateAttributes, editor }: NodeViewProps) {
   const isEditable = editor.isEditable;
 
   const currentLang = node.attrs.language as string | null;
+  const currentLanguage = LANGUAGES.find(
+    (l) =>
+      l.value === currentLang ||
+      (l.value === null && !currentLang) ||
+      ((l.value as string) === "plaintext" && !currentLang),
+  );
   const displayLabel =
-    LANGUAGES.find(
-      (l) =>
-        l.value === currentLang ||
-        (l.value === null && !currentLang) ||
-        ((l.value as string) === "plaintext" && !currentLang),
-    )?.label ||
-    currentLang ||
-    "Plain text";
+    (currentLanguage ? languageLabel(currentLanguage, t) : currentLang) ??
+    t("editor.plainText");
 
   const filteredLanguages = LANGUAGES.filter((l) =>
-    l.label.toLowerCase().includes(filter.toLowerCase()),
+    languageLabel(l, t).toLowerCase().includes(filter.toLowerCase()),
   );
 
   const closePicker = useCallback(() => {
@@ -119,7 +130,7 @@ function CodeBlockView({ node, updateAttributes, editor }: NodeViewProps) {
                     closePicker();
                   }
                 }}
-                placeholder="Search languages..."
+                placeholder={t("editor.searchLanguages")}
                 className="notion-code-lang-search"
               />
               <div className="notion-code-lang-list">
@@ -138,7 +149,7 @@ function CodeBlockView({ node, updateAttributes, editor }: NodeViewProps) {
                       closePicker();
                     }}
                   >
-                    {lang.label}
+                    {languageLabel(lang, t)}
                     {(currentLang === lang.value ||
                       (!currentLang && !lang.value)) && <IconCheck size={14} />}
                   </button>

@@ -46,6 +46,10 @@ review before code changes happen.
   resource paths for the latest code index, file tree, and captured source
   snapshots.
 - `navigate` moves the UI to the plan list or a specific visual plan.
+- The sidebar brand header has a `Customize branding` popover. Treat it as a
+  source-code request, not plan data: local Code mode edits `templates/plan`
+  source directly, while hosted/live surfaces route people to Desktop or
+  Builder for code customization.
 
 ## Normal Planning Flow
 

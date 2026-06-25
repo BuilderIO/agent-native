@@ -21,9 +21,9 @@
  * `session/update` notifications and {@link AgentHarnessEvent}s.
  */
 
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 
 import type {

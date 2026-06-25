@@ -1,16 +1,17 @@
-import { agentNativePath } from "../api-path.js";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
 import type {
   CustomAgentProfile,
   RemoteAgentManifest,
   ResourceKind as StoredResourceKind,
   SkillMetadata,
 } from "../../resources/metadata.js";
-import type { McpServer } from "./use-mcp-servers.js";
+import { agentNativePath } from "../api-path.js";
 import {
   mcpBuiltinVirtualId,
   type BuiltinCapability,
 } from "./use-builtin-capabilities.js";
+import type { McpServer } from "./use-mcp-servers.js";
 
 /**
  * Extended resource kind that includes virtual entries injected into the

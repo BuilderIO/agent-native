@@ -1,12 +1,4 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
-import { Editor } from "@tiptap/react";
-import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { findTable } from "@tiptap/pm/tables";
+import { useT } from "@agent-native/core/client";
 import {
   IconArrowDown,
   IconArrowLeft,
@@ -18,7 +10,16 @@ import {
   IconTableRow,
   IconTrash,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { findTable } from "@tiptap/pm/tables";
+import { Editor } from "@tiptap/react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +33,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 interface TableHoverControlsProps {
   editor: Editor;
@@ -357,6 +359,7 @@ function getTableOverlayId(table: HTMLElement) {
 }
 
 export function TableHoverControls({ editor }: TableHoverControlsProps) {
+  const t = useT();
   const selectedCellRef = useRef<HTMLElement | null>(null);
   const selectedCellAddressRef = useRef<SelectedCellAddress | null>(null);
   const selectedCellRectRef = useRef<DOMRect | null>(null);
@@ -1123,7 +1126,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
           <DropdownMenu open={columnMenuOpen} onOpenChange={setColumnMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button
-                aria-label="Column options"
+                aria-label={t("database.columnOptions")}
                 className={lineButtonClass}
                 data-testid="table-column-options"
                 onClickCapture={(event) => {
@@ -1172,7 +1175,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               alignOffset={columnMenuAlignOffset}
               collisionPadding={MENU_COLLISION_PADDING}
             >
-              <DropdownMenuLabel>Column</DropdownMenuLabel>
+              <DropdownMenuLabel>{t("database.column")}</DropdownMenuLabel>
               {canToggleHeaderColumn ? (
                 <DropdownMenuItem
                   className="gap-2"
@@ -1188,7 +1191,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   }}
                 >
                   <IconTableColumn className={menuIconClass} />
-                  Header column
+                  {t("database.headerColumn")}
                   <span
                     aria-hidden="true"
                     className={cn(
@@ -1218,7 +1221,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 }
               >
                 <IconArrowLeft className={menuIconClass} />
-                Insert left
+                {t("database.insertLeft")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="gap-2"
@@ -1229,21 +1232,21 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 }
               >
                 <IconArrowRight className={menuIconClass} />
-                Insert right
+                {t("database.insertRight")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() => duplicateColumn(getSelectedCellElement())}
               >
                 <IconCopy className={menuIconClass} />
-                Duplicate
+                {t("database.duplicate")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() => clearColumnContents(getSelectedCellElement())}
               >
                 <IconCircleX className={menuIconClass} />
-                Clear column
+                {t("database.clearColumn")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -1259,7 +1262,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 }
               >
                 <IconTrash className="size-4 shrink-0" />
-                Delete column
+                {t("database.deleteColumn")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1267,7 +1270,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
           <DropdownMenu open={rowMenuOpen} onOpenChange={setRowMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button
-                aria-label="Row options"
+                aria-label={t("database.rowOptions")}
                 className={lineButtonClass}
                 data-testid="table-row-options"
                 onClickCapture={(event) => {
@@ -1314,7 +1317,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               collisionPadding={MENU_COLLISION_PADDING}
               side="right"
             >
-              <DropdownMenuLabel>Row</DropdownMenuLabel>
+              <DropdownMenuLabel>{t("database.row")}</DropdownMenuLabel>
               {canToggleHeaderRow ? (
                 <DropdownMenuItem
                   className="gap-2"
@@ -1330,7 +1333,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   }}
                 >
                   <IconTableRow className={menuIconClass} />
-                  Header row
+                  {t("database.headerRow")}
                   <span
                     aria-hidden="true"
                     className={cn(
@@ -1360,7 +1363,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 }
               >
                 <IconArrowUp className={menuIconClass} />
-                Insert above
+                {t("database.insertAbove")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="gap-2"
@@ -1371,21 +1374,21 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 }
               >
                 <IconArrowDown className={menuIconClass} />
-                Insert below
+                {t("database.insertBelow")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() => duplicateRow(getSelectedCellElement())}
               >
                 <IconCopy className={menuIconClass} />
-                Duplicate
+                {t("database.duplicate")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() => clearRowContents(getSelectedCellElement())}
               >
                 <IconCircleX className={menuIconClass} />
-                Clear row
+                {t("database.clearRow")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -1401,7 +1404,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 }
               >
                 <IconTrash className="size-4 shrink-0" />
-                Delete row
+                {t("database.deleteRow")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1425,7 +1428,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
             <Tooltip delayDuration={EDGE_HANDLE_TOOLTIP_DELAY}>
               <TooltipTrigger asChild>
                 <button
-                  aria-label="Click or drag table column handle"
+                  aria-label={t("database.tableColumnHandle")}
                   className={cn(
                     handleClass,
                     "cursor-col-resize -translate-y-1/2",
@@ -1456,15 +1459,17 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 </button>
               </TooltipTrigger>
               <TooltipContent>
-                <strong>Click</strong> to add a column. <strong>Drag</strong> to
-                add or remove columns.
+                <strong>{t("database.click")}</strong>{" "}
+                {t("database.toAddAColumn")}{" "}
+                <strong>{t("database.drag")}</strong>{" "}
+                {t("database.toAddOrRemoveColumns")}
               </TooltipContent>
             </Tooltip>
 
             <Tooltip delayDuration={EDGE_HANDLE_TOOLTIP_DELAY}>
               <TooltipTrigger asChild>
                 <button
-                  aria-label="Click or drag table row handle"
+                  aria-label={t("database.tableRowHandle")}
                   className={cn(
                     handleClass,
                     "cursor-row-resize -translate-x-1/2",
@@ -1495,8 +1500,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 </button>
               </TooltipTrigger>
               <TooltipContent>
-                <strong>Click</strong> to add a row. <strong>Drag</strong> to
-                add or remove rows.
+                <strong>{t("database.click")}</strong> {t("database.toAddARow")}{" "}
+                <strong>{t("database.drag")}</strong>{" "}
+                {t("database.toAddOrRemoveRows")}
               </TooltipContent>
             </Tooltip>
           </div>

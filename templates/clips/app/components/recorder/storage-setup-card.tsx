@@ -1,4 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  agentNativePath,
+  appPath,
+  openBuilderConnectPopup,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconCheck,
   IconCloud,
@@ -6,11 +11,7 @@ import {
   IconLoader2,
   IconServer,
 } from "@tabler/icons-react";
-import {
-  agentNativePath,
-  appPath,
-  openBuilderConnectPopup,
-} from "@agent-native/core/client";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 function BuilderBMark({ className }: { className?: string }) {
   return (
@@ -44,6 +45,7 @@ export function StorageSetupCard({
   connectDescription = "Builder.io's free tier includes video storage and AI credits.",
   connectedDescription = "You're all set. Starting recorder...",
 }: StorageSetupCardProps) {
+  const t = useT();
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -104,9 +106,7 @@ export function StorageSetupCard({
         } else if (Date.now() - start > timeoutMs) {
           stop();
           setConnecting(false);
-          setErr(
-            "Didn't hear back from Builder in 5 minutes. Check the popup and try again.",
-          );
+          setErr(t("storageSetup.builderTimeout"));
         }
       } catch {
         // transient poll error
@@ -130,7 +130,7 @@ export function StorageSetupCard({
         onClick={handleConnect}
         disabled={connecting || connected}
         className={
-          "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-left " +
+          "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start " +
           (connected
             ? "border-primary/50 bg-primary/5"
             : "border-border bg-background hover:border-foreground/30")
@@ -149,15 +149,15 @@ export function StorageSetupCard({
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">
               {connected
-                ? "Builder.io connected"
+                ? t("storageSetup.builderConnected")
                 : connecting
-                  ? "Waiting for Builder..."
-                  : "Connect Builder.io"}
+                  ? t("storageSetup.waitingForBuilder")
+                  : t("storageSetup.connectBuilder")}
             </span>
             {!connected && !connecting && (
               <>
                 <span className="rounded-sm bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                  Free
+                  {t("storageSetup.free")}
                 </span>
                 <IconExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
               </>
@@ -182,7 +182,7 @@ export function StorageSetupCard({
                 href={appPath("/settings#video-storage")}
                 className="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
               >
-                configure S3-compatible storage
+                {t("storageSetup.configureS3")}
               </a>
             </span>
             <span className="mt-0.5 block text-[11px] text-muted-foreground">

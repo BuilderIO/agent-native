@@ -1,3 +1,5 @@
+import type { LocaleCode } from "@agent-native/core/client";
+
 /**
  * AvailabilityEditor — weekly schedule grid with per-day toggles and time
  * pickers. Matches the calendar template's visual baseline.
@@ -11,6 +13,8 @@
  */
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+
+import { schedulingMessage, useSchedulingT } from "../../i18n.js";
 
 export type DayKey =
   | "monday"
@@ -33,14 +37,18 @@ export interface DaySchedule {
 
 export type WeeklySchedule = Record<DayKey, DaySchedule>;
 
-const DAYS: { key: DayKey; label: string; short: string }[] = [
-  { key: "monday", label: "Monday", short: "Mon" },
-  { key: "tuesday", label: "Tuesday", short: "Tue" },
-  { key: "wednesday", label: "Wednesday", short: "Wed" },
-  { key: "thursday", label: "Thursday", short: "Thu" },
-  { key: "friday", label: "Friday", short: "Fri" },
-  { key: "saturday", label: "Saturday", short: "Sat" },
-  { key: "sunday", label: "Sunday", short: "Sun" },
+const DAYS: {
+  key: DayKey;
+  labelKey: Parameters<ReturnType<typeof useSchedulingT>>[0];
+  shortKey: Parameters<ReturnType<typeof useSchedulingT>>[0];
+}[] = [
+  { key: "monday", labelKey: "monday", shortKey: "mon" },
+  { key: "tuesday", labelKey: "tuesday", shortKey: "tue" },
+  { key: "wednesday", labelKey: "wednesday", shortKey: "wed" },
+  { key: "thursday", labelKey: "thursday", shortKey: "thu" },
+  { key: "friday", labelKey: "friday", shortKey: "fri" },
+  { key: "saturday", labelKey: "saturday", shortKey: "sat" },
+  { key: "sunday", labelKey: "sunday", shortKey: "sun" },
 ];
 
 export interface AvailabilityEditorProps {
@@ -52,6 +60,7 @@ export function AvailabilityEditor({
   value,
   onChange,
 }: AvailabilityEditorProps) {
+  const t = useSchedulingT();
   const setDay = (day: DayKey, patch: Partial<DaySchedule>) => {
     onChange({
       ...value,
@@ -74,7 +83,9 @@ export function AvailabilityEditor({
 
   return (
     <div className="space-y-2.5">
-      {DAYS.map(({ key, label, short }) => {
+      {DAYS.map(({ key, labelKey, shortKey }) => {
+        const label = t(labelKey);
+        const short = t(shortKey);
         const day = value[key] ?? { enabled: false, slots: [] };
         const slot = day.slots[0] ?? { start: "09:00", end: "17:00" };
         return (
@@ -86,7 +97,7 @@ export function AvailabilityEditor({
               <Switch
                 checked={day.enabled}
                 onCheckedChange={(checked) => setDay(key, { enabled: checked })}
-                aria-label={`Toggle ${label}`}
+                aria-label={t("toggleDay", { day: label })}
               />
               <span className="text-sm font-medium">
                 <span className="hidden sm:inline">{label}</span>
@@ -102,7 +113,7 @@ export function AvailabilityEditor({
                   onChange={(e) => setSlot(key, "start", e.target.value)}
                   className="w-28 sm:w-32"
                 />
-                <span className="text-muted-foreground">to</span>
+                <span className="text-muted-foreground">{t("to")}</span>
                 <Input
                   type="time"
                   value={slot.end}
@@ -111,7 +122,9 @@ export function AvailabilityEditor({
                 />
               </div>
             ) : (
-              <span className="text-sm text-muted-foreground">Unavailable</span>
+              <span className="text-sm text-muted-foreground">
+                {t("unavailable")}
+              </span>
             )}
           </div>
         );
@@ -124,7 +137,10 @@ export function AvailabilityEditor({
  * Summarize a `WeeklySchedule` in a short phrase, e.g. "Weekdays, 9 am - 5 pm".
  * Useful for list-row subtitles.
  */
-export function summarizeAvailability(ws: WeeklySchedule): string {
+export function summarizeAvailability(
+  ws: WeeklySchedule,
+  locale: LocaleCode = "en-US",
+): string {
   const weekdayKeys: DayKey[] = [
     "monday",
     "tuesday",
@@ -136,7 +152,8 @@ export function summarizeAvailability(ws: WeeklySchedule): string {
   const allDays: DayKey[] = [...weekdayKeys, ...weekendKeys];
 
   const enabled = allDays.filter((d) => ws[d]?.enabled);
-  if (enabled.length === 0) return "No availability set";
+  if (enabled.length === 0)
+    return schedulingMessage(locale, "noAvailabilitySet");
 
   const weekdaysOn = weekdayKeys.every((d) => ws[d]?.enabled);
   const weekendsOn = weekendKeys.every((d) => ws[d]?.enabled);
@@ -144,20 +161,26 @@ export function summarizeAvailability(ws: WeeklySchedule): string {
   const weekendsOff = weekendKeys.every((d) => !ws[d]?.enabled);
 
   let dayLabel: string;
-  if (weekdaysOn && weekendsOn) dayLabel = "Every day";
-  else if (weekdaysOn && weekendsOff) dayLabel = "Weekdays";
-  else if (weekdaysOff && weekendsOn) dayLabel = "Weekends";
+  if (weekdaysOn && weekendsOn)
+    dayLabel = schedulingMessage(locale, "everyDay");
+  else if (weekdaysOn && weekendsOff)
+    dayLabel = schedulingMessage(locale, "weekdays");
+  else if (weekdaysOff && weekendsOn)
+    dayLabel = schedulingMessage(locale, "weekends");
   else {
-    const shortNames: Record<DayKey, string> = {
-      monday: "Mon",
-      tuesday: "Tue",
-      wednesday: "Wed",
-      thursday: "Thu",
-      friday: "Fri",
-      saturday: "Sat",
-      sunday: "Sun",
-    };
-    dayLabel = enabled.map((d) => shortNames[d]).join(", ");
+    const shortNames: Record<DayKey, Parameters<typeof schedulingMessage>[1]> =
+      {
+        monday: "mon",
+        tuesday: "tue",
+        wednesday: "wed",
+        thursday: "thu",
+        friday: "fri",
+        saturday: "sat",
+        sunday: "sun",
+      };
+    dayLabel = enabled
+      .map((d) => schedulingMessage(locale, shortNames[d]))
+      .join(", ");
   }
 
   const slot = ws[enabled[0]].slots[0];

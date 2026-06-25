@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useT } from "@agent-native/core/client";
 import { IconChevronUp, IconChevronDown } from "@tabler/icons-react";
+import { useState } from "react";
 
 interface SpeakerNotesPanelProps {
   notes: string;
@@ -14,6 +15,7 @@ export function SpeakerNotesPanel({
   slideIndex,
   slideCount,
 }: SpeakerNotesPanelProps) {
+  const t = useT();
   const [expanded, setExpanded] = useState(() => {
     try {
       return localStorage.getItem("speaker-notes-expanded") !== "false";
@@ -37,7 +39,10 @@ export function SpeakerNotesPanel({
         className="w-full flex items-center justify-between px-4 py-1.5 cursor-pointer"
       >
         <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-          Speaker Notes — Slide {slideIndex + 1} / {slideCount}
+          {t("raw.speakerNotesForSlide", {
+            index: slideIndex + 1,
+            count: slideCount,
+          })}
         </span>
         {expanded ? (
           <IconChevronDown className="w-3 h-3 text-muted-foreground" />
@@ -50,7 +55,7 @@ export function SpeakerNotesPanel({
           <textarea
             value={notes || ""}
             onChange={(e) => onChange(e.target.value)}
-            placeholder="Add speaker notes..."
+            placeholder={t("raw.addSpeakerNotes")}
             className="w-full h-20 bg-transparent text-muted-foreground text-xs font-mono placeholder:text-muted-foreground/70 resize-none outline-none"
           />
         </div>

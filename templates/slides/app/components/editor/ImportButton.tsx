@@ -1,6 +1,7 @@
-import { useRef } from "react";
+import { agentNativePath, appBasePath, useT } from "@agent-native/core/client";
 import { IconUpload } from "@tabler/icons-react";
-import { agentNativePath, appBasePath } from "@agent-native/core/client";
+import { useRef } from "react";
+
 import {
   Tooltip,
   TooltipContent,
@@ -13,6 +14,7 @@ interface ImportButtonProps {
 }
 
 export function ImportButton({ deckId, onImportComplete }: ImportButtonProps) {
+  const t = useT();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -63,7 +65,7 @@ export function ImportButton({ deckId, onImportComplete }: ImportButtonProps) {
           />
         </button>
       </TooltipTrigger>
-      <TooltipContent>Import PPTX, DOCX, or PDF</TooltipContent>
+      <TooltipContent>{t("raw.importFileTypes")}</TooltipContent>
     </Tooltip>
   );
 }

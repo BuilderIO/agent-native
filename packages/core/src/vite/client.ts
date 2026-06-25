@@ -1,13 +1,14 @@
-import path from "path";
 import fs from "fs";
-import { createRequire } from "module";
 import type { IncomingMessage, ServerResponse } from "http";
-import type { Plugin, UserConfig } from "vite";
+import { createRequire } from "module";
+import path from "path";
+import { fileURLToPath } from "url";
+
 import { nitro as nitroVitePlugin } from "nitro/vite";
-import { actionTypesPlugin } from "./action-types-plugin.js";
-import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
-import { findWorkspaceRoot } from "../scripts/utils.js";
+import type { ConfigEnv, Plugin, UserConfig } from "vite";
+
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
+import { findWorkspaceRoot } from "../scripts/utils.js";
 import { verifyEmbedSessionToken } from "../server/embed-session.js";
 import {
   EMBED_SESSION_COOKIE,
@@ -25,8 +26,8 @@ import {
   normalizeAgentNativeRouteWarmupConfig,
   type AgentNativeRouteWarmupConfigInput,
 } from "../shared/route-warmup-config.js";
-
-import { fileURLToPath } from "url";
+import { actionTypesPlugin } from "./action-types-plugin.js";
+import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -779,6 +780,19 @@ export interface ClientConfigOptions {
   reactRouter?: boolean | Record<string, unknown>;
 }
 
+export interface AgentNativeVitePluginOptions extends Omit<
+  ClientConfigOptions,
+  "plugins" | "reactRouter"
+> {
+  /**
+   * Include the legacy React SWC transform for non-React Router SPA apps.
+   *
+   * React Router framework-mode apps should pass `reactRouter()` as a normal
+   * Vite plugin and leave this off.
+   */
+  legacySpa?: boolean;
+}
+
 /**
  * Vite plugin that recovers the page when Vite's dependency optimizer
  * invalidates modules mid-load (the "504 Outdated Optimize Dep" error).
@@ -953,6 +967,52 @@ const VITE_RUNTIME_PATH_PREFIXES = [
   "/packages/",
   "/src/",
 ];
+
+const EMBED_DEV_STATIC_ASSET_PATH_PREFIXES = [
+  ...VITE_RUNTIME_PATH_PREFIXES,
+  "/assets/",
+  "/library-presets/",
+];
+
+const EMBED_DEV_STATIC_ASSET_PATHS = new Set([
+  "/favicon.ico",
+  "/favicon.svg",
+  "/manifest.json",
+]);
+
+function mountedPathCandidates(
+  reqUrl: string | undefined,
+  base: string | undefined,
+): string[] {
+  if (!reqUrl) return [];
+  let pathname: string;
+  try {
+    pathname = new URL(reqUrl, "http://agent-native.local").pathname;
+  } catch {
+    return [];
+  }
+  if (base && base !== "/") {
+    const normalizedBase = base.endsWith("/") ? base : `${base}/`;
+    if (pathname.startsWith(normalizedBase)) {
+      return [pathname.slice(normalizedBase.length - 1) || "/"];
+    }
+  }
+  return [pathname];
+}
+
+function isEmbedDevStaticAssetRequest(
+  reqUrl: string | undefined,
+  base: string | undefined,
+): boolean {
+  return mountedPathCandidates(reqUrl, base).some((pathname) => {
+    if (EMBED_DEV_STATIC_ASSET_PATHS.has(pathname)) return true;
+    if (/^\/icon-[^/]+\.svg$/i.test(pathname)) return true;
+    if (/^\/agent-native-[^/]+\.svg$/i.test(pathname)) return true;
+    return EMBED_DEV_STATIC_ASSET_PATH_PREFIXES.some((prefix) =>
+      pathname.startsWith(prefix),
+    );
+  });
+}
 
 function cookieValue(req: IncomingMessage, name: string): string | undefined {
   const header = req.headers.cookie;
@@ -1166,6 +1226,13 @@ function embedDevFrameHeaders(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const origin = String(req.headers.origin ?? "");
+        if (isEmbedDevStaticAssetRequest(req.url, server.config?.base)) {
+          for (const [name, value] of Object.entries(
+            MCP_EMBED_STATIC_ASSET_HEADERS,
+          )) {
+            res.setHeader(name, value);
+          }
+        }
         if (isMcpEmbedCorsOrigin(origin)) {
           res.setHeader("Access-Control-Allow-Origin", origin);
           res.setHeader("Vary", "Origin");
@@ -1559,35 +1626,157 @@ function silenceConnectionResets(): Plugin {
   };
 }
 
-/**
- * Create the client Vite config with sensible agent-native defaults.
- * Supports two modes:
- * - Legacy SPA mode (default): React SWC plugin, client-only routing
- * - React Router framework mode: SSR-capable with file-based routing
- *
- * Both modes include Nitro for API routes, path aliases, and fs restrictions.
- */
-export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
-  // Check if React Router plugin was passed directly in plugins array
-  const hasReactRouterPlugin = options.plugins?.some(
-    (p: any) =>
-      p?.name === "react-router" ||
-      (Array.isArray(p) && p.some((pp: any) => pp?.name === "react-router")),
+type AgentNativeViteCommand = ConfigEnv["command"];
+
+function isBuildCommand(command?: AgentNativeViteCommand): boolean {
+  return command === "build" || (!command && process.argv.includes("build"));
+}
+
+function hasReactRouterPlugin(plugins: any[] | undefined): boolean {
+  return Boolean(
+    plugins?.some(
+      (p: any) =>
+        p?.name === "react-router" ||
+        (Array.isArray(p) && p.some((pp: any) => pp?.name === "react-router")),
+    ),
   );
+}
 
-  let reactTransformPlugin: any;
-
-  if (!hasReactRouterPlugin && !options.reactRouter) {
-    // Legacy SPA mode — use React SWC plugin (only when React Router is not used)
-    try {
-      reactTransformPlugin = require("@vitejs/plugin-react-swc");
-      if (reactTransformPlugin.default)
-        reactTransformPlugin = reactTransformPlugin.default;
-    } catch {
-      // Will be resolved at runtime by Vite
-    }
+function createReactTransformPlugin(): any {
+  try {
+    let reactTransformPlugin = require("@vitejs/plugin-react-swc");
+    if (reactTransformPlugin.default)
+      reactTransformPlugin = reactTransformPlugin.default;
+    return reactTransformPlugin?.();
+  } catch {
+    // Will be resolved at runtime by Vite
+    return null;
   }
+}
 
+function createTailwindPlugin(options: Pick<ClientConfigOptions, "tailwind">) {
+  if (options.tailwind === false) return null;
+  try {
+    let tailwindPlugin = require("@tailwindcss/vite");
+    if (tailwindPlugin.default) tailwindPlugin = tailwindPlugin.default;
+    // Tailwind's Vite optimizer uses Lightning CSS internally and runs
+    // before Vite's own CSS minifier. Lightning CSS collapses the standard
+    // `backdrop-filter` declaration when a `-webkit-` fallback is present,
+    // so let Vite/esbuild handle the production CSS pass instead.
+    return tailwindPlugin({ optimize: false });
+  } catch {
+    // Plugin not installed — silently skip. Old templates may still be on v3.
+    return null;
+  }
+}
+
+function getConfiguredAppBasePath(): { appBasePath: string; base: string } {
+  // APP_BASE_PATH lets this app be mounted under a prefix (e.g. "/mail") as
+  // part of a unified workspace deploy. Defaults to "/" for standalone apps.
+  const appBasePath =
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "/";
+  const base = appBasePath.endsWith("/") ? appBasePath : `${appBasePath}/`;
+  return { appBasePath, base };
+}
+
+function createNitroDevPlugin(
+  options: Pick<ClientConfigOptions, "nitro">,
+  appBasePath: string,
+) {
+  return nitroVitePlugin({
+    serverDir: "./server",
+    ...(options.nitro ?? {}),
+    // Never auto-load test files as server handlers/plugins/middleware.
+    // Nitro scans server/{plugins,middleware,routes,api}/*; a co-located
+    // *.spec.ts would otherwise be loaded at runtime and crash the server
+    // (its top-level vitest calls throw). Keep tests next to their source safely.
+    ignore: [
+      ...((options.nitro as { ignore?: string[] })?.ignore ?? []),
+      "**/*.spec.ts",
+      "**/*.spec.tsx",
+      "**/*.test.ts",
+      "**/*.test.tsx",
+    ],
+    routeRules: {
+      ...mcpEmbedStaticAssetRouteRules(appBasePath),
+      ...((options.nitro as { routeRules?: Record<string, any> })?.routeRules ??
+        {}),
+    },
+  } as any);
+}
+
+function arrayFrom<T>(value: T | T[] | undefined): T[] {
+  if (value === undefined) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function aliasArrayFrom(alias: unknown): any[] {
+  if (!alias) return [];
+  if (Array.isArray(alias)) return alias;
+  if (typeof alias === "object") {
+    return Object.entries(alias as Record<string, string>).map(
+      ([find, replacement]) => ({ find, replacement }),
+    );
+  }
+  return [];
+}
+
+function forceServeOnly(pluginOrPreset: any): any {
+  if (Array.isArray(pluginOrPreset)) return pluginOrPreset.map(forceServeOnly);
+  return { ...pluginOrPreset, apply: "serve" };
+}
+
+function createAgentNativePlugins(
+  options: ClientConfigOptions | AgentNativeVitePluginOptions,
+  {
+    command,
+    includeReactTransform,
+    useServeOnlyNitroPlugin = false,
+    userPlugins = [],
+  }: {
+    command?: AgentNativeViteCommand;
+    includeReactTransform: boolean;
+    useServeOnlyNitroPlugin?: boolean;
+    userPlugins?: any[];
+  },
+): any[] {
+  const { appBasePath } = getConfiguredAppBasePath();
+  const nitroPlugin = createNitroDevPlugin(options, appBasePath);
+  const includeNitro = !isBuildCommand(command);
+
+  return [
+    // Stub packages from `options.ssrStubs` in the SSR bundle so they
+    // don't bloat the edge worker. Opt-in per template — the framework
+    // hardcodes nothing (e.g. docs sites legitimately import `shiki` on
+    // the server, so we can't blanket-stub it here).
+    ssrStubPlugin(options.ssrStubs ?? []),
+    ...userPlugins,
+    actionTypesPlugin(),
+    agentsBundlePlugin(),
+    autoReloadOnOptimizeDep(),
+    fullReloadOnOptimizeDep504(),
+    embedDevFrameHeaders(),
+    baseRedirectGuard(),
+    portExposer(),
+    silenceConnectionResets(),
+    rolldownInputFix(),
+    // Nitro Vite plugin for dev-mode API route serving and HMR.
+    // Disabled during build — React Router's build handles production.
+    ...(useServeOnlyNitroPlugin
+      ? [forceServeOnly(nitroPlugin)]
+      : includeNitro
+        ? [nitroPlugin]
+        : []),
+    includeReactTransform ? createReactTransformPlugin() : null,
+    createTailwindPlugin(options),
+  ].filter(Boolean);
+}
+
+function createAgentNativeConfig(
+  options: ClientConfigOptions | AgentNativeVitePluginOptions = {},
+  command?: AgentNativeViteCommand,
+  userConfig: UserConfig = {},
+): UserConfig {
   const cwd = process.cwd();
 
   // Workspace env fallback. If this app is inside a workspace, tell Vite to
@@ -1612,33 +1801,8 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     } catch {}
   }
 
-  // Build the React transform plugin (only for legacy SPA mode)
-  const reactPluginInstance = reactTransformPlugin?.();
-
-  // Auto-inject the Tailwind v4 Vite plugin if `@tailwindcss/vite` is
-  // installed (which it is by default for all agent-native templates).
-  // Templates can opt out by setting `options.tailwind = false`.
-  let tailwindPluginInstance: any = null;
-  if (options.tailwind !== false) {
-    try {
-      let tailwindPlugin = require("@tailwindcss/vite");
-      if (tailwindPlugin.default) tailwindPlugin = tailwindPlugin.default;
-      // Tailwind's Vite optimizer uses Lightning CSS internally and runs
-      // before Vite's own CSS minifier. Lightning CSS collapses the standard
-      // `backdrop-filter` declaration when a `-webkit-` fallback is present,
-      // so let Vite/esbuild handle the production CSS pass instead.
-      tailwindPluginInstance = tailwindPlugin({ optimize: false });
-    } catch {
-      // Plugin not installed — silently skip. Old templates may still be on v3.
-    }
-  }
-
-  // APP_BASE_PATH lets this app be mounted under a prefix (e.g. "/mail") as
-  // part of a unified workspace deploy. Defaults to "/" for standalone apps.
-  const appBasePath =
-    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "/";
+  const { base } = getConfiguredAppBasePath();
   const isWorkspaceChild = process.env.AGENT_NATIVE_WORKSPACE === "1";
-  const base = appBasePath.endsWith("/") ? appBasePath : `${appBasePath}/`;
   const monorepoCoreAllow = [
     path.resolve(cwd, "../../packages/core"),
     path.resolve(cwd, "../core"),
@@ -1670,11 +1834,18 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     : [];
 
   return {
-    logLevel: options.logLevel ?? (isWorkspaceChild ? "warn" : undefined),
+    logLevel:
+      options.logLevel ??
+      userConfig.logLevel ??
+      (isWorkspaceChild ? "warn" : undefined),
     envDir,
     base,
     define: {
+      ...(userConfig.define ?? {}),
       ...(options.define ?? {}),
+      __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: JSON.stringify(
+        process.env.GA_MEASUREMENT_ID?.trim() || "",
+      ),
       // Framework route warmup controls how SSR `.data` routes are fetched:
       // ordinary fetches keep them CDN-cacheable, while native prefetch headers
       // can be refused before the CDN/origin sees the request. Keep this value
@@ -1684,21 +1855,25 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       ),
     },
     server: {
-      host: "::",
-      port: options.port ?? 8080,
-      allowedHosts: options.allowedHosts ?? [
-        ".ngrok-free.dev",
-        ".ngrok-free.app",
-        ".ngrok.io",
-        ".trycloudflare.com",
-      ],
+      ...(userConfig.server ?? {}),
+      host: userConfig.server?.host ?? "::",
+      port: options.port ?? userConfig.server?.port ?? 8080,
+      allowedHosts: options.allowedHosts ??
+        userConfig.server?.allowedHosts ?? [
+          ".ngrok-free.dev",
+          ".ngrok-free.app",
+          ".ngrok.io",
+          ".trycloudflare.com",
+        ],
       fs: {
+        ...(userConfig.server?.fs ?? {}),
         allow: [
           ".",
           ...monorepoCoreAllow,
           ...monorepoNodeModulesAllow,
           ...workspaceCoreFsAllow,
           ...workspaceNodeModulesAllow,
+          ...(userConfig.server?.fs?.allow ?? []),
           ...(options.fsAllow ?? []),
         ],
         deny: [
@@ -1706,27 +1881,30 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
           ".env.*",
           "*.{crt,pem}",
           "**/.git/**",
+          ...(userConfig.server?.fs?.deny ?? []),
           ...(options.fsDeny ?? []),
         ],
       },
     },
     build: {
-      outDir: options.outDir ?? "dist/spa",
+      ...(userConfig.build ?? {}),
+      outDir: options.outDir ?? userConfig.build?.outDir ?? "dist/spa",
       // Vite 8 defaults CSS minification to Lightning CSS, which collapses a
       // `backdrop-filter` + `-webkit-backdrop-filter` pair down to only the
       // prefixed form. Chrome ignores that, so glass effects disappear in
       // production. Keep esbuild as the CSS minifier and target Safari 18+ so
       // the standard property survives the production pipeline.
-      cssMinify: "esbuild",
-      cssTarget: ["es2020", "safari18"],
+      cssMinify: userConfig.build?.cssMinify ?? "esbuild",
+      cssTarget: userConfig.build?.cssTarget ?? ["es2020", "safari18"],
     },
     // Bundle all non-Node.js deps into the production SSR server build.
     // Edge runtimes (CF Workers, Deno) don't have node_modules at runtime.
     // In dev, React Router's Vite Environment runner expects CJS packages
     // like React to stay external; forcing them through the module runner
     // raises `module is not defined`.
-    ssr: process.argv.includes("build")
+    ssr: isBuildCommand(command)
       ? {
+          ...(userConfig.ssr ?? {}),
           noExternal: /^(?!node:)/,
           // Pick the workspace-core's compiled `dist/` exports in prod —
           // Node-style `default` condition matches what edge runtimes (CF
@@ -1734,11 +1912,17 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
           // build inherits the dev-condition src/ entry and ships unbuilt
           // TypeScript into the worker.
           resolve: {
+            ...((
+              userConfig.ssr as
+                | { resolve?: Record<string, unknown> }
+                | undefined
+            )?.resolve ?? {}),
             conditions: ["node", "module", "import", "default"],
             externalConditions: ["node", "module", "import", "default"],
           },
         }
       : {
+          ...(userConfig.ssr ?? {}),
           // Vite already sets `development` in the dev resolve conditions,
           // so the workspace-core template's exports.development → src/
           // entry is picked automatically — Vite handles TS compilation
@@ -1749,7 +1933,6 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
             // can force root.tsx and core's shared entry-server through the
             // same FrameworkContext instance.
             ...(hasDep("react-router", cwd) ? [/^react-router(\/.*)?$/] : []),
-            ...(hasDep("react-router-dom", cwd) ? ["react-router-dom"] : []),
             // Radix UI primitives are transitive deps of @agent-native/core
             // (used by FeedbackButton, AgentSidebar, ShareDialog, etc.). When
             // a consumer app SSRs a component that imports Radix, Node's
@@ -1757,7 +1940,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
             // because pnpm doesn't hoist transitive deps. Bundling them
             // through Vite resolves them via the workspace store.
             /^@radix-ui\//,
-            // scheduling ships tsc-compiled dist files that contain literal
+            // scheduling ships TypeScript-compiled dist files that contain literal
             // `@/` path-alias imports (e.g. `import { Input } from
             // "@/components/ui/input"`). In standalone (published) mode Node
             // treats the package as an external CJS dep and can't resolve
@@ -1768,63 +1951,23 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
               ? [/^@agent-native\/scheduling(\/.*)?$/]
               : []),
             ...workspaceCoreNoExternal,
+            ...arrayFrom((userConfig.ssr as { noExternal?: any })?.noExternal),
           ],
-          external: ["react", "react-dom", "react-dom/server"],
+          external: [
+            "react",
+            "react-dom",
+            "react-dom/server",
+            ...arrayFrom((userConfig.ssr as { external?: any })?.external),
+          ],
         },
-    plugins: [
-      // Stub packages from `options.ssrStubs` in the SSR bundle so they
-      // don't bloat the edge worker. Opt-in per template — the framework
-      // hardcodes nothing (e.g. docs sites legitimately import `shiki` on
-      // the server, so we can't blanket-stub it here).
-      ...(() => {
-        const p = ssrStubPlugin(options.ssrStubs ?? []);
-        return p ? [p] : [];
-      })(),
-      ...(options.plugins ?? []),
-      actionTypesPlugin(),
-      agentsBundlePlugin(),
-      autoReloadOnOptimizeDep(),
-      fullReloadOnOptimizeDep504(),
-      embedDevFrameHeaders(),
-      baseRedirectGuard(),
-      portExposer(),
-      silenceConnectionResets(),
-      rolldownInputFix(),
-      // Nitro Vite plugin for dev-mode API route serving and HMR.
-      // Disabled during build — React Router's build handles production.
-      ...(process.argv.includes("build")
-        ? []
-        : [
-            nitroVitePlugin({
-              serverDir: "./server",
-              ...(options.nitro ?? {}),
-              // Never auto-load test files as server handlers/plugins/middleware.
-              // Nitro scans server/{plugins,middleware,routes,api}/*; a co-located
-              // *.spec.ts would otherwise be loaded at runtime and crash the server
-              // (its top-level vitest calls throw). Keep tests next to their source safely.
-              ignore: [
-                ...((options.nitro as { ignore?: string[] })?.ignore ?? []),
-                "**/*.spec.ts",
-                "**/*.spec.tsx",
-                "**/*.test.ts",
-                "**/*.test.tsx",
-              ],
-              routeRules: {
-                ...mcpEmbedStaticAssetRouteRules(appBasePath),
-                ...((options.nitro as { routeRules?: Record<string, any> })
-                  ?.routeRules ?? {}),
-              },
-            } as any),
-          ]),
-      reactPluginInstance,
-      tailwindPluginInstance,
-    ].filter(Boolean),
     optimizeDeps: {
+      ...(userConfig.optimizeDeps ?? {}),
       include: [
         ...getDefaultOptimizeDeps(cwd),
         ...(hasDep("@agent-native/pinpoint", cwd)
           ? ["@agent-native/pinpoint/react"]
           : []),
+        ...(userConfig.optimizeDeps?.include ?? []),
         ...(options.optimizeDeps?.include ?? []),
       ],
       // In monorepo mode: explicitly exclude @agent-native/core subpaths so
@@ -1835,16 +1978,21 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       // serves stale code even after the source / dist is updated.
       exclude: [
         ...(findCoreSrcDir(cwd) !== null ? CORE_CLIENT_SUBPATHS : []),
+        ...(userConfig.optimizeDeps?.exclude ?? []),
         ...(options.optimizeDeps?.exclude ?? []),
       ],
     },
     resolve: {
+      ...(userConfig.resolve ?? {}),
       // Dedupe all client-side packages that core shares with the consuming
       // app. In pnpm monorepos, core's devDependencies can install separate
       // copies (linked to different React versions). Without deduping, each
       // copy creates its own React context — QueryClientProvider, RouterProvider,
       // Radix, etc. — causing "No provider" crashes at runtime.
-      dedupe: getClientDedupe(cwd),
+      dedupe: [
+        ...getClientDedupe(cwd),
+        ...arrayFrom((userConfig.resolve as { dedupe?: any })?.dedupe),
+      ],
       alias: [
         // Published npm installs: one react-router instance for app + core.
         ...getReactRouterAliases(cwd),
@@ -1859,8 +2007,61 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
           find,
           replacement,
         })),
+        ...aliasArrayFrom((userConfig.resolve as { alias?: unknown })?.alias),
       ],
     },
+  };
+}
+
+/**
+ * Agent-Native's Vite plugin preset.
+ *
+ * Use this in ordinary Vite configs so `vite.config.ts` keeps Vite's native
+ * `UserConfig` type surface:
+ *
+ * ```ts
+ * import { defineConfig } from "vite";
+ * import { reactRouter } from "@react-router/dev/vite";
+ * import { agentNative } from "@agent-native/core/vite";
+ *
+ * export default defineConfig({
+ *   plugins: [reactRouter(), agentNative({ ssrStubs: ["shiki"] })],
+ * });
+ * ```
+ */
+export function agentNative(
+  options: AgentNativeVitePluginOptions = {},
+): Plugin[] {
+  return [
+    {
+      name: "agent-native-config",
+      enforce: "pre",
+      config(config: UserConfig, env: ConfigEnv) {
+        return createAgentNativeConfig(options, env.command, config);
+      },
+    },
+    ...createAgentNativePlugins(options, {
+      includeReactTransform: options.legacySpa === true,
+      useServeOnlyNitroPlugin: true,
+    }),
+  ] as Plugin[];
+}
+
+/**
+ * Create the client Vite config with sensible agent-native defaults.
+ *
+ * @deprecated Prefer `defineConfig` from `vite` plus the `agentNative()` plugin
+ * preset. This compatibility wrapper remains for existing templates.
+ */
+export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
+  const includeReactTransform =
+    !hasReactRouterPlugin(options.plugins) && !options.reactRouter;
+  return {
+    ...createAgentNativeConfig(options),
+    plugins: createAgentNativePlugins(options, {
+      includeReactTransform,
+      userPlugins: options.plugins,
+    }),
   };
 }
 

@@ -4,6 +4,7 @@ import {
   sendRedirect,
   type H3Event,
 } from "h3";
+
 import { recordClick } from "../../../../lib/email-tracking.js";
 
 export default defineEventHandler(async (event: H3Event) => {

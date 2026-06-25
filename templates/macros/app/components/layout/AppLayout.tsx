@@ -1,22 +1,13 @@
-import { useState, useEffect } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
-import {
-  useIsFetching,
-  useIsMutating,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
 import {
   AgentSidebar,
   DevDatabaseLink,
   FeedbackButton,
   agentNativePath,
   appPath,
+  useT,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { apiFetch } from "@/lib/api";
-import { cn } from "@/lib/utils";
 import {
   IconFlame,
   IconLoader2,
@@ -25,6 +16,15 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
 } from "@tabler/icons-react";
+import {
+  useIsFetching,
+  useIsMutating,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
@@ -32,19 +32,23 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { apiFetch } from "@/lib/api";
+import { cn } from "@/lib/utils";
+
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 
 const navItems = [
-  { icon: IconFlame, label: "Entry", href: "/" },
-  { icon: IconChartBar, label: "Analytics", href: "/analytics" },
-  { icon: IconSettings, label: "Settings", href: "/settings" },
+  { icon: IconFlame, labelKey: "navigation.entry", href: "/" },
+  { icon: IconChartBar, labelKey: "navigation.analytics", href: "/analytics" },
+  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const t = useT();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(() => {
@@ -53,6 +57,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   });
 
   const isAnalytics = location.pathname === "/analytics";
+  const isSettings = location.pathname.startsWith("/settings");
 
   // Auto-close sidebar on route change (mobile)
   useEffect(() => {
@@ -68,12 +73,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Navigation state sync - write current view to application state
   useEffect(() => {
-    const view = isAnalytics ? "analytics" : "entry";
+    const view = isSettings ? "settings" : isAnalytics ? "analytics" : "entry";
     apiFetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       body: JSON.stringify({ view, path: location.pathname }),
     }).catch(() => {});
-  }, [location.pathname, isAnalytics]);
+  }, [location.pathname, isAnalytics, isSettings]);
 
   // Poll for navigate commands from the agent
   const { data: navCommand } = useQuery({
@@ -102,6 +107,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           : commandValue;
       if (cmd.view === "analytics") {
         navigate("/analytics");
+      } else if (cmd.view === "settings") {
+        navigate("/settings");
       } else if (cmd.view === "entry") {
         navigate("/");
       }
@@ -119,18 +126,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         position="right"
         defaultOpen={false}
         animateMobile
-        emptyStateText="Just tell me what you ate — I'll estimate the macros"
+        emptyStateText={t("agent.emptyState")}
         suggestions={[
-          "Chicken burrito bowl for lunch",
-          "What are my macros today?",
-          "I ran 30 minutes this morning",
+          t("agent.suggestionLunch"),
+          t("agent.suggestionMacros"),
+          t("agent.suggestionRun"),
         ]}
       >
         <div className="flex flex-1 overflow-hidden">
           {/* Desktop sidebar */}
           <aside
             className={cn(
-              "hidden shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
+              "hidden shrink-0 flex-col border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
               desktopSidebarCollapsed ? "w-14" : "w-56",
             )}
           >
@@ -146,7 +153,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           {/* Mobile sidebar sheet */}
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
             <SheetContent side="left" className="w-56 p-0">
-              <SheetTitle className="sr-only">Navigation</SheetTitle>
+              <SheetTitle className="sr-only">
+                {t("sidebar.navigation")}
+              </SheetTitle>
               <SidebarContent pathname={location.pathname} />
             </SheetContent>
           </Sheet>
@@ -172,6 +181,7 @@ function SidebarContent({
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
 }) {
+  const t = useT();
   const ToggleIcon = collapsed
     ? IconLayoutSidebarLeftExpand
     : IconLayoutSidebarLeftCollapse;
@@ -199,7 +209,7 @@ function SidebarContent({
               className="hidden h-4 w-auto shrink-0 dark:block"
             />
             <span className="font-logo truncate text-sm font-bold tracking-tight text-foreground">
-              Macros
+              {t("navigation.brand")}
             </span>
           </div>
         )}
@@ -211,7 +221,9 @@ function SidebarContent({
                 variant="ghost"
                 size="icon"
                 aria-label={
-                  collapsed ? "Expand left sidebar" : "Collapse left sidebar"
+                  collapsed
+                    ? t("sidebar.expandLeftSidebar")
+                    : t("sidebar.collapseLeftSidebar")
                 }
                 className={cn(
                   "hidden h-8 w-8 text-muted-foreground hover:text-foreground md:inline-flex",
@@ -223,7 +235,7 @@ function SidebarContent({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              {collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              {collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
             </TooltipContent>
           </Tooltip>
         )}
@@ -232,6 +244,7 @@ function SidebarContent({
       <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
         {navItems.map((item) => {
           const Icon = item.icon;
+          const label = t(item.labelKey);
           const isActive =
             item.href === "/"
               ? pathname === "/" || pathname === "/entry"
@@ -240,7 +253,7 @@ function SidebarContent({
             <Link
               key={item.href}
               to={item.href}
-              aria-label={collapsed ? item.label : undefined}
+              aria-label={collapsed ? label : undefined}
               className={cn(
                 "flex h-9 items-center rounded-lg text-sm transition-colors",
                 collapsed ? "justify-center px-0" : "gap-3 px-3",
@@ -250,13 +263,13 @@ function SidebarContent({
               )}
             >
               <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && item.label}
+              {!collapsed && label}
             </Link>
           );
           return collapsed ? (
             <Tooltip key={item.href}>
               <TooltipTrigger asChild>{link}</TooltipTrigger>
-              <TooltipContent side="right">{item.label}</TooltipContent>
+              <TooltipContent side="right">{label}</TooltipContent>
             </Tooltip>
           ) : (
             link
@@ -282,6 +295,7 @@ function SidebarContent({
 }
 
 function SyncIndicator({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
+  const t = useT();
   const refetchingActions = useIsFetching({
     predicate: (query) =>
       query.queryKey[0] === "action" && query.state.dataUpdatedAt > 0,
@@ -319,14 +333,14 @@ function SyncIndicator({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
   return (
     <div
       className={cn(
-        "pointer-events-none fixed bottom-10 left-4 z-50 flex h-8 items-center gap-2 rounded-full border border-white/[0.06] bg-muted/80 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur-sm md:bottom-8",
+        "pointer-events-none fixed bottom-10 start-4 z-50 flex h-8 items-center gap-2 rounded-full border border-white/[0.06] bg-muted/80 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur-sm md:bottom-8",
         sidebarCollapsed
-          ? "md:left-[calc(3.5rem+1rem)]"
-          : "md:left-[calc(14rem+1rem)]",
+          ? "md:start-[calc(3.5rem+1rem)]"
+          : "md:start-[calc(14rem+1rem)]",
       )}
     >
       <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-      Syncing…
+      {t("sidebar.syncing")}
     </div>
   );
 }

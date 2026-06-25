@@ -1,0 +1,7 @@
+# Existing raw visible UI literals.
+# Keep this file sorted. Remove entries as surfaces move to i18n.
+# Format: relative/source/path.tsx|Visible string
+templates/clips/app/components/editor/waveform.tsx|VISUAL_SILENCE_FLOOR && botY - topY
+templates/clips/app/components/player/transcript-panel.tsx|gsk_…
+templates/clips/app/components/recorder/storage-setup-card.tsx|AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
+templates/clips/app/components/workspace/notifications-list.tsx|["formatDate"], formatRelativeTime: ReturnType

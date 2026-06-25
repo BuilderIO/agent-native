@@ -1,3 +1,9 @@
+import { spawnSync } from "child_process";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { fileURLToPath } from "url";
+
 /**
  * E2E regression tests for `agent-native create`.
  *
@@ -12,11 +18,7 @@
  *   - dist/catalog.json not embedded in the built package
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import fs from "fs";
-import path from "path";
-import os from "os";
-import { spawnSync } from "child_process";
-import { fileURLToPath } from "url";
+
 import { addAppToWorkspace, createApp } from "./create.js";
 import {
   _scaffoldWorkspaceRoot,
@@ -33,8 +35,8 @@ import {
   _shouldSkipScaffoldEntry,
   _tarExtractArgs,
 } from "./create.js";
-import { workspacifyApp } from "./workspacify.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
+import { workspacifyApp } from "./workspacify.js";
 
 let tmpDir: string;
 let origCwd: string;
@@ -47,13 +49,48 @@ beforeEach(() => {
 
 afterEach(() => {
   process.chdir(origCwd);
-  fs.rmSync(tmpDir, {
-    recursive: true,
-    force: true,
-    maxRetries: 5,
-    retryDelay: 100,
-  });
+  removeTmpDir(tmpDir);
 });
+
+function removeTmpDir(dir: string): void {
+  const maxAttempts = 10;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      fs.rmSync(dir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableRmError(error) || attempt === maxAttempts - 1) {
+        throw error;
+      }
+      sleepSync(100 * (attempt + 1));
+    }
+  }
+
+  throw lastError;
+}
+
+function isRetryableRmError(error: unknown): boolean {
+  const code = (error as { code?: unknown })?.code;
+  return (
+    code === "ENOTEMPTY" ||
+    code === "EBUSY" ||
+    code === "EPERM" ||
+    code === "EMFILE" ||
+    code === "ENFILE"
+  );
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
 
 function readPkg(dir: string): Record<string, any> {
   return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf-8"));
@@ -176,9 +213,9 @@ describe("standalone scaffold — chat template", { timeout: 60000 }, () => {
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     const deps = allDeps(pkg);
 
-    expect(deps["@react-router/dev"]).toBe("7.16.0");
-    expect(deps["@react-router/fs-routes"]).toBe("7.16.0");
-    expect(deps["react-router"]).toBe("7.16.0");
+    expect(deps["@react-router/dev"]).toBe("8.0.1");
+    expect(deps["@react-router/fs-routes"]).toBe("8.0.1");
+    expect(deps["react-router"]).toBe("8.0.1");
   });
 
   it("catalog: refs resolve to semver-like strings", async () => {
@@ -244,6 +281,10 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
       "utf-8",
     );
     expect(workspaceYaml).toContain("allowBuilds:");
+    expect(workspaceYaml).toContain("minimumReleaseAgeExclude:");
+    expect(workspaceYaml).toContain('"@sentry/browser-utils"');
+    expect(workspaceYaml).toContain('"@sentry/node"');
+    expect(workspaceYaml).toContain('"@sentry/replay"');
     expect(workspaceYaml).not.toContain("@assistant-ui");
   });
 });
@@ -255,7 +296,7 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
  * `pnpm typecheck` and `pnpm action hello` — both used to fail out of the box:
  *
  *   1. tsconfig inherited `types: ["vite/client"]` from the UI base config, but
- *      a headless app has no Vite dep, so tsc died with TS2688.
+ *      a headless app has no Vite dep, so TypeScript died with TS2688.
  *   2. `import { defineAction } from "@agent-native/core"` resolved to the Node
  *      `default` entry, which re-exported the React client barrel and pulled
  *      `@tanstack/react-query` (uninstalled in a headless app) into the load
@@ -301,7 +342,7 @@ describe("headless onboarding guards", { timeout: 60000 }, () => {
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
- * Headless onboarding — real `pnpm install` + `tsc` + `pnpm action`
+ * Headless onboarding — real `pnpm install` + `tsgo` + `pnpm action`
  *
  * Heavyweight: scaffolds a headless app linked to the LOCAL built core, then
  * runs the exact documented commands. Gated on AGENT_NATIVE_CREATE_USE_LOCAL_CORE
@@ -886,6 +927,18 @@ describe("workspace scaffold defaults", () => {
       ),
     ).toBe(false);
   }, 60000);
+
+  it("does not copy local Claude settings files from framework-dev templates", () => {
+    expect(
+      _shouldSkipScaffoldEntry("settings.json", ".claude/settings.json"),
+    ).toBe(true);
+    expect(
+      _shouldSkipScaffoldEntry(
+        "settings.local.json",
+        ".claude/settings.local.json",
+      ),
+    ).toBe(true);
+  });
 
   it("does not copy local agent-native runtime state", () => {
     expect(_shouldSkipScaffoldEntry(".agent-native")).toBe(true);

@@ -1,7 +1,4 @@
-import { useState } from "react";
-import { useParams, useNavigate } from "react-router";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { format, parseISO } from "date-fns";
+import { useT } from "@agent-native/core/client";
 import {
   IconCalendar,
   IconClock,
@@ -9,8 +6,12 @@ import {
   IconCalendarPlus,
   IconCircleCheck,
 } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { format, parseISO } from "date-fns";
+import { useState } from "react";
+import { useParams, useNavigate } from "react-router";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,8 +23,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { appApiPath } from "@/lib/api-path";
-import { toast } from "sonner";
 
 interface BookingInfo {
   eventTitle: string;
@@ -36,6 +38,7 @@ interface BookingInfo {
 }
 
 export function ManageBookingPage() {
+  const t = useT();
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
   const [justCancelled, setJustCancelled] = useState(false);
@@ -50,7 +53,7 @@ export function ManageBookingPage() {
       const res = await fetch(appApiPath(`/api/public/bookings/${token}`));
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "Booking not found");
+        throw new Error(body.error || t("manageBooking.notFound"));
       }
       return res.json();
     },
@@ -64,7 +67,7 @@ export function ManageBookingPage() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "Failed to cancel");
+        throw new Error(body.error || t("manageBooking.cancelFailed"));
       }
       return res.json();
     },
@@ -88,9 +91,9 @@ export function ManageBookingPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center">
         <IconCircleX className="h-12 w-12 text-muted-foreground mb-4" />
-        <h1 className="text-xl font-semibold">Booking not found</h1>
+        <h1 className="text-xl font-semibold">{t("manageBooking.notFound")}</h1>
         <p className="mt-2 text-sm text-muted-foreground max-w-sm">
-          This link may have expired or the booking may have been removed.
+          {t("manageBooking.notFoundDescription")}
         </p>
       </div>
     );
@@ -100,17 +103,19 @@ export function ManageBookingPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center">
         <IconCircleCheck className="h-16 w-16 text-emerald-600 dark:text-emerald-400 mb-4" />
-        <h1 className="text-2xl font-semibold">Booking Cancelled</h1>
+        <h1 className="text-2xl font-semibold">
+          {t("manageBooking.cancelled")}
+        </h1>
         <p className="mt-2 text-sm text-muted-foreground max-w-sm">
-          Your booking for{" "}
+          {t("manageBooking.cancelledPrefix")}{" "}
           <span className="font-medium text-foreground">
             {booking.eventTitle}
           </span>{" "}
-          on{" "}
+          {t("manageBooking.cancelledDateConnector")}{" "}
           <span className="font-medium text-foreground">
             {format(parseISO(booking.start), "MMMM d, yyyy")}
           </span>{" "}
-          has been cancelled.
+          {t("manageBooking.cancelledSuffix")}
         </p>
         {booking.slug && (
           <Button
@@ -119,7 +124,7 @@ export function ManageBookingPage() {
             onClick={() => navigate(`/book/${booking.slug}`)}
           >
             <IconCalendarPlus className="h-4 w-4" />
-            Reschedule
+            {t("manageBooking.reschedule")}
           </Button>
         )}
       </div>
@@ -130,9 +135,9 @@ export function ManageBookingPage() {
     <div className="flex flex-col items-center justify-center min-h-screen px-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-2xl font-semibold">Manage Booking</h1>
+          <h1 className="text-2xl font-semibold">{t("manageBooking.title")}</h1>
           <p className="text-sm text-muted-foreground">
-            Cancel or reschedule your meeting.
+            {t("manageBooking.description")}
           </p>
         </div>
 
@@ -151,13 +156,13 @@ export function ManageBookingPage() {
             {format(parseISO(booking.end), "h:mm a")}
           </div>
           <div className="text-sm text-muted-foreground">
-            Booked by {booking.name}
+            {t("manageBooking.bookedBy", { name: booking.name })}
           </div>
         </div>
 
         {isPast ? (
           <p className="text-center text-sm text-muted-foreground">
-            This meeting has already passed.
+            {t("manageBooking.pastMeeting")}
           </p>
         ) : (
           <div className="flex flex-col gap-3">
@@ -170,35 +175,36 @@ export function ManageBookingPage() {
                     disabled={cancelMutation.isPending}
                   >
                     <IconCalendarPlus className="h-4 w-4" />
-                    Reschedule
+                    {t("manageBooking.reschedule")}
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>
-                      Reschedule this booking?
+                      {t("manageBooking.rescheduleTitle")}
                     </AlertDialogTitle>
                     <AlertDialogDescription>
-                      Your current booking will be cancelled and you'll be taken
-                      to pick a new time.
+                      {t("manageBooking.rescheduleDescription")}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>Keep Current Time</AlertDialogCancel>
+                    <AlertDialogCancel>
+                      {t("manageBooking.keepCurrentTime")}
+                    </AlertDialogCancel>
                     <AlertDialogAction
                       onClick={(e) => {
                         e.preventDefault();
                         cancelMutation.mutate(undefined, {
                           onSuccess: () => navigate(`/book/${booking.slug}`),
                           onError: () =>
-                            toast.error("Failed to cancel booking"),
+                            toast.error(t("manageBooking.cancelFailed")),
                         });
                       }}
                       disabled={cancelMutation.isPending}
                     >
                       {cancelMutation.isPending
-                        ? "Cancelling..."
-                        : "Reschedule"}
+                        ? t("manageBooking.cancelling")
+                        : t("manageBooking.reschedule")}
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
@@ -213,36 +219,43 @@ export function ManageBookingPage() {
                   disabled={cancelMutation.isPending}
                 >
                   <IconCircleX className="h-4 w-4" />
-                  Cancel Booking
+                  {t("manageBooking.cancelBooking")}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Cancel this booking?</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    {t("manageBooking.cancelTitle")}
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will cancel your{" "}
+                    {t("manageBooking.cancelDescriptionPrefix")}{" "}
                     <span className="font-medium text-foreground">
                       {booking.eventTitle}
                     </span>{" "}
-                    on{" "}
+                    {t("manageBooking.cancelDescriptionDateConnector")}{" "}
                     <span className="font-medium text-foreground">
                       {format(parseISO(booking.start), "MMMM d, yyyy")}
                     </span>
-                    . This action cannot be undone.
+                    {t("manageBooking.cancelDescriptionSuffix")}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Keep Booking</AlertDialogCancel>
+                  <AlertDialogCancel>
+                    {t("manageBooking.keepBooking")}
+                  </AlertDialogCancel>
                   <AlertDialogAction
                     onClick={(e) => {
                       e.preventDefault();
                       cancelMutation.mutate(undefined, {
-                        onError: () => toast.error("Failed to cancel booking"),
+                        onError: () =>
+                          toast.error(t("manageBooking.cancelFailed")),
                       });
                     }}
                     disabled={cancelMutation.isPending}
                   >
-                    {cancelMutation.isPending ? "Cancelling..." : "Yes, Cancel"}
+                    {cancelMutation.isPending
+                      ? t("manageBooking.cancelling")
+                      : t("manageBooking.yesCancel")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>

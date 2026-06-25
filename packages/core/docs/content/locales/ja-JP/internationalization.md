@@ -1,0 +1,147 @@
+---
+title: "国際化"
+description: "共有ロケール カタログ、言語ピッカー、ブラウザ言語フォールバック、ロケール対応ドキュメント コンテンツを使用して、Agent Native アプリをローカライズします。"
+---
+
+# 国際化
+
+Agent Native アプリは、共有を通じてフレームワークとテンプレート UI をローカライズできます
+`@agent-native/core/client/i18n` ランタイム。フレームワークはユーザーの
+SQL 設定で言語を選択し、actions として公開し、
+アプリが文字列をまだ翻訳していない場合の英語。
+
+## ランタイム
+
+`AppProviders` を通じてプロバイダーを使用します:
+
+```tsx
+import { AppProviders, getLocaleInitScript } from "@agent-native/core/client";
+import { i18nCatalog } from "./i18n";
+
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+<script
+  data-agent-native-locale-init
+  dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+/>;
+
+<AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+  <Outlet />
+</AppProviders>;
+```
+
+`getLocaleInitScript()` は、初期の `lang`、`dir`、および
+React が水和する前の `window.__AGENT_NATIVE_LOCALE__`。パブリック SSR ルートは
+`@agent-native/core/server` から `resolveLocaleFromRequest()` を呼び出し、
+ハイドレーションの不一致を避けるために、ロケール/カタログをそのスクリプトに解決しました。
+
+## カタログ
+
+ローカライズされた各テンプレートは、`app/i18n/` の下にカタログを保持します。
+
+```ts
+// app/i18n/index.ts
+import enUS from "./en-US";
+import type { AgentNativeI18nCatalog } from "@agent-native/core/client";
+
+export const i18nCatalog = {
+  sourceLocale: "en-US",
+  messages: enUS,
+  loadMessages: async (locale) => {
+    switch (locale) {
+      case "zh-CN":
+        return (await import("./zh-CN")).default;
+      default:
+        return null;
+    }
+  },
+} satisfies AgentNativeI18nCatalog;
+```
+
+常に `en-US` をバンドルします。英語以外のカタログを動的にインポートできるため、ユーザーのみ
+アクティブなロケールをダウンロードします。サポートされているロケール コードは、`en-US`、`zh-CN`、
+`es-ES`、`fr-FR`、`de-DE`、`ja-JP`、`ko-KR`、`pt-BR`、`hi-IN`、および `ar-SA`。
+
+## UI
+
+インターフェース文字列に `useT()` を使用し、アプリに `<LanguagePicker />` を配置します
+`/settings` ページ。サイドバー アプリは、アプリのサイドバーに **設定** を公開する必要があります。
+ヘッダーの言語アイコンは単なるショートカットです。
+
+```tsx
+import {
+  LanguagePicker,
+  openAgentSettings,
+  useT,
+} from "@agent-native/core/client";
+
+function SettingsPage() {
+  const t = useT();
+  return (
+    <>
+      <h2>{t("settings.languageTitle")}</h2>
+      <LanguagePicker label={t("settings.languageLabel")} />
+
+      <h2>{t("settings.agentTitle")}</h2>
+      <p>{t("settings.agentDescription")}</p>
+      <button type="button" onClick={() => openAgentSettings()}>
+        {t("settings.openAgentSettings")}
+      </button>
+    </>
+  );
+}
+```
+
+「エージェント設定」コントロールは、右側のエージェント サイドバーの設定タブを開く必要があります
+モデル、API キー、オートメーション、音声、その他のフレームワーク レベルのコントロール用。
+アプリは、独自の設定ページで価値の高いフレームワーク設定を複製する場合があります
+設定がアプリの中心であるが、サイドバーの設定タブがそのままの場合
+真実の情報源。
+
+日付、数値、相対時間、リストには `useFormatters()` を使用します。入れないでください
+翻訳文字列内のロケール依存の日付/数値の書式設定。
+
+## ドキュメント サイトのコンテンツ {#docs-site-content}
+
+パブリック ドキュメント ページは同じコア プロバイダーを使用しますが、
+`persistPreference={false}` なので、匿名ドキュメント トラフィックは localStorage を使用し、
+SQL 設定 actions の代わりにブラウザ言語。英語のソースは
+`packages/core/docs/content/*.md`。ローカライズされたページのオーバーライドは、
+`packages/core/docs/content/locales/<locale>/<slug>.md`.
+
+アプリ カタログと同じ BCP-47 ロケール コードを使用します。
+英語ソース。翻訳された見出しに `{#anchor}` を使用して安定したアンカーを保持します。
+ルート、アクション名、プロトコル フィールド、環境変数、プロバイダー名はそのままにします
+未翻訳。ロケールのページに翻訳された Markdown がない場合は、ドキュメント サイト
+ナビゲーションとクロムをローカライズしながら、そのページは英語に戻ります。
+
+Docs Markdown には構造化された `an-*` ビジュアルブロックが含まれることがあります。file-tree のタイトルや `entries[].note`、callout の本文、tab ラベル、annotated-code の labels/notes など、ユーザーに見える文章フィールドは必要に応じて翻訳します。ファイル名、path、env vars、route 文字列、action 名、language tags、code snippets、JSON keys、protocol 名などの安定した識別子は変更しません。
+
+## Actions と永続性
+
+すべてのアプリは以下を継承します:
+
+- `get-localization-preference` — 現在のユーザーの `{ locale }` を読み取ります
+- `set-localization-preference` — `"system"` またはサポートされているロケールを設定します
+
+耐久性の値は、`localization` の下のユーザースコープの SQL 設定に存在します。
+`localStorage` は、事前ハイドレーションと匿名フォールバックにのみ使用されます。アクティブ
+ロケールはアンビエント コンテキストとしてアプリケーションの状態にミラーリングされるため、エージェントは確認できます
+現在のインターフェース言語。
+
+## ガード
+
+実行:
+
+```bash
+pnpm guard:i18n-catalogs
+```
+
+ガードは、サポートされているロケール ファイル名、キー パリティ、プレースホルダー パリティを検証します。
+古いキー、および CLDR から `Intl.PluralRules` までの複数のカテゴリ。チェックします
+翻訳の品質ではなく構造。視認性の高い文字列には依然として人間が必要です
+レビュー。
+
+アクション名、ルート、列挙値などの安定した識別子は変換しないでください。
+アプリ状態キー、データベース値、プロトコル フィールド、環境変数名、またはプロバイダー
+名前。

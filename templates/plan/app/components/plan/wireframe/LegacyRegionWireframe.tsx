@@ -1,10 +1,12 @@
-import { type ReactNode } from "react";
-import rough from "roughjs";
-import { cn } from "@/lib/utils";
+import { useT } from "@agent-native/core/client";
 import type {
   PlanLegacyWireframeBlock,
   PlanWireframeRegion,
 } from "@shared/plan-content";
+import { type ReactNode } from "react";
+import rough from "roughjs";
+
+import { cn } from "@/lib/utils";
 
 /**
  * LEGACY region-based wireframe renderer — FALLBACK ONLY.
@@ -163,12 +165,13 @@ function TemplateProgress({ value = 0.32 }: { value?: number }) {
 }
 
 function ContextXRayMeter({ compact }: { compact?: boolean }) {
+  const t = useT();
   return (
     <TemplateBox id={compact ? "xray-meter-compact" : "xray-meter"}>
       <div className="plan-template-meter">
         <div className="plan-template-meter-copy">
           <strong>2.0k used</strong>
-          {!compact && <span>1% used · 198k free</span>}
+          {!compact && <span>{t("plansPage.wireframe.usageFree")}</span>}
         </div>
         <TemplateProgress value={0.18} />
       </div>
@@ -202,15 +205,16 @@ function ContextXRaySegmentRow({ compact }: { compact?: boolean }) {
 }
 
 function ContextXRayDefaultTemplate() {
+  const t = useT();
   return (
     <div className="plan-template-layer plan-template-popover">
       <div className="plan-template-popover-header">
         <TemplateBox id="default-title" emphasis>
-          <strong>Context X-Ray</strong>
+          <strong>{t("plansPage.wireframe.contextXray")}</strong>
         </TemplateBox>
         <div className="plan-template-header-meta">
-          <span>Pinned 0</span>
-          <span>Evicted 0</span>
+          <span>{t("plansPage.wireframe.pinnedZero")}</span>
+          <span>{t("plansPage.wireframe.evictedZero")}</span>
         </div>
       </div>
       <ContextXRayMeter />
@@ -227,6 +231,7 @@ function ContextXRayDefaultTemplate() {
 }
 
 function ContextXRayExpandedTemplate() {
+  const t = useT();
   return (
     <div className="plan-template-layer plan-template-popover plan-template-expanded">
       <div className="plan-template-popover-header">
@@ -238,17 +243,17 @@ function ContextXRayExpandedTemplate() {
         </TemplateBox>
       </div>
       <TemplateBox id="expanded-user" className="plan-template-message-row">
-        <strong>User message</strong>
+        <strong>{t("plansPage.wireframe.userMessage")}</strong>
         <TemplateLines count={2} widths={["80%", "58%"]} />
       </TemplateBox>
       <TemplateBox id="expanded-tool" className="plan-template-message-row">
-        <strong>Tool result</strong>
+        <strong>{t("plansPage.wireframe.toolResult")}</strong>
         <TemplateLines count={2} widths={["76%", "54%"]} />
       </TemplateBox>
       <div className="plan-template-action-row">
         <TemplatePill>Protected</TemplatePill>
         <TemplateButton id="expanded-pin" emphasis>
-          Pin / evict
+          {t("plansPage.wireframe.pinEvict")}
         </TemplateButton>
       </div>
     </div>
@@ -256,17 +261,18 @@ function ContextXRayExpandedTemplate() {
 }
 
 function ContextXRayMapTemplate() {
+  const t = useT();
   return (
     <div className="plan-template-layer plan-template-popover plan-template-map">
       <div className="plan-template-popover-header">
         <TemplateBox id="map-title" emphasis>
-          <strong>Context X-Ray</strong>
+          <strong>{t("plansPage.wireframe.contextXray")}</strong>
         </TemplateBox>
         <span>Map</span>
       </div>
       <TemplateBox id="token-map" className="plan-template-map-area">
         <div className="plan-template-row-heading">
-          <strong>Token map</strong>
+          <strong>{t("plansPage.wireframe.tokenMap")}</strong>
           <span>2.0k selected</span>
         </div>
         <div className="plan-template-treemap">
@@ -279,18 +285,21 @@ function ContextXRayMapTemplate() {
       </TemplateBox>
       <div className="plan-template-map-footer">
         <TemplateBox id="map-legend">Legend</TemplateBox>
-        <TemplateBox id="map-selected">Selected 2.0k</TemplateBox>
+        <TemplateBox id="map-selected">
+          {t("plansPage.wireframe.selectedTokens")}
+        </TemplateBox>
       </div>
     </div>
   );
 }
 
 function ContextXRayChatCleanupTemplate() {
+  const t = useT();
   return (
     <div className="plan-template-layer plan-template-chat-cleanup">
       <TemplateBox id="chat-messages" className="plan-template-chat-thread">
         <div className="plan-template-message-bubble">
-          <strong>Chat messages</strong>
+          <strong>{t("plansPage.wireframe.chatMessages")}</strong>
           <TemplateLines count={3} widths={["74%", "58%", "38%"]} />
         </div>
         <div className="plan-template-message-bubble is-reply">
@@ -298,7 +307,7 @@ function ContextXRayChatCleanupTemplate() {
         </div>
       </TemplateBox>
       <TemplateBox id="thinking-status" className="plan-template-status">
-        Thinking status
+        {t("plansPage.wireframe.thinkingStatus")}
       </TemplateBox>
       <TemplateBox id="composer" className="plan-template-composer">
         <span>Composer</span>
@@ -309,16 +318,17 @@ function ContextXRayChatCleanupTemplate() {
 }
 
 function ContextXRayAppTemplate() {
+  const t = useT();
   return (
     <div className="plan-template-layer plan-template-app-context">
       <TemplateBox id="app-shell" className="plan-template-app-shell">
         <div className="plan-template-app-topbar">
-          <span>App shell</span>
+          <span>{t("plansPage.wireframe.appShell")}</span>
           <TemplateLines count={1} widths={["68%"]} />
         </div>
         <div className="plan-template-app-grid">
           <TemplateBox id="app-chat-thread" className="plan-template-app-chat">
-            <strong>Chat thread</strong>
+            <strong>{t("plansPage.wireframe.chatThread")}</strong>
             <div className="plan-template-message-bubble">
               <TemplateLines count={3} widths={["72%", "55%", "34%"]} />
             </div>
@@ -331,24 +341,24 @@ function ContextXRayAppTemplate() {
               id="app-sidebar-title"
               className="plan-template-sidebar-title"
             >
-              Agent sidebar
+              {t("plansPage.wireframe.agentSidebar")}
             </TemplateBox>
             <TemplateBox
               id="app-xray-popover"
               className="plan-template-sidebar-popover"
               emphasis
             >
-              <strong>Context X-Ray popover</strong>
+              <strong>{t("plansPage.wireframe.contextXrayPopover")}</strong>
               <ContextXRayMeter compact />
               <ContextXRayToggle />
               <ContextXRaySegmentRow compact />
             </TemplateBox>
             <TemplateButton id="app-xray-trigger" emphasis>
-              X-Ray
+              {t("plansPage.wireframe.xray")}
             </TemplateButton>
           </div>
           <TemplateBox id="app-thinking" className="plan-template-app-status">
-            Thinking status
+            {t("plansPage.wireframe.thinkingStatus")}
           </TemplateBox>
           <TemplateBox id="app-composer" className="plan-template-app-composer">
             <span>Composer</span>

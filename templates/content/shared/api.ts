@@ -99,6 +99,11 @@ export interface DocumentUpdateRequest {
   isFavorite?: boolean;
 }
 
+export interface DocumentUpdateResponse extends Document {
+  urlPath: string;
+  softDeletedDatabaseIds: string[];
+}
+
 export interface DocumentMoveRequest {
   parentId?: string | null;
   position?: number;
@@ -192,6 +197,13 @@ export interface DuplicateDocumentPropertyRequest {
 export interface DeleteDocumentPropertyRequest {
   documentId: string;
   propertyId: string;
+}
+
+export interface ReorderDocumentPropertyRequest {
+  documentId: string;
+  propertyId: string;
+  targetPropertyId: string;
+  position?: "before" | "after";
 }
 
 export interface ContentDatabase {
@@ -597,6 +609,15 @@ export interface ContentDatabaseResponse {
   duplicatedDocumentId?: string;
 }
 
+export interface ContentDatabaseUnavailableResponse {
+  available: false;
+  reason: "deleted" | "not_found";
+  databaseId: string;
+  documentId?: string | null;
+  deletedAt?: string | null;
+  message: string;
+}
+
 export interface ContentDatabaseSourceFieldPropertyResponse {
   databaseId: string;
   documentId: string;
@@ -613,6 +634,20 @@ export interface CreateDatabaseRequest {
   documentId?: string;
   parentId?: string | null;
   title?: string;
+}
+
+export interface CreateInlineDatabaseRequest {
+  hostDocumentId: string;
+  title?: string;
+}
+
+export interface CreateInlineDatabaseResponse {
+  database: ContentDatabase;
+  block: {
+    databaseId: string;
+    databaseDocumentId: string;
+    ownerBlockId: string;
+  };
 }
 
 export interface AddDatabaseItemRequest {
@@ -665,6 +700,18 @@ export interface ContentDatabaseSummary {
 
 export interface ListContentDatabasesResponse {
   databases: ContentDatabaseSummary[];
+}
+
+export interface TrashedContentDatabaseSummary {
+  databaseId: string;
+  title: string;
+  documentId: string;
+  ownerDocumentId: string | null;
+  deletedAt: string;
+}
+
+export interface ListTrashedContentDatabasesResponse {
+  databases: TrashedContentDatabaseSummary[];
 }
 
 export interface SuggestSourceJoinKeyRequest {

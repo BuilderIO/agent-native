@@ -1,10 +1,3 @@
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  useMemo,
-} from "react";
 import {
   IconX,
   IconPlus,
@@ -14,33 +7,14 @@ import {
   IconLinkOff,
   IconCheck,
 } from "@tabler/icons-react";
-import {
-  AssistantChat,
-  type AssistantChatProps,
-  type AssistantChatHandle,
-} from "./AssistantChat.js";
-import { isTrustedFrameMessage } from "./frame.js";
-import { cn } from "./utils.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./components/ui/tooltip.js";
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-  PopoverTrigger,
-} from "./components/ui/popover.js";
-import {
-  useChatThreads,
-  type ChatThreadScope,
-  type ChatThreadSummary,
-} from "./use-chat-threads.js";
-import { agentNativePath } from "./api-path.js";
-import { callAction } from "./use-action.js";
-import { RunStuckBanner } from "./RunStuckBanner.js";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
+
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
   getReasoningEffortOptionsForModel,
@@ -58,6 +32,33 @@ import {
   parseSubmitChatMessage,
   type AgentChatContextItem,
 } from "./agent-chat.js";
+import { agentNativePath, appPath } from "./api-path.js";
+import {
+  AssistantChat,
+  type AssistantChatProps,
+  type AssistantChatHandle,
+} from "./AssistantChat.js";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "./components/ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./components/ui/tooltip.js";
+import { isTrustedFrameMessage } from "./frame.js";
+import { RunStuckBanner } from "./RunStuckBanner.js";
+import { callAction } from "./use-action.js";
+import {
+  useChatThreads,
+  type ChatThreadScope,
+  type ChatThreadSummary,
+} from "./use-chat-threads.js";
+import { cn } from "./utils.js";
 
 interface EngineModelGroup {
   engine: string;
@@ -196,7 +197,7 @@ function ChatSkeleton({
       {header ?? (
         <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
           <div className="h-[22px] w-20 rounded-md bg-muted animate-pulse" />
-          <div className="ml-auto flex gap-0.5">
+          <div className="ms-auto flex gap-0.5">
             <div className="h-[22px] w-[22px] rounded-md bg-muted animate-pulse" />
             <div className="h-[22px] w-[22px] rounded-md bg-muted animate-pulse" />
           </div>
@@ -290,7 +291,7 @@ function ScopeBadge({
             <span className="min-w-0 truncate">{heading}</span>
             {otherCount > 0 && (
               <span
-                className="ml-0.5 shrink-0 rounded-full bg-muted px-1.5 py-px text-[10px] leading-none text-muted-foreground"
+                className="ms-0.5 shrink-0 rounded-full bg-muted px-1.5 py-px text-[10px] leading-none text-muted-foreground"
                 aria-label={`${otherCount} other chats for ${objectLabel}`}
               >
                 +{otherCount}
@@ -338,57 +339,6 @@ function ScopeBadge({
           </div>
         </PopoverContent>
       </Popover>
-    </div>
-  );
-}
-
-/**
- * Empty-state addon shown when the user starts a fresh chat inside a
- * scoped surface that already has other threads. Surfaces those threads
- * inline so chats don't feel "lost" after the user navigates away and
- * back — the chip popover lists them too, but this nudge is visible
- * without any extra clicks.
- */
-function PreviousScopedChatsHint({
-  scope,
-  threads,
-  onSelectThread,
-}: {
-  scope: ChatThreadScope;
-  threads: ChatThreadSummary[];
-  onSelectThread: (id: string) => void;
-}) {
-  const MAX_INLINE = 3;
-  const shown = threads.slice(0, MAX_INLINE);
-  const remaining = threads.length - shown.length;
-  const scopeLabel = scope.label || `this ${formatScopeType(scope.type)}`;
-  return (
-    <div className="flex w-full max-w-[280px] flex-col gap-1.5">
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 text-center">
-        Previous chats for {scopeLabel}
-      </div>
-      <div className="flex flex-col gap-1">
-        {shown.map((thread) => (
-          <button
-            key={thread.id}
-            type="button"
-            onClick={() => onSelectThread(thread.id)}
-            className="flex items-baseline justify-between gap-2 rounded-md border border-border px-2.5 py-1.5 text-left hover:bg-accent cursor-pointer"
-          >
-            <span className="truncate text-[12px] text-foreground">
-              {thread.title || thread.preview || "Chat"}
-            </span>
-            <span className="shrink-0 text-[10px] text-muted-foreground">
-              {formatThreadTime(thread.updatedAt)}
-            </span>
-          </button>
-        ))}
-      </div>
-      {remaining > 0 && (
-        <div className="text-[10px] text-muted-foreground/70 text-center">
-          +{remaining} more
-        </div>
-      )}
     </div>
   );
 }
@@ -443,7 +393,7 @@ function renderThreadRow(
         onClose();
       }}
       className={cn(
-        "w-full px-3 py-2 text-left hover:bg-accent/50 cursor-pointer",
+        "w-full px-3 py-2 text-start hover:bg-accent/50 cursor-pointer",
         isActive && "bg-accent/30",
       )}
     >
@@ -478,16 +428,24 @@ function HistoryPopover({
   openTabIds,
   activeThreadId,
   currentScope,
+  hasMoreThreads = false,
+  isLoadingMoreThreads = false,
+  loadError,
   onSelect,
   onClose,
+  onLoadMore,
   onSearch,
 }: {
   threads: ChatThreadSummary[];
   openTabIds: Set<string>;
   activeThreadId: string | null;
   currentScope?: ChatThreadScope | null;
+  hasMoreThreads?: boolean;
+  isLoadingMoreThreads?: boolean;
+  loadError?: string | null;
   onSelect: (id: string) => void;
   onClose: () => void;
+  onLoadMore?: () => void;
   onSearch?: (query: string) => Promise<ChatThreadSummary[]>;
 }) {
   const [search, setSearch] = useState("");
@@ -568,7 +526,7 @@ function HistoryPopover({
   return (
     <Popover open onOpenChange={(open) => !open && onClose()}>
       <PopoverAnchor asChild>
-        <span aria-hidden className="absolute right-2 top-0 h-px w-px" />
+        <span aria-hidden className="absolute end-2 top-0 h-px w-px" />
       </PopoverAnchor>
       <PopoverContent
         align="end"
@@ -592,7 +550,11 @@ function HistoryPopover({
           />
         </div>
         <div className="max-h-64 overflow-y-auto py-1">
-          {isSearching ? (
+          {loadError && !search.trim() ? (
+            <div className="px-3 py-4 text-xs text-amber-500 text-center">
+              {loadError}
+            </div>
+          ) : isSearching ? (
             <div className="px-3 py-4 text-xs text-muted-foreground text-center">
               Searching...
             </div>
@@ -649,6 +611,16 @@ function HistoryPopover({
               ),
             )
           )}
+          {!search.trim() && hasMoreThreads && (
+            <button
+              type="button"
+              onClick={() => onLoadMore?.()}
+              disabled={isLoadingMoreThreads}
+              className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-60"
+            >
+              {isLoadingMoreThreads ? "Loading..." : "Load older chats"}
+            </button>
+          )}
         </div>
       </PopoverContent>
     </Popover>
@@ -682,7 +654,7 @@ function HelpPopover({ onClose }: { onClose: () => void }) {
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="absolute right-2 top-0 z-50 w-72 rounded-lg border border-border bg-popover shadow-lg">
+      <div className="absolute end-2 top-0 z-50 w-72 rounded-lg border border-border bg-popover shadow-lg">
         <div className="flex items-center justify-between px-3 py-2 border-b border-border">
           <span className="text-xs font-medium text-foreground">
             Available Commands
@@ -781,6 +753,107 @@ function chatTabStatusFromAgentTeamStatus(
 }
 
 const STALE_THREAD_THRESHOLD_MS = 12 * 60 * 60 * 1000;
+const DEFAULT_THREAD_URL_PARAM = "thread";
+const THREAD_URL_CHANGED_EVENT = "agent-chat:url-thread-changed";
+const hasOwn = Object.prototype.hasOwnProperty;
+
+// The history patch is installed once and shared via a ref count so that
+// multiple synced chats (or a remount) don't restore a stale `pushState`
+// reference and silently drop a wrapper installed by another instance.
+let historyPatchRefCount = 0;
+let restoreHistoryPatch: (() => void) | null = null;
+
+function installHistoryThreadUrlPatch(): () => void {
+  if (typeof window === "undefined") return () => {};
+  historyPatchRefCount += 1;
+  if (historyPatchRefCount === 1) {
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+    const dispatchUrlChange = () => {
+      window.dispatchEvent(new Event(THREAD_URL_CHANGED_EVENT));
+    };
+    window.history.pushState = function pushState(...args) {
+      const result = originalPushState.apply(this, args);
+      dispatchUrlChange();
+      return result;
+    };
+    window.history.replaceState = function replaceState(...args) {
+      const result = originalReplaceState.apply(this, args);
+      dispatchUrlChange();
+      return result;
+    };
+    restoreHistoryPatch = () => {
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
+    };
+  }
+  return () => {
+    historyPatchRefCount = Math.max(0, historyPatchRefCount - 1);
+    if (historyPatchRefCount === 0) {
+      restoreHistoryPatch?.();
+      restoreHistoryPatch = null;
+    }
+  };
+}
+
+export interface ChatThreadUrlSyncOptions {
+  /** Query-string parameter used by the generic URL adapter. Default: `thread`. */
+  paramName?: string;
+  /**
+   * Route-owned thread id. Pass `null` for the create route and a string for
+   * thread routes like `/chat/:threadId`.
+   */
+  routeThreadId?: string | null;
+  /** Build the URL path for a thread id, or for create mode when id is null. */
+  getPath?: (threadId: string | null) => string;
+  /** Optional router navigation callback used with `getPath`. */
+  navigate?: (path: string, options?: { replace?: boolean }) => void;
+}
+
+function normalizeUrlThreadId(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function resolveThreadUrlSync(
+  value: MultiTabAssistantChatProps["threadUrlSync"],
+): {
+  enabled: boolean;
+  paramName: string;
+  routeThreadId?: string | null;
+  getPath?: (threadId: string | null) => string;
+  navigate?: (path: string, options?: { replace?: boolean }) => void;
+} {
+  if (!value) return { enabled: false, paramName: DEFAULT_THREAD_URL_PARAM };
+  if (value === true) {
+    return { enabled: true, paramName: DEFAULT_THREAD_URL_PARAM };
+  }
+  return {
+    enabled: true,
+    paramName: value.paramName?.trim() || DEFAULT_THREAD_URL_PARAM,
+    ...(hasOwn.call(value, "routeThreadId")
+      ? { routeThreadId: normalizeUrlThreadId(value.routeThreadId) }
+      : {}),
+    ...(value.getPath ? { getPath: value.getPath } : {}),
+    ...(value.navigate ? { navigate: value.navigate } : {}),
+  };
+}
+
+function readUrlThreadId(paramName: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return normalizeUrlThreadId(
+      params.get(paramName) ??
+        (paramName === DEFAULT_THREAD_URL_PARAM
+          ? params.get("threadId")
+          : null),
+    );
+  } catch {
+    return null;
+  }
+}
 
 function runToAgentTeamTabInfo(
   run: AgentTeamRunSummary,
@@ -846,6 +919,12 @@ export type MultiTabAssistantChatProps = Omit<
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
   /**
+   * Keep the active thread in URL state. `true` uses the generic `?thread=id`
+   * adapter; passing `routeThreadId` + `getPath` lets an app bind chats to
+   * route params such as `/chat/:threadId`.
+   */
+  threadUrlSync?: boolean | ChatThreadUrlSyncOptions;
+  /**
    * Bind new chats to a resource (deck, design, dashboard, etc.). When set,
    * new chats automatically inherit this scope and scoped chats tuck away when
    * the user leaves the resource. General chats remain visible across resource
@@ -864,23 +943,137 @@ export function MultiTabAssistantChat({
   storageKey,
   restoreActiveThread = true,
   browserTabId,
+  threadUrlSync = false,
   scope = null,
   ...props
 }: MultiTabAssistantChatProps) {
+  const {
+    enabled: threadUrlSyncEnabled,
+    paramName: threadUrlParamName,
+    routeThreadId,
+    getPath: getThreadPath,
+    navigate: navigateThreadUrl,
+  } = resolveThreadUrlSync(threadUrlSync);
+  const threadRouteControlsActiveThread =
+    threadUrlSyncEnabled &&
+    threadUrlSync !== true &&
+    typeof threadUrlSync === "object" &&
+    hasOwn.call(threadUrlSync, "routeThreadId");
+  const [urlThreadId, setUrlThreadId] = useState<string | null>(() =>
+    threadUrlSyncEnabled
+      ? threadRouteControlsActiveThread
+        ? (routeThreadId ?? null)
+        : readUrlThreadId(threadUrlParamName)
+      : null,
+  );
+  const urlThreadIdRef = useRef(urlThreadId);
+  urlThreadIdRef.current = urlThreadId;
+
+  useEffect(() => {
+    if (!threadUrlSyncEnabled || threadRouteControlsActiveThread) return;
+    const update = () => setUrlThreadId(readUrlThreadId(threadUrlParamName));
+    const uninstallHistoryPatch = installHistoryThreadUrlPatch();
+    update();
+    window.addEventListener("popstate", update);
+    window.addEventListener(THREAD_URL_CHANGED_EVENT, update);
+    return () => {
+      uninstallHistoryPatch();
+      window.removeEventListener("popstate", update);
+      window.removeEventListener(THREAD_URL_CHANGED_EVENT, update);
+    };
+  }, [
+    threadRouteControlsActiveThread,
+    threadUrlParamName,
+    threadUrlSyncEnabled,
+  ]);
+
+  useEffect(() => {
+    if (!threadUrlSyncEnabled || !threadRouteControlsActiveThread) return;
+    setUrlThreadId(routeThreadId ?? null);
+  }, [routeThreadId, threadRouteControlsActiveThread, threadUrlSyncEnabled]);
+
+  const writeThreadUrl = useCallback(
+    (threadId: string | null, options: { replace?: boolean } = {}): void => {
+      if (!threadUrlSyncEnabled || typeof window === "undefined") return;
+      try {
+        const normalizedThreadId = normalizeUrlThreadId(threadId);
+        let next: string;
+        if (getThreadPath) {
+          next = getThreadPath(normalizedThreadId);
+        } else {
+          const url = new URL(window.location.href);
+          if (normalizedThreadId) {
+            url.searchParams.set(threadUrlParamName, normalizedThreadId);
+          } else {
+            url.searchParams.delete(threadUrlParamName);
+          }
+          if (threadUrlParamName !== "threadId") {
+            url.searchParams.delete("threadId");
+          }
+          next = `${url.pathname}${url.search}${url.hash}`;
+        }
+        const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (next === current) {
+          setUrlThreadId(normalizedThreadId);
+          return;
+        }
+        if (getThreadPath && navigateThreadUrl) {
+          navigateThreadUrl(next, { replace: options.replace === true });
+          setUrlThreadId(normalizedThreadId);
+          return;
+        }
+        const method = options.replace ? "replaceState" : "pushState";
+        // `getThreadPath` returns a router-local path (no app basename). When we
+        // fall back to the raw History API instead of a router navigate, resolve
+        // the basename so deep-link reloads work in mounted apps.
+        const historyTarget = getThreadPath ? appPath(next) : next;
+        window.history[method](window.history.state, "", historyTarget);
+        setUrlThreadId(normalizedThreadId);
+        window.dispatchEvent(new Event(THREAD_URL_CHANGED_EVENT));
+        const popstate =
+          typeof PopStateEvent === "function"
+            ? new PopStateEvent("popstate", { state: window.history.state })
+            : new Event("popstate");
+        window.dispatchEvent(popstate);
+      } catch {}
+    },
+    [
+      getThreadPath,
+      navigateThreadUrl,
+      threadUrlParamName,
+      threadUrlSyncEnabled,
+    ],
+  );
+
   const {
     threads,
     activeThreadId,
     isLoading,
     createThread,
-    switchThread,
+    switchThread: switchThreadState,
     detachThread,
     forkThread,
     saveThreadData,
     generateTitle,
     searchThreads,
+    loadMoreThreads,
     refreshThreads,
+    hasMoreThreads,
+    isLoadingMoreThreads,
+    threadsLoadError,
     isNewThread,
-  } = useChatThreads(apiUrl, storageKey, scope, { restoreActiveThread });
+  } = useChatThreads(apiUrl, storageKey, scope, {
+    restoreActiveThread,
+    routeThreadId: threadUrlSyncEnabled ? urlThreadId : undefined,
+  });
+
+  const switchThread = useCallback(
+    (threadId: string, options: { replace?: boolean } = {}) => {
+      switchThreadState(threadId);
+      writeThreadUrl(threadId, options);
+    },
+    [switchThreadState, writeThreadUrl],
+  );
 
   // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
   const keyPrefix = storageKey ? `:${storageKey}` : "";
@@ -1370,9 +1563,18 @@ export function MultiTabAssistantChat({
 
     // If active thread is stale, start fresh
     if (!parentMap[activeThreadId] && isStale(activeThreadId)) {
-      createThread();
+      createThread().then((id) => {
+        if (id) writeThreadUrl(null);
+      });
     }
-  }, [activeThreadId, threads, parentMap, switchThread, createThread]);
+  }, [
+    activeThreadId,
+    threads,
+    parentMap,
+    switchThread,
+    createThread,
+    writeThreadUrl,
+  ]);
 
   // Ensure active thread is always in open tabs.
   // Use functional update to check inside the setter — avoids race with the
@@ -1412,10 +1614,11 @@ export function MultiTabAssistantChat({
         if (id) {
           newThreadIds.current.add(id);
           setOpenTabIds([id]);
+          writeThreadUrl(null, { replace: true });
         }
       });
     }
-  }, [isLoading, openTabIds, activeThreadId, createThread]);
+  }, [isLoading, openTabIds, activeThreadId, createThread, writeThreadUrl]);
 
   useEffect(() => {
     let stopped = false;
@@ -1700,9 +1903,12 @@ export function MultiTabAssistantChat({
             setOpenTabIds((prev) =>
               prev.includes(newId) ? prev : [...prev, newId],
             );
+            if (!background) {
+              writeThreadUrl(newId);
+            }
             sendToTab(newId);
             if (background && previousTabId) {
-              switchThread(previousTabId);
+              switchThreadState(previousTabId);
             }
           }
         });
@@ -1729,6 +1935,8 @@ export function MultiTabAssistantChat({
     removeContextInTab,
     setContextInTab,
     switchThread,
+    switchThreadState,
+    writeThreadUrl,
   ]);
 
   // Replay submits posted before this lazy panel's listener attached. Dedup in
@@ -1800,9 +2008,10 @@ export function MultiTabAssistantChat({
     const id = await createThread();
     if (id) {
       newThreadIds.current.add(id);
+      writeThreadUrl(null);
     }
     return id;
-  }, [createThread]);
+  }, [createThread, writeThreadUrl]);
 
   const cleanupClosedTab = useCallback((tabId: string) => {
     if (parentMapRef.current[tabId]) {
@@ -1842,6 +2051,7 @@ export function MultiTabAssistantChat({
             if (newId) {
               newThreadIds.current.add(newId);
               setOpenTabIds([newId]);
+              writeThreadUrl(null);
             }
           });
           return prev; // Keep old tab until new one is ready
@@ -1855,7 +2065,7 @@ export function MultiTabAssistantChat({
       });
       cleanupClosedTab(tabId);
     },
-    [switchThread, createThread, cleanupClosedTab],
+    [switchThread, createThread, cleanupClosedTab, writeThreadUrl],
   );
 
   const closeOtherTabs = useCallback(
@@ -1906,7 +2116,8 @@ export function MultiTabAssistantChat({
     if (id) {
       newThreadIds.current.add(id);
       setOpenTabIds([id]);
-      switchThread(id);
+      switchThreadState(id);
+      writeThreadUrl(null);
       dismissedSubAgentTabsRef.current.clear();
       // Clean up all old refs
       chatRefs.current.clear();
@@ -1917,7 +2128,7 @@ export function MultiTabAssistantChat({
       setSubAgentNames({});
       setSubAgentStatuses({});
     }
-  }, [createThread, switchThread]);
+  }, [createThread, switchThreadState, writeThreadUrl]);
 
   // Keyboard shortcuts dispatched from AgentPanel based on the active mode
   useEffect(() => {
@@ -1955,6 +2166,14 @@ export function MultiTabAssistantChat({
 
       if (detail?.newThread === true) {
         newThreadIds.current.add(threadId);
+        void createThread(threadId).then((createdId) => {
+          if (!createdId) return;
+          setOpenTabIds((prev) =>
+            prev.includes(createdId) ? prev : [...prev, createdId],
+          );
+          writeThreadUrl(null);
+        });
+        return;
       }
       setOpenTabIds((prev) =>
         prev.includes(threadId) ? prev : [...prev, threadId],
@@ -1965,7 +2184,7 @@ export function MultiTabAssistantChat({
     window.addEventListener("agent-chat:open-thread", handleOpenThread);
     return () =>
       window.removeEventListener("agent-chat:open-thread", handleOpenThread);
-  }, [switchThread]);
+  }, [createThread, switchThread, writeThreadUrl]);
 
   const clearActiveTab = useCallback(() => {
     const tabIdToClear = activeThreadIdRef.current;
@@ -2125,8 +2344,15 @@ export function MultiTabAssistantChat({
       },
     ) => {
       saveThreadData(threadId, data);
+      if (
+        data.messageCount > 0 &&
+        threadId === activeThreadIdRef.current &&
+        urlThreadIdRef.current !== threadId
+      ) {
+        writeThreadUrl(threadId);
+      }
     },
-    [saveThreadData],
+    [saveThreadData, writeThreadUrl],
   );
 
   // ─── Slash command handler ──────────────────────────────────────────
@@ -2298,9 +2524,9 @@ export function MultiTabAssistantChat({
                             <button
                               type="button"
                               onClick={() => switchThread(tab.id)}
-                              className="flex items-center gap-1 px-2.5 py-1.5 min-w-0 flex-1 text-left"
+                              className="flex items-center gap-1 px-2.5 py-1.5 min-w-0 flex-1 text-start"
                             >
-                              <span className="truncate pr-1">{tab.label}</span>
+                              <span className="truncate pe-1">{tab.label}</span>
                               {tab.status === "running" && (
                                 <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
                               )}
@@ -2333,7 +2559,7 @@ export function MultiTabAssistantChat({
                       })}
                     </div>
                     <TooltipProvider delayDuration={200}>
-                      <div className="flex items-center gap-px shrink-0 ml-auto">
+                      <div className="flex items-center gap-px shrink-0 ms-auto">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <button
@@ -2396,9 +2622,9 @@ export function MultiTabAssistantChat({
                             <button
                               type="button"
                               onClick={() => switchThread(tab.id)}
-                              className="flex items-center gap-1 px-2 py-1 min-w-0 flex-1 text-left"
+                              className="flex items-center gap-1 px-2 py-1 min-w-0 flex-1 text-start"
                             >
-                              <span className="truncate pr-1">
+                              <span className="truncate pe-1">
                                 {tab.subAgentName || tab.label}
                               </span>
                               {tab.status === "running" && (
@@ -2449,8 +2675,12 @@ export function MultiTabAssistantChat({
             openTabIds={new Set(openTabIds)}
             activeThreadId={activeThreadId}
             currentScope={scope}
+            hasMoreThreads={hasMoreThreads}
+            isLoadingMoreThreads={isLoadingMoreThreads}
+            loadError={threadsLoadError}
             onSelect={openFromHistory}
             onClose={() => setShowHistory(false)}
+            onLoadMore={loadMoreThreads}
             onSearch={searchThreads}
           />
         )}
@@ -2526,17 +2756,6 @@ export function MultiTabAssistantChat({
                     tabScope?.label && tabId === activeThreadId
                       ? `Ask about ${tabScope.label}`
                       : props.emptyStateText
-                  }
-                  emptyStateAddon={
-                    tabId === activeThreadId &&
-                    tabScope &&
-                    otherScopedThreads.length > 0 ? (
-                      <PreviousScopedChatsHint
-                        scope={tabScope}
-                        threads={otherScopedThreads}
-                        onSelectThread={openFromHistory}
-                      />
-                    ) : undefined
                   }
                   ref={(handle) => {
                     if (handle) {

@@ -1,0 +1,65 @@
+---
+title: "持久的简历"
+description: "当托管代理运行被中断并恢复时，已完成的副作用工具调用不会重新运行 - 从持久账本派生的工具调用日志会阻止重复发送、收费和票证。"
+---
+
+# 持久的简历
+
+> **这是谁的：**任何想要了解框架如何运行的人
+> 恢复可避免重复的副作用。这是内置行为——有
+> 无需连接。
+
+托管代理运行被中断：无服务器函数在中途遇到硬超时，网关在 45 秒时断开连接，套接字挂起，平台冷启动。该框架已经通过保存对话前缀并重新运行 LLM 调用（“从上次中断的地方继续”）来恢复。但仅恢复就有一个明显的优势：如果被中断的尝试**已经发送了一封电子邮件或创建了一个票证**，那么天真的简历可以再次做到这一点。
+
+持久的简历弥补了这一差距。恢复时，框架知道哪个副作用工具调用已经完成，并拒绝在两层重新运行它们。
+
+```an-diagram title="两层可阻止简历上重复的副作用" summary="日志读取持久账本并对之前的调用进行分类；第 1 层告诉模型，第 2 层硬阻止与已完成条目匹配的重新分派写入。"
+{
+  "html": "<div class=\"diagram-durable\"><div class=\"diagram-box\" data-rough>Run-event ledger<br><small class=\"diagram-muted\">tool_start / tool_done</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><strong>Tool-call journal</strong><small class=\"diagram-ok\">completed = start+done</small><small class=\"diagram-warn\">interrupted = start, no done</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">Layer 1 · prompt note &rarr; model</div><div class=\"diagram-pill accent\">第 2 层 · 硬阻塞重新派发写入</div></div></div>",
+  "css": ".diagram-durable{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-durable .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-durable .diagram-arrow{font-size:22px;line-height:1}.diagram-durable .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## 工具调用日志 {#journal}
+
+日志是**对持久运行事件分类帐的纯粹读取** - 热路径中没有新的记录挂钩。它对当前回合已记录的工具调用进行分类：
+
+- **已完成** — `tool_start` 与匹配的 `tool_done`。调用运行，它的副作用发生，并且它的结果被记录。 **不要重新运行。**
+- **中断** — `tool_start`，**没有**匹配 `tool_done`。通话开始了，它的副作用可能已经发生，也可能没有发生，而中断则吞噬了结果。结果未知。
+
+匹配反映了如何在其他地方重建耐用转弯：`tool_done` 与最旧的仍打开的 `tool_start` 配对，使用相同的工具名称（每个工具 FIFO）。 `clear` 事件（废弃的部分输出）会重置每轮计数，因此废弃的部分输出不会留下虚拟的开放调用。
+
+## 第1层：提示级日记笔记 {#prompt-note}
+
+当运行恢复时（软超时、网关超时或任何可恢复的传输错误），框架会在“从上次停止的地方继续”轻推之后，将**结构化日志注释**附加到恢复提示中。该注释以纯文本形式告诉模型：
+
+- 哪个工具调用**已经完成**（结果很短），因此它会重用它们并且**不会**重新运行它们，并且
+- 哪个工具调用被**因未知结果而中断**，因此它会在假设成功或失败之前验证状态。
+
+当日志为空时（没有工具活动的回合，或干净的延续），不会附加任何额外内容，并且恢复行为与之前的情况相同。该注释是尽力而为的：失败的账本读取永远不会阻止本来会成功的恢复。
+
+## 第2层：工具层硬块 {#hard-block}
+
+提示信息是建议性的 - 一个表现良好的模型会注意到它，但模型并不能保证。因此循环也在工具层强制执行它。
+
+在循环在恢复的块中运行之前，它会对日志进行一次快照（仅捕获此逻辑回合的**之前**块）。当模型重新分派工具名称**和输入**与已完成的日记条目匹配的**写入**工具时，循环会短路：它返回日记结果而不是执行操作，并注意该调用已在之前中断的尝试中完成，并且不会重新运行以避免重复的副作用。
+
+关键属性：
+
+- **仅限写入工具。**只读 (`readOnly` / GET) actions 永远不会被阻止 - 重新读取是安全且幂等的。
+- **内容寻址。** 匹配基于工具名称 + 输入签名，因此轮流中位于不同位置的恢复调用仍然匹配； _ different_ 调用（不同的参数）被视为新鲜调用并正常运行。
+- **消费一次。**每个已完成的条目在匹配时都会被声明，因此同一轮中两个真正不同的相同的新调用不会在一个日志完成时同时短路。
+- **新呼叫未受影响。**首轮呼叫会看到空日志；正常运行没有任何变化。
+
+```an-callout
+{
+  "tone": "success",
+  "body": "Together the two layers mean an interrupted run that already had a real side effect resumes **without repeating it** — no duplicate emails, charges, or tickets — while genuinely new work still runs. Read-only actions are never blocked; re-reading is always safe."
+}
+```
+
+## 相关
+
+- [**Real-Time Sync**](/docs/real-time-collaboration) — 持久运行账本如何流式传输到客户端并在重新连接时重播。
+- [**Actions**](/docs/actions) — `readOnly` 将读取标记为可以安全地重新运行；其他一切都被视为副作用。
+- [**In-Loop Processors**](/docs/processors) — 另一个循环内部硬化接缝。

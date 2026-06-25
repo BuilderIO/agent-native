@@ -1,0 +1,147 @@
+---
+title: "MCP 应用程序"
+description: "使用真实应用路由、嵌入桥和主机桥 API，在 Claude、ChatGPT 和其他兼容主机中编写和嵌入交互式 MCP 应用 UI。"
+---
+
+# MCP 应用程序
+
+**此页面：Claude/ChatGPT 中的内联 UI。** 创作 MCP 应用程序资源以及在兼容主机的聊天中呈现真实应用程序路由的嵌入桥。此页面也是**客户支持矩阵** ([below](#client-support)) 的单一主页。
+
+| 如果你想……                                              | 阅读                                     |
+| ------------------------------------------------------- | ---------------------------------------- |
+| 将外部代理/主机连接到您的应用                           | [External Agents](/docs/external-agents) |
+| 为您的代理提供更多工具（使用其他 MCP 服务器）           | [MCP Clients](/docs/mcp-clients)         |
+| 构建在 Claude/ChatGPT 中渲染的内联 UI                   | **此页面** — MCP 应用                    |
+| 较低级别的 MCP 服务器参考（身份验证、工具、自定义挂载） | [MCP Protocol](/docs/mcp-protocol)       |
+
+MCP 应用程序是官方的 `io.modelcontextprotocol/ui` 扩展，可让兼容主机（Claude、Claude Desktop、ChatGPT、VS Code GitHub Copilot、Goose、Postman、MCPJam 和 Cursor）在聊天中渲染交互式 UI。在代理原生应用程序中，每个 MCP 应用程序都是**真正的 React 路由**，而不是单独的普通 HTML 小部件。
+
+在 Agent-Native 应用自己的聊天中，首选 [native chat renderers](/docs/native-chat-ui) 作为第一方小部件，例如表格、图表、键入的结果和批准功能可供性。在 Claude、ChatGPT、Copilot、Cursor 和其他兼容主机中使用 MCP 应用程序进行外部/跨主机内联 UI，并使用操作 `link` 作为通用深层链接回退。
+
+## 创作：可选的 MCP 应用 UI {#mcp-apps}
+
+对于支持 MCP 应用扩展的主机，操作还可以使用 `mcpApp` 通告内联 UI 资源。这是对流程的渐进增强，外部代理应向用户提供交互式界面而不仅仅是文本，例如查看电子邮件草稿、编辑日历邀请或在生成的仪表板变体之间进行选择。
+
+每当用户需要 UI 时，将真正的 React 应用程序与 `embedRoute()` 或 `embedApp()` 一起使用。思维模型很简单：操作的 `link` 目标也是 MCP 应用程序嵌入目标。将操作公开为正常操作/工具，返回与 `link` 相关的深层链接，并添加 `mcpApp.resource = embedApp(...)`，以便有能力的主机内联加载相同的路由，而不是打开新选项卡。当两者都应该从同一路由构建时，更喜欢 `embedRoute({ title, openLabel, path })`：它是一种方便的包装器，可以从一次调用中返回匹配的 `link` 和 `mcpApp` 字段，而 `embedApp(...)` 是您直接分配给 `mcpApp.resource` 的较低级别资源。
+
+这意味着完整的应用程序嵌入可以执行路由打开后可以执行的任何操作：查看或编辑电子邮件草稿、显示过滤的收件箱/搜索、打开日历事件或事件草稿、加载扩展页面、检查完整的分析仪表板或保存的分析、在幻灯片编辑器中继续幻灯片或打开设计项目/编辑器。优先选择 URL/深层链接参数和现有的 `/_agent-native/open` 导航/应用程序状态桥，而不是为 MCP 应用程序发明第二个状态协议。
+
+在极少数情况下，正确的目标是渲染一个共享 React 组件而不是整个应用程序 shell 的集中应用程序路径。 Analytics 的 `/chart` 路线就是模型：它在 URL 中采用紧凑的 `SqlPanel` 有效负载，并呈现仪表板使用的相同图表组件。这仍然是一个应用程序嵌入，而不是一个普通的 HTML MCP 应用程序。通过正常操作 / `open_app({ path, embed: true })` 公开或调用它，保持 URL 的确定性，并让 `embedApp()` 内联渲染该路由。
+
+请勿为产品 UI 手写一次性普通 HTML MCP 应用程序；如果操作需要自定义界面，请首先添加或重用真实的应用程序路由/组件并嵌入该路由。
+
+```an-diagram title="MCP 应用程序嵌入往返" summary="该操作的链接目标也是嵌入目标。有能力的主机内联加载相同的签名应用程序路由；其他人都回到深层链接。"
+{
+  "html": "<div class=\"diagram-embed\"><div class=\"diagram-card\" data-rough><strong>Action</strong><small class=\"diagram-muted\">`link` target = MCP App embed target</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>embedApp()</strong><span class=\"diagram-pill accent\">create_embed_session</span><small class=\"diagram-muted\">mints short-lived embed session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>/_agent-native/embed/start</strong><small class=\"diagram-muted\">交换一次性 SQL ticket</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>Signed app route</strong><span class=\"diagram-pill ok\">真实 React 路由</span><small class=\"diagram-muted\">short-lived browser session</small></div><div class=\"diagram-fallback\"><span class=\"diagram-pill warn\">不支持 MCP Apps</span><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>&quot;Open in … &rarr;&quot; deep link</div></div></div>",
+"css": ".diagram-embed{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-embed .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:140px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .diagram-fallback{display:flex;flex-direction:column;align-items:center;gap:6px;margin-inline-start:8px}"
+}
+
+```
+
+```ts
+import { embedApp } from "@agent-native/core";
+
+export default defineAction({
+  // ...description, schema, run, link...
+  mcpApp: {
+    resource: embedApp({
+      title: "Review draft",
+      description: "Open the generated draft in the real Mail compose UI.",
+      iframeTitle: "Agent-Native Mail",
+      openLabel: "Open in Mail",
+    }),
+  },
+});
+```
+
+```an-annotated-code title="mcpApp 资源配置"
+{
+  "filename": "actions/review-draft.ts",
+  "language": "ts",
+  "code": "import { embedApp } from \"@agent-native/core\";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: \"Review draft\",\n      description: \"Open the generated draft in the real Mail compose UI.\",\n      iframeTitle: \"Agent-Native Mail\",\n      openLabel: \"Open in Mail\",\n    }),\n  },\n});",
+  "annotations": [
+    { "lines": "6", "label": "渐进增强", "note": "`mcpApp.resource` 为支持 MCP 应用扩展的主机宣传内联 UI。也保留操作的 `link` 构建器 - 仅 CLI 和较旧的主机会忽略 UI 元数据，但仍然需要深层链接。" },
+    { "lines": "7", "label": "Embed = the link target", "note": "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route." },
+    { "lines": "11", "label": "通用后备标签", "note": "`openLabel` is the visible `\"Open in … →\"` text used as the deep-link escape hatch when a host does not render the inline iframe." }
+  ]
+}
+```
+
+MCP 服务器通告扩展 `io.modelcontextprotocol/ui`，将 `_meta.ui.resourceUri` 和 `_meta["ui/resourceUri"]` 添加到 `tools/list`，并且还发出 ChatGPT 应用 SDK 兼容性元数据（`openai/outputTemplate`、小部件 CSP/描述/可访问性）。它通过 `resources/list`、`resources/templates/list` 和 `resources/read` 使用 MIME `text/html;profile=mcp-app` 公开 HTML。 stdio 代理从实时应用程序转发这些资源处理程序，因此桌面和 CLI 客户端可以看到与 HTTP 客户端相同的资源。
+
+即使添加 `mcpApp` 也保留现有的 `link` 构建器。仅 CLI 的客户端、较旧的主机以及任何不呈现 MCP 应用程序的主机将忽略 UI 元数据，并且仍然需要 `"Open in … →"` 链接。 `embedApp()` 使用该链接作为其启动目标，调用仅应用程序的 `create_embed_session` 帮助程序，在 `/_agent-native/embed/start` 交换一次性 SQL 票证，并通过短暂的浏览器会话以及同源提取的承载回退将 MCP 应用程序框架导航到目标路由。 `open_app({ app, path, embed: true })` 是用于完整仪表板、过滤收件箱、日历草稿视图、分析和扩展页面等路线的通用逃生口，当完整应用程序是最清晰的审查/编辑界面时，应广泛使用。
+
+`embedApp()` 在资源 CSP 中包含 MCP 请求源，以便启动器可以获取并在明确请求时构建已签名的第一方应用程序路由。 Dispatch 将授予的应用程序的确切来源添加到其 `open_app` 资源中，以便单个 Dispatch 连接器可以内联邮件、日历、幻灯片和其他内容，而无需允许每个 HTTPS 来源。仅为真正嵌入第三方播放器或加载第三方资源的自定义 MCP 应用传递额外的框架或资源域。
+
+在这些 `embedApp()` 路由中，`sendToAgentChat()` 是嵌入感知的。自动提交的提示会以 `ui/update-model-context` 加 `ui/message` 的形式中继到 MCP 主机，因此嵌入式应用程序中的按钮可以有意从所选应用程序状态继续 Claude/ChatGPT 对话。隐藏上下文作为模型上下文发送；可见的用户转向仅保留应用程序的提示，这避免了围绕内部应用程序状态文件路径的可怕的主机同意。 `submit: false` 保留本地预填充/审核行为。
+
+## 一流的MCP应用桥 {#mcp-app-bridge}
+
+MCP 应用嵌入是路线嵌入，而不是单独的迷你产品。 `embedApp()` 从操作的 `link` 目标开始，创建一个短暂的嵌入会话，并启动该签名的应用程序路由。当主机可以直接水合路线时，标准 MCP 应用程序主机可以自行导航 MCP 应用程序框架。
+
+```an-diagram title="两条主桥路径，一条签名路由" summary="克劳德移植了水合路线，使用直接ui/_bridge； ChatGPT 通过 window.openai 获取受控 iframe，并通过 postMessage 中继主机操作。两者都指向同一个签名的应用程序路由。"
+{
+  "html": "<div class=\"diagram-bridge\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><strong>Claude web</strong><span class=\"diagram-pill accent\">single-frame transplant</span><small class=\"diagram-muted\">在 Claude iframe 中激活已签名的应用 HTML，然后使用直接 `ui/_` 主机桥</small></div><div class=\"diagram-card\" data-rough><strong>ChatGPT web</strong><span class=\"diagram-pill accent\">controlled route iframe</span><small class=\"diagram-muted\">`window.openai`host APIs ·`agentNative.mcpHost.*` postMessage relay</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Same signed app route<br><small class=\"diagram-muted\">普通路由 + React 组件</small></div></div>",
+"css": ".diagram-bridge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-bridge .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-bridge .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;max-width:300px}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}.diagram-bridge .diagram-box{padding:16px 18px;text-align:center}"
+}
+
+```
+
+Claude Web 使用单框架移植路径：资源文档获取已签名的应用程序 HTML 并将其水合到 Claude 的 MCP 应用程序 iframe 中，因为 Claude 无法可靠地允许应用程序拥有的子 iframe 或外部框架导航。 ChatGPT Web 获得受控路由 iframe，因为它的 Apps 桥为我们提供了稳定的 `window.openai` 主机 API 和有界高度控制。所有路径都指向相同的签名应用程序路由并渲染正常路由和 React 组件。设计嵌入式路由，以便使用相同签名的 URL 重新加载可以重建相同的视图。
+
+对于同一应用程序 `open_app({ embed: true })`，框架在原始工具调用期间创建嵌入启动票证，并将签名的启动 URL 存储在隐藏的工具元数据中。定制actions可以返回`embedStartUrl`相同的快速路径； MCP 层将票证 URL 从模型可见的 `structuredContent` 和正常的开放链接元数据中剥离。当不存在嵌入启动 URL 时，资源将回退到仅应用程序的 `create_embed_session` 帮助程序。这使得生产主机能够在直接路由上限制 iframe 发起的工具调用，而不会将一次性应用程序会话 URL 泄漏到记录中。如果用户在一次性启动票过期后重新打开旧聊天，启动路由将返回一个小刷新页面并将 `agentNative.embedSessionExpired` 发布到包装器； `embedApp()` 清除陈旧的开始 URL，并在仍具有原始应用程序路由的情况下通过 `create_embed_session` 铸造新票。
+
+ChatGPT通过`window.openai`获得专用的兼容路径：启动文档直接读取`toolInput`、`toolOutput`和`toolResponseMetadata`，然后通过`window.openai.callTool(...)`调用`create_embed_session`。标准 MCP 应用程序主机使用 `ui/*` JSON-RPC 桥接器。直接水合路由可以通过主桥助手调用`ui/update-model-context`、`ui/message`、`ui/open-link`和`ui/request-display-mode`。 Claude的移植路线在水合后使用相同的直接`ui/*`主桥。当使用 ChatGPT 或显式诊断 iframe 路径时，包装器通过 `agentNative.mcpHost.*` postMessage 请求中继同一主机 actions。保持两条路径的结果形状相同：返回集中的 `link` 和简洁的结构化内容。
+
+请勿将标准 `_meta.ui.domain` 设置为应用程序 URL。 MCP Apps 将该字段视为特定于主机的字段：Claude 验证 `{hash}.claudemcpcontent.com` 样式的沙箱域，而 ChatGPT 使用自己的 `openai/widgetDomain` 元数据。除非您故意发出特定于主机的值，否则请省略 `ui.domain`；主机将选择默认沙箱源。
+
+扩展页面将其沙箱保留在 MCP 聊天嵌入中，而无需导航第二个路由 iframe。正常应用程序使用会将 `/_agent-native/extensions/:id/render` 呈现为沙盒子 iframe。在 MCP 聊天桥模式下，框架在路由 iframe 内呈现与沙箱 `srcDoc` 相同的扩展文档，避免主机 `frame-ancestors` / `X-Frame-Options` 故障，同时保留 `sandbox="allow-scripts allow-forms"`。
+
+资源 shell 拥有外部主机大小。 `embedApp({ height })`默认为`560px`，将外壳夹到`320-900px`，并为小工具栏保留`44px`，因此路线视口为`height - 44px`。保持嵌入式应用程序路由内部可滚动，并让启动器报告有界的固有高度而不是完整的文档高度；否则主机自动调整大小可以将一个普通的应用页面变成一个很高的聊天神器。更改的 shell 仅影响新的 MCP App 资源和新的工具调用。旧的 ChatGPT/Claude 对话框架可以保留以前的资源行为，因此在判断修复之前使用新的内联渲染验证大小。
+
+### 嵌入模式 {#embed-modes}
+
+Claude默认使用单帧移植路径。在调试主机模块加载行为时，您还可以在具有 `embedMode: "transplant"` 或 `frame: "transplant"` 的其他主机中强制使用它。您可以使用 `embedMode: "iframe"`、`renderMode: "iframe"`、`nested: true` 或 `frame: "iframe"` 强制嵌套诊断 iframe。如果 iframe 被阻止，`embedApp()` 会将其替换为开放应用后备：用户可以重试内联、通过主机打开新创建的嵌入会话，或使用可见路由 URL。保持动作的 `link` 目标本身有用，因为它仍然是通用逃生舱口。
+
+通过 ngrok 测试 Claude 时，请使用生产版本（`npx @agent-native/core@latest build` 然后 `npx @agent-native/core@latest start`）或已部署的预览/生产 URL。 Claude的单帧移植路径适用于生产资产块；原始 Vite 开发模块（例如 `/app/root.tsx`）可以受到应用程序身份验证的保护，并且无法从 Claude 资源源进行动态导入。
+
+## 主桥API {#host-bridge}
+
+主桥故意很小：
+
+| 模式                  | 消息类型                              | 使用它                            |
+| --------------------- | ------------------------------------- | --------------------------------- |
+| 直接主机路由          | `ui/update-model-context`             | 宿主模型的隐藏上下文              |
+| 直接主机路由          | `ui/message`                          | 将可见用户转入主机                |
+| 直接主机路由          | `ui/open-link`                        | 通过主机打开外部或应用程序URL     |
+| 直接主机路由          | `ui/request-display-mode`             | 请求`inline`、`fullscreen`或`pip` |
+| Claude移植            | `ui/*`                                | 水合后相同的直接主桥              |
+| ChatGPT / iframe 路由 | `agentNative.mcpHostContext`          | 主题、区域设置、主机平台、维度    |
+| ChatGPT / iframe 路由 | `agentNative.embeddedAppReady`        | 确认路由iframe加载                |
+| ChatGPT / iframe 路由 | `agentNative.mcpHost.*` / `.response` | 主机请求的包装中继                |
+
+嵌入式路由可以使用 `@agent-native/core/client` 中的 `updateMcpAppModelContext()`、`openMcpAppHostLink()`、`requestMcpAppDisplayMode()`、`getMcpAppHostContext()` 和 `useMcpAppHostContext()`。 `sendToAgentChat()` 使用完整应用程序嵌入中的相同路径来自动提交提示。
+
+显示模式是尽力而为。应用内 `McpAppRenderer` 当前报告内联 Web 主机上下文和仅内联显示模式；外部主机可能会接受较大的显示请求、忽略它们或回复不支持模式的错误。始终保持内联路由可用。
+
+## 客户端支持和缓存 {#client-support}
+
+目前MCP Apps官方客户端列表包括Claude、Claude Desktop、VS Code GitHub Copilot、Goose、Postman、MCPJam、ChatGPT、Cursor；主机支持仍然因计划、发布渠道和客户端版本而异，因此请检查 [MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix)。 ChatGPT 自定义 MCP 应用程序可通过 ChatGPT Web 上的商业和企业/教育工作区的开发人员模式使用；请参阅 OpenAI 的 [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) 注释。
+
+Claude Code、Codex 和其他 CLI/代码编辑器客户端在支持 MCP 应用程序时仍会收到相同的资源和元数据，但将它们视为链接输出主机，除非您已在该确切表面中验证了内联 iframe 渲染。当主机选择不渲染 iframe 时，深层链接仍然是可靠的后备方案。实际上，每个代理本机应用程序都应使用以下两种方式编写：用于在有能力的主机中进行内联审核/编辑的 MCP 应用程序，以及用于通用往返返回完整应用程序的 `link` 应用程序。
+
+Claude 和 ChatGPT 可以缓存现有自定义连接器的工具和资源元数据。更改MCP App元数据后，使用新的工具调用进行验证；如果主机仍使用旧描述符，请重新连接 Claude 连接器或重新扫描/检查 ChatGPT 连接器，以便刷新目录。如果部署后 Claude 在工具描述符上记录了有关 `_meta.ui.csp` 或 `_meta.ui.permissions` 的警告，则该连接器正在使用过时的元数据：删除/重新连接 Claude 连接器并开始新的聊天。
+
+## 测试 {#testing}
+
+使用`embedApp()`和`McpAppRenderer`周围的轻量级夹具测试MCP应用程序；它们涵盖 CSP、主机上下文、应用程序启动和桥接消息行为，而无需真正的外部主机。验证 ChatGPT 或 Claude Web 时，在 shell 更改后触发新的工具调用并测量可见的 iframe。同一对话中先前渲染的帧可能仍会显示缓存的高度或启动行为。
+
+## 相关 {#related}
+
+- [External Agents](/docs/external-agents) — 将 Claude、ChatGPT、Codex 和 Cursor 连接到托管应用程序； MCP 应用程序兼容性矩阵；目录层；深层链接。
+- [MCP Protocol](/docs/mcp-protocol) — 自动安装的 MCP 服务器、身份验证、工具和 `ask-agent`。
+- [Actions](/docs/actions) — `defineAction`，`link` 构建者，`publicAgent`。
+
+```
+
+```

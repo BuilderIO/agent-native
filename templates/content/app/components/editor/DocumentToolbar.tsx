@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router";
+import {
+  AgentToggleButton,
+  NotificationsBell,
+  PresenceBar,
+  appPath,
+  useActionMutation,
+  useT,
+  type CollabUser,
+} from "@agent-native/core/client";
+import { ShareButton } from "@agent-native/core/client";
+import type { DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
   IconArrowBarUp,
@@ -21,12 +30,12 @@ import {
   IconRefresh,
   IconShare3,
 } from "@tabler/icons-react";
-import { VersionHistoryPanel } from "./VersionHistoryPanel";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,21 +48,17 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
 import {
-  AgentToggleButton,
-  NotificationsBell,
-  PresenceBar,
-  appPath,
-  useActionMutation,
-  type CollabUser,
-} from "@agent-native/core/client";
-import { ShareButton } from "@agent-native/core/client";
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useNotionConnection,
   useDocumentSyncStatus,
@@ -65,15 +70,13 @@ import {
   useSearchNotionPages,
   useCreateAndLinkNotionPage,
 } from "@/hooks/use-notion";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import { useLocalStorage } from "@/hooks/use-local-storage";
-import type { DocumentSourceInfo } from "@shared/api";
 import {
   localSourceAbsolutePath,
   revealLinkedLocalSourceFile,
 } from "@/lib/local-content-source-files";
+import { cn } from "@/lib/utils";
+
+import { VersionHistoryPanel } from "./VersionHistoryPanel";
 
 type ExportFormat = "pdf" | "markdown" | "html";
 
@@ -174,6 +177,7 @@ export function DocumentToolbar({
   hideFromSearch = false,
   source,
 }: DocumentToolbarProps) {
+  const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -279,9 +283,9 @@ export function DocumentToolbar({
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        toast.error("Failed to update sharing", {
+        toast.error(t("editor.toolbar.failedToUpdateSharing"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
         });
         throw err;
       } finally {
@@ -294,51 +298,50 @@ export function DocumentToolbar({
         });
       }
     },
-    [documentId, hideFromSearch, queryClient, setDocumentDiscoverability],
+    [documentId, hideFromSearch, queryClient, setDocumentDiscoverability, t],
   );
 
   const handleCopyLocalRelativePath = useCallback(() => {
     const filePath = source?.path;
     if (!filePath) return;
     void navigator.clipboard?.writeText(filePath);
-    toast.success("Copied relative path");
-  }, [source?.path]);
+    toast.success(t("editor.toolbar.copiedRelativePath"));
+  }, [source?.path, t]);
 
   const handleCopyLocalAbsolutePath = useCallback(async () => {
     const filePath = await localSourceAbsolutePath(source);
     if (!filePath) {
-      toast.error("Absolute path is not available in this browser", {
-        description:
-          "Chrome does not expose absolute paths for browser-picked folders.",
+      toast.error(t("editor.toolbar.absolutePathUnavailable"), {
+        description: t("editor.toolbar.absolutePathUnavailableDescription"),
       });
       return;
     }
     void navigator.clipboard?.writeText(filePath);
-    toast.success("Copied absolute path");
-  }, [source]);
+    toast.success(t("editor.toolbar.copiedAbsolutePath"));
+  }, [source, t]);
 
   const handleRevealLocalPath = useCallback(async () => {
     try {
       const result = await revealLinkedLocalSourceFile(source);
       if (result.ok) {
-        toast.success("Revealed local file");
+        toast.success(t("editor.toolbar.revealedLocalFile"));
         return;
       }
       if (source?.absolutePath) {
         await revealLocalSource.mutateAsync({ id: documentId });
-        toast.success("Revealed local file");
+        toast.success(t("editor.toolbar.revealedLocalFile"));
         return;
       }
-      toast.error("Could not reveal local file", {
+      toast.error(t("editor.toolbar.couldNotRevealLocalFile"), {
         description: result.error,
       });
     } catch (error) {
-      toast.error("Could not reveal local file", {
+      toast.error(t("editor.toolbar.couldNotRevealLocalFile"), {
         description:
-          error instanceof Error ? error.message : "Something went wrong",
+          error instanceof Error ? error.message : t("empty.genericError"),
       });
     }
-  }, [documentId, revealLocalSource, source]);
+  }, [documentId, revealLocalSource, source, t]);
 
   const handleShareLocalFile = useCallback(async () => {
     try {
@@ -346,20 +349,20 @@ export function DocumentToolbar({
         id: documentId,
       })) as { id?: string; title?: string };
       if (!result?.id) {
-        throw new Error("The shareable copy was not created.");
+        throw new Error(t("editor.toolbar.shareableCopyWasNotCreated"));
       }
       await queryClient.invalidateQueries({ queryKey: ["action"] });
-      toast.success("Shareable copy ready", {
-        description: "This copy is stored in the database for sharing.",
+      toast.success(t("editor.toolbar.shareableCopyReady"), {
+        description: t("editor.toolbar.shareableCopyReadyDescription"),
       });
       navigate(`/page/${result.id}?share=1`);
     } catch (error) {
-      toast.error("Could not create shareable copy", {
+      toast.error(t("editor.toolbar.couldNotCreateShareableCopy"), {
         description:
-          error instanceof Error ? error.message : "Something went wrong",
+          error instanceof Error ? error.message : t("empty.genericError"),
       });
     }
-  }, [documentId, navigate, queryClient, shareLocalFile]);
+  }, [documentId, navigate, queryClient, shareLocalFile, t]);
 
   const handleDbShareOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -408,43 +411,55 @@ export function DocumentToolbar({
       setLinkingPageId(pageId);
       try {
         await linkDocument.mutateAsync({ pageIdOrUrl: pageId });
-        toast.success("Linked to Notion page.");
+        toast.success(t("editor.toolbar.linkedToNotionPage"));
         setSearchQuery("");
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to link.");
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("editor.toolbar.failedToLink"),
+        );
       } finally {
         setLinkingPageId(null);
       }
     },
-    [linkDocument],
+    [linkDocument, t],
   );
 
   const handlePull = useCallback(async () => {
     try {
       await pullDocument.mutateAsync();
-      toast.success("Pulled from Notion.");
+      toast.success(t("editor.toolbar.pulledFromNotion"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Pull failed.");
+      toast.error(
+        error instanceof Error ? error.message : t("editor.toolbar.pullFailed"),
+      );
     }
-  }, [pullDocument]);
+  }, [pullDocument, t]);
 
   const handlePush = useCallback(async () => {
     try {
       await pushDocument.mutateAsync();
-      toast.success("Pushed to Notion.");
+      toast.success(t("editor.toolbar.pushedToNotion"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Push failed.");
+      toast.error(
+        error instanceof Error ? error.message : t("editor.toolbar.pushFailed"),
+      );
     }
-  }, [pushDocument]);
+  }, [pushDocument, t]);
 
   const handleUnlink = useCallback(async () => {
     try {
       await unlinkDocument.mutateAsync();
-      toast.success("Unlinked from Notion.");
+      toast.success(t("editor.toolbar.unlinkedFromNotion"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unlink failed.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("editor.toolbar.unlinkFailed"),
+      );
     }
-  }, [unlinkDocument]);
+  }, [unlinkDocument, t]);
 
   const handleCreateAndLink = useCallback(
     (parentPageIdOrUrl?: string) => {
@@ -453,23 +468,25 @@ export function DocumentToolbar({
         parentPageIdOrUrl ? { parentPageIdOrUrl } : undefined,
         {
           onSuccess: () => {
-            toast.success("Created and linked to new Notion page.");
+            toast.success(t("editor.toolbar.createdAndLinkedToNotionPage"));
             setSearchQuery("");
           },
           onError: (error) => {
             toast.error(
-              error instanceof Error ? error.message : "Failed to create page.",
+              error instanceof Error
+                ? error.message
+                : t("editor.toolbar.failedToCreatePage"),
             );
           },
           onSettled: () => setCreatingParentPageId(null),
         },
       );
     },
-    [createAndLink],
+    [createAndLink, t],
   );
 
   const handleSetup = () => {
-    toast.info("Set up Notion in the sidebar first — click the Notion icon.");
+    toast.info(t("editor.toolbar.setUpNotionFirst"));
     setOpen(false);
   };
 
@@ -485,36 +502,40 @@ export function DocumentToolbar({
 
         if (result.print) {
           printExportHtml(result);
-          toast.success("Print dialog opened", {
-            description: "Choose Save as PDF to finish the export.",
+          toast.success(t("editor.toolbar.printDialogOpened"), {
+            description: t("editor.toolbar.printDialogOpenedDescription"),
           });
           return;
         }
 
         downloadExportFile(result);
         toast.success(
-          `Exported ${format === "markdown" ? "Markdown" : "HTML"}`,
+          t(
+            format === "markdown"
+              ? "editor.toolbar.exportedMarkdown"
+              : "editor.toolbar.exportedHtml",
+          ),
         );
       } catch (error) {
-        toast.error("Export failed", {
+        toast.error(t("editor.toolbar.exportFailed"), {
           description:
-            error instanceof Error ? error.message : "Something went wrong",
+            error instanceof Error ? error.message : t("empty.genericError"),
         });
       }
     },
-    [documentContent, documentId, documentTitle, exportDocument],
+    [documentContent, documentId, documentTitle, exportDocument, t],
   );
 
   return (
     <>
-      <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-xl border border-border/70 bg-background/95 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:top-3 sm:right-4 sm:gap-1">
+      <div className="absolute top-2 end-2 z-10 flex items-center gap-0.5 rounded-xl border border-border/70 bg-background/95 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:top-3 sm:end-4 sm:gap-1">
         {/* Presence — shared PresenceBar (agent + collaborator avatars) */}
         <PresenceBar
           activeUsers={activeUsers ?? []}
           agentPresent={agentPresent}
           agentActive={agentActive}
           currentUserEmail={currentUserEmail}
-          className="mr-1"
+          className="me-1"
         />
         {isLocalFileDocument ? (
           <Button
@@ -529,7 +550,9 @@ export function DocumentToolbar({
             ) : (
               <IconShare3 className="h-4 w-4" />
             )}
-            <span className="hidden sm:inline">Share</span>
+            <span className="hidden sm:inline">
+              {t("editor.toolbar.share")}
+            </span>
           </Button>
         ) : (
           <>
@@ -543,16 +566,15 @@ export function DocumentToolbar({
               visibilityCopy={{
                 org: {
                   description: effectiveHideFromSearch
-                    ? "Anyone in your organization with the link can view"
-                    : "Anyone in your organization can find and view",
+                    ? t("editor.toolbar.orgLinkCanView")
+                    : t("editor.toolbar.orgCanFindAndView"),
                 },
               }}
               hideInSearchControl={{
                 checked: effectiveHideFromSearch,
                 pending: setDocumentDiscoverability.isPending,
-                label: "Hide in search",
-                description:
-                  "Hide from Organization and search. People with the link can still view.",
+                label: t("editor.toolbar.hideInSearch"),
+                description: t("editor.toolbar.hideInSearchDescription"),
                 onCheckedChange: handleHideFromSearchChange,
               }}
               variant="compact"
@@ -574,80 +596,82 @@ export function DocumentToolbar({
               <DropdownMenuTrigger asChild>
                 <button
                   className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-                  aria-label="More page actions"
+                  aria-label={t("editor.toolbar.morePageActions")}
                 >
                   <IconDotsVertical size={16} />
                 </button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>More page actions</TooltipContent>
+            <TooltipContent>
+              {t("editor.toolbar.morePageActions")}
+            </TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="w-60">
             {isLocalFileDocument ? (
               <DropdownMenuGroup>
                 <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  Local file
+                  {t("editor.toolbar.localFile")}
                 </DropdownMenuLabel>
                 <DropdownMenuItem disabled className="min-w-0">
-                  <IconFileText className="mr-2 h-4 w-4 shrink-0" />
+                  <IconFileText className="me-2 h-4 w-4 shrink-0" />
                   <span className="truncate">{source?.path}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={revealLocalSource.isPending}
                   onSelect={() => void handleRevealLocalPath()}
                 >
-                  <IconFolderOpen className="mr-2 h-4 w-4" />
-                  Reveal in Finder
+                  <IconFolderOpen className="me-2 h-4 w-4" />
+                  {t("editor.toolbar.revealInFinder")}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={handleCopyLocalRelativePath}>
-                  <IconCopy className="mr-2 h-4 w-4" />
-                  Copy relative path
+                  <IconCopy className="me-2 h-4 w-4" />
+                  {t("editor.toolbar.copyRelativePath")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => void handleCopyLocalAbsolutePath()}
                 >
-                  <IconCopy className="mr-2 h-4 w-4" />
-                  Copy absolute path
+                  <IconCopy className="me-2 h-4 w-4" />
+                  {t("editor.toolbar.copyAbsolutePath")}
                 </DropdownMenuItem>
               </DropdownMenuGroup>
             ) : (
               <>
                 <DropdownMenuGroup>
                   <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
-                    <IconHistory className="mr-2 h-4 w-4" />
-                    Version history
+                    <IconHistory className="me-2 h-4 w-4" />
+                    {t("editor.toolbar.versionHistory")}
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger disabled={exportDocument.isPending}>
                     {exportDocument.isPending ? (
-                      <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
                     ) : (
-                      <IconDownload className="mr-2 h-4 w-4" />
+                      <IconDownload className="me-2 h-4 w-4" />
                     )}
-                    Export
+                    {t("editor.toolbar.export")}
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="w-44">
                     <DropdownMenuItem
                       disabled={exportDocument.isPending}
                       onSelect={() => void handleExport("pdf")}
                     >
-                      <IconFileTypePdf className="mr-2 h-4 w-4" />
+                      <IconFileTypePdf className="me-2 h-4 w-4" />
                       PDF
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       disabled={exportDocument.isPending}
                       onSelect={() => void handleExport("markdown")}
                     >
-                      <IconMarkdown className="mr-2 h-4 w-4" />
+                      <IconMarkdown className="me-2 h-4 w-4" />
                       Markdown
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       disabled={exportDocument.isPending}
                       onSelect={() => void handleExport("html")}
                     >
-                      <IconFileTypeHtml className="mr-2 h-4 w-4" />
+                      <IconFileTypeHtml className="me-2 h-4 w-4" />
                       HTML
                     </DropdownMenuItem>
                   </DropdownMenuSubContent>
@@ -666,30 +690,30 @@ export function DocumentToolbar({
                         isLinked ? "text-foreground" : "text-muted-foreground",
                       )}
                     >
-                      <span className="mr-2 flex h-4 w-4 shrink-0 items-center justify-center">
+                      <span className="me-2 flex h-4 w-4 shrink-0 items-center justify-center">
                         {hasConflict ? (
                           <span className="relative">
                             <NotionIcon className="h-4 w-4" />
                             <IconAlertTriangle
                               size={8}
-                              className="absolute -right-1 -top-1 text-amber-500"
+                              className="absolute -end-1 -top-1 text-amber-500"
                             />
                           </span>
                         ) : isLinked && autoSync ? (
                           <span className="relative">
                             <NotionIcon className="h-4 w-4" />
-                            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500" />
+                            <span className="absolute -end-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500" />
                           </span>
                         ) : (
                           <NotionIcon className="h-4 w-4" />
                         )}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-left">
+                      <span className="min-w-0 flex-1 truncate text-start">
                         {isLinked
-                          ? "Notion sync"
+                          ? t("editor.toolbar.notionSync")
                           : isConnected
-                            ? "Link to Notion"
-                            : "Connect Notion"}
+                            ? t("editor.toolbar.linkToNotion")
+                            : t("editor.toolbar.connectNotion")}
                       </span>
                     </button>
                   </PopoverTrigger>
@@ -706,17 +730,19 @@ export function DocumentToolbar({
                       <div className="p-4">
                         <div className="flex items-center gap-2 mb-2">
                           <NotionIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <p className="text-sm font-medium">Connect Notion</p>
+                          <p className="text-sm font-medium">
+                            {t("editor.toolbar.connectNotion")}
+                          </p>
                         </div>
                         <p className="text-xs text-muted-foreground mb-3">
-                          Set up Notion to sync this document.
+                          {t("editor.toolbar.setUpNotionToSync")}
                         </p>
                         <Button
                           size="sm"
                           className="w-full"
                           onClick={handleSetup}
                         >
-                          Set up Notion
+                          {t("editor.toolbar.setUpNotion")}
                         </Button>
                       </div>
                     ) : isLinked ? (
@@ -726,18 +752,18 @@ export function DocumentToolbar({
                           <div className="flex items-center gap-2">
                             <NotionIcon className="h-3.5 w-3.5 shrink-0" />
                             <span className="text-xs font-medium truncate">
-                              Linked to Notion
+                              {t("editor.toolbar.linkedToNotion")}
                             </span>
                             {autoSync && (
                               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
                                 <IconRefresh size={9} />
-                                Auto
+                                {t("editor.toolbar.auto")}
                               </span>
                             )}
                           </div>
                           {syncStatus?.lastSyncedAt && (
                             <p className="mt-1 text-[10px] text-muted-foreground">
-                              Last synced{" "}
+                              {t("editor.toolbar.lastSynced")}{" "}
                               {new Date(
                                 syncStatus.lastSyncedAt,
                               ).toLocaleString()}
@@ -786,7 +812,7 @@ export function DocumentToolbar({
                                   : "text-muted-foreground"
                               }
                             >
-                              Auto-sync
+                              {t("editor.toolbar.autoSync")}
                             </span>
                             <span
                               className={cn(
@@ -814,7 +840,7 @@ export function DocumentToolbar({
                             ) : (
                               <IconArrowBarDown size={12} />
                             )}
-                            Pull from Notion
+                            {t("editor.toolbar.pullFromNotion")}
                           </button>
                           <button
                             onClick={handlePush}
@@ -826,7 +852,7 @@ export function DocumentToolbar({
                             ) : (
                               <IconArrowBarUp size={12} />
                             )}
-                            Push to Notion
+                            {t("editor.toolbar.pushToNotion")}
                           </button>
                           {syncStatus?.pageUrl && (
                             <a
@@ -836,7 +862,7 @@ export function DocumentToolbar({
                               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md"
                             >
                               <IconExternalLink size={12} />
-                              Open in Notion
+                              {t("editor.toolbar.openInNotion")}
                             </a>
                           )}
                           <button
@@ -845,7 +871,7 @@ export function DocumentToolbar({
                             className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md disabled:opacity-40"
                           >
                             <IconLinkOff size={12} />
-                            Unlink
+                            {t("editor.toolbar.unlink")}
                           </button>
                         </div>
                       </div>
@@ -856,7 +882,7 @@ export function DocumentToolbar({
                           <div className="flex items-center gap-2 mb-2">
                             <NotionIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                             <span className="text-xs font-medium">
-                              Link to Notion page
+                              {t("editor.toolbar.linkToNotionPage")}
                             </span>
                           </div>
                           <div className="relative">
@@ -869,7 +895,9 @@ export function DocumentToolbar({
                               type="text"
                               value={searchQuery}
                               onChange={(e) => setSearchQuery(e.target.value)}
-                              placeholder="Search Notion pages..."
+                              placeholder={t(
+                                "editor.toolbar.searchNotionPages",
+                              )}
                               className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground"
                             />
                           </div>
@@ -897,7 +925,7 @@ export function DocumentToolbar({
                                 )}
                               </span>
                               <span className="text-xs font-medium">
-                                Create new page in Notion
+                                {t("editor.toolbar.createNewPageInNotion")}
                               </span>
                             </button>
                           </div>
@@ -942,11 +970,13 @@ export function DocumentToolbar({
                                       </p>
                                       {linkingPageId === page.id ? (
                                         <p className="text-[10px] text-muted-foreground">
-                                          Importing from Notion…
+                                          {t(
+                                            "editor.toolbar.importingFromNotion",
+                                          )}
                                         </p>
                                       ) : page.lastEditedTime ? (
                                         <p className="text-[10px] text-muted-foreground">
-                                          Edited{" "}
+                                          {t("editor.toolbar.edited")}{" "}
                                           {new Date(
                                             page.lastEditedTime,
                                           ).toLocaleDateString()}
@@ -962,7 +992,10 @@ export function DocumentToolbar({
                                         }
                                         disabled={isWorking}
                                         className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-40"
-                                        aria-label={`Create new page inside ${page.title}`}
+                                        aria-label={t(
+                                          "editor.toolbar.createNewPageInside",
+                                          { title: page.title },
+                                        )}
                                       >
                                         {creatingParentPageId === page.id ? (
                                           <IconLoader2
@@ -975,7 +1008,9 @@ export function DocumentToolbar({
                                       </button>
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                      Create new page inside this page
+                                      {t(
+                                        "editor.toolbar.createNewPageInsideThisPage",
+                                      )}
                                     </TooltipContent>
                                   </Tooltip>
                                 </div>
@@ -983,7 +1018,7 @@ export function DocumentToolbar({
                             </div>
                           ) : debouncedQuery || searchResults ? (
                             <div className="py-6 text-center text-xs text-muted-foreground">
-                              No pages found
+                              {t("editor.toolbar.noPagesFound")}
                             </div>
                           ) : null}
                         </div>
@@ -994,8 +1029,8 @@ export function DocumentToolbar({
               ) : null}
               <div className="group relative">
                 <NotificationsBell className="!h-8 !w-full !justify-start !rounded-sm !px-2 !py-1.5 !text-sm hover:!bg-accent hover:!text-accent-foreground focus-visible:!ring-0" />
-                <span className="pointer-events-none absolute left-8 top-1/2 -translate-y-1/2 text-sm text-muted-foreground group-hover:text-accent-foreground">
-                  Notifications
+                <span className="pointer-events-none absolute start-8 top-1/2 -translate-y-1/2 text-sm text-muted-foreground group-hover:text-accent-foreground">
+                  {t("editor.toolbar.notifications")}
                 </span>
               </div>
             </DropdownMenuGroup>

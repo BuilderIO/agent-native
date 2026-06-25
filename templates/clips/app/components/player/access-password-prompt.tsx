@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useT } from "@agent-native/core/client";
 import { IconLock } from "@tabler/icons-react";
+import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -14,6 +16,7 @@ export function AccessPasswordPrompt({
   error,
   title,
 }: AccessPasswordPromptProps) {
+  const t = useT();
   const [value, setValue] = useState("");
 
   return (
@@ -22,11 +25,11 @@ export function AccessPasswordPrompt({
         <div className="flex items-center gap-2 text-primary">
           <IconLock className="h-5 w-5" />
           <h1 className="text-lg font-semibold">
-            {title ?? "Password required"}
+            {title ?? t("embedRoute.passwordRequired")}
           </h1>
         </div>
         <p className="text-sm text-muted-foreground">
-          This video is protected. Enter the password to watch.
+          {t("clipsFinalRaw.passwordProtectedDescription")}
         </p>
         <form
           onSubmit={(e) => {
@@ -39,7 +42,7 @@ export function AccessPasswordPrompt({
             type="password"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder="Password"
+            placeholder={t("clipsFinalRaw.password")}
             autoFocus
           />
           {error ? <p className="text-xs text-red-500">{error}</p> : null}
@@ -48,7 +51,7 @@ export function AccessPasswordPrompt({
             className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
             disabled={!value}
           >
-            Unlock
+            {t("clipsFinalRaw.unlock")}
           </Button>
         </form>
       </div>

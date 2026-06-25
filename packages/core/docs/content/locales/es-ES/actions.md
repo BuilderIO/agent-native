@@ -1,0 +1,583 @@
+---
+title: "Actions"
+description: "defineAction: la definición única que se convierte en una herramienta de agente, enlaces de interfaz escritos, transporte de marco, una herramienta MCP y un comando CLI."
+---
+
+# Actions
+
+Actions son la única fuente de verdad para todo lo que hace su aplicación. Defina una acción una vez con `defineAction()`, suéltela en `actions/` y estará disponible inmediatamente como:
+
+- **Una herramienta de agente**: el agente la ve con un esquema JSON derivado de zod y puede llamarlo en el chat.
+- **Enganches React Typesafe**: `useActionQuery("name")` y `useActionMutation("name")` en la interfaz, tipos inferidos del esquema.
+- **Llamadas imperativas del cliente**: `callAction("name", params)` cuando un gancho no encaja.
+- **Transporte del marco**: montado automáticamente por el marco detrás de esos ganchos y disponible para clientes HTTP externos.
+- **Una herramienta MCP**: expuesta a aplicaciones Claude, ChatGPT personalizadas MCP, escritorio/código Claude, cursor, Codex y cualquier otro cliente MCP.
+- **Una herramienta A2A**: llamada por otras aplicaciones nativas del agente a través de A2A.
+- **Un comando CLI**: `pnpm action <name>` para secuencias de comandos y bucles de desarrollo.
+
+Una definición, siete consumidores. Este es el peldaño 3 del [ladder](/docs/what-is-agent-native#the-ladder).
+Si estás decidiendo si exponer una operación sin cabeza, en el chat, en un
+sidecar integrado o como pantalla de aplicación completa, consulte [Agent Surfaces](/docs/agent-surfaces).
+
+```an-diagram title="Una definición, siete consumidores" summary="Un único defineAction() se distribuye en todas las superficies (agente, UI, HTTP, MCP, A2A y CLI) con un esquema validado y un cuerpo run()."
+{
+  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), definido una vez</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Herramienta del agente<br><small class=\"diagram-muted\">JSON Schema en contexto</small></div><div class=\"diagram-node\">Hooks de React<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">cliente imperativo</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">Herramienta MCP<br><small class=\"diagram-muted\">hosts externos</small></div><div class=\"diagram-node\">Herramienta A2A<br><small class=\"diagram-muted\">otras apps agent-native</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
+  "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
+}
+```
+
+Si tanto el UI como el agente necesitan hacer algo, realice una acción, no una personalizada
+ruta. Para cuando un protocolo en forma de ruta _es_ la decisión correcta, consulte [Preferir Actions
+Para operaciones de aplicaciones](/docs/server#actions-first).
+
+## Comienza con una acción {#hello-action}
+
+La primera rampa de acceso primitiva es una acción, no una plantilla. En un sin cabeza
+andamio como `agent-native create my-agent --headless`, este puede ser el
+primera aplicación completa:
+
+```ts
+// actions/hello.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Saluda desde el agente local.",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+Ejecútelo desde la misma carpeta:
+
+```bash
+pnpm action hello '{"name":"Steve"}'
+```
+
+El CLI acepta un objeto JSON como entrada de acción, que coincide con la estructura
+llamadas de herramientas que los agentes ya realizan. Los indicadores simples todavía funcionan para ejecuciones manuales rápidas:
+
+```bash
+pnpm action hello --name Steve
+```
+
+Luego ejecute el bucle app-agent en la carpeta:
+
+```bash
+pnpm agent "Call hello for Steve and explain the result"
+```
+
+Ese es el mismo bucle de aplicación-agente en sus trabajos programados, chat UI, MCP externo
+herramientas y pantallas futuras que se utilizarán. Las plantillas de chat y dominio son para agregar UI
+alrededor de actions, no es un requisito previo requerido para la acción en sí.
+
+## Definir una acción {#defining}
+
+```an-annotated-code title="Anatomía de una acción."
+{
+  "filename": "actions/reply-to-email.ts",
+  "language": "ts",
+  "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});",
+  "annotations": [
+    { "lines": "5", "label": "Superficie de herramienta", "note": "`description` es lo que lee el agente para decidir cuándo llamar a esto. Las llamadas `.describe()` de cada campo también pasan al JSON Schema." },
+    { "lines": "6-9", "label": "Contrato tipado", "note": "Un schema valida la entrada de **todas** las superficies y se convierte a JSON Schema para el modelo. Las entradas no válidas nunca llegan a `run`." },
+    { "lines": "10-13", "label": "Una implementación", "note": "El cuerpo de `run` es la única fuente de verdad: el botón de la UI y la herramienta del agente ejecutan exactamente esto." }
+  ]
+}
+```
+
+Eso es todo. El marco descubre automáticamente todos los archivos en `actions/` y los monta al inicio.
+
+### Opciones de esquema {#schemas}
+
+`schema` acepta cualquier biblioteca compatible con [Standard Schema](https://standardschema.dev):
+
+- **Zod** (v4): el más común, la mejor inferencia de tipos, se convierte automáticamente al esquema JSON.
+- **Valibot**: tamaño mínimo del paquete si eso importa.
+- **ArkType**: si te gusta la sintaxis.
+
+El esquema se convierte al esquema JSON para la definición de herramienta Claude API y se utiliza en tiempo de ejecución para validar las entradas antes de que se active `run()`. Las entradas no válidas nunca llegan a su controlador.
+
+### Validando el valor de retorno {#output-schema}
+
+`schema` valida _entradas_. Para validar también lo que **devuelve** una acción, pase un `outputSchema` (cualquier esquema compatible con el esquema estándar: Zod, Valibot, ArkType, la misma superficie que `schema`). El marco valida el resultado _después_ de que `run()` resuelva, componiendo con validación de entrada: entrada validada antes de `run`, salida validada después.
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({
+    summary: z.string(),
+    messageCount: z.number(),
+  }),
+  outputErrorStrategy: "warn", // default
+  run: async ({ threadId }) => {
+    /* ...returns { summary, messageCount } ... */
+  },
+});
+```
+
+`outputErrorStrategy` controla lo que sucede en caso de discrepancia:
+
+| Estrategia   | Comportamiento en caso de discrepancia                                                                          |
+| ------------ | --------------------------------------------------------------------------------------------------------------- |
+| `"warn"`     | **Predeterminado.** `console.warn` los problemas y devuelve el resultado **original** sin cambios. No se rompe. |
+| `"strict"`   | Arroja un error claro para que una acción con errores surja con fuerza.                                         |
+| `"fallback"` | Devuelve el valor `outputFallback` proporcionado en lugar del resultado no válido.                              |
+
+En caso de éxito, se devuelve el valor **validado**, por lo que cualquier coerción o valor predeterminado definido en `outputSchema` tendrá efecto (reflejando la ruta de entrada). Cuando no se proporciona ningún `outputSchema`, el comportamiento no cambia byte por byte: no hay ajuste. Esto se toma prestado de la salida estructurada de Mastra/Flue y se mantiene libre de dependencia en la capa de acción.
+
+### Configuración HTTP {#http}
+
+Por defecto, cada acción se expone como `POST /_agent-native/actions/<name>`. Anular con la opción `http`:
+
+```ts
+export default defineAction({
+  description: "Get details for a lead.",
+  schema: z.object({ leadId: z.string() }),
+  http: { method: "GET" },
+  run: async ({ leadId }) => {
+    return await db.select().from(leads).where(eq(leads.id, leadId));
+  },
+});
+```
+
+Para una acción `GET`, se pasa `leadId` como parámetro de consulta: `/_agent-native/actions/get-lead?leadId=abc`.
+
+```an-api title="Endpoint de accion montado automaticamente" method="GET" path="/_agent-native/actions/get-lead"
+{
+  "method": "GET",
+  "path": "/_agent-native/actions/get-lead",
+  "summary": "Cada accion se monta aqui automaticamente: el nombre del archivo es el nombre de la accion.",
+  "description": "POST por defecto; `http: { method: \"GET\" }` lo convierte en GET. Los hooks de React y `callAction` siempre llaman a esta ruta por nombre, sin importar cualquier override de `http.path`.",
+  "auth": "Cookie de sesion; las llamadas del frontend llevan `X-Agent-Native-Frontend: 1`",
+  "params": [
+    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "Los argumentos GET llegan como query params; los argumentos POST llegan en el cuerpo JSON." }
+  ],
+  "responses": [
+    { "status": "200", "description": "El valor de retorno de la accion como JSON." },
+    { "status": "400", "description": "La entrada fallo la validacion del schema antes de que run() se ejecutara." }
+  ]
+}
+```
+
+- **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**: valor predeterminado `POST`. `GET` actions se marcan automáticamente como `readOnly`, por lo que las llamadas exitosas no activan una actualización de encuesta de UI.
+- **`http: { path: "..." }`**: anula el URL montado en `/_agent-native/actions/`. El valor predeterminado es el nombre del archivo. **Las anulaciones de ruta cambian el URL solo para llamantes directos de HTTP**: `useActionQuery`, `useActionMutation` y `callAction` siempre llaman a `/_agent-native/actions/<name>` independientemente de esta anulación, por lo que anular la ruta hace que esos enlaces sean 404. Use anulaciones de ruta solo para llamantes externos de HTTP. Tenga en cuenta también que los segmentos de ruta `:param` en la ruta de anulación **no** se analizan en argumentos `run()`; solo se analizan los parámetros de cadena de consulta y los campos del cuerpo de JSON.
+- **`http: false`**: deshabilita completamente el punto final HTTP. Agente + CLI únicamente.
+- **`readOnly: true`**: omite explícitamente la actualización de la encuesta incluso para POST actions que no mutan.
+- **`parallelSafe: true`**: permite que una acción de mutación se ejecute simultáneamente con otras llamadas a herramientas del mismo turno. Establezca esto solo cuando la acción sea internamente segura para la concurrencia y sea independiente del orden; mutar actions serializar de forma predeterminada.
+
+### Mantén la superficie de acción pequeña {#small-surface}
+
+Cada acción que el agente puede ver es una herramienta en la ventana contextual del modelo, y una lista de herramientas larga y superpuesta degrada la calidad de selección de herramientas del modelo. Diseñe la superficie de acción como un API que usted mantiene, no una acción por cada prestación de UI:
+
+- Prefiera **un `update`** de estilo CRUD\*\* que acepte un parche de campos opcionales en lugar de N actions por campo (`update-name`, `update-order`, `update-color`,…). La persona que llama envía solo lo que cambió.
+- Antes de agregar una nueva acción de lectura por consulta/filtro, busque una trampilla de escape genérica: [provider API trio](/docs/template-dispatch) (`provider-api-catalog` / `provider-api-docs` / `provider-api-request`) para datos de proveedores, o la herramienta de desarrollo `db-query` para datos de aplicaciones.
+- Marque UI solo o programático actions [`agentTool: false`](#agent-tool) para que sigan siendo invocables desde el frontend/HTTP sin gastar un espacio en la lista de herramientas del modelo.
+- Elimine u oculte los actions que los UI ya no usan en lugar de dejarlos expuestos al modelo.
+
+Un asistente de asesoramiento a nivel de repositorio, `node scripts/audit-template-actions.mjs [template ...]` (alias `pnpm actions:audit`), escanea estáticamente el `actions/` de una plantilla y marca UI probablemente muerto, actions y clústeres por campo redundantes. Es solo de asesoramiento (siempre sale 0, nunca falla en CI) y utiliza heurísticas conservadoras, así que revise sus sugerencias en lugar de tratarlas como errores.
+
+### Indicadores de exposición {#exposure-flags}
+
+Cuatro banderas controlan quién puede invocar una acción. Todos tienen por defecto el valor permisivo, por lo que solo configura uno para apretar una superficie específica. Esta tabla es el resumen visible; las subsecciones añaden el detalle que cada una necesita.
+
+| Bandera         | Predeterminado    | Valor restrictivo → quién aún puede llamar                                           | Uso típico                                                                                              |
+| --------------- | ----------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `agentTool`     | `true`            | Solo `false` → UI, HTTP, CLI — **oculto del modelo**, MCP y A2A                      | UI programático/solo UI que no debería gastar una ranura de herramienta                                 |
+| `toolCallable`  | `true`            | `false` → todo **excepto** el puente iframe de extensión de espacio aislado (403)    | Operaciones adyacentes a la autenticación (eliminar cuenta, cambiar membresía/roles de la organización) |
+| `publicAgent`   | apagado (privado) | `{ expose: true }` → agrega la acción a las superficies **públicas** MCP/A2A/OpenAPI | Herramientas de lectura/ingesta seguras accesibles sin autenticación                                    |
+| `needsApproval` | `false`           | `true` → el agente **hace una pausa**; un humano debe aprobar la llamada específica  | Efectos secundarios consecuentes (enviar correo electrónico, cargar una tarjeta, eliminar)              |
+
+Estos son independientes: `agentTool` controla la vista del modelo, `toolCallable` controla solo el iframe de extensión, `publicAgent` agrega una superficie pública de participación voluntaria (las rutas web públicas nunca implican exposición de herramientas públicas) y `needsApproval` controla la ejecución después de realizar la llamada; consulte [Human-in-the-loop approval](#needs-approval) a continuación.
+
+#### `agentTool` — esconderse del modelo {#agent-tool}
+
+De forma predeterminada, cada acción es una herramienta de agente invocable. Configure `agentTool: false` para mantenerlo detrás de la superficie de autenticación y acción del marco mientras lo elimina de cada lista de herramientas de agente; sigue siendo invocable desde UI (`useActionMutation` / `callAction`), CLI y `/_agent-native/actions/<name>`:
+
+```ts
+export default defineAction({
+  description: "Persist the user's sidebar width.",
+  agentTool: false, // UI-only — not a tool in the model's context window
+  schema: z.object({ widthPx: z.number() }),
+  http: { method: "PUT" },
+  run: async ({ widthPx }) => {
+    /* ... */
+  },
+});
+```
+
+Utilícelo cuando agregue una acción puramente programática o exclusiva para UI, o cuando UI deje de usar una acción que de otro modo dejaría expuesta al modelo.
+
+#### `toolCallable`: bloquea la extensión iframe {#tool-callable}
+
+Las extensiones ([Alpine.js mini-apps in sandboxed iframes](/docs/extensions)) llaman a actions a través de `appAction(name, params)`, ejecutándose con los permisos, secretos y alcance de SQL del _visor_. Para operaciones de alto radio de explosión, eso es demasiada confianza por defecto. Configure `toolCallable: false` para que el puente de extensión devuelva 403 mientras mantiene la acción invocable desde UI, agente, CLI, MCP y A2A:
+
+```ts
+export default defineAction({
+  description: "Delete the current user's account.",
+  toolCallable: false, // never callable from an extension iframe
+  schema: z.object({ confirm: z.literal("yes") }),
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+Úselo para actions que elimina o transfiere cuentas/organizaciones, cambia el estado de autenticación, modifica la membresía de la organización o otorga acceso compartido. Los `share-resource`, `unshare-resource` y `set-resource-visibility` integrados en el marco ya están excluidos. La aplicación se realiza mediante un encabezado de conjunto de host no falsificado en llamadas de iframe; Las llamadas regulares a UI/agent/CLI/MCP/A2A no se ven afectadas; consulte [Security](/docs/security) para obtener más detalles.
+
+### Ejecutar contexto (segundo argumento) {#run-context}
+
+`run` recibe un segundo argumento opcional, `ctx`, que contiene la identidad de la solicitud resuelta y la superficie que invocó la acción. Léelo en lugar de llamar a `getRequestUserEmail()` / `getRequestOrgId()` manualmente y pasa el `ctx` completo al seguimiento:
+
+```ts
+export default defineAction({
+  description: "Log an audit entry for the current request.",
+  schema: z.object({ event: z.string() }),
+  run: async (args, ctx) => {
+    // ctx is undefined-safe: a 1-arg `run(args)` is still valid.
+    const actor = ctx?.userEmail ?? "system";
+    if (ctx?.caller === "frontend") {
+      // tighter rules for browser-initiated calls, looser for "tool"/"cli"
+    }
+    await db.insert(audit).values({
+      actor,
+      orgId: ctx?.orgId ?? null,
+      source: ctx?.caller ?? "unknown",
+      event: args.event,
+    });
+    return { ok: true };
+  },
+});
+```
+
+Campos `ActionRunContext`:
+
+| Campo         | Tipo                    | Notas                                                                                                                                                                        |
+| ------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `userEmail`   | `string \| undefined`   | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one.              |
+| `orgId`       | `string \| null`        | Resolved org id, or `null` when the request has no org.                                                                                                                      |
+| `caller`      | `ActionCaller`          | Cómo se invocó la acción (ver más abajo).                                                                                                                                    |
+| `send`        | `(event) => void`       | Opcional. Emitir un evento SSE al cliente. Sólo presente dentro del bucle de herramientas del agente (`caller: "tool"`); `undefined` en otro lugar.                          |
+| `attachments` | `AgentChatAttachment[]` | Archivos, imágenes y bloques de texto pegados enviados con el turno actual del agente. Se completa solo cuando `caller: "tool"`; `undefined` en todas las demás superficies. |
+
+`caller` es la unión `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a"`:
+
+| `caller`     | Establecer cuándo…                                                                                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `"tool"`     | El bucle de agente en la aplicación, un subagente/equipo de agentes o una solicitud A2A (A2A impulsa el mismo bucle de agente, por lo que sus llamadas a herramientas son `"tool"`). |
+| `"frontend"` | Una llamada del navegador a través de `useActionMutation` / `useActionQuery` / `callAction` (etiquetada con el encabezado `X-Agent-Native-Frontend: 1`).                             |
+| `"http"`     | Un `POST` / `GET` a `/_agent-native/actions/<name>` programático simple sin el marcador de interfaz.                                                                                 |
+| `"cli"`      | `pnpm action <name>` (el corredor CLI).                                                                                                                                              |
+| `"mcp"`      | Un agente externo sobre el punto final MCP `tools/call`.                                                                                                                             |
+| `"a2a"`      | Reservado para un futuro envío de acción directa A2A. Actualmente, A2A pasa por el bucle del agente, por lo que esas llamadas son `"tool"`.                                          |
+
+`run` sigue siendo compatible con versiones anteriores: los controladores de 1 argumento existentes y los controladores que solo desestructuran `{ send }` continúan funcionando sin cambios.
+
+### Control de acceso en actions {#access-control}
+
+Las tablas propiedad del usuario deben abarcar lecturas a través de `accessFilter` y escrituras a través de `assertAccess`, los mismos ayudantes que utiliza el sistema de uso compartido del marco. A continuación se muestra un ejemplo completo y listo para pegar:
+
+```ts
+// actions/create-lead.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+import { getDb } from "../server/db/index.js";
+import * as schema from "../server/db/schema.js";
+
+export default defineAction({
+  description: "Create a lead in the CRM.",
+  schema: z.object({ name: z.string(), company: z.string() }),
+  run: async ({ name, company }, ctx) => {
+    const db = getDb();
+    await db.insert(schema.leads).values({
+      id: crypto.randomUUID(),
+      name,
+      company,
+      ownerEmail: ctx?.userEmail ?? "system",
+    });
+    return { ok: true };
+  },
+});
+```
+
+Para enumerar y leer actions, utilice `accessFilter` para limitar la consulta al usuario y la organización actuales. Para actions que actualiza o elimina una fila específica, use `assertAccess` para confirmar que la persona que llama tiene permiso antes de escribir. Consulte [Security](/docs/security#access-guards) y [Sharing](/docs/sharing) para obtener la ayuda completa API.
+
+### Aprobación humana en el circuito {#needs-approval}
+
+Un puñado de actions son demasiado importantes para permitir que el agente se ejecute de forma autónoma: enviar un correo electrónico, cargar una tarjeta, eliminar una cuenta. Para estos, configure `needsApproval` para pausar el bucle y requiera que un humano apruebe la llamada específica antes de que se ejecute `run()`:
+
+```ts
+export default defineAction({
+  description: "Send an email via Gmail.",
+  schema: z.object({ to: z.string(), subject: z.string(), body: z.string() }),
+  needsApproval: true, // pause; a human must approve this specific send
+  run: async (args) => {
+    /* ...actually send... */
+  },
+});
+```
+
+`needsApproval` también acepta un predicado `(args, ctx) => boolean | Promise<boolean>` para puerta condicional (por ejemplo, sólo destinatarios externos, sólo por encima de un umbral); **falla al cerrarse**, por lo que un lanzamiento cuenta como "se requiere aprobación". Cuando la puerta es verdadera y no está aprobada, el bucle detiene el giro y el efecto secundario nunca se activa hasta que un humano lo apruebe en el chat UI.
+
+> [!WARNING]
+> Mantenga las aprobaciones raras. Cada acción cerrada es una parada brusca en el ciclo del agente. El valor predeterminado es **desactivado** y casi todas las acciones deberían dejarlo desactivado. Consulte [Human-in-the-Loop Approvals](/docs/human-approval) para conocer el predicado API, el evento `approval_required` y el flujo completo.
+
+### Registro de auditoría {#audit}
+
+Cada acción mutante se **audita automáticamente**: el marco registra quién la ejecutó, cuándo, desde qué superficie y (cuando fue el agente) qué subproceso/giro, con entradas censuradas por credenciales. Se omiten los actions de solo lectura (`GET`). No escribes ningún código para esto; sucede en la costura `defineAction`.
+
+Agregue un bloque `audit` solo para _afinar_ la captura; lo más útil es declarar el recurso cuya acción cambió para que el cambio aparezca en el registro del propietario de ese recurso:
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({ type: "recording", id: args.id }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+Otras perillas: `audit: { onRead: true }` audita una lectura confidencial (acceso secreto, exportación masiva); `audit: { enabled: false }` opta por una escritura ruidosa; `audit: { recordInputs: false }` omite la captura de argumentos. Lea el rastro con el `list-audit-events` / `get-audit-event` actions incorporado. Detalles completos en [Audit Log](/docs/audit-log).
+
+## Llamándolo desde UI {#ui}
+
+Dos ganchos, ambos en `@agent-native/core/client`. Los tipos se infieren a partir de sus esquemas `defineAction`, sin declaraciones de tipos manuales.
+
+### `useActionMutation` {#use-action-mutation}
+
+Para actions que cambia de estado:
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client";
+
+const { mutate, isPending } = useActionMutation("reply-to-email");
+
+<Button
+  disabled={isPending}
+  onClick={() => mutate({ emailId, body: "Thanks!" })}
+>
+  Send Reply
+</Button>;
+```
+
+En caso de éxito, el marco emite un evento de cambio con `source: "action"` para que los consumidores de `useActionQuery` y los observadores de consultas activos vuelvan a buscarlo automáticamente. Ver [Live Sync](/docs/key-concepts#polling-sync).
+
+### `useActionQuery` {#use-action-query}
+
+Para GET actions de solo lectura:
+
+```ts
+import { useActionQuery } from "@agent-native/core/client";
+
+const { data, isLoading } = useActionQuery("get-lead", { leadId });
+```
+
+La consulta se almacena en caché en `["action", "get-lead", { leadId }]` y se invalida automáticamente en cualquier acción de mutación que se complete.
+
+## Representando chat nativo UI {#native-chat-ui}
+
+Actions puede devolver datos de widget estructurados que representa el chat en la aplicación
+de forma nativa. Esta es la ruta de chat propia para tablas, gráficos y configuraciones reutilizables
+resúmenes y tarjetas de información; utilice [MCP Apps](/docs/mcp-apps) para UI en línea en
+hosts externos MCP.
+
+```ts
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataInsightsWidgetResult,
+  dataInsightsWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+
+export default defineAction({
+  description: "Summarize response trends.",
+  readOnly: true,
+  outputSchema: dataInsightsWidgetResultSchema,
+  chatUI: { renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER },
+  run: async () =>
+    createDataInsightsWidgetResult({
+      title: "Response trends",
+      chartSeries: {
+        type: "line",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [
+          { day: "Mon", responses: 12 },
+          { day: "Tue", responses: 18 },
+        ],
+      },
+      table: {
+        columns: [
+          { key: "day", label: "Day" },
+          { key: "responses", label: "Responses", align: "right" },
+        ],
+        rows: [
+          { day: "Mon", responses: 12 },
+          { day: "Tue", responses: 18 },
+        ],
+      },
+    }),
+});
+```
+
+Los discriminantes integrados son `"data-table"`, `"data-chart"` y
+`"data-insights"`, con esquemas y constructores seguros para el servidor en
+`@agent-native/core/data-widgets`. Ver [Native Interfaz de chat](/docs/native-chat-ui)
+para obtener el contrato de resultados completo y la guía de tiempo de ejecución BYO, o
+[Agent Surfaces](/docs/agent-surfaces) sobre cómo puede permanecer la misma acción
+Sin cabeza, renderizado en el chat o ampliado a pantalla completa.
+
+## Llamándolo desde el CLI {#cli}
+
+Cada acción se puede ejecutar a través de `pnpm action`:
+
+```bash
+pnpm action reply-to-email '{"emailId":"thread-123","body":"Thanks!"}'
+```
+
+La entrada JSON es la forma preferida para agentes y objetos complejos. Las banderas son
+todavía analizado en la misma forma de esquema para ejecuciones manuales simples y existentes
+guiones. Útil para bucles agente-desarrollo, scripts y cron.
+
+## Llamándolo desde otro agente (A2A) {#a2a}
+
+Si su aplicación es del mismo nivel [A2A](/docs/a2a-protocol), otras aplicaciones nativas del agente descubren su actions automáticamente y pueden llamarlo por su nombre. Las implementaciones del mismo origen omiten la firma JWT; El origen cruzado utiliza un `A2A_SECRET` compartido.
+
+## Exponiéndolo sobre MCP {#mcp}
+
+Con MCP habilitado, su actions aparece en el servidor MCP del marco en `/_agent-native/mcp`. Cada persona que llama recibe un catálogo compacto de forma predeterminada (integraciones orientadas a la aplicación más la aplicación declarada con plantilla actions) y `tool-search` siempre está presente para que cualquier otra herramienta permanezca accesible bajo demanda. La superficie de acción completa se ofrece solo mediante suscripción explícita (token `--full-catalog` o `AGENT_NATIVE_MCP_FULL_CATALOG=1`), y `publicAgent.expose` opta por una herramienta de lectura/ingesta segura en la superficie pública. Consulte [MCP Protocol](/docs/mcp-protocol) para conocer los niveles del catálogo, la autenticación y los detalles del recurso `mcpApp`.
+
+Para los hosts MCP compatibles con UI, una acción puede declarar un recurso de aplicaciones MCP opcional a través del campo `mcpApp` (más un `link` coincidente) para que los hosts compatibles representen el resultado en línea. Cuando `link` y `mcpApp` deben apuntar a la misma ruta, `embedRoute()` construye ambos a partir de un generador de rutas puro:
+
+```ts
+import { embedRoute } from "@agent-native/core";
+
+export default defineAction({
+  description: "Create an email draft for review.",
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => ({ body }),
+  ...embedRoute({
+    title: "Review draft",
+    openLabel: "Open in Mail",
+    path: ({ result }) => ({
+      label: "Open draft in Mail",
+      url: "/_agent-native/open?app=mail&view=inbox",
+    }),
+  }),
+});
+```
+
+Mantener `link` como respaldo para clientes CLI y MCP que no sean UI; también es el objetivo de lanzamiento del inserto. El puente de inserción (la sesión de inicio de inserción firmada, el trasplante frente a la renderización de marco controlado, el puente de host `ui/*`, CSP y la fijación de altura) es propiedad de [External Agents](/docs/external-agents#mcp-app-bridge).
+
+## Estándar actions {#standard-actions}
+
+Cada plantilla debe incluir estos dos para [context awareness](/docs/context-awareness):
+
+### pantalla de visualización {#view-screen}
+
+Lee el estado de navegación actual, obtiene datos contextuales y devuelve una instantánea de lo que ve el usuario. El agente llama a esto cuando necesita volver a mirar la pantalla.
+
+```ts
+// actions/view-screen.ts
+import { defineAction } from "@agent-native/core/action";
+import { readAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Read the current screen state for context.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const navigation = await readAppState("navigation");
+    const screen: Record<string, unknown> = { navigation };
+
+    if (navigation?.view === "inbox") {
+      screen.emailList = await listEmailsForLabel(navigation.label);
+    }
+
+    return screen;
+  },
+});
+```
+
+### navegar {#navigate}
+
+Escribe un comando de navegación de un solo uso en el estado de la aplicación. El UI lo lee, navega y elimina la entrada.
+
+```ts
+// actions/navigate.ts
+import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Navigate the user to a view.",
+  schema: z.object({
+    view: z.string(),
+    threadId: z.string().optional(),
+  }),
+  run: async (args) => {
+    await writeAppState("navigate", args);
+    return { ok: true };
+  },
+});
+```
+
+## actions estilo CLI heredado {#legacy-cli-actions}
+
+El marco aún admite `export default async function(args)` actions más antiguos que no están incluidos en `defineAction`, lo que resulta útil para scripts de desarrollo únicos que no necesitan exposición al agente/HTTP. Estos son solo para CLI; no aparecen como herramientas de agente, no montan puntos finales HTTP y no obtienen enlaces de interfaz con seguridad tipográfica.
+
+```ts
+// actions/debug-dump.ts — CLI-only
+import { parseArgs } from "@agent-native/core";
+
+export default async function main(args: string[]) {
+  const { table } = parseArgs(args);
+  // one-off script you wouldn't want the agent to call
+}
+```
+
+El nuevo código debería preferir `defineAction()`. Utilice este patrón solo cuando deliberadamente no quiera que la acción quede expuesta a los agentes o al UI.
+
+### `parseArgs(args)` {#parseargs}
+
+Ayudante para actions de estilo heredado. Analiza los argumentos CLI en formato `--key value` o `--key=value`:
+
+```ts
+import { parseArgs } from "@agent-native/core";
+
+const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
+// { name: "Steve", verbose: "true", count: "3" }
+```
+
+## Funciones de utilidad {#utility-functions}
+
+| Función                 | Devoluciones | Descripción                                                      |
+| ----------------------- | ------------ | ---------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`       | Cargue `.env` desde la raíz del proyecto (o ruta personalizada). |
+| `camelCaseArgs(args)`   | `Record`     | Convierta las claves de kebab-case a camelCase.                  |
+| `isValidPath(p)`        | `boolean`    | Validar una ruta relativa (sin recorrido, no absoluta).          |
+| `isValidProjectPath(p)` | `boolean`    | Validar un slug de proyecto (por ejemplo, `my-project`).         |
+| `ensureDir(dir)`        | `void`       | Ayudante `mkdir -p`.                                             |
+| `fail(message)`         | `never`      | Imprimir en stderr y `exit(1)`.                                  |
+
+## ¿Qué sigue?
+
+- [**Audit Log**](/docs/audit-log): el rastro automático de quién cambió qué en cada acción
+- [**Human-in-the-Loop Approvals**](/docs/human-approval) — la puerta `needsApproval` en profundidad
+- [**Drop-in Agent**](/docs/drop-in-agent) — `useActionMutation` / `useActionQuery` en React
+- [**Context Awareness**](/docs/context-awareness): el patrón `view-screen` + `navigate` en profundidad
+- [**A2A Protocol**](/docs/a2a-protocol): cómo otros agentes descubren y llaman a su actions
+- [**MCP Protocol**](/docs/mcp-protocol) — exponiendo actions sobre MCP

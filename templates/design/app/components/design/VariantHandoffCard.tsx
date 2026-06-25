@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useT } from "@agent-native/core/client";
 import { IconCheck, IconCopy } from "@tabler/icons-react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { StandalonePick } from "@/hooks/use-variant-flow";
@@ -20,6 +22,7 @@ export function VariantHandoffCard({
   pick,
   onDismiss,
 }: VariantHandoffCardProps) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
 
   const writeClipboard = useCallback(async () => {
@@ -48,7 +51,9 @@ export function VariantHandoffCard({
     const ok = await writeClipboard();
     setCopied(ok);
     toast[ok ? "success" : "info"](
-      ok ? "Summary copied" : "Select the summary to copy it",
+      ok
+        ? t("designEditor.summaryCopied")
+        : t("designEditor.selectSummaryToCopy"),
     );
   };
 
@@ -72,7 +77,7 @@ export function VariantHandoffCard({
         </div>
 
         <p className="mt-3 text-sm text-muted-foreground">
-          Paste this summary into your coding agent to continue.
+          {t("designEditor.variantHandoffHelp")}
         </p>
 
         <Textarea
@@ -89,7 +94,7 @@ export function VariantHandoffCard({
             className="cursor-pointer"
             onClick={onDismiss}
           >
-            Dismiss
+            {t("designEditor.dismiss")}
           </Button>
           <Button
             size="sm"
@@ -101,7 +106,7 @@ export function VariantHandoffCard({
             ) : (
               <IconCopy className="h-3.5 w-3.5" />
             )}
-            {copied ? "Copied" : "Copy summary"}
+            {copied ? t("designEditor.copied") : t("designEditor.copySummary")}
           </Button>
         </div>
       </div>

@@ -1,3 +1,21 @@
+import { useDbSync } from "@agent-native/core/client";
+import {
+  AppProviders,
+  DEFAULT_LOCALE,
+  LOCALE_HYDRATION_GLOBAL,
+  LOCALE_STORAGE_KEY,
+  RequireSession,
+  appPath,
+  appApiPath,
+  createAgentNativeQueryClient,
+  getLocaleInitScript,
+  getThemeInitScript,
+  normalizeLocaleCode,
+  type LocaleCode,
+} from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import {
   isRouteErrorResponse,
   Links,
@@ -7,26 +25,18 @@ import {
   ScrollRestoration,
   useRouteError,
 } from "react-router";
-import { useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { Toaster } from "@/components/ui/sonner";
-import { AppLayout } from "@/components/layout/AppLayout";
-import { useDbSync } from "@agent-native/core/client";
-import {
-  AppProviders,
-  RequireSession,
-  appPath,
-  appApiPath,
-  createAgentNativeQueryClient,
-  getThemeInitScript,
-} from "@agent-native/core/client";
-import { TAB_ID } from "@/lib/tab-id";
-import { isMcpEmbedSurface } from "@/lib/mcp-embed";
-import { markExternalEmailRefresh } from "@/hooks/use-emails";
-import { Button } from "@/components/ui/button";
 import type { LinksFunction } from "react-router";
+
+import { AppLayout } from "@/components/layout/AppLayout";
+import { Button } from "@/components/ui/button";
+import { Toaster } from "@/components/ui/sonner";
+import { markExternalEmailRefresh } from "@/hooks/use-emails";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { TAB_ID } from "@/lib/tab-id";
+
+import { i18nCatalog } from "./i18n";
+
 import stylesheet from "./global.css?url";
-import { configureTracking } from "@agent-native/core/client";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -39,6 +49,7 @@ export const links: LinksFunction = () => [
 ];
 
 const THEME_INIT_SCRIPT_SELECTOR = "script[data-agent-native-theme-init]";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
 
 function getHydrationStableThemeInitScript() {
   if (typeof document !== "undefined") {
@@ -50,7 +61,95 @@ function getHydrationStableThemeInitScript() {
   return getThemeInitScript();
 }
 
+function getHydrationStableLocaleInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      LOCALE_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getLocaleInitScript();
+}
+
 const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+const LOCALE_INIT_SCRIPT = getHydrationStableLocaleInitScript();
+
+const MAIL_ERROR_COPY: Record<
+  LocaleCode,
+  { title: string; fallback: string; back: string; reload: string }
+> = {
+  "en-US": {
+    title: "Mail could not load this view.",
+    fallback: "Something went wrong while loading Mail.",
+    back: "Back",
+    reload: "Reload",
+  },
+  "zh-CN": {
+    title: "Mail 无法加载此视图。",
+    fallback: "加载 Mail 时出现问题。",
+    back: "返回",
+    reload: "重新加载",
+  },
+  "es-ES": {
+    title: "Mail no pudo cargar esta vista.",
+    fallback: "Algo salió mal al cargar Mail.",
+    back: "Atrás",
+    reload: "Recargar",
+  },
+  "fr-FR": {
+    title: "Mail n'a pas pu charger cette vue.",
+    fallback: "Un problème est survenu lors du chargement de Mail.",
+    back: "Retour",
+    reload: "Recharger",
+  },
+  "de-DE": {
+    title: "Mail konnte diese Ansicht nicht laden.",
+    fallback: "Beim Laden von Mail ist ein Fehler aufgetreten.",
+    back: "Zurück",
+    reload: "Neu laden",
+  },
+  "ja-JP": {
+    title: "Mail はこのビューを読み込めませんでした。",
+    fallback: "Mail の読み込み中に問題が発生しました。",
+    back: "戻る",
+    reload: "再読み込み",
+  },
+  "ko-KR": {
+    title: "Mail에서 이 보기를 불러올 수 없습니다.",
+    fallback: "Mail을 불러오는 중 문제가 발생했습니다.",
+    back: "뒤로",
+    reload: "새로고침",
+  },
+  "pt-BR": {
+    title: "O Mail não conseguiu carregar esta visualização.",
+    fallback: "Algo deu errado ao carregar o Mail.",
+    back: "Voltar",
+    reload: "Recarregar",
+  },
+  "hi-IN": {
+    title: "Mail यह दृश्य लोड नहीं कर सका।",
+    fallback: "Mail लोड करते समय कुछ गलत हुआ।",
+    back: "वापस",
+    reload: "रीलोड",
+  },
+  "ar-SA": {
+    title: "تعذر على Mail تحميل هذا العرض.",
+    fallback: "حدث خطأ أثناء تحميل Mail.",
+    back: "رجوع",
+    reload: "إعادة التحميل",
+  },
+};
+
+function activeErrorLocale(): LocaleCode {
+  if (typeof window === "undefined") return DEFAULT_LOCALE;
+  const hydrated = (window as any)[LOCALE_HYDRATION_GLOBAL]?.locale;
+  const stored = window.localStorage?.getItem(LOCALE_STORAGE_KEY);
+  return (
+    normalizeLocaleCode(stored) ??
+    normalizeLocaleCode(hydrated) ??
+    DEFAULT_LOCALE
+  );
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -65,6 +164,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
           data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         <link rel="manifest" href={appPath("/manifest.json")} />
@@ -262,6 +366,7 @@ export default function Root() {
       themeAttribute={["class", "data-theme"]}
       tooltipDelayDuration={300}
       toaster={MAIL_TOASTER}
+      i18n={{ catalog: i18nCatalog }}
     >
       <RequireSession bypass={isMcpEmbedSurface()}>
         <AutoFocus />
@@ -276,7 +381,7 @@ export default function Root() {
   );
 }
 
-function routeErrorMessage(error: unknown): string {
+function routeErrorMessage(error: unknown, fallback: string): string {
   if (isRouteErrorResponse(error)) {
     if (typeof error.data === "string" && error.data.trim()) {
       return error.data;
@@ -293,17 +398,19 @@ function routeErrorMessage(error: unknown): string {
   }
   if (error instanceof Error && error.message.trim()) return error.message;
   if (typeof error === "string" && error.trim()) return error;
-  return "Something went wrong while loading Mail.";
+  return fallback;
 }
 
 export function ErrorBoundary() {
   const error = useRouteError();
-  const message = routeErrorMessage(error);
+  const copy =
+    MAIL_ERROR_COPY[activeErrorLocale()] ?? MAIL_ERROR_COPY[DEFAULT_LOCALE];
+  const message = routeErrorMessage(error, copy.fallback);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
       <div className="w-full max-w-md text-center">
-        <p className="text-sm font-semibold">Mail could not load this view.</p>
+        <p className="text-sm font-semibold">{copy.title}</p>
         <p className="mt-2 text-sm text-muted-foreground">{message}</p>
         <div className="mt-5 flex justify-center gap-2">
           <Button
@@ -311,10 +418,10 @@ export function ErrorBoundary() {
             size="sm"
             onClick={() => window.history.back()}
           >
-            Back
+            {copy.back}
           </Button>
           <Button size="sm" onClick={() => window.location.reload()}>
-            Reload
+            {copy.reload}
           </Button>
         </div>
       </div>

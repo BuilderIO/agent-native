@@ -1,5 +1,7 @@
 import type React from "react";
+
 import type { AnimationTrack } from "@/types";
+
 import {
   Card,
   Button,

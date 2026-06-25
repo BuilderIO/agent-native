@@ -1,10 +1,9 @@
+import { callAction, useSession, useT } from "@agent-native/core/client";
+import { IconCheck, IconMailFast, IconX } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { IconCheck, IconMailFast, IconX } from "@tabler/icons-react";
-import { callAction, useSession } from "@agent-native/core/client";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,9 +14,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import enMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: "Join team · Clips" }];
+  return [{ title: enMessages.inviteRoute.pageTitle }];
 }
 
 interface InvitePayload {
@@ -33,6 +35,7 @@ interface InvitePayload {
 }
 
 export default function InviteAcceptRoute() {
+  const t = useT();
   const { token } = useParams<{ token: string }>();
   const { session } = useSession();
   const navigate = useNavigate();
@@ -47,7 +50,7 @@ export default function InviteAcceptRoute() {
     let cancelled = false;
     async function load() {
       if (!token) {
-        setError("Missing invite token.");
+        setError(t("inviteRoute.missingToken"));
         setLoading(false);
         return;
       }
@@ -58,14 +61,14 @@ export default function InviteAcceptRoute() {
         }>("get-invite" as any, { token } as any, { method: "GET" });
         if (cancelled) return;
         if (!json.invite) {
-          setError(json.error ?? "Invite not found or expired.");
+          setError(json.error ?? t("inviteRoute.notFound"));
         } else {
           setInvite(json.invite as InvitePayload);
         }
       } catch (err) {
         if (!cancelled) {
           setError(
-            err instanceof Error ? err.message : "Failed to load invite",
+            err instanceof Error ? err.message : t("inviteRoute.loadFailed"),
           );
         }
       } finally {
@@ -83,11 +86,15 @@ export default function InviteAcceptRoute() {
     setAccepting(true);
     try {
       await callAction("accept-invite" as any, { token } as any);
-      toast.success(`Joined ${invite?.organizationName ?? "the team"}`);
+      toast.success(
+        t("inviteRoute.joined", {
+          team: invite?.organizationName ?? t("inviteRoute.theTeam"),
+        }),
+      );
       navigate("/library", { replace: true });
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to accept invite",
+        err instanceof Error ? err.message : t("inviteRoute.acceptFailed"),
       );
     } finally {
       setAccepting(false);
@@ -98,10 +105,12 @@ export default function InviteAcceptRoute() {
     if (!token) return;
     try {
       await callAction("decline-invite" as any, { token } as any);
-      toast.success("Invite declined");
+      toast.success(t("inviteRoute.declined"));
       navigate("/", { replace: true });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to decline");
+      toast.error(
+        err instanceof Error ? err.message : t("inviteRoute.declineFailed"),
+      );
     } finally {
       setDeclineOpen(false);
     }
@@ -112,11 +121,11 @@ export default function InviteAcceptRoute() {
       <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-primary/5 to-background">
         <Card className="max-w-md w-full">
           <CardHeader>
-            <CardTitle>Sign in required</CardTitle>
+            <CardTitle>{t("inviteRoute.signInRequired")}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              You need to sign in before you can accept an invite.
+              {t("inviteRoute.signInDescription")}
             </p>
             <Button
               onClick={() =>
@@ -126,7 +135,7 @@ export default function InviteAcceptRoute() {
               }
               className="bg-primary hover:bg-primary/90"
             >
-              Sign in
+              {t("inviteRoute.signIn")}
             </Button>
           </CardContent>
         </Card>
@@ -140,13 +149,13 @@ export default function InviteAcceptRoute() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <IconMailFast className="size-5 text-primary" />
-            You've been invited
+            {t("inviteRoute.invited")}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="py-6 text-center text-sm text-muted-foreground">
-              Loading…
+              {t("inviteRoute.loading")}
             </div>
           ) : error ? (
             <div className="py-4 text-sm text-red-600">{error}</div>
@@ -165,7 +174,7 @@ export default function InviteAcceptRoute() {
                 <div>
                   <div className="font-medium">{invite.organizationName}</div>
                   <div className="text-xs opacity-90">
-                    Role:{" "}
+                    {t("inviteRoute.role")}{" "}
                     <span className="capitalize">
                       {invite.role.replace("-", " ")}
                     </span>
@@ -173,19 +182,17 @@ export default function InviteAcceptRoute() {
                 </div>
               </div>
               <p className="text-sm text-muted-foreground">
-                <strong className="text-foreground">{invite.invitedBy}</strong>{" "}
-                invited you to join{" "}
-                <strong className="text-foreground">
-                  {invite.organizationName}
-                </strong>{" "}
-                on Clips.
+                {t("inviteRoute.invitedToJoin", {
+                  inviter: invite.invitedBy,
+                  team: invite.organizationName,
+                })}
               </p>
               {invite.email !== session.email ? (
                 <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900">
-                  Heads up: this invite was sent to{" "}
-                  <strong>{invite.email}</strong>. You're signed in as{" "}
-                  <strong>{session.email}</strong>. Accepting will still work
-                  but your account email will be the one joining.
+                  {t("inviteRoute.emailMismatch", {
+                    inviteEmail: invite.email,
+                    sessionEmail: session.email,
+                  })}
                 </div>
               ) : null}
               <div className="flex justify-end gap-2">
@@ -194,16 +201,18 @@ export default function InviteAcceptRoute() {
                   onClick={() => setDeclineOpen(true)}
                   disabled={accepting}
                 >
-                  <IconX className="size-4 mr-1.5" />
-                  Decline
+                  <IconX className="size-4 me-1.5" />
+                  {t("inviteRoute.decline")}
                 </Button>
                 <Button
                   onClick={handleAccept}
                   disabled={accepting}
                   className="bg-primary hover:bg-primary/90"
                 >
-                  <IconCheck className="size-4 mr-1.5" />
-                  {accepting ? "Joining…" : "Accept invite"}
+                  <IconCheck className="size-4 me-1.5" />
+                  {accepting
+                    ? t("inviteRoute.joining")
+                    : t("inviteRoute.acceptInvite")}
                 </Button>
               </div>
             </div>
@@ -214,16 +223,17 @@ export default function InviteAcceptRoute() {
       <AlertDialog open={declineOpen} onOpenChange={setDeclineOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Decline this invite?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("inviteRoute.declineInvite")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              The invite will be removed. The admin can always send you a new
-              one.
+              {t("inviteRoute.declineDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("inviteRoute.cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDecline}>
-              Decline
+              {t("inviteRoute.decline")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

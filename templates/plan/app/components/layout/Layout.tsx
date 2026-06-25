@@ -1,20 +1,23 @@
-import { useState, useEffect } from "react";
-import { useLocation } from "react-router";
-import { IconMenu2 } from "@tabler/icons-react";
-import { Sidebar } from "./Sidebar";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import {
   AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
+  useT,
 } from "@agent-native/core/client";
+import { IconMenu2 } from "@tabler/icons-react";
+import { useState, useEffect } from "react";
+import { useLocation } from "react-router";
+
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
+
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { Sidebar } from "./Sidebar";
 
 const PLAN_READER_VIEW_EVENT = "plans-reader-view-change";
 
@@ -43,6 +46,7 @@ function isPlanDetailRoute(pathname: string): boolean {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -136,7 +140,7 @@ export function Layout({ children }: LayoutProps) {
             <button
               type="button"
               onClick={() => setMobileSidebarOpen(true)}
-              aria-label="Open navigation"
+              aria-label={t("sidebar.openNavigation")}
               className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
             >
               <IconMenu2 className="h-4 w-4" />
@@ -163,9 +167,11 @@ export function Layout({ children }: LayoutProps) {
         )}
         <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
           <SheetContent side="left" className="p-0 w-[260px]">
-            <SheetTitle className="sr-only">Navigation</SheetTitle>
+            <SheetTitle className="sr-only">
+              {t("sidebar.navigation")}
+            </SheetTitle>
             <SheetDescription className="sr-only">
-              App navigation links
+              {t("sidebar.navigationDescription")}
             </SheetDescription>
             <Sidebar collapsed={false} collapsible={false} />
           </SheetContent>
@@ -179,11 +185,11 @@ export function Layout({ children }: LayoutProps) {
             chatViewTransition
             storageKey="plans"
             openOnChatRunning={chatHomeHandoffActive}
-            emptyStateText="Ask the Plan agent to search merged PR recaps, inspect this document, add diagrams, or answer code questions as visual plans."
+            emptyStateText={t("agent.emptyState")}
             suggestions={[
-              "What shipped in the last week?",
-              "What does this UI look like?",
-              "What is the shape of this API?",
+              t("agent.suggestionShipped"),
+              t("agent.suggestionUi"),
+              t("agent.suggestionApi"),
             ]}
           >
             {pageContent}

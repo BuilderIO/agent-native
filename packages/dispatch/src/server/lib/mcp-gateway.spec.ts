@@ -70,6 +70,8 @@ vi.mock("@agent-native/core/mcp-client", () => ({
   },
 }));
 
+import { runWithRequestContext } from "@agent-native/core/server";
+
 import {
   createGrantedDispatchMcpEmbedSession,
   listGrantedDispatchMcpApps,
@@ -77,7 +79,6 @@ import {
   openGrantedDispatchMcpApp,
   resolveGrantedDispatchMcpApp,
 } from "./mcp-gateway.js";
-import { runWithRequestContext } from "@agent-native/core/server";
 
 const analyticsAgent = {
   id: "analytics",

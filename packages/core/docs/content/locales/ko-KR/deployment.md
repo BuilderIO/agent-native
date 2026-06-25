@@ -1,0 +1,348 @@
+---
+title: "배포"
+description: "Nitro 사전 설정(Node.js, Vercel, Netlify, Cloudflare, AWS 등)을 사용하여 모든 플랫폼에 에이전트 네이티브 앱을 배포하세요."
+---
+
+# 배포
+
+에이전트 네이티브 앱은 내부적으로 [Nitro](https://nitro.build)를 사용합니다. 즉, 구성 변경 없이 모든 플랫폼에 배포할 수 있습니다. 사전 설정만 하면 됩니다.
+
+## 배포 전: 영구 데이터베이스 선택 {#persistent-database}
+
+배포된 모든 앱에는 영구 SQL 데이터베이스가 필요합니다. 로컬 개발에서 에이전트 네이티브는 `data/app.db`의 SQLite 파일로 대체됩니다. 이는 컴퓨터에서는 편리하지만 파일 시스템을 재설정할 수 있는 컨테이너, 미리 보기 또는 서버리스 환경에서는 내구성이 없습니다.
+
+앱을 프로덕션으로 승격하기 전에 배포 공급자에서 `DATABASE_URL`를 설정하세요. 에이전트 네이티브는 스키마 및 쿼리에 Drizzle를 사용하므로 데이터 계층은 Drizzle 호환 SQL 백엔드 간에 이식 가능하며 프레임워크는 URL에서 방언을 자동 감지합니다. 어댑터 목록 및 방언 세부정보는 [Database](/docs/database#production)를 참조하세요.
+
+Turso/libSQL와 같이 데이터베이스 공급자가 별도의 토큰을 요구하는 경우에만 `DATABASE_AUTH_TOKEN`를 사용하세요. 작업 영역의 경우 모든 앱은 기본적으로 루트 `DATABASE_URL`를 상속합니다. 하나의 앱이 다른 데이터베이스를 사용해야 하는 경우 `<APP_NAME>_DATABASE_URL`를 설정하세요.
+
+## 작업 공간 배포: 하나의 오리진, 다양한 앱 {#workspace-deploy}
+
+프로젝트가 [workspace](/docs/multi-app-workspace)인 경우 다음 명령 하나로 모든 앱을 단일 오리진으로 출시할 수 있습니다.
+
+```bash
+npx @agent-native/core@latest deploy
+# https://your-agents.com/mail/*       → apps/mail
+# https://your-agents.com/calendar/*   → apps/calendar
+# https://your-agents.com/forms/*      → apps/forms
+```
+
+각 앱은 `APP_BASE_PATH=/<name>` 및 `VITE_APP_BASE_PATH=/<name>`로 빌드된 다음 대상 Nitro 사전 설정용으로 패키징됩니다. Cloudflare Pages는 기본 사전 설정이며 `dist/_worker.js`에서 생성된 디스패처 작업자를 사용합니다. Netlify는 `.netlify/functions-internal/<app>-server`의 앱당 하나의 기능과 생성된 리디렉션을 사용합니다. Vercel은 빌드 출력 API를 사용하여 작업공간 수준 `.vercel/output`를 작성합니다.
+
+```an-diagram title="하나의 오리진, 다양한 앱" summary="각 작업 공간 앱은 자체 기본 경로로 구축되고 단일 원본의 경로 접두사 아래에 마운트됩니다. 따라서 로그인 및 교차 앱 A2A은 원본이 동일하고 무료입니다."
+{
+  "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">설정 없는 크로스 앱 A2A</span></div></div>",
+  "css": ".diagram-ws{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-ws .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-ws .diagram-row{display:flex;align-items:center;gap:8px}.diagram-ws .wins{display:flex;flex-direction:column;gap:8px;align-items:flex-start}"
+}
+```
+
+동일 출처 배포를 통해 두 가지 큰 이점을 무료로 얻을 수 있습니다.
+
+- **공유 로그인 세션** — 모든 앱에 로그인하면 모든 앱이 로그인됩니다.
+- **Zero-config 교차 앱 A2A** — 메일에서 `@calendar`를 태그하는 것은 동일 출처 가져오기입니다. CORS 없음, 형제 간 JWT 서명 없음.
+
+다음을 사용하여 출력 게시:
+
+```bash
+wrangler pages deploy dist
+```
+
+Netlify 통합 배포의 경우 Netlify 사전 설정을 사용합니다.
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+Vercel 통합 배포의 경우 Vercel 사전 설정을 사용하세요.
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+공급자 빌드 명령을 구성할 때 `--build-only`와 동일한 명령을 사용하십시오. Vercel은 `npx @agent-native/core@latest deploy --preset vercel --build-only`를 실행해야 합니다. 이 명령은 `.vercel/output`를 직접 작성하므로 작업공간 라우팅에는 `vercel.json`가 필요하지 않습니다.
+
+호스팅 작업공간 빌드에는 배포 공급자 환경에 `A2A_SECRET`가 필요합니다.
+이렇게 하면 Slack, 인바운드 webhooks 및 교차 앱 A2A 재개가 서명을 통해 작동됩니다.
+백그라운드 프로세서. 로컬 `--build-only` 아티팩트 검사는 그것 없이도 계속 실행됩니다.
+
+앱별 독립 배포는 계속 지원됩니다. 독립 실행형 스캐폴드처럼 `cd apps/<name> && npx @agent-native/core@latest build`만 지원됩니다.
+
+## 작동 방식 {#how-it-works}
+
+`npx @agent-native/core@latest build`를 실행하면 Nitro는 클라이언트 SPA와 서버 API를 모두 `.output/`에 빌드합니다.
+
+```an-file-tree title="빌드 출력"
+{
+  "entries": [
+    { "path": ".output/", "note": "자체 포함: 어떤 환경에든 복사해 실행" },
+    { "path": ".output/public/", "note": "빌드된 SPA(정적 assets)" },
+    { "path": ".output/server/index.mjs", "note": "서버 entry point" },
+    { "path": ".output/server/chunks/", "note": "서버 코드 chunks" }
+  ]
+}
+```
+
+출력은 독립적입니다. `.output/`를 임의의 환경에 복사하고 실행하세요.
+
+```an-diagram title="배포를 위해 구축" summary="하나의 소스 트리는 Nitro 사전 설정으로 구축됩니다. 동일한 자체 포함 출력은 Node, Vercel, Netlify, Cloudflare, AWS 또는 Deno에서 실행됩니다. 모든 인스턴스는 동일한 영구 DATABASE_URL을 가리킵니다."
+{
+  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>앱 소스</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>영구 DATABASE_URL<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
+  "css": ".diagram-deploy{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-deploy .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-deploy .diagram-arrow{font-size:22px;line-height:1}.diagram-deploy .diagram-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}"
+}
+```
+
+## 프리셋 설정 {#setting-the-preset}
+
+기본적으로 Nitro는 Node.js용으로 빌드됩니다. 다른 플랫폼을 대상으로 하려면 `vite.config.ts`에서 사전 설정을 설정하세요:
+
+```ts
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+또는 빌드 시 `NITRO_PRESET` 환경 변수를 사용하세요.
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+```
+
+## Node.js(기본값) {#nodejs}
+
+기본 사전 설정입니다. 빌드 및 실행:
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+`PORT`를 설정하여 청취 포트를 구성합니다(기본값: `3000`).
+
+프로덕션 배포에는 현재 Node.js LTS 라인을 사용합니다. 2026년 5월 현재
+는 Node.js 24입니다. Node.js 20은 2026년 4월 30일에 수명이 종료되었으며 더 이상
+업스트림 보안 업데이트를 받습니다.
+
+### 도커 {#docker}
+
+```dockerfile
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+# data/는 런타임에 생성된 SQLite 디렉터리입니다. dev DB를 prod에 복사하지 마세요.
+# 프로덕션의 경우 DATABASE_URL를 호스팅된 Postgres 또는 Turso 인스턴스로 설정합니다.
+RUN mkdir -p /app/data
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+## 베르셀 {#vercel}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+Vercel CLI 또는 git push를 통해 배포합니다.
+
+```bash
+vercel deploy
+```
+
+작업공간의 경우 모든 앱을 하나의 Vercel 빌드 출력 API 번들로 빌드합니다.
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+Vercel Git 배포의 경우 빌드 명령을 다음과 같이 설정합니다.
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel --build-only
+```
+
+작업공간 빌드는 각 앱의 Nitro `vercel` 출력을 루트 `.vercel/output`에 복사하고 각 기능에 고유한 마운트 경로 환경을 제공하며 `/<app-id>`에서 앱을 제공하는 경로 구성을 작성합니다.
+
+## 넷티파이 {#netlify}
+
+Nitro `netlify` 사전 설정은 잘 작동하며 실제로 외부 Postgres(Neon)와 통신하는 템플릿의 경우 Cloudflare Pages(~200ms TTFB 대 ~9s)보다 훨씬 빠른 콜드 스타트를 제공합니다. `vite.config.ts`에서 사전 설정을 설정하세요:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
+});
+```
+
+...또는 빌드 시 `NITRO_PRESET=netlify`를 설정하세요.
+
+작업 공간의 경우 다음을 실행하여 하나의 Netlify 사이트에서 모든 앱을 배포하세요.
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+작업공간 빌드는 `dist/_workspace_static/` 아래에 정적 자산을 작성하고 강제 자산 리디렉션 없이 각 앱을 자체 Netlify 기능으로 라우팅하므로 서버 기능이 앱 경로를 처리하기 전에 `/mail/assets/...`와 같은 파일이 정적으로 제공됩니다.
+
+## Cloudflare 페이지 {#cloudflare-pages}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
+});
+```
+
+## AWS 람다 {#aws-lambda}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
+});
+```
+
+## 데노 배포 {#deno-deploy}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
+});
+```
+
+## 환경변수 {#environment-variables}
+
+### 빌드/런타임 {#env-runtime}
+
+| 변수                        | 설명                                                                                                                                                             |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                      | 서버 포트(Node.js만 해당)                                                                                                                                        |
+| `NITRO_PRESET`              | 빌드 시 빌드 사전 설정 재정의                                                                                                                                    |
+| `APP_BASE_PATH`             | 접두사(예: `/mail`) 아래에 앱을 마운트합니다. `npx @agent-native/core@latest deploy`에 의해 자동으로 설정됩니다. 독립 실행형의 경우 설정하지 않은 상태로 둡니다. |
+| `AGENT_PROD_CODE_EXECUTION` | 선택적 프로덕션 코드 실행 모드: `off`(기본값), `sandboxed` 또는 `trusted`. [Production Code Execution](#production-code-execution)를 참조하세요.                 |
+
+데이터베이스 연결 변수(`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, 앱별 `<APP_NAME>_DATABASE_URL`)는 [Database](/docs/database#production)에 있습니다.
+
+### 제작에 필수 {#env-required-prod}
+
+앱을 실제 프로덕션 배포로 승격하기 전에 설정해야 합니다. 누락된 값은 실패 시 닫히거나(프레임워크 시작 거부/요청 처리 거부) 큰 경고와 함께 더 약한 동작으로 돌아갑니다.
+
+| 변수                     | 설명                                                                                                                                                                                                                                                    |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`     | 32자 이상의 임의 문자열. 서명 세션 쿠키 AND는 `OAUTH_STATE_SECRET` 및 `SECRETS_ENCRYPTION_KEY`에 대한 대체 HMAC입니다. 필수: 프로덕션에서 누락된 경우 프레임워크가 시작 시 오류를 발생시킵니다.                                                         |
+| `BETTER_AUTH_URL`        | 이 앱의 공개 출처(예: `https://mail.example.com`). 쿠키 도메인 및 OAuth 리디렉션 구성에 사용됩니다.                                                                                                                                                     |
+| `ANTHROPIC_API_KEY`      | 임베디드 프로덕션 에이전트용 API 키입니다. **다중 테넌트 배포**에서 프레임워크는 사용자에게 사용자별 키가 없으면 이 방식으로 대체하는 것을 거부합니다. 즉, 자체 키 가져오기가 필요합니다. 단일 테넌트 자체 호스팅 설치에서는 이를 전역 키로 사용합니다. |
+| `OAUTH_STATE_SECRET`     | OAuth 상태 봉투(Google, Atlassian, Zoom)용 전용 HMAC 키입니다. 설정되지 않은 경우 `BETTER_AUTH_SECRET`로 대체되지만 하나를 회전해도 다른 값이 무효화되지 않도록 전용 값을 사용하는 것이 좋습니다. `openssl rand -hex 32`를 통해 생성합니다.             |
+| `A2A_SECRET`             | 앱 간 A2A JSON-RPC에 대해 HMAC를 공유했습니다. 이것이 없으면 모든 A2A 엔드포인트와 `/_agent-native/integrations/process-task` 자체 실행 엔드포인트는 프로덕션에서 503을 반환합니다.                                                                     |
+| `SECRETS_ENCRYPTION_KEY` | 미사용 암호화 비밀 저장소에 대한 AES-256-GCM 키입니다. `BETTER_AUTH_SECRET`로 돌아갑니다. 둘 다 설정되지 않은 경우 프로덕션이 실패합니다.                                                                                                               |
+
+### 인증 및 신원 {#env-auth}
+
+OAuth 공급자 자격 증명(Google, GitHub), 정적 MCP 전달자 대체(`ACCESS_TOKEN` / `ACCESS_TOKENS`) 및 이메일 확인 토글은 [Authentication](/docs/authentication)에 문서화되어 있습니다. 선택한 인증 모드에 따라 설정하세요.
+
+### 인바운드 Webhooks {#env-webhooks}
+
+각 메시징 통합에는 프로덕션에서 자체 서명 비밀이 필요합니다(비밀이 누락된 경우 위조된 요청에 대해 핸들러가 실패 처리됩니다). 통합별 변수는 [Messaging](/docs/messaging) 및 [Security](/docs/security)에 나열되어 있습니다. 로컬 개발의 경우에만 `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1`는 "경고 및 승인"을 다시 선택합니다. 프로덕션에서는 절대로 설정하지 마세요.
+
+### 보안 구성(선택) {#security-config}
+
+기본값은 엄격합니다. 몇 가지 옵트인 플래그는 동작을 완화합니다(디버그 스택 추적, 확인되지 않은 webhooks, 작업 공간 범위 키 대체, MCP 허브 다중 조직 스위치, 런타임 env-var 쓰기). [Security](/docs/security)에 보안 절충 사항이 문서화되어 있습니다. 특별히 편안한 경로를 원하지 않는 한 설정하지 마세요.
+
+### 작업공간 .env 상속 {#env-inheritance}
+
+작업 공간 내에서 루트 `.env`는 모든 앱에 자동으로 로드되므로 `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET` 및 `OAUTH_STATE_SECRET`와 같은 공유 키는 한 번만 설정하면 됩니다. 충돌 시 앱별 `apps/<name>/.env`가 승리합니다.
+
+### 강력한 비밀 생성 {#env-generate-secrets}
+
+"32자 이상의 무작위"로 표시된 비밀(`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`)의 경우 다음을 사용하여 새로운 값을 생성하세요.
+
+```bash
+openssl rand -hex 32
+```
+
+모든 인스턴스에서 env var를 교체하고 재배포하여 순환합니다. 이전 키로 서명된 세션/OAuth 상태 봉투가 유효하지 않게 되므로 사용자가 다시 로그인해야 할 수도 있습니다.
+
+## 제작 에이전트 도구 {#production-agent-tools}
+
+프로덕션 에이전트는 다음에서 앱에 등록된 actions와 프레임워크 도구를 얻습니다.
+상담원 채팅 플러그인. 데이터베이스 쓰기는 원시 DB이므로 기본적으로 활성화됩니다.
+도구의 범위는 인증된 사용자/조직으로 지정되지만 앱 소유자는 범위를 좁힐 수 있습니다
+배포가 더욱 독선적이어야 하는 경우:
+
+```ts
+// server/plugins/agent-chat.ts
+export default createAgentChatPlugin({
+  // Default: "write" (also true)
+  databaseTools: "read", // "write" | "read" | "off"
+  extensionTools: false,
+});
+```
+
+- `databaseTools: "write"` — 기본값. `db-schema`, `db-query`,
+  `db-exec` 및 `db-patch`. 쓰기 범위는 현재 사용자/조직으로 지정되며
+  스키마 변경이 차단되었습니다.
+- `databaseTools: "read"` — `db-schema` 및 `db-query`만 등록합니다. 요원
+  SQL로 데이터를 검사하지만 쓰기에는 입력된 앱 actions를 사용해야 합니다.
+- `databaseTools: "off"` 또는 `false` — 원시 데이터베이스 도구를 제거합니다.
+  에이전트 표면이므로 앱의 actions가 유일한 데이터 액세스 경로입니다.
+- `extensionTools: false` — 프레임워크 확장 관리 actions를 제거하고
+  다음과 같은 앱에 대한 신속한 안내(`create-extension`, `update-extension` 등)
+  에이전트가 샌드박스 미니 앱을 생성하는 것을 원하지 않습니다.
+
+## 생산 코드 실행 {#production-code-execution}
+
+기본적으로 프로덕션 에이전트는 코드 실행 도구 없이 실행됩니다. 앱 actions, 데이터베이스 도구, MCP 도구, 브라우저/세션 도구 및 기타 등록된 프레임워크 도구를 호출할 수 있지만 셸 또는 파일 시스템 액세스 권한은 얻지 못합니다.
+
+노드 호환 배포는 에이전트 채팅 플러그인 또는 환경 재정의를 통해 프로덕션 코드 실행을 선택할 수 있습니다.
+
+```ts
+// server/plugins/agent-chat.ts
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+사용 가능한 모드는 다음과 같습니다:
+
+- `off` — 기본값입니다. 프로덕션에는 코드 실행 도구가 등록되어 있지 않습니다.
+- `sandboxed` — 스크러빙된 환경, 새로운 임시 디렉토리, 출력/시간 제한, `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request` 및 사용된 리소스 지원 작업 공간 파일 브리지와 같은 허용 목록에 등록된 도구에 대한 로컬 호스트 브리지를 갖춘 격리된 Node.js JavaScript 실행자인 `run-code`를 등록합니다. 작성자: `workspaceRead` / `workspaceWrite`.
+- `trusted` — `run-code`와 전체 코딩 도구 레지스트리(`bash`, `read`, `edit`, `write`)를 등록합니다. 호스트에 대한 전체 셸 액세스가 의도적으로 이루어진 단일 테넌트 또는 운영자 제어 배포에만 이 옵션을 사용하세요.
+
+`AGENT_PROD_CODE_EXECUTION=sandboxed` 또는 `AGENT_PROD_CODE_EXECUTION=trusted`를 설정하여 코드 변경 없이 특정 배포에 대한 플러그인 옵션을 재정의합니다. `AGENT_PROD_CODE_EXECUTION=off`는 플러그인 옵션이 활성화된 경우에도 코드 실행을 강제로 중지합니다.
+
+`run-code` 샌드박스는 OS 컨테이너가 아닌 프로세스 수준 격리입니다. 하위 프로세스 환경에서 앱 비밀을 제거하고 가능한 경우 노드 권한 모델을 사용하지만 아웃바운드 네트워크는 노드 자체에 의해 차단되지 않습니다. 인증된 호출은 도구가 노출하는 브리지 도우미를 거쳐야 합니다.
+
+## 프로덕션에서 UI 업데이트 {#updating-ui-in-production}
+
+에이전트 네이티브의 핵심 기능 중 하나는 에이전트가 앱의 소스 코드(구성 요소, 경로, 스타일, actions)를 수정할 수 있다는 것입니다. 로컬 개발 중에는 에이전트가 전체 파일 시스템에 액세스할 수 있으므로 원활하게 작동합니다.
+
+[production code execution](#production-code-execution)가 중단된 표준 프로덕션 배포에서 에이전트는 앱 도구(actions, 데이터베이스, MCP)에 액세스할 수 있지만 파일 시스템에는 액세스할 수 없습니다. 즉, 에이전트는 데이터를 읽고 쓰고, actions를 실행하고, 외부 서비스와 상호 작용할 수 있지만 React 구성 요소를 편집하거나 배포된 인스턴스에 새 경로를 추가할 수는 없습니다.
+
+### Builder.io: 프로덕션에서의 시각적 편집 {#builderio}
+
+[Builder.io](https://www.builder.io)는 에이전트가 프로덕션에서 앱의 UI를 수정할 수 있는 기능을 유지하는 관리형 클라우드 환경을 제공하여 이 문제를 해결합니다. 저장소를 Builder.io에 연결하고 UI 변경 사항을 직접 묻는 메시지를 표시하세요. 재배포가 필요하지 않습니다.
+
+**작동 방식:**
+
+1. 에이전트 기본 저장소를 Builder.io에 연결
+2. Builder.io는 에이전트, 시각적 편집 및 실시간 협업 기능을 갖춘 클라우드 프레임을 제공합니다
+3. 에이전트에게 UI 변경을 요청합니다. 구성 요소, 경로 및 스타일을 실시간으로 편집합니다.
+4. 변경 사항이 저장소에 다시 커밋됩니다.
+
+내장된 에이전트 패널과 클라우드 프레임 옵션에 대한 자세한 내용은 [Frames](/docs/frames)를 참조하세요.
+
+## 다중 인스턴스 배포 {#multi-instance}
+
+에이전트 네이티브 앱은 Drizzle를 통해 SQL에 모든 상태를 저장하고 [polling](/docs/key-concepts#polling-sync)를 통해 UI를 데이터베이스와 동기화합니다. 파일 시스템 상태, 고정 세션, 메모리 내 캐시가 없습니다. 이는 다중 인스턴스 및 서버리스 배포가 즉시 작동한다는 것을 의미합니다. 모든 인스턴스가 동일한 `DATABASE_URL`를 가리키면 자동으로 수렴됩니다. [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) 및 [Portability](/docs/key-concepts#hosting-agnostic)를 참조하세요.

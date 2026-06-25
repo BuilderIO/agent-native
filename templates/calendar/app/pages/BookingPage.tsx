@@ -1,5 +1,11 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { useNavigate, useParams } from "react-router";
+import {
+  OpenSourceBadge,
+  PoweredByBadge,
+  StarfieldBackground,
+  useT,
+} from "@agent-native/core/client";
+import type { Booking } from "@shared/api";
+import { IconCalendar } from "@tabler/icons-react";
 import {
   addMinutes,
   endOfMonth,
@@ -7,34 +13,30 @@ import {
   parseISO,
   startOfMonth,
 } from "date-fns";
-import { IconCalendar } from "@tabler/icons-react";
-import {
-  OpenSourceBadge,
-  PoweredByBadge,
-  StarfieldBackground,
-} from "@agent-native/core/client";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { DatePicker } from "@/components/booking/DatePicker";
-import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
+import { useEffect, useState, type ReactNode } from "react";
+import { useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
+
+import { BookingConfirmation } from "@/components/booking/BookingConfirmation";
 import {
   BookingForm,
   type BookingFormValue,
 } from "@/components/booking/BookingForm";
-import { BookingConfirmation } from "@/components/booking/BookingConfirmation";
-import {
-  usePublicSettings,
-  usePublicAvailability,
-  usePublicBookingLink,
-} from "@/hooks/use-public-data";
+import { DatePicker } from "@/components/booking/DatePicker";
+import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
   useAvailableDays,
   useAvailableSlots,
   useCreateBooking,
 } from "@/hooks/use-bookings";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import { toast } from "sonner";
-import type { Booking } from "@shared/api";
+import {
+  usePublicSettings,
+  usePublicAvailability,
+  usePublicBookingLink,
+} from "@/hooks/use-public-data";
 import { cn } from "@/lib/utils";
 
 type Step = "duration" | "date" | "time" | "info" | "confirmed";
@@ -63,6 +65,7 @@ function BookingPageShell({
 }
 
 export default function BookingPage() {
+  const t = useT();
   const { slug, username } = useParams<{ slug: string; username?: string }>();
   const navigate = useNavigate();
   const { data: settings, isLoading: settingsLoading } = usePublicSettings();
@@ -187,7 +190,9 @@ export default function BookingPage() {
         },
         onError: (error) =>
           toast.error(
-            error instanceof Error ? error.message : "Failed to create booking",
+            error instanceof Error
+              ? error.message
+              : t("bookingLinks.failedToCreateBooking"),
           ),
       },
     );
@@ -224,9 +229,9 @@ export default function BookingPage() {
     }
   }
 
-  const title = settings?.bookingPageTitle || "Book a Meeting";
+  const title = settings?.bookingPageTitle || t("bookingLinks.bookAMeeting");
   const description =
-    settings?.bookingPageDescription || "Pick a time that works for you.";
+    settings?.bookingPageDescription || t("bookingLinks.defaultDescription");
   const isLegacyBookingPage = !!slug && availability?.bookingPageSlug === slug;
   const pageTitle = bookingLink?.title || title;
   const pageDescription = bookingLink?.description || description;
@@ -259,9 +264,11 @@ export default function BookingPage() {
     return (
       <BookingPageShell>
         <div className="mx-auto mt-[7.5vh] w-full max-w-md rounded-2xl border border-border bg-card/95 p-8 text-center shadow-xl shadow-background/20 backdrop-blur">
-          <h1 className="text-xl font-semibold">Booking link not found</h1>
+          <h1 className="text-xl font-semibold">
+            {t("bookingLinks.bookingLinkNotFound")}
+          </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            This meeting type may have been removed or is no longer active.
+            {t("bookingLinks.meetingTypeUnavailable")}
           </p>
         </div>
       </BookingPageShell>
@@ -287,12 +294,14 @@ export default function BookingPage() {
             <div className="mt-3 flex flex-wrap justify-center gap-2">
               {!hasDurationChoice && (
                 <span className="inline-flex rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground">
-                  {duration} minute meeting
+                  {t("bookingLinks.minuteMeeting", { count: duration })}
                 </span>
               )}
               {requiredHostCount > 1 && (
                 <span className="inline-flex rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground">
-                  {requiredHostCount} required hosts
+                  {t("bookingLinks.requiredHostsCount", {
+                    count: requiredHostCount,
+                  })}
                 </span>
               )}
             </div>
@@ -311,11 +320,11 @@ export default function BookingPage() {
                 step,
               );
               const stepLabels: Record<Step, string> = {
-                duration: "duration selection",
-                date: "date selection",
-                time: "time selection",
-                info: "your information",
-                confirmed: "confirmation",
+                duration: t("bookingLinks.durationSelection"),
+                date: t("bookingLinks.dateSelection"),
+                time: t("bookingLinks.timeSelection"),
+                info: t("bookingLinks.yourInformation"),
+                confirmed: t("bookingLinks.confirmation"),
               };
               return (
                 <div className="mb-6 flex items-center justify-center gap-2">
@@ -346,7 +355,9 @@ export default function BookingPage() {
                             type="button"
                             onClick={() => handleStepNavigation(s)}
                             className={circleClass}
-                            aria-label={`Go to ${stepLabels[s]}`}
+                            aria-label={t("bookingLinks.goToStep", {
+                              step: stepLabels[s],
+                            })}
                           >
                             {i + 1}
                           </button>
@@ -366,7 +377,7 @@ export default function BookingPage() {
           {step === "duration" && durationOptions && (
             <div>
               <h3 className="mb-4 text-sm font-medium text-center">
-                Choose a Duration
+                {t("bookingLinks.chooseDuration")}
               </h3>
               <div className="grid gap-3">
                 {durationOptions.map((mins) => (
@@ -379,7 +390,9 @@ export default function BookingPage() {
                     }}
                     className="rounded-xl border border-border px-4 py-3 text-left hover:bg-accent/60 hover:border-primary/30"
                   >
-                    <p className="text-sm font-medium">{mins} minutes</p>
+                    <p className="text-sm font-medium">
+                      {t("bookingLinks.minutesLong", { count: mins })}
+                    </p>
                   </button>
                 ))}
               </div>
@@ -389,7 +402,7 @@ export default function BookingPage() {
           {step === "date" && availability && (
             <div>
               <h3 className="mb-4 text-sm font-medium text-center">
-                Select a Date
+                {t("bookingLinks.selectDate")}
               </h3>
               <div className="flex justify-center">
                 <DatePicker
@@ -408,14 +421,16 @@ export default function BookingPage() {
           {step === "time" && (
             <div>
               <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-sm font-medium">Select a Time</h3>
+                <h3 className="text-sm font-medium">
+                  {t("bookingLinks.selectTime")}
+                </h3>
                 <Button
                   variant="link"
                   size="sm"
                   className={BRAND_LINK_CLASS}
                   onClick={() => setStep("date")}
                 >
-                  Change date
+                  {t("bookingLinks.changeDate")}
                 </Button>
               </div>
               {selectedDate && (
@@ -435,20 +450,22 @@ export default function BookingPage() {
           {step === "info" && (
             <div>
               <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-sm font-medium">Your Information</h3>
+                <h3 className="text-sm font-medium">
+                  {t("bookingLinks.yourInformation")}
+                </h3>
                 <Button
                   variant="link"
                   size="sm"
                   className={BRAND_LINK_CLASS}
                   onClick={() => setStep("time")}
                 >
-                  Change time
+                  {t("bookingLinks.changeTime")}
                 </Button>
               </div>
               {selectedSlotRange && (
                 <div className="mb-4 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
                   <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Confirming
+                    {t("bookingLinks.confirming")}
                   </div>
                   <div className="mt-1 font-medium text-foreground">
                     {format(parseISO(selectedSlotRange.start), "EEEE, MMMM d")}

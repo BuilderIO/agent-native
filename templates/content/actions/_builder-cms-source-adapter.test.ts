@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import type { ContentDatabaseItem } from "../shared/api";
 import {
   buildBuilderCmsFixtureEntry,

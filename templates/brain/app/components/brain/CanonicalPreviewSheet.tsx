@@ -1,4 +1,6 @@
+import { useT } from "@agent-native/core/client";
 import { IconAlertTriangle, IconBook, IconFileText } from "@tabler/icons-react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,11 +48,12 @@ export function CanonicalPreviewSheet({
   onPrimaryAction?: () => void | Promise<void>;
   primaryDisabled?: boolean;
 }) {
+  const t = useT();
   const warnings = preview?.warnings ?? [];
   const intent =
     operation === "unpublish"
-      ? "Review the Markdown Brain manages before removing this workspace context resource."
-      : "Review the exact Markdown Brain will mirror into workspace context.";
+      ? t("canonicalPreview.unpublishIntent")
+      : t("canonicalPreview.publishIntent");
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -58,7 +61,7 @@ export function CanonicalPreviewSheet({
         <SheetHeader>
           <div className="flex items-center gap-2">
             <IconBook className="size-5 text-muted-foreground" />
-            <SheetTitle>Company context preview</SheetTitle>
+            <SheetTitle>{t("canonicalPreview.title")}</SheetTitle>
           </div>
           <SheetDescription>{intent}</SheetDescription>
         </SheetHeader>
@@ -74,16 +77,18 @@ export function CanonicalPreviewSheet({
                   </Badge>
                   {preview.pathExact ? null : (
                     <Badge variant="outline">
-                      Path suffix assigned on approval
+                      {t("canonicalPreview.pathSuffixAssigned")}
                     </Badge>
                   )}
                   {preview.alreadyPublishedPath ? (
-                    <Badge variant="outline">Currently published</Badge>
+                    <Badge variant="outline">
+                      {t("canonicalPreview.currentlyPublished")}
+                    </Badge>
                   ) : null}
                 </div>
                 <div className="grid gap-1">
                   <div className="text-xs font-medium uppercase text-muted-foreground">
-                    Workspace path
+                    {t("canonicalPreview.workspacePath")}
                   </div>
                   <code className="break-all rounded-sm bg-background px-2 py-1 text-xs text-foreground">
                     {preview.path}
@@ -109,14 +114,14 @@ export function CanonicalPreviewSheet({
                 readOnly
                 value={preview.markdown}
                 className="min-h-[22rem] resize-none font-mono text-xs leading-5"
-                aria-label="Canonical company context Markdown preview"
+                aria-label={t("canonicalPreview.markdownPreviewLabel")}
               />
             </>
           ) : (
             <div className="rounded-md border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
               {loading
-                ? "Building Markdown preview..."
-                : "Open a proposal or knowledge item to preview its canonical Markdown."}
+                ? t("canonicalPreview.building")
+                : t("canonicalPreview.empty")}
             </div>
           )}
 
@@ -133,7 +138,7 @@ export function CanonicalPreviewSheet({
             variant="outline"
             onClick={() => onOpenChange(false)}
           >
-            Cancel
+            {t("canonicalPreview.cancel")}
           </Button>
           <Button
             type="button"

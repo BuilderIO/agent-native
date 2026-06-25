@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+
+import type { FindTimeBusyBlock, FindTimeParticipant } from "../../shared/api";
 import {
   computeFindTimeSlots,
   resolveFindTimeRange,
   zonedDateTimeToUtcIso,
 } from "./find-time";
-import type { FindTimeBusyBlock, FindTimeParticipant } from "../../shared/api";
 
 const participants: FindTimeParticipant[] = [
   { email: "organizer@example.com", role: "organizer" },

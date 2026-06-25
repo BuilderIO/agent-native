@@ -8,6 +8,7 @@
  */
 
 import crypto from "node:crypto";
+
 import {
   getHeader,
   getQuery,
@@ -15,6 +16,10 @@ import {
   setResponseHeader,
   type H3Event,
 } from "h3";
+
+import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getAppName } from "./app-name.js";
+import { signupAttributionFromCookieHeader } from "./attribution.js";
 import {
   addSession,
   getSession,
@@ -22,7 +27,6 @@ import {
   hasLegacySessionForEmail,
   setFrameworkSessionCookie,
 } from "./auth.js";
-import { getAppName } from "./app-name.js";
 import {
   hasBetterAuthUserEmail,
   trackSignupEvent,
@@ -30,7 +34,6 @@ import {
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
 
@@ -451,6 +454,7 @@ export interface OAuthStatePayload {
    */
   returnUrl?: string;
   flowId?: string;
+  signupAttribution?: Record<string, string | undefined>;
 }
 
 /**
@@ -513,6 +517,20 @@ export interface EncodeOAuthStateOptions {
   app?: string;
   returnUrl?: string;
   flowId?: string;
+  signupAttribution?: Record<string, string | undefined>;
+}
+
+function sanitizeStateAttribution(
+  value: unknown,
+): Record<string, string | undefined> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const out: Record<string, string | undefined> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (typeof raw === "string") out[key] = raw;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /**
@@ -562,7 +580,7 @@ export function encodeOAuthState(
       : redirectUriOrOpts;
 
   const nonce = crypto.randomBytes(8).toString("hex");
-  const payload: Record<string, string | boolean> = {
+  const payload: Record<string, unknown> = {
     n: nonce,
     r: opts.redirectUri,
   };
@@ -572,6 +590,7 @@ export function encodeOAuthState(
   if (opts.app) payload.app = opts.app;
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
+  if (opts.signupAttribution) payload.ft = opts.signupAttribution;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
     .createHmac("sha256", getStateSigningKey())
@@ -621,6 +640,7 @@ export function decodeOAuthState(
         // depth in case the signing key ever leaks.
         returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
         flowId: parsed.f || undefined,
+        signupAttribution: sanitizeStateAttribution(parsed.ft),
       };
     } catch {}
   }
@@ -673,6 +693,7 @@ export async function createOAuthSession(
       authProvider: string;
       authUserId?: string;
       name?: string | null;
+      attribution?: Record<string, string | undefined>;
     };
   },
 ): Promise<OAuthSessionResult> {
@@ -695,11 +716,15 @@ export async function createOAuthSession(
     await addSession(sessionToken, email);
     setFrameworkSessionCookie(event, sessionToken);
     if (shouldTrackSignup && opts.trackSignup) {
+      const attribution =
+        opts.trackSignup.attribution ??
+        signupAttributionFromCookieHeader(getHeader(event, "cookie") ?? null);
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
         authUserId: opts.trackSignup.authUserId,
         email,
         name: opts.trackSignup.name,
+        attribution,
       });
     }
     // Desktop SSO: record this session in the home-dir broker file so
@@ -841,14 +866,27 @@ export function oauthCallbackResponse(
   // same-origin; Builder desktop workspace returns may point back to the
   // local loopback gateway and carry the short-lived `_session` bridge so
   // the local app can promote the newly created hosted OAuth session.
-  setResponseStatus(event, 302);
-  setResponseHeader(
-    event,
-    "Location",
-    appendSessionToOAuthReturnUrl(opts.returnUrl, opts.sessionToken),
+  const location = appendSessionToOAuthReturnUrl(
+    opts.returnUrl,
+    opts.sessionToken,
   );
+  setResponseStatus(event, 302);
+  setResponseHeader(event, "Location", location);
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
-  return "";
+  // Return a real 302 so the browser lands on the clean return URL instead of
+  // lingering on the provider callback URL with its `code`/`state` query
+  // params. But h3 hands a non-2xx web `Response` straight back WITHOUT merging
+  // the `Set-Cookie` staged earlier in the callback (the framework session
+  // cookie), so mirror those staged cookies onto the redirect Response —
+  // otherwise the sign-in succeeds but the browser arrives back logged out.
+  const headers = new Headers({
+    Location: location,
+    "Referrer-Policy": "no-referrer",
+  });
+  for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
+    headers.append("set-cookie", cookie);
+  }
+  return new Response(null, { status: 302, headers });
 }
 
 /** HTML error page for OAuth failures. The message is HTML-escaped — most

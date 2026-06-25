@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useActionMutation, useT } from "@agent-native/core/client";
 import { IconEdit } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { useActionMutation } from "@agent-native/core/client";
-import { cn } from "@/lib/utils";
+
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
+import { cn } from "@/lib/utils";
 
 interface EditableRecordingTitleProps {
   recordingId: string;
@@ -78,6 +79,7 @@ export function EditableRecordingTitle({
   inputClassName,
   skeletonClassName,
 }: EditableRecordingTitleProps) {
+  const t = useT();
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
   const skipBlurCommitRef = useRef(false);
@@ -86,7 +88,7 @@ export function EditableRecordingTitle({
 
   const titleForInput = isDefaultTitle(title) ? "" : (title ?? "");
   const visibleTitle =
-    displayTitle ?? (titleForInput.trim() || "Untitled Clip");
+    displayTitle ?? (titleForInput.trim() || t("editableTitle.untitled"));
 
   const updateTitle = useActionMutation<
     any,
@@ -118,7 +120,7 @@ export function EditableRecordingTitle({
         | undefined;
       restoreSnapshots(queryClient, snapshots?.playerSnapshots);
       restoreSnapshots(queryClient, snapshots?.listSnapshots);
-      toast.error("Failed to rename clip");
+      toast.error(t("editableTitle.renameFailed"));
     },
   });
 
@@ -152,7 +154,7 @@ export function EditableRecordingTitle({
     const currentTitle = titleForInput.trim();
 
     if (!nextTitle) {
-      toast.error("Title cannot be empty");
+      toast.error(t("editableTitle.emptyTitle"));
       cancelEditing();
       return;
     }
@@ -167,7 +169,7 @@ export function EditableRecordingTitle({
   if (showPendingSkeleton && !editing) {
     content = (
       <Skeleton
-        aria-label="Generating title"
+        aria-label={t("editableTitle.generatingTitle")}
         className={cn("h-4 w-56 max-w-full", skeletonClassName)}
       />
     );
@@ -200,7 +202,7 @@ export function EditableRecordingTitle({
           }
           commitTitle();
         }}
-        placeholder="Clip title"
+        placeholder={t("editableTitle.placeholder")}
         className={cn("h-8 w-full min-w-0", inputClassName)}
         disabled={updateTitle.isPending}
       />
@@ -219,11 +221,11 @@ export function EditableRecordingTitle({
         startEditing();
       }}
       className={cn(
-        "group/title -mx-1 flex min-w-0 max-w-full items-center gap-1 rounded px-1 text-left",
+        "group/title -mx-1 flex min-w-0 max-w-full items-center gap-1 rounded px-1 text-start",
         "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className,
       )}
-      aria-label="Edit clip title"
+      aria-label={t("editableTitle.editLabel")}
     >
       <span className="min-w-0 flex-1 truncate">{content}</span>
       <IconEdit className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/title:opacity-70 group-focus-visible/title:opacity-70" />

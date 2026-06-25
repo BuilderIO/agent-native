@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
 import { assertAccess } from "@agent-native/core/sharing";
+import { z } from "zod";
+
 import {
   updateEventType,
   getEventTypeById,

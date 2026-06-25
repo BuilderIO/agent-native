@@ -1,0 +1,113 @@
+# Stable product, provider, protocol, and literal terms that should remain as-is
+# in localized docs. Keep this list intentionally small and alphabetized.
+# Format: exact source string
+"google"
+*.eval.ts
+`window.openai`host APIs ·`agentNative.mcpHost.*` postMessage relay
++ Drizzle query DSL
+~/.claude/ on a local disk
+302 + signed JWT
+401 · WWW-Authenticate
+A2A
+adapter.sendResponse
+Agent-native
+Agent-Native sidecar
+AgentHarness substrate
+AgentRunHost
+AGENTS.md · skills
+AuthSession
+AWS Lambda
+Bearer access token
+Better Auth
+ChatGPT web
+channels:history, search
+claude · codex
+Claude Code · Codex · Pi — own tools, sandbox, compaction
+Claude Code / Codex
+Claude Code
+Claude web
+CLI
+Cloudflare D1
+create-form · update-form
+createSession.resumeState
+CRUD
+Cursor · Codex
+dbQuery / dbExec
+Dispatch hub
+GET /api/auth/user
+getSession callback
+gh · ffmpeg · stripe
+GitHub OAuth
+Google Calendar
+Google OAuth
+Headless Chrome
+hello.ts · view-screen · navigate
+HTTP · MCP · A2A
+iframe / MCP App
+isAvailable · execute
+JWT
+libSQL / Turso
+list-emails · get-thread · manage-draft · send
+list-events · check-availability · create-event
+Local File Mode
+MCP
+MCP gateway
+MP4 / WebM
+Native harness loop
+needs NOTIFICATIONS_WEBHOOK_URL
+Neon · Supabase
+Neon Postgres
+Nitro preset
+NOTIFICATIONS_WEBHOOK_URL
+OAuth / access token
+OAuth 2.1 + PKCE
+onNavigate / onRefresh
+PKCE
+Plain Postgres
+Plan MCP connector
+POST JSON to NOTIFICATIONS_WEBHOOK_URL
+PR
+PR push
+Provider registry
+publicMcp + publicAgent.expose required
+pull · push
+RBAC
+Remote MCP OAuth
+Remotion Studio
+Request context
+Resend / SendGrid
+Run-event ledger
+Runtime agent
+Runtime governance
+Same signed app route
+Sandboxed iframe
+Secret proxy
+Secret vault
+session.orgId
+Signed app route
+Signed processor
+Slack · Granola · GitHub · Clips · webhooks
+Slack · Stripe · email
+Slack · Telegram
+Sonnet 4.6 · Auto
+SQL
+SQL + application_state
+SQL row scoping
+SQL rows via Drizzle
+SQLite file
+SSE push
+startFrame / easing / animatedProps
+Streamable HTTP
+Supabase Postgres
+table · text · integer · real · now
+Temporary VIEW
+threads · application_state · settings · sessions · runs
+Tool-call journal
+UI
+Universal CLI
+useActionQuery/Mutation
+WWW-Authenticate
+X-Request-Source: TAB_ID
+Y.Doc
+Y.Doc update
+Yjs CRDT

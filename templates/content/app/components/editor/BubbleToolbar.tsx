@@ -1,6 +1,4 @@
-import { BubbleMenu } from "@tiptap/react/menus";
-import type { Editor } from "@tiptap/react";
-import { NodeSelection, type EditorState } from "@tiptap/pm/state";
+import { useT } from "@agent-native/core/client";
 import {
   IconBold,
   IconItalic,
@@ -13,13 +11,18 @@ import {
   IconH3,
   IconH4,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { NodeSelection, type EditorState } from "@tiptap/pm/state";
+import type { Editor } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
 import { useState } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
 import { captureAnchor, type CommentTextAnchor } from "./comment-anchors";
 
 export type CommentRange = { from: number; to: number };
@@ -65,6 +68,7 @@ function selectionIncludesBubbleToolbarExcludedNode(
 }
 
 export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
+  const t = useT();
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
 
@@ -96,57 +100,57 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const items = [
     {
       icon: IconBold,
-      title: "Bold",
+      title: t("editor.bold"),
       action: () => editor.chain().focus().toggleBold().run(),
       isActive: () => editor.isActive("bold"),
     },
     {
       icon: IconItalic,
-      title: "Italic",
+      title: t("editor.italic"),
       action: () => editor.chain().focus().toggleItalic().run(),
       isActive: () => editor.isActive("italic"),
     },
     {
       icon: IconStrikethrough,
-      title: "Strikethrough",
+      title: t("editor.strikethrough"),
       action: () => editor.chain().focus().toggleStrike().run(),
       isActive: () => editor.isActive("strike"),
     },
     {
       icon: IconCode,
-      title: "Code",
+      title: t("editor.code"),
       action: () => editor.chain().focus().toggleCode().run(),
       isActive: () => editor.isActive("code"),
     },
     { type: "divider" as const },
     {
       icon: IconH1,
-      title: "Heading 1",
+      title: t("editor.heading1"),
       action: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
       isActive: () => editor.isActive("heading", { level: 1 }),
     },
     {
       icon: IconH2,
-      title: "Heading 2",
+      title: t("editor.heading2"),
       action: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
       isActive: () => editor.isActive("heading", { level: 2 }),
     },
     {
       icon: IconH3,
-      title: "Heading 3",
+      title: t("editor.heading3"),
       action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
       isActive: () => editor.isActive("heading", { level: 3 }),
     },
     {
       icon: IconH4,
-      title: "Heading 4",
+      title: t("editor.heading4"),
       action: () => editor.chain().focus().toggleHeading({ level: 4 }).run(),
       isActive: () => editor.isActive("heading", { level: 4 }),
     },
     { type: "divider" as const },
     {
       icon: IconLink,
-      title: "Link",
+      title: t("editor.link"),
       action: toggleLink,
       isActive: () => editor.isActive("link"),
     },
@@ -155,7 +159,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           { type: "divider" as const },
           {
             icon: IconMessageCircle,
-            title: "Comment",
+            title: t("editor.comment"),
             action: () => {
               const { from, to } = editor.state.selection;
               const text = editor.state.doc.textBetween(from, to, " ");
@@ -204,7 +208,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           <input
             autoFocus
             type="url"
-            placeholder="Paste link..."
+            placeholder={t("editor.pasteLink")}
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
             onKeyDown={(e) => {
@@ -220,7 +224,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
             onClick={handleSetLink}
             className="text-xs text-blue-400 hover:text-blue-300 px-2 py-1.5 font-medium"
           >
-            Apply
+            {t("editor.apply")}
           </button>
         </div>
       ) : (

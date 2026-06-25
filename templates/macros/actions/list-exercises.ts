@@ -1,8 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import { db, schema } from "../server/db/index.js";
 import { eq, desc, and } from "drizzle-orm";
 import { z } from "zod";
+
+import { db, schema } from "../server/db/index.js";
 
 export default defineAction({
   description: "List exercises logged for a specific date",

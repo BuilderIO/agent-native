@@ -10,7 +10,7 @@ export default defineAction({
     "List unsaved draft generations (generated candidate assets) across accessible libraries, newest first.",
   schema: z.object({
     libraryId: z.string().optional(),
-    limit: z.coerce.number().int().min(1).max(100).optional(),
+    limit: z.coerce.number().int().min(1).max(500).optional(),
   }),
   http: { method: "GET" },
   readOnly: true,

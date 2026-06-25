@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+
 import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockRenderContext } from "../types.js";
@@ -26,11 +27,10 @@ import type { BlockRenderContext } from "../types.js";
  *    into stable, marker-numbered, range-resolved records and a line→markers map.
  *  - `rangeLabel` — the human "Line 8" / "Lines 3–6" label.
  *  - `AnnotationGutterMarker` — the numbered amber pip placed on an annotated row
- *    (used by the diff grid; the annotated-code surface uses its own rail bar).
+ *    by both the diff grid and the annotated-code gutter.
  *  - `AnnotationNoteRail` — the responsive list of note cards with two-way hover.
- *    `showMarker` opts the diff block into a leading numbered pip on each card so
- *    a note can be matched to its `①`/`②` row marker; annotated-code omits it to
- *    keep its original card chrome.
+ *    `showMarker` opts blocks into a leading numbered pip on each card so a note
+ *    can be matched to its `①`/`②` row marker.
  *
  * `AnnotatedCodeBlock` annotates a single code surface; `DiffBlock` annotates a
  * before/after grid (each annotation also carries a `side`). The shared types

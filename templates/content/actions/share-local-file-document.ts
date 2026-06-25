@@ -1,23 +1,24 @@
 import { defineAction, embedApp } from "@agent-native/core";
-import { and, eq, sql } from "drizzle-orm";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { serializeDocumentSource } from "./_document-source.js";
 import {
   getLocalFileDocument,
   isLocalFileDocumentId,
   localDocumentPathFromId,
 } from "./_local-file-documents.js";
-import { serializeDocumentSource } from "./_document-source.js";
 
 function nanoid(size = 12): string {
   const chars =

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
 import type { EngineMessage } from "../engine/types.js";
 
 const observerMod = vi.hoisted(() => ({ runObserver: vi.fn() }));

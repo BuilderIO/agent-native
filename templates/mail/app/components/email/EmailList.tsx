@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+import type { EmailMessage } from "@shared/types";
 import {
   IconAlertCircle,
   IconArchive,
@@ -8,11 +10,29 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
-import { cn } from "@/lib/utils";
-import { EmailListItem } from "./EmailListItem";
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+
+import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   useEmails,
   useMarkRead,
@@ -26,33 +46,16 @@ import {
   useMoveEmail,
   unsuppressThread,
 } from "@/hooks/use-emails";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
   useDeleteScheduledJob,
   useSendScheduledJobNow,
 } from "@/hooks/use-scheduled-jobs";
-import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { ensureThread, warmThreads } from "@/lib/thread-cache";
-import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
-import { Spinner } from "@/components/ui/spinner";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
-import type { EmailMessage } from "@shared/types";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { useSetHeaderActions } from "@/components/layout/HeaderActions";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { ensureThread, warmThreads } from "@/lib/thread-cache";
+import { cn } from "@/lib/utils";
+
+import { EmailListItem } from "./EmailListItem";
 
 type EmailsPage = { emails: EmailMessage[]; nextPageToken?: string };
 type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
@@ -60,8 +63,9 @@ type SnoozeTarget = {
   emailId: string;
   accountEmail?: string;
 };
-import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
+
+import { setUndoAction } from "@/hooks/use-undo";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 
 interface EmailListProps {
@@ -119,34 +123,35 @@ const INBOX_ZERO_PHOTOS = [
   "photo-1552083375-1447ce886485", // Japanese garden
 ];
 
-function emptyStateHintForView(view: string): string {
+function emptyStateHintKeyForView(view: string): string {
   switch (view) {
     case "snoozed":
-      return "No snoozed emails right now.";
+      return "mail.empty.snoozed";
     case "drafts":
-      return "Drafts you save will appear here.";
+      return "mail.empty.drafts";
     case "starred":
-      return "Star an email to keep it close at hand.";
+      return "mail.empty.starred";
     case "sent":
-      return "Emails you send will appear here.";
+      return "mail.empty.sent";
     case "scheduled":
-      return "Scheduled sends will appear here.";
+      return "mail.empty.scheduled";
     case "archive":
-      return "Archived emails will appear here.";
+      return "mail.empty.archive";
     case "trash":
-      return "Trashed emails appear here for 30 days.";
+      return "mail.empty.trash";
     case "spam":
-      return "Spam Gmail flags will appear here.";
+      return "mail.empty.spam";
     case "all":
-      return "All your mail will appear here.";
+      return "mail.empty.all";
     case "unread":
-      return "You're caught up — no unread mail.";
+      return "mail.empty.unread";
     default:
-      return "Emails matching this view will appear here.";
+      return "mail.empty.default";
   }
 }
 
 export function InboxZero() {
+  const t = useT();
   const [loaded, setLoaded] = useState(false);
   const isEmbedded = isMcpEmbedSurface();
 
@@ -195,10 +200,10 @@ export function InboxZero() {
       {/* Bottom text */}
       <div className="relative mt-auto px-6 pb-6">
         <p className="text-[15px] font-medium text-white/90 drop-shadow-lg">
-          You&rsquo;ve hit Inbox Zero
+          {t("mail.empty.inboxZeroTitle")}
         </p>
         <p className="text-[13px] text-white/60 drop-shadow-lg mt-0.5">
-          You&rsquo;re all caught up
+          {t("mail.empty.inboxZeroSubtitle")}
         </p>
       </div>
     </div>
@@ -261,6 +266,7 @@ function EmailErrorState({
   onRetry: () => unknown;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  const t = useT();
   const rateLimitRetryMs = isQuotaError ? getRateLimitRetryMs(message) : 0;
   const [cooldownRemaining, setCooldownRemaining] = useState(rateLimitRetryMs);
   const autoRetryFired = useRef(false);
@@ -305,11 +311,11 @@ function EmailErrorState({
 
   let buttonLabel: string;
   if (isFetching) {
-    buttonLabel = "Retrying…";
+    buttonLabel = t("mail.error.retrying");
   } else if (cooldownRemaining > 0) {
-    buttonLabel = `Try again in ${cooldownSeconds}s`;
+    buttonLabel = t("mail.error.tryAgainIn", { seconds: cooldownSeconds });
   } else {
-    buttonLabel = "Try again";
+    buttonLabel = t("mail.error.tryAgain");
   }
 
   return (
@@ -321,12 +327,12 @@ function EmailErrorState({
           </div>
           <div className="space-y-1">
             <p className="text-sm font-medium text-foreground">
-              {isQuotaError ? "Gmail rate limit hit" : "Unable to load emails"}
+              {isQuotaError
+                ? t("mail.error.rateLimitTitle")
+                : t("mail.error.loadTitle")}
             </p>
             <p className="text-xs text-muted-foreground">
-              {isQuotaError
-                ? "Too many recent requests to Google. Waiting a moment before retrying."
-                : message}
+              {isQuotaError ? t("mail.error.rateLimitDescription") : message}
             </p>
           </div>
           <button
@@ -363,6 +369,7 @@ export function EmailList({
   onDraftOpen,
   onNavigateThread,
 }: EmailListProps) {
+  const t = useT();
   const navigate = useNavigate();
   const { view = "inbox", threadId } = useParams<{
     view: string;
@@ -562,7 +569,9 @@ export function EmailList({
     // Enter on a single focused row is a single-thread action — clear any
     // in-progress multi-selection so shortcuts in detail view start fresh.
     setSelectedIds(new Set());
-    void ensureThread(targetThreadId, thread.latestMessage.accountEmail);
+    void ensureThread(targetThreadId, thread.latestMessage.accountEmail).catch(
+      () => {},
+    );
     onNavigateThread?.(targetThreadId);
     navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
     if (thread.hasUnread) {
@@ -611,7 +620,9 @@ export function EmailList({
         // instant down the list.
         const nextTid =
           nextThread.latestMessage.threadId || nextThread.latestMessage.id;
-        void ensureThread(nextTid, nextThread.latestMessage.accountEmail);
+        void ensureThread(nextTid, nextThread.latestMessage.accountEmail).catch(
+          () => {},
+        );
       } else {
         setFocusedId(null);
       }
@@ -648,9 +659,9 @@ export function EmailList({
       setUndoAction(undo);
       toast(
         threadKeys.length > 1
-          ? `Archived ${threadKeys.length} conversations.`
-          : "Archived.",
-        { action: { label: "UNDO", onClick: undo } },
+          ? t("mail.toasts.archivedMany", { count: threadKeys.length })
+          : t("mail.toasts.archived"),
+        { action: { label: t("mail.actions.undo"), onClick: undo } },
       );
       for (const t of targets) {
         archiveEmail.mutate({
@@ -740,9 +751,9 @@ export function EmailList({
       setUndoAction(undo);
       toast(
         threadKeys.length > 1
-          ? `Trashed ${threadKeys.length} conversations.`
-          : "Moved to Trash.",
-        { action: { label: "UNDO", onClick: undo } },
+          ? t("mail.toasts.trashedMany", { count: threadKeys.length })
+          : t("mail.toasts.trashed"),
+        { action: { label: t("mail.actions.undo"), onClick: undo } },
       );
       for (const id of emailIds) trashEmail.mutate(id);
       setSelectedIds(new Set());
@@ -1058,7 +1069,7 @@ export function EmailList({
       onDraftOpen(email);
       return;
     }
-    void ensureThread(targetThreadId, email.accountEmail);
+    void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
     onNavigateThread?.(targetThreadId);
     navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
     if (thread.hasUnread) {
@@ -1131,12 +1142,12 @@ export function EmailList({
     const jobId = getScheduledJobId(thread.latestMessage);
     if (!jobId) return;
     sendScheduledJobNow.mutate(jobId, {
-      onSuccess: () => toast("Scheduled email sent."),
+      onSuccess: () => toast(t("mail.toasts.scheduledSent")),
       onError: (error) =>
         toast.error(
           error instanceof Error
             ? error.message
-            : "Failed to send scheduled email",
+            : t("mail.toasts.scheduledSendFailed"),
         ),
     });
   };
@@ -1149,8 +1160,8 @@ export function EmailList({
     const jobId = getScheduledJobId(thread.latestMessage);
     if (!jobId) return;
     cancelScheduledJob.mutate(jobId, {
-      onSuccess: () => toast("Scheduled email cancelled."),
-      onError: () => toast.error("Failed to cancel scheduled email"),
+      onSuccess: () => toast(t("mail.toasts.scheduledCancelled")),
+      onError: () => toast.error(t("mail.toasts.scheduledCancelFailed")),
     });
   };
 
@@ -1202,8 +1213,8 @@ export function EmailList({
         unarchiveEmail.mutate(id);
       };
       setUndoAction(undo);
-      toast("Archived.", {
-        action: { label: "UNDO", onClick: undo },
+      toast(t("mail.toasts.archived"), {
+        action: { label: t("mail.actions.undo"), onClick: undo },
       });
       archiveEmail.mutate({
         id,
@@ -1253,15 +1264,15 @@ export function EmailList({
               type="button"
               onClick={clearSelection}
               className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
-              aria-label="Clear selection"
+              aria-label={t("mail.selection.clear")}
             >
               <IconX className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Clear selection</TooltipContent>
+          <TooltipContent>{t("mail.selection.clear")}</TooltipContent>
         </Tooltip>
         <span className="whitespace-nowrap text-xs font-medium text-foreground/80">
-          {selectedIds.size} selected
+          {t("mail.selection.selected", { count: selectedIds.size })}
         </span>
         <DropdownMenu>
           <Tooltip>
@@ -1270,13 +1281,13 @@ export function EmailList({
                 <button
                   type="button"
                   className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
-                  aria-label="Selection actions"
+                  aria-label={t("mail.selection.actions")}
                 >
                   <IconDots className="h-3.5 w-3.5" />
                 </button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>Selection actions</TooltipContent>
+            <TooltipContent>{t("mail.selection.actions")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuItem
@@ -1284,27 +1295,27 @@ export function EmailList({
               className="gap-2 text-xs"
             >
               <IconArchive className="h-3.5 w-3.5" />
-              Archive
+              {t("mail.actions.archive")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={markFocusedRead}
               className="gap-2 text-xs"
             >
               <IconMailOpened className="h-3.5 w-3.5" />
-              Mark read
+              {t("mail.actions.markRead")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={markFocusedUnread}
               className="gap-2 text-xs"
             >
               <IconMail className="h-3.5 w-3.5" />
-              Mark unread
+              {t("mail.actions.markUnread")}
             </DropdownMenuItem>
             {movableLabels.length > 0 && (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger className="gap-2 text-xs">
                   <IconFolder className="h-3.5 w-3.5" />
-                  Move to
+                  {t("mail.actions.moveTo")}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="max-h-72 w-56 overflow-y-auto">
                   {movableLabels.map((label) => (
@@ -1325,34 +1336,34 @@ export function EmailList({
                 className="gap-2 text-xs text-destructive focus:text-destructive"
               >
                 <IconTrash className="h-3.5 w-3.5" />
-                Move to Trash
+                {t("mail.actions.moveToTrash")}
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
-            <DropdownMenuLabel>Select</DropdownMenuLabel>
+            <DropdownMenuLabel>{t("mail.selection.select")}</DropdownMenuLabel>
             <DropdownMenuItem onClick={selectAllThreads} className="text-xs">
-              All
+              {t("mail.selection.all")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={clearSelection} className="text-xs">
-              None
+              {t("mail.selection.none")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={selectReadThreads} className="text-xs">
-              Read
+              {t("mail.selection.read")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={selectUnreadThreads} className="text-xs">
-              Unread
+              {t("mail.views.unread")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={selectStarredThreads}
               className="text-xs"
             >
-              Starred
+              {t("mail.views.starred")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={selectUnstarredThreads}
               className="text-xs"
             >
-              Unstarred
+              {t("mail.selection.unstarred")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1417,10 +1428,10 @@ export function EmailList({
                 </svg>
               </div>
               <p className="text-sm font-medium text-foreground/80">
-                No results for &ldquo;{searchQuery}&rdquo;
+                {t("mail.empty.noSearchResults", { query: searchQuery })}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Try different keywords
+                {t("mail.empty.tryDifferentKeywords")}
               </p>
             </div>
           </div>
@@ -1435,10 +1446,10 @@ export function EmailList({
         <div className="flex flex-1 flex-col items-center justify-center">
           <div className="text-center px-8">
             <p className="text-sm font-medium text-foreground/80">
-              Nothing here yet
+              {t("mail.empty.nothingHere")}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              {emptyStateHintForView(view)}
+              {t(emptyStateHintKeyForView(view))}
             </p>
           </div>
         </div>
@@ -1515,7 +1526,7 @@ export function EmailList({
             {isFetchingNextPage && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Spinner className="size-3 text-muted-foreground" />
-                Loading more...
+                {t("mail.empty.loadingMore")}
               </div>
             )}
           </div>

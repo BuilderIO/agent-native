@@ -117,12 +117,12 @@ assertFilesExist("design", [
 
 assertMatches(
   "templates/clips/app/routes/_index.tsx",
-  /export function loader[\s\S]*redirect\(buildTarget\(request\)\)/,
+  /export function loader[\s\S]*redirect\(buildTarget\((?:request|url)\)\)/,
   "clips / must keep a server loader redirect to /library",
 );
 assertMatches(
   "templates/clips/app/routes/_index.tsx",
-  /export function clientLoader[\s\S]*redirect\(buildTarget\(request\)\)/,
+  /export function clientLoader[\s\S]*redirect\(buildTarget\((?:request|url)\)\)/,
   "clips / must keep a client loader redirect for SPA navigations",
 );
 assertMatches(

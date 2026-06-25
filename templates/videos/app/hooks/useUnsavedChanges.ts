@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+
 import { useComposition } from "@/contexts/CompositionContext";
 import { useTimeline } from "@/contexts/TimelineContext";
 

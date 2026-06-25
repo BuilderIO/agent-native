@@ -1,6 +1,15 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import {
+  DevDatabaseLink,
+  FeedbackButton,
+  appPath,
+  useCodeMode,
+  useT,
+} from "@agent-native/core/client";
+import {
+  ExtensionSlot,
+  ExtensionsSidebarSection,
+} from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   closestCenter,
   DndContext,
@@ -21,27 +30,24 @@ import {
   IconPlus,
   IconSearch,
   IconStar,
+  IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconFolderOpen,
   IconChevronRight,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-  useCodeMode,
-} from "@agent-native/core/client";
-import {
-  ExtensionSlot,
-  ExtensionsSidebarSection,
-} from "@agent-native/core/client/extensions";
-import { NotionButton } from "./NotionButton";
-import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   useDocuments,
   useCreateDocument,
@@ -52,11 +58,9 @@ import {
   filterDocumentTreeDocuments,
 } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+
+import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
+import { NotionButton } from "./NotionButton";
 
 function nanoid(size = 12): string {
   const chars =
@@ -143,6 +147,7 @@ export function DocumentSidebar({
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  const t = useT();
   const { data: documents = [], isLoading } = useDocuments();
   const createDocument = useCreateDocument();
   const deleteDocument = useDeleteDocument();
@@ -165,6 +170,7 @@ export function DocumentSidebar({
     organization: false,
   });
   const localFilesActive = location.pathname.startsWith("/local-files");
+  const settingsActive = location.pathname.startsWith("/settings");
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
@@ -283,9 +289,9 @@ export function DocumentSidebar({
           navigateToDocument(created.id);
           onNavigate?.();
         } catch (err) {
-          toast.error("Failed to create page", {
+          toast.error(t("sidebar.failedCreatePage"), {
             description:
-              err instanceof Error ? err.message : "Something went wrong",
+              err instanceof Error ? err.message : t("empty.genericError"),
           });
         }
         return;
@@ -355,9 +361,9 @@ export function DocumentSidebar({
           queryKey: ["action", "get-document", { id }],
         });
         navigate("/");
-        toast.error("Failed to create page", {
+        toast.error(t("sidebar.failedCreatePage"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
@@ -425,9 +431,9 @@ export function DocumentSidebar({
             flushSync: true,
           });
         }
-        toast.error("Failed to delete page", {
+        toast.error(t("sidebar.failedDeletePage"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
@@ -469,8 +475,8 @@ export function DocumentSidebar({
       );
       if (changed.length === 0) return;
       if (changed.some((doc) => doc.canEdit === false)) {
-        toast.error("Cannot reorder pages", {
-          description: "One of the affected pages is read-only.",
+        toast.error(t("sidebar.cannotReorderPages"), {
+          description: t("sidebar.oneAffectedPageReadOnly"),
         });
         return;
       }
@@ -501,9 +507,9 @@ export function DocumentSidebar({
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        toast.error("Failed to move page", {
+        toast.error(t("sidebar.failedMovePage"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
@@ -569,7 +575,7 @@ export function DocumentSidebar({
       onClick={() => handleCreatePage()}
     >
       <IconPlus size={14} className="shrink-0" />
-      <span>New page</span>
+      <span>{t("sidebar.newPage")}</span>
     </button>
   );
 
@@ -584,7 +590,26 @@ export function DocumentSidebar({
       onClick={() => navigate("/local-files")}
     >
       <IconFolderOpen size={15} className="shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-left">Local files</span>
+      <span className="min-w-0 flex-1 truncate text-start">
+        {t("sidebar.localFiles")}
+      </span>
+    </button>
+  );
+
+  const renderSettingsNavButton = () => (
+    <button
+      className={cn(
+        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+        settingsActive
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+      )}
+      onClick={() => navigate("/settings")}
+    >
+      <IconSettings size={15} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-start">
+        {t("navigation.settings")}
+      </span>
     </button>
   );
 
@@ -601,7 +626,7 @@ export function DocumentSidebar({
       <button
         type="button"
         aria-expanded={!collapsed}
-        className="flex w-full items-center gap-1 rounded-md px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+        className="flex w-full items-center gap-1 rounded-md px-3 py-1.5 text-start text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
         onClick={() => toggleSection(id)}
       >
         <IconChevronRight
@@ -609,6 +634,7 @@ export function DocumentSidebar({
           className={cn(
             "shrink-0 transition-transform",
             !collapsed && "rotate-90",
+            "rtl:-scale-x-100",
           )}
         />
         <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -675,7 +701,7 @@ export function DocumentSidebar({
 
   if (collapsed) {
     return (
-      <div className="flex flex-col h-full w-12 border-r border-border bg-muted/30 items-center py-3 gap-1">
+      <div className="flex flex-col h-full w-12 border-e border-border bg-muted/30 items-center py-3 gap-1">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -685,7 +711,7 @@ export function DocumentSidebar({
               <IconLayoutSidebarLeftExpand size={18} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Expand sidebar</TooltipContent>
+          <TooltipContent>{t("sidebar.expand")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -696,7 +722,7 @@ export function DocumentSidebar({
               <IconPlus size={16} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>New page</TooltipContent>
+          <TooltipContent>{t("sidebar.newPage")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -712,7 +738,23 @@ export function DocumentSidebar({
               <IconFolderOpen size={16} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Local files</TooltipContent>
+          <TooltipContent>{t("sidebar.localFiles")}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={cn(
+                "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
+                settingsActive
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => navigate("/settings")}
+            >
+              <IconSettings size={16} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{t("navigation.settings")}</TooltipContent>
         </Tooltip>
       </div>
     );
@@ -721,7 +763,7 @@ export function DocumentSidebar({
   return (
     <div
       className={cn(
-        "relative flex h-full min-h-0 flex-col border-r border-border bg-muted/30",
+        "relative flex h-full min-h-0 flex-col border-e border-border bg-muted/30",
         width === undefined && "w-full",
       )}
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
@@ -755,7 +797,7 @@ export function DocumentSidebar({
                 <IconSearch size={16} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Search</TooltipContent>
+            <TooltipContent>{t("sidebar.search")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -766,7 +808,7 @@ export function DocumentSidebar({
                 <IconLayoutSidebarLeftCollapse size={16} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Collapse sidebar</TooltipContent>
+            <TooltipContent>{t("sidebar.collapse")}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -777,7 +819,7 @@ export function DocumentSidebar({
           <input
             autoFocus
             type="text"
-            placeholder="Search pages..."
+            placeholder={t("sidebar.searchPages")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -792,24 +834,24 @@ export function DocumentSidebar({
       )}
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="min-w-full w-max py-2 pr-2">
+        <div className="min-w-full w-max py-2 pe-2">
           {/* Search results */}
           {filteredDocuments ? (
             <>
               <div>
                 <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Results
+                  {t("sidebar.results")}
                 </div>
                 {filteredDocuments.length === 0 ? (
                   <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                    No pages found
+                    {t("sidebar.noPagesFound")}
                   </div>
                 ) : (
                   filteredDocuments.map((doc) => (
                     <button
                       key={doc.id}
                       className={cn(
-                        "w-full flex items-center gap-2 px-3 py-[5px] text-sm text-left rounded-md",
+                        "w-full flex items-center gap-2 px-3 py-[5px] text-sm text-start rounded-md",
                         doc.id === activeDocumentId
                           ? "bg-accent text-accent-foreground"
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -825,7 +867,7 @@ export function DocumentSidebar({
                         <DocumentSidebarIcon document={doc} />
                       </span>
                       <span className="min-w-0 flex-1 truncate">
-                        {doc.title || "Untitled"}
+                        {doc.title || t("sidebar.untitled")}
                       </span>
                     </button>
                   ))
@@ -840,13 +882,13 @@ export function DocumentSidebar({
                 <div className="mb-2">
                   <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
                     <IconStar size={10} />
-                    Favorites
+                    {t("sidebar.favorites")}
                   </div>
                   {favorites.map((doc) => (
                     <button
                       key={doc.id}
                       className={cn(
-                        "w-full flex items-center gap-2 px-4 py-[5px] text-sm text-left rounded-md",
+                        "w-full flex items-center gap-2 px-4 py-[5px] text-sm text-start rounded-md",
                         doc.id === activeDocumentId
                           ? "bg-accent text-accent-foreground"
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -860,7 +902,7 @@ export function DocumentSidebar({
                         <DocumentSidebarIcon document={doc} />
                       </span>
                       <span className="min-w-0 flex-1 truncate">
-                        {doc.title || "Untitled"}
+                        {doc.title || t("sidebar.untitled")}
                       </span>
                     </button>
                   ))}
@@ -871,17 +913,17 @@ export function DocumentSidebar({
                 <>
                   {renderTreeSection({
                     id: "local-files",
-                    label: "Local files",
+                    label: t("sidebar.localFiles"),
                     nodes: localFileTree,
-                    emptyLabel: "No files yet",
+                    emptyLabel: t("sidebar.noFilesYet"),
                     footer: renderNewPageButton(),
                   })}
                   {databaseTree.length > 0
                     ? renderTreeSection({
                         id: "shared-copies",
-                        label: "Shared copies",
+                        label: t("sidebar.sharedCopies"),
                         nodes: databaseTree,
-                        emptyLabel: "No shared copies yet",
+                        emptyLabel: t("sidebar.noSharedCopiesYet"),
                         className: "mt-3",
                       })
                     : null}
@@ -891,26 +933,26 @@ export function DocumentSidebar({
                   {localFileTree.length > 0 &&
                     renderTreeSection({
                       id: "local-files",
-                      label: "Local files",
+                      label: t("sidebar.localFiles"),
                       nodes: localFileTree,
-                      emptyLabel: "No local files yet",
+                      emptyLabel: t("sidebar.noLocalFilesYet"),
                       className: "mb-2",
                     })}
 
                   {renderTreeSection({
                     id: "private",
-                    label: "Private",
+                    label: t("sidebar.private"),
                     nodes: privateTree,
-                    emptyLabel: "No private pages yet",
+                    emptyLabel: t("sidebar.noPrivatePagesYet"),
                     footer: renderNewPageButton(),
                   })}
 
                   {!isLoading &&
                     renderTreeSection({
                       id: "organization",
-                      label: "Organization",
+                      label: t("sidebar.organization"),
                       nodes: organizationTree,
-                      emptyLabel: "No organization pages yet",
+                      emptyLabel: t("sidebar.noOrganizationPagesYet"),
                       className: "mt-3",
                     })}
                 </>
@@ -921,7 +963,10 @@ export function DocumentSidebar({
       </ScrollArea>
 
       <div className="shrink-0 border-t border-border px-3 py-2">
-        {renderLocalFilesNavButton()}
+        <div className="space-y-1">
+          {renderLocalFilesNavButton()}
+          {renderSettingsNavButton()}
+        </div>
       </div>
 
       <div className="shrink-0 border-t border-border">
@@ -956,7 +1001,7 @@ export function DocumentSidebar({
       {onResize && (
         <div
           className={cn(
-            "absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 active:bg-primary/30",
+            "absolute top-0 end-0 w-1 h-full cursor-col-resize hover:bg-primary/20 active:bg-primary/30",
             isResizing && "bg-primary/30",
           )}
           onMouseDown={handleMouseDown}

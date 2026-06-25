@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 import {
   RECAP_DIFF_BYTE_CAP,
   appendGateSkipLine,
@@ -49,7 +50,6 @@ import {
   writePrVisualRecapWorkflow,
 } from "./recap.js";
 import type { RecapGateInput } from "./recap.js";
-import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../../../..");
@@ -904,7 +904,7 @@ describe("recap comment body", () => {
     );
     expect(body).not.toContain("review at a higher altitude");
     expect(body).not.toContain("Updated for");
-    expect(body).toContain("Open the full interactive recap");
+    expect(body).toContain("Open the [full interactive recap]");
     expect(body).toContain("<!-- plan-id: plan-abc123 -->");
     expect(body).toContain("<!-- pr-visual-recap -->");
     expect(body).not.toContain("_As of `");
@@ -934,6 +934,19 @@ describe("recap comment body", () => {
     expect(body).not.toContain("![Visual recap]");
   });
 
+  it("preserves a sanitized screenshot cache key query", () => {
+    const token = "a".repeat(64);
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${token}.png?v=28162728843-1`,
+      HEAD_SHA: "abcdef1234567",
+    } as NodeJS.ProcessEnv);
+    expect(body).toContain(
+      `<img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${token}.png?v=28162728843-1">`,
+    );
+  });
+
   it("rebuilds a canonical /recaps/ link from a legacy /plans/ URL, dropping any crafted path/query", () => {
     const body = buildCommentBody({
       // Legacy same-origin /plans/ URL, but with markdown-breakout junk appended
@@ -944,7 +957,7 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).toContain(
-      "[Open the full interactive recap](https://plan.agent-native.com/recaps/plan-abc123)",
+      "Open the [full interactive recap](https://plan.agent-native.com/recaps/plan-abc123)",
     );
     expect(body).not.toContain("evil.example.com");
   });
@@ -958,7 +971,7 @@ describe("recap comment body", () => {
     } as NodeJS.ProcessEnv);
     expect(body).not.toContain("![Visual recap]");
     expect(body).not.toContain("javascript:");
-    expect(body).toContain("Open the full interactive recap");
+    expect(body).toContain("Open the [full interactive recap]");
   });
 
   it("drops an invalid dark image URL and keeps the light screenshot picture", () => {
@@ -988,7 +1001,7 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).not.toContain("![Visual recap]");
-    expect(body).toContain("Open the full interactive recap");
+    expect(body).toContain("Open the [full interactive recap]");
   });
 
   it("refreshes to a skipped state on a tiny diff", () => {
@@ -999,7 +1012,7 @@ describe("recap comment body", () => {
     expect(body).toContain("skipped");
     expect(body).toContain("too small");
     expect(body).not.toContain("Updated for");
-    expect(body).not.toContain("Open the full interactive recap");
+    expect(body).not.toContain("Open the [full interactive recap]");
     expect(body).not.toContain("_As of `");
   });
 
@@ -1012,15 +1025,21 @@ describe("recap comment body", () => {
     expect(body).toContain("<!-- plan-id: plan-deadbeef -->");
   });
 
-  it("falls back to a link-only comment when the screenshot upload failed", () => {
+  it("reports screenshot failure instead of a successful link-only recap", () => {
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
       PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
       RECAP_IMAGE_URL: "",
+      RECAP_SHOT_OK: "false",
+      RECAP_SHOT_REASON: "screenshot captured but image upload failed",
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
-    expect(body).not.toContain("![Visual recap]");
-    expect(body).toContain("Open the full interactive recap");
+    expect(body).toContain("Visual recap — screenshot failed");
+    expect(body).not.toContain("Here's a [visual recap]");
+    expect(body).not.toContain("<picture>");
+    expect(body).toContain("Open the [full interactive recap]");
+    expect(body).toContain("screenshot captured but image upload failed");
+    expect(body).toContain("<!-- plan-id: plan-abc123 -->");
   });
 
   it("drops the link when the plan URL origin does not match the app origin", () => {
@@ -1031,7 +1050,7 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
-    expect(body).not.toContain("Open the full interactive recap");
+    expect(body).not.toContain("Open the [full interactive recap]");
     expect(body).not.toContain("Updated for");
     expect(body).not.toContain("evil.example.com");
   });
@@ -1077,7 +1096,7 @@ describe("recap comment body", () => {
     expect(body).toContain("suppressed");
     expect(body).toContain("Reason: `high-confidence secret in diff`.");
     expect(body).not.toContain("Updated for");
-    expect(body).not.toContain("Open the full interactive recap");
+    expect(body).not.toContain("Open the [full interactive recap]");
     expect(body).not.toContain("_As of `");
   });
 
@@ -1121,7 +1140,7 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).not.toContain("_As of `");
-    expect(body).toContain("Open the full interactive recap");
+    expect(body).toContain("Open the [full interactive recap]");
   });
 });
 
@@ -1238,9 +1257,49 @@ describe("recap screenshot capture", () => {
     };
     return {
       page,
+      context,
       importPlaywright: async () => ({ chromium }),
     };
   }
+
+  it("injects a string __name shim before navigating so esbuild/tsx keepNames payloads don't throw", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { context, page, importPlaywright } = createShotPlaywright([
+      Buffer.from("png"),
+    ]);
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-abc123",
+          out,
+        },
+        importPlaywright,
+      );
+
+      // The shim must be a raw string (so esbuild never rewrites it) that
+      // defines globalThis.__name — the helper esbuild's keepNames references.
+      const shimCall = context.addInitScript.mock.calls.find(
+        ([arg]: [unknown]) => typeof arg === "string" && arg.includes("__name"),
+      );
+      expect(shimCall).toBeDefined();
+      expect(typeof shimCall![0]).toBe("string");
+      expect(String(shimCall![0])).toContain("globalThis.__name");
+
+      // It must run before the page is created/navigated so the shim is in
+      // place for every init script and page.evaluate payload.
+      const shimOrder = context.addInitScript.mock.invocationCallOrder[0];
+      const navOrder = page.goto.mock.invocationCallOrder[0];
+      expect(shimOrder).toBeLessThan(navOrder);
+    } finally {
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
 
   it("retries oversized screenshots at CSS-pixel scale", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
@@ -2072,10 +2131,16 @@ describe("bundled PR visual recap workflow", () => {
       "--out recap-dark.png --theme dark",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_DARK_IMAGE_URL");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_SHOT_OK");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_SHOT_REASON");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--image-cache-key");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_PLAYWRIGHT");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("[recap shot] ${label}");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "Visual recap screenshot unavailable; posting link-only recap comment.",
+      "Visual recap screenshot unavailable; posting screenshot-failed recap comment.",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain(
+      "posting link-only recap comment",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain("github.rest.checks");
     // The completed-check step is gated on a created check id and best-effort.
@@ -2631,9 +2696,12 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("--exit-code-file");
     expect(content).toContain("RECAP_URL_REASON:");
     expect(content).toContain("--url-reason");
+    expect(content).toContain("--image-cache-key");
+    expect(content).toContain("RECAP_SHOT_OK:");
+    expect(content).toContain("RECAP_SHOT_REASON:");
     expect(content).toContain("[recap shot] ${label}");
     expect(content).toContain(
-      "Visual recap screenshot unavailable; posting link-only recap comment.",
+      "Visual recap screenshot unavailable; posting screenshot-failed recap comment.",
     );
     expect(content).toContain("!cancelled()");
     expect(content).toContain('--head-sha "$HEAD_SHA"');
@@ -2975,9 +3043,12 @@ describe("reusable vs copy workflow step-sequence parity", () => {
   it("fork workflow uses the recap CLI Playwright package for screenshots", () => {
     const content = fs.readFileSync(forkFile, "utf8");
     expect(content).toContain("RECAP_PLAYWRIGHT");
+    expect(content).toContain("--image-cache-key");
+    expect(content).toContain("RECAP_SHOT_OK:");
+    expect(content).toContain("RECAP_SHOT_REASON:");
     expect(content).toContain("[recap shot] ${label}");
     expect(content).toContain(
-      "Visual recap screenshot unavailable; posting link-only recap comment.",
+      "Visual recap screenshot unavailable; posting screenshot-failed recap comment.",
     );
   });
 });

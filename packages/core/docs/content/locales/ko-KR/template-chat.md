@@ -1,0 +1,129 @@
+---
+title: "채팅 템플릿"
+description: "최소 채팅 우선 에이전트 기본 앱: 내구성 있는 채팅 스레드, actions, 애플리케이션 상태, 라이브 동기화, 인증 및 자신만의 UI를 추가할 수 있는 공간."
+---
+
+# 채팅 템플릿
+
+채팅은 기본 에이전트 기반 앱의 시작점입니다. 중앙에 채팅이 있는 깔끔한 ChatGPT 스타일 셸, 왼쪽에 스레드 목록, 표준 앱 탐색, 인증, 라이브 동기화, actions 및 하나의 예제 작업이 제공됩니다. 도메인 템플릿을 적용하지 않고도 구축할 수 있는 실제 브라우저 앱을 원한다면 여기에서 시작하세요.
+
+브라우저 UI 없이 가장 작은 작업 전용 런타임을 원한다면 [Pure-Agent Apps](/docs/pure-agent-apps)로 시작하세요. 완성된 도메인 제품 형태를 원한다면 [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics) 또는 다른 도메인 템플릿에서 시작하세요.
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>무엇을 도와드릴까요?</h1><p class='wf-muted' style='margin:10px 0 0'>무엇이든 채팅하세요. actions, 컴포넌트, 페이지, 작업 또는 자체 백엔드를 추가하세요.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>에이전트에게 메시지...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+}
+```
+
+## 그 내용 {#whats-in-it}
+
+- **프레임워크 채팅 화면과 내구성 있는 채팅 스레드를 사용하는 `/`의 **전체 페이지 채팅\*\*
+- **앱 사이드바의 스레드 목록** 사용자가 채팅을 생성하고, 다시 열고, 이름을 바꾸고, 고정하고 보관할 수 있습니다.
+- **에이전트 채팅 플러그인** 사전 구성되어 에이전트 자격 증명이 설정되면 채팅이 내장된 앱-에이전트 루프와 통신합니다.
+- **인증** 더 나은 인증을 통해 — 로그인, 가입, 세션, 조직. 동일한 흐름이 로컬 및 프로덕션에서 실행됩니다. 개발 중에는 이메일 확인을 건너뜁니다.
+- **Actions 디렉토리**(예: `actions/hello.ts`)와 표준 `view-screen` 및 `navigate` actions가 포함되어 있습니다.
+- **애플리케이션 상태, 설정, 세션, 리소스, 채팅 스레드, 실행 기록 및 기타 런타임 상태에 대한 프레임워크의 핵심 테이블**
+- **라이브 동기화**(`useDbSync`)가 이미 연결되어 있으므로 에이전트가 SQL에 쓸 때 UI가 자동으로 새로 고쳐집니다.
+- **AGENTS.md** actions, 경로, skills 및 애플리케이션 상태를 추가하기 위한 채팅 우선 지침이 포함되어 있습니다.
+
+## 그 안에 _없는_ 것은 무엇입니까 {#not-in-it}
+
+- 도메인 테이블이나 시드 데이터가 없습니다.
+- 대시보드, 목록, 차트, 양식 또는 공급자 통합이 없습니다.
+- 예제 스텁 외에 도메인별 actions는 없습니다.
+
+그게 핵심입니다. Chat은 일반적인 척하는 도메인 제품이 아니라 귀하의 에이전트를 위한 얇고 유용한 기본 셸입니다.
+
+```an-diagram title="Chat 셸에 포함된 내용" summary="프레임워크의 표준 런타임(작업, 내구성 있는 스레드, 라이브 동기화 및 인증)에 대한 얇은 채팅 표면과 자체 UI를 추가할 수 있는 공간이 있습니다."
+{
+  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">스레드 목록<br><small class=\"diagram-muted\">생성 · 다시 열기 · 고정 · 보관</small></div><div class=\"diagram-node\">전체 페이지 채팅<br><small class=\"diagram-muted\">/ 의 프레임워크 채팅 화면</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">핵심 SQL 테이블<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">실시간 동기화 &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">로그인 · 조직 · 세션</small></div></div></div>",
+  "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## 선택 시기 {#when-to-pick}
+
+- **사용자가 즉시 대화할 수 있는 기본 앱**을 원하고 actions 및 UI로 확장합니다.
+- **첫 번째 브라우저 표면으로 채팅이 필요한 헤드리스 앱**이 있습니다.
+- **Agent-Native의 actions, 상태, 인증 및 배포 형태를 유지하면서 자신의 에이전트 백엔드를 친숙한 채팅 UI**에 연결하려고 합니다.
+- **도메인 템플릿과 일치하지 않는 사용자 정의 내부 도구**의 프로토타입을 만들고 있습니다.
+
+## 비계 {#scaffolding}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --template chat
+cd my-chat-app
+pnpm install
+pnpm dev
+```
+
+또는 UI 없이 시작하고 나중에 채팅 화면을 추가하세요.
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+여기서 Chat 템플릿의 `/` 경로 및 사이드바 스레드 목록을 앱에 복사하거나 Chat 앱을 스캐폴드하고 헤드리스 에이전트의 actions를 `actions/` 디렉터리로 이동합니다. 주요 불변성은 동일하게 유지됩니다. actions는 채팅의 공유 영역이고, UI, HTTP, MCP, A2A 및 CLI입니다.
+
+## 검사할 첫 번째 코드 {#first-code}
+
+- `actions/hello.ts`는 에이전트가 호출할 수 있는 시작 동작입니다. 교체하거나
+  옆에 actions를 추가하세요.
+- `app/routes/_index.tsx`는 전체 페이지 채팅 화면을 렌더링합니다. 조정
+  제안, 빈 상태, 작곡가 또는 주변 레이아웃이 여기에 있습니다.
+- `AGENTS.md`는 내장 에이전트에게 이 앱 내에서 작업하는 방법을 알려줍니다.
+
+```an-file-tree title="Chat 템플릿 레이아웃"
+{
+  "entries": [
+    { "path": "actions/hello.ts", "note": "하나의 예시 action; 교체하거나 옆에 actions 추가" },
+    { "path": "actions/view-screen.ts", "note": "에이전트가 읽는 표준 context action" },
+    { "path": "actions/navigate.ts", "note": "표준 navigation action" },
+    { "path": "app/routes/_index.tsx", "note": "전체 페이지 chat 화면을 렌더링; suggestions, empty state, composer 편집" },
+    { "path": "AGENTS.md", "note": "내장 에이전트가 읽는 chat-first 지침" }
+  ]
+}
+```
+
+채팅 페이지는 의도적으로 얇습니다.
+
+```tsx
+// app/routes/_index.tsx
+import { AgentChatSurface } from "@agent-native/core/client";
+
+export default function ChatRoute() {
+  return (
+    <AgentChatSurface
+      mode="page"
+      suggestions={[
+        "What can you do?",
+        "Help me customize this chat app",
+        "Show me the actions and pages I can add",
+      ]}
+    />
+  );
+}
+```
+
+## 자체 에이전트 백엔드 사용 {#own-agent-backend}
+
+템플릿은 기본적으로 내장된 앱 에이전트 루프를 사용합니다. 사용자 정의 백엔드를 연결하려면 UI를 다시 작성하는 대신 에이전트 채팅 플러그인 뒤의 채팅 런타임을 교체하세요. Chat 경로는 공유 채팅 화면 주위에 얇은 렌더러로 유지되어야 합니다. 백엔드 선택은 서버 플러그인/런타임 어댑터에 속합니다.
+
+모델 오케스트레이션이 이미 다른 곳에 있지만 인증, 스레드, actions, UI 상태 및 배포 가능한 페이지가 있는 앱을 원하는 경우 이 방법을 사용하세요.
+
+## 첫 번째 수정 {#first-edits}
+
+비계를 설치한 후 상담원에게 다음을 질문하세요.
+
+> `notes`에 대한 데이터 모델을 추가합니다. 메모에는 ID, 제목, 본문, 소유자가 있습니다. `/notes`에서 노트 페이지를 렌더링하고, actions 생성/목록을 추가하고, 채팅에서 노트를 생성할 수 있도록 유지하세요.
+
+에이전트는 Drizzle 스키마, actions, 경로, 탐색 및 지침을 추가해야 합니다. 그런 다음 UI 또는 채팅에서 메모 기능을 사용할 수 있습니다.
+
+## 다음 단계
+
+- [**Getting Started**](/docs) — 헤드리스, 채팅 및 도메인 템플릿 중에서 선택
+- [**Agent Surfaces**](/docs/agent-surfaces) — 헤드리스, 채팅, 임베디드 및 전체 앱 패턴
+- [**Actions**](/docs/actions) — 액션 시스템 채팅과 UI 모두 호출
+- [**Native 채팅 UI**](/docs/native-chat-ui) — 채팅 화면 기본 요소 및 런타임 옵션
+- [**Pure-Agent Apps**](/docs/pure-agent-apps) — 나중에 Chat으로 확장될 수 있는 작업 전용 앱

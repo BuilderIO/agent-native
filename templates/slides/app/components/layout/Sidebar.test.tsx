@@ -1,10 +1,11 @@
+import { render, screen, cleanup } from "@testing-library/react";
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
 
 afterEach(() => cleanup());
-import { MemoryRouter } from "react-router";
 import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router";
+
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 vi.mock("@agent-native/core", () => ({
@@ -28,6 +29,15 @@ vi.mock("@agent-native/core/client", () => ({
   appPath: (path: string) => path,
   DevDatabaseLink: () => null,
   FeedbackButton: () => null,
+  useT: () => (key: string) =>
+    ({
+      "navigation.brand": "Slides",
+      "navigation.decks": "Decks",
+      "navigation.designSystems": "Design Systems",
+      "navigation.team": "Team",
+      "sidebar.expandSidebar": "Expand sidebar",
+      "sidebar.collapseSidebar": "Collapse sidebar",
+    })[key] ?? key,
 }));
 vi.mock("@agent-native/core/client/org", () => ({
   OrgSwitcher: () => null,

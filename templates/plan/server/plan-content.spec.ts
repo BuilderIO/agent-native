@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   applyPlanContentPatches,
   migratePlanContent,
@@ -62,6 +63,68 @@ describe("structured plan content", () => {
     expect(cols[1].id).not.toBe(cols[0].id);
     expect(typeof cols[0].blocks[0].id).toBe("string");
     expect(cols[0].blocks[0].data).toMatchObject({ markdown: "old" });
+  });
+
+  it("coerces a full-document wireframe nested in columns to a fragment instead of dropping the whole block", () => {
+    // The exact recap failure mode from the field report: a `columns`
+    // before/after whose wireframe `html` was authored as a full HTML document.
+    // The pre-validation sanitizer must recurse into `columns` (it only handled
+    // `tabs`) AND strip the document scaffold so the block validates and renders
+    // — rather than degrading every column to an "Unsupported block" card with
+    // "Wireframe html must be a bounded fragment...".
+    const result = parsePlanContent({
+      version: 2,
+      title: "Recap",
+      blocks: [
+        {
+          id: "cols",
+          type: "columns",
+          data: {
+            columns: [
+              {
+                id: "before",
+                label: "Before",
+                blocks: [
+                  {
+                    id: "before-wf",
+                    type: "wireframe",
+                    data: {
+                      surface: "panel",
+                      html: '<!doctype html><html><head><style>.x{color:red}</style></head><body><div class="x">Old screen</div></body></html>',
+                    },
+                  },
+                ],
+              },
+              {
+                id: "after",
+                label: "After",
+                blocks: [
+                  {
+                    id: "after-wf",
+                    type: "wireframe",
+                    data: { surface: "panel", html: "<div>New screen</div>" },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
+    expect(result).not.toBeNull();
+    const block = result?.blocks[0];
+    // The block survives as real `columns` (not a salvaged callout placeholder).
+    expect(block?.type).toBe("columns");
+    if (block?.type !== "columns") throw new Error("expected columns");
+    const wf = block.data.columns[0]?.blocks[0];
+    if (wf?.type !== "wireframe") throw new Error("expected wireframe");
+    expect(wf.data.html).toContain("Old screen");
+    const lower = wf.data.html?.toLowerCase() ?? "";
+    expect(lower).not.toContain("<html");
+    expect(lower).not.toContain("<head");
+    expect(lower).not.toContain("<body");
+    expect(lower).not.toContain("<style");
+    expect(lower).not.toContain("doctype");
   });
 
   it("builds UI plans as native content with a canvas and kit-tree wireframes", () => {
@@ -583,6 +646,23 @@ describe("custom-html safety", () => {
     expect(
       sanitizeCustomHtml('<iframe srcdoc="<script>x</script>"></iframe>'),
     ).toBe("");
+  });
+
+  it("coerces a full HTML document down to a bounded fragment", () => {
+    // Wireframe / custom-html / diagram blocks must be bounded fragments; the
+    // renderer owns the surrounding document and styling. When an agent authors
+    // one as a full standalone page, drop the scaffold (doctype/html/head/body)
+    // and keep the body content instead of rejecting the whole block.
+    const out = sanitizeCustomHtml(
+      '<!doctype html><html><head><title>t</title><style>.x{color:red}</style></head><body><div class="x">hi</div></body></html>',
+    );
+    expect(out).toContain("hi");
+    const lower = out.toLowerCase();
+    expect(lower).not.toContain("<html");
+    expect(lower).not.toContain("<head");
+    expect(lower).not.toContain("<body");
+    expect(lower).not.toContain("<style");
+    expect(lower).not.toContain("doctype");
   });
 
   it("sanitizes custom html when normalizing content for storage", () => {

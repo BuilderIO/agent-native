@@ -1,36 +1,63 @@
 import {
+  createSharedEditorExtensions,
+  useCollabReconcile,
+  RegistryBlockDataProvider,
+  useT,
+  type RegistryBlockSideMapBlock,
+  type UseCollabReconcileResult,
+} from "@agent-native/core/client";
+import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
+import {
+  serializeRegistryBlockToMdx,
+  parseRegistryBlockData,
+} from "@shared/nfm-registry";
+import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
+import type { Editor as CoreEditor, Extensions } from "@tiptap/core";
+import Blockquote from "@tiptap/extension-blockquote";
+import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
+import { Table as BaseTable } from "@tiptap/extension-table";
+import { TableCell } from "@tiptap/extension-table-cell";
+import { TableHeader } from "@tiptap/extension-table-header";
+import { TableRow } from "@tiptap/extension-table-row";
+import TaskItem from "@tiptap/extension-task-item";
+import TaskList from "@tiptap/extension-task-list";
+import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Plugin, PluginKey, AllSelection, Selection } from "@tiptap/pm/state";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
+import {
   useEditor,
   EditorContent,
   Extension,
   Node as TiptapNode,
   mergeAttributes,
 } from "@tiptap/react";
-import type { Editor as CoreEditor, Extensions } from "@tiptap/core";
-import type { Doc as YDoc } from "yjs";
-import { Awareness } from "y-protocols/awareness";
-import Placeholder from "@tiptap/extension-placeholder";
-import Blockquote from "@tiptap/extension-blockquote";
-import Link from "@tiptap/extension-link";
-import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
-import { Table as BaseTable } from "@tiptap/extension-table";
-import { TableRow } from "@tiptap/extension-table-row";
-import { TableCell } from "@tiptap/extension-table-cell";
-import { TableHeader } from "@tiptap/extension-table-header";
-import { Markdown } from "tiptap-markdown";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
-import { Plugin, PluginKey, AllSelection, Selection } from "@tiptap/pm/state";
-import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { useCallback, useEffect, useRef, useMemo, useState } from "react";
-import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
+import { toast } from "sonner";
+import { Markdown } from "tiptap-markdown";
+import { Awareness } from "y-protocols/awareness";
+import type { Doc as YDoc } from "yjs";
+
+import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
+import type { CommentThread } from "@/hooks/use-comments";
+
 import { BubbleToolbar } from "./BubbleToolbar";
-import { SlashCommandMenu } from "./SlashCommandMenu";
-import { LinkHoverPreview } from "./LinkHoverPreview";
-import { TableHoverControls } from "./TableHoverControls";
-import { ImageNode } from "./extensions/ImageNode";
-import { VideoNode } from "./extensions/VideoNode";
+import { resolveAnchor, type CommentTextAnchor } from "./comment-anchors";
 import { AudioNode } from "./extensions/AudioNode";
+import { CodeBlock } from "./extensions/CodeBlockNode";
+import {
+  CommentHighlight,
+  setCommentHighlights,
+  commentHighlightKey,
+  type CommentHighlightSpec,
+} from "./extensions/CommentHighlight";
+import { DragHandle } from "./extensions/DragHandle";
+import { ImageNode } from "./extensions/ImageNode";
+import {
+  LOCAL_FILE_USER_EDIT_META,
+  LocalMdxComponentNode,
+} from "./extensions/LocalMdxComponentNode";
 import {
   EMPTY_TOGGLE_BODY_PLACEHOLDER,
   createNotionEditorExtensions,
@@ -38,35 +65,8 @@ import {
   type NotionPageLink,
 } from "./extensions/NotionExtensions";
 import { notionFidelityExtensions } from "./extensions/NotionFidelity";
-import { DragHandle } from "./extensions/DragHandle";
-import { CodeBlock } from "./extensions/CodeBlockNode";
-import { toast } from "sonner";
-import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
-import {
-  serializeRegistryBlockToMdx,
-  parseRegistryBlockData,
-} from "@shared/nfm-registry";
-import {
-  createSharedEditorExtensions,
-  useCollabReconcile,
-  RegistryBlockDataProvider,
-  type RegistryBlockSideMapBlock,
-  type UseCollabReconcileResult,
-} from "@agent-native/core/client";
 import { RegistryBlockNode } from "./extensions/registryBlocks";
-import {
-  LOCAL_FILE_USER_EDIT_META,
-  LocalMdxComponentNode,
-} from "./extensions/LocalMdxComponentNode";
-import {
-  CommentHighlight,
-  setCommentHighlights,
-  commentHighlightKey,
-  type CommentHighlightSpec,
-} from "./extensions/CommentHighlight";
-import { resolveAnchor, type CommentTextAnchor } from "./comment-anchors";
-import type { CommentThread } from "@/hooks/use-comments";
-import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
+import { VideoNode } from "./extensions/VideoNode";
 import {
   getImageFiles,
   getAudioFiles,
@@ -81,6 +81,9 @@ import {
   uploadVideoFile,
   videoUploadErrorMessage,
 } from "./image-upload";
+import { LinkHoverPreview } from "./LinkHoverPreview";
+import { SlashCommandMenu } from "./SlashCommandMenu";
+import { TableHoverControls } from "./TableHoverControls";
 
 /**
  * Override the paragraph node's markdown serialization so that empty
@@ -1562,6 +1565,7 @@ export function VisualEditor({
   onOpenNotionPageLink,
   notionPageId,
 }: VisualEditorProps) {
+  const t = useT();
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -1801,7 +1805,9 @@ export function VisualEditor({
         if (!guards.registerEmitted(normalized)) return;
         queueMicrotask(() => onChangeRef.current(normalized));
       } catch (err: any) {
-        toast.error("Markdown serialization error: " + err.message);
+        toast.error(
+          t("editor.markdownSerializationError", { message: err.message }),
+        );
         console.error("Markdown serialization error:", err);
       }
     },
@@ -2042,7 +2048,7 @@ export function VisualEditor({
             <IconPhoto size={16} />
             <IconVideo size={16} />
             <IconMusic size={16} />
-            <span>Drop media</span>
+            <span>{t("editor.dropMedia")}</span>
           </div>
         </div>
       ) : null}

@@ -1,0 +1,161 @@
+---
+title: "公的エージェントのウェブ"
+description: "パブリック ルートを、エージェントによるクロール可能、読み取り可能、引用可能にし、必要に応じて呼び出し可能にします (robots.txt、llms.txt、マークダウン ミラー、JSON-LD、およびパブリック MCP サーフェス)。"
+---
+
+# 公的エージェントのウェブ
+
+パブリック エージェント Web により、エージェントがパブリック Agent-Native ルートを簡単にクロール、読み取り、引用、呼び出しできるようになります。目標は、すべてのアプリのエンドポイントを公開することではありません。目標は、明示的な制御の背後でプライベート データとツールへのアクセスを維持しながら、すでに公開されているページのクリーンな公開面を公開することです。
+
+ドキュメント サイトはリファレンス実装です。本日発送します:
+
+- デフォルトで取得は許可するがトレーニングを禁止するクローラー ポリシーを備えた `/robots.txt`。
+- ソース ファイルが公開する場合、絶対正規 URL および `lastmod` を含む `/sitemap.xml`。
+- エージェントフレンドリーなコンテンツ検出のための `/llms.txt` および `/llms-full.txt`。
+- Markdown ミラー (`/docs/getting-started.md` など)。
+- 実稼働ビルド後のパブリック ドキュメント ページに対する `Accept: text/markdown` 応答。
+- 基本組織、Web サイト、ページのメタデータ用の JSON-LD。
+- 上記のすべてをチェックする監査 CLI (`npx @agent-native/core@latest audit-agent-web`)。
+
+`publicMcp: true` を設定すると、オプトインされた actions がパブリック MCP エンドポイントとしてさらに公開され、外部エージェントがそれらを直接呼び出すことができるようになります ([MCP Protocol](/docs/mcp-protocol) を参照)。
+
+```an-diagram title="パブリックルートが公開するもの" summary="パブリック ルートは、エージェントに優しい表現に展開されます。ルートの読み取りはツールの呼び出しとは別のものです。ツールへのアクセスはオプトインのままです。"
+{
+  "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>公開ルート<br><small class=\"diagram-muted\">derived from route access settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">.md mirror</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">ツールは非公開のまま</span><small class=\"diagram-muted\">publicMcp + publicAgent.expose required</small></div></div>",
+  "css": ".diagram-web{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-web .diagram-arrow{font-size:22px;line-height:1}.diagram-web .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.diagram-web .gate{display:flex;flex-direction:column;gap:4px;align-items:flex-start}"
+}
+```
+
+## 構成 {#config}
+
+既存のワークスペース アプリ構成の下 (アプリの `agent-native` キーの下の `package.json`、または同等の `workspace.agentWeb`、`agentWeb`、または `root.agentWeb`) に `agentWeb` を追加します。パブリック ルート リストは依然としてアプリのルート アクセス設定から派生します。 `agentWeb` は、パブリック サーフェスがエージェントに対してどのように表示されるかを制御します。
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "audience": "public",
+      "protectedPaths": ["/admin/*"],
+      "agentWeb": {
+        "discoverable": true,
+        "markdownTwins": true,
+        "llmsTxt": true,
+        "jsonLd": true,
+        "publicAgentCard": true,
+        "publicMcp": false,
+        "crawlerPolicy": "discoverable-no-training",
+        "crawlers": {
+          "training": "disallow",
+          "search": "allow",
+          "userTriggered": "allow",
+          "codingAgents": "allow",
+          "autonomousAgents": "allow"
+        }
+      }
+    }
+  }
+}
+```
+
+ほとんどのアプリでは、デフォルトのままにしておきます。アプリにパブリック ルートがある場合、`discoverable` はデフォルトでオンになります。デフォルトのクローラ ポリシーは「検出可能ですがトレーニングは不可能」です。検索、ユーザー トリガーによる取得、コーディング エージェント、自律型ブラウジング エージェントが許可されます。トレーニング クローラーは許可されません。
+
+## 信頼できる情報源のルート {#route-source}
+
+エージェント Web ディスカバリはルート アクセス モデルに従います:
+
+- パブリック アプリは、`protectedPaths` を除くすべてのルートを公開します。
+- 内部アプリは `publicPaths` のみを公開します。
+- パブリック共有ページとフォーム ページはエージェントが読み取ることができます。
+- 近くのページが公開されているという理由だけで、送信されたプライベート データ、認証されたダッシュボード、ユーザー/組織の状態が含まれることはありません。
+
+これにより、混合アプリが自然に保たれます。フォーム アプリはパブリック フォーム ページを公開し、送信内容を非公開に保つことができます。コンテンツ アプリは、公開された投稿を公開し、エディターを非公開に保つことができます。ドキュメント サイトでは、管理ツール以外のすべてを公開できます。
+
+## 公開ページは公開ツールではありません {#public-tools}
+
+公開ページへのアクセスと公開ツールへのアクセスは別のものです。ルートがパブリックであるということは、エージェントがそのルートを HTML、Markdown、サイトマップ エントリ、llms エントリ、および構造化データとして読み取ることができることを意味するだけです。
+
+```an-callout
+{
+  "tone": "warning",
+  "body": "**A public page is not a public tool.** Making a route crawlable never exposes an action. Tool access requires an explicit `publicAgent.expose` opt-in on the action *and* `publicMcp: true` on the app."
+}
+```
+
+パブリック エージェント プロトコルを通じてアクションを公開するには、アクションをオプトインする必要があります。
+
+```an-annotated-code title="公共の場で安全な行動を 1 つ選択する"
+{
+  "filename": "actions/search-docs.ts",
+  "language": "ts",
+  "code": "export default defineAction({\n  description: \"検索 published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"検索 published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});",
+  "annotations": [
+    { "lines": "4", "label": "明示的なオプトイン", "note": "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are." },
+    { "lines": "5-7", "label": "安全性を自己説明する", "note": "読み取り専用としてマークし、認証が必要かどうかを宣言し、重要かどうかフラグを立てます。ポリシーで明示的に許可されていない限り、パブリック MCP は consequential/write アクションを除外します。" }
+  ]
+}
+```
+
+`agentWeb.publicMcp` はデフォルトでは `false` のままです。パブリック MCP が有効な場合、サーバーは `publicAgent.expose === true` を持つ actions のみを公開する必要があり、アクションと認証ポリシーで明示的に許可されていない限り、引き続き consequential を除外するか、actions を書き込む必要があります。
+
+## ビルド時ファイル {#build-time}
+
+`@agent-native/core/agent-web` のフレームワーク ユーティリティは、1 つのページ リストから共通ファイルを生成します。
+
+```ts
+import {
+  buildAgentWebStaticFiles,
+  normalizeAgentWebConfig,
+} from "@agent-native/core/agent-web";
+
+const config = normalizeAgentWebConfig(
+  { crawlerPolicy: "discoverable-no-training" },
+  { hasPublicRoutes: true },
+);
+
+const files = buildAgentWebStaticFiles({
+  siteName: "My Agent-Native App",
+  siteUrl: "https://example.com",
+  description: "Public docs for my app.",
+  config,
+  pages: [
+    {
+      path: "/docs",
+      title: "Docs",
+      description: "Start here.",
+      markdown: "# ドキュメント\n\nここから始めてください。\n",
+      markdownPath: "/docs/getting-started.md",
+      lastmod: new Date(),
+    },
+  ],
+});
+```
+
+Vite アプリは、実稼働ビルド中に `@agent-native/core/vite` の `createAgentWebVitePlugin` を使用して、これらのファイルを `public`、`dist`、`dist/client`、`dist/server/public`、または `build/client` に書き込むことができます。
+
+## サイトを監査する {#audit}
+
+展開されたサイトまたはローカル実稼働サーバーに対して CLI 監査を使用します。
+
+```bash
+npx @agent-native/core@latest audit-agent-web --url https://www.agent-native.com
+```
+
+監査では以下がチェックされます:
+
+- SSR - 可視 HTML。
+- 正規の URL。
+- JSON-LD。
+- `robots.txt` ポリシーと絶対サイトマップ URL。
+- 絶対サイトマップ エントリ。
+- `/llms.txt` および `/llms-full.txt`。
+- Markdown ミラー。
+- `Accept: text/markdown`.
+- 共通エージェント取得ユーザー エージェントに対して偶発的な 401/403 ブロックが発生することはありません。
+
+必要なパブリック サーフェスが欠落している場合、監査はゼロ以外で終了します。
+
+## 次は何ですか
+
+- [**Actions**](/docs/actions) — actions をパブリック エージェント プロトコルにオプトインする方法
+- [**MCP Protocol**](/docs/mcp-protocol) — `publicMcp: true` が有効にする MCP サーフェス
+- [**Deployment**](/docs/deployment) — これらの静的ファイルがビルド中に書き込まれる場所

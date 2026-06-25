@@ -1,13 +1,14 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
+
 import { defineAction } from "../../action.js";
+import { getDbExec } from "../../db/client.js";
+import { getAppProductionUrl } from "../../server/app-url.js";
+import { renderEmail, emailStrong } from "../../server/email-template.js";
+import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
 import { assertAccess, ForbiddenError } from "../access.js";
 import { requireShareableResource } from "../registry.js";
-import { sendEmail, isEmailConfigured } from "../../server/email.js";
-import { renderEmail, emailStrong } from "../../server/email-template.js";
-import { getAppProductionUrl } from "../../server/app-url.js";
-import { getDbExec } from "../../db/client.js";
 import {
   getExtensionShareChangeTargets,
   notifyExtensionShareChanged,
@@ -88,6 +89,25 @@ function nanoid(size = 12): string {
   return id;
 }
 
+function normalizePrincipalId(
+  principalType: "user" | "org",
+  principalId: string,
+): string {
+  return principalType === "user"
+    ? principalId.trim().toLowerCase()
+    : principalId;
+}
+
+function principalIdMatches(
+  sharesTable: any,
+  principalType: "user" | "org",
+  principalId: string,
+): SQL {
+  return principalType === "user"
+    ? sql`lower(${sharesTable.principalId}) = ${principalId}`
+    : eq(sharesTable.principalId, principalId);
+}
+
 /**
  * Returns true if the given email is either an active member of `orgId` or
  * has a pending invitation to `orgId`. Used by resources whose registration
@@ -162,6 +182,10 @@ export default defineAction({
     );
     const actor = getRequestUserEmail();
     if (!actor) throw new ForbiddenError("Not signed in");
+    const principalId = normalizePrincipalId(
+      args.principalType,
+      args.principalId,
+    );
     const beforeExtensionTargets = await getExtensionShareChangeTargets(
       args.resourceType,
       args.resourceId,
@@ -175,10 +199,10 @@ export default defineAction({
         );
       }
       if (args.principalType === "user") {
-        const ok = await isOrgMemberOrInvited(resourceOrgId, args.principalId);
+        const ok = await isOrgMemberOrInvited(resourceOrgId, principalId);
         if (!ok) {
           throw new ForbiddenError(
-            `${args.principalId} is not in your organization. Invite them to the organization first, then share.`,
+            `${principalId} is not in your organization. Invite them to the organization first, then share.`,
           );
         }
       } else if (args.principalType === "org") {
@@ -186,7 +210,7 @@ export default defineAction({
         // extension code in the viewer's auth context — the same threat
         // model that blocks public + cross-org user shares. Pin org-
         // principal shares to the resource's own org.
-        if (args.principalId !== resourceOrgId) {
+        if (principalId !== resourceOrgId) {
           throw new ForbiddenError(
             `${reg.displayName} can only be shared with its own organization, not a different one.`,
           );
@@ -202,7 +226,7 @@ export default defineAction({
         and(
           eq(reg.sharesTable.resourceId, args.resourceId),
           eq(reg.sharesTable.principalType, args.principalType),
-          eq(reg.sharesTable.principalId, args.principalId),
+          principalIdMatches(reg.sharesTable, args.principalType, principalId),
         ),
       );
 
@@ -224,7 +248,7 @@ export default defineAction({
       id,
       resourceId: args.resourceId,
       principalType: args.principalType,
-      principalId: args.principalId,
+      principalId,
       role: args.role,
       createdBy: actor,
       createdAt: new Date().toISOString(),
@@ -239,7 +263,7 @@ export default defineAction({
       args.notify !== false &&
       args.principalType === "user" &&
       isEmailConfigured() &&
-      !isSyntheticQaEmail(args.principalId)
+      !isSyntheticQaEmail(principalId)
     ) {
       try {
         const titleCol = reg.titleColumn ?? "title";
@@ -267,12 +291,12 @@ export default defineAction({
           heading: "You've been given access",
           paragraphs: [
             `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
-            `Use the button below to open it. If prompted, sign in with ${emailStrong(args.principalId)}.`,
+            `Use the button below to open it. If prompted, sign in with ${emailStrong(principalId)}.`,
           ],
           cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
           footer: `You received this because ${actor} granted you ${args.role} access.`,
         });
-        await sendEmail({ to: args.principalId, subject, html, text });
+        await sendEmail({ to: principalId, subject, html, text });
       } catch (err) {
         console.error(
           "[share-resource] failed to send share notification:",

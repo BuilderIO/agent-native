@@ -12,6 +12,7 @@
  * context) should fall through to the env var.
  */
 
+import { getRequestRunContext } from "../server/request-context.js";
 import {
   appStateGet,
   appStatePut,
@@ -19,7 +20,6 @@ import {
   appStateList,
   appStateDeleteByPrefix,
 } from "./store.js";
-import { getRequestRunContext } from "../server/request-context.js";
 
 /**
  * Resolve session ID for the current caller.

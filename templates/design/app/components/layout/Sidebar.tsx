@@ -1,5 +1,11 @@
-import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router";
+import {
+  DevDatabaseLink,
+  FeedbackButton,
+  appPath,
+  useT,
+} from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconPencil,
   IconPalette,
@@ -8,32 +14,33 @@ import {
   IconLayoutSidebarLeftExpand,
   IconTemplate,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-} from "@agent-native/core/client";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router";
+
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 const navItems = [
-  { icon: IconPencil, label: "Designs", href: "/" },
-  { icon: IconTemplate, label: "Templates", href: "/templates" },
-  { icon: IconPalette, label: "Design Systems", href: "/design-systems" },
-  { icon: IconSettings, label: "Settings", href: "/settings" },
+  { icon: IconPencil, labelKey: "navigation.designs", href: "/" },
+  { icon: IconTemplate, labelKey: "navigation.templates", href: "/templates" },
+  {
+    icon: IconPalette,
+    labelKey: "navigation.designSystems",
+    href: "/design-systems",
+  },
+  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
 const COLLAPSE_KEY = "design.sidebar.collapsed";
 
 export function Sidebar() {
   const location = useLocation();
+  const t = useT();
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -55,7 +62,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground",
+        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground",
         collapsed ? "w-14" : "w-56",
       )}
     >
@@ -79,7 +86,9 @@ export function Sidebar() {
               aria-hidden="true"
               className="hidden h-4 w-auto dark:block"
             />
-            <span className="text-sm font-semibold tracking-tight">Design</span>
+            <span className="text-sm font-semibold tracking-tight">
+              {t("navigation.brand")}
+            </span>
           </div>
         )}
         <Tooltip delayDuration={0}>
@@ -87,17 +96,23 @@ export function Sidebar() {
             <button
               onClick={() => setCollapsed((c) => !c)}
               className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-label={
+                collapsed
+                  ? t("navigation.expandSidebar")
+                  : t("navigation.collapseSidebar")
+              }
             >
               {collapsed ? (
-                <IconLayoutSidebarLeftExpand className="h-4 w-4" />
+                <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
               ) : (
-                <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
+                <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
               )}
             </button>
           </TooltipTrigger>
           <TooltipContent side="right">
-            {collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            {collapsed
+              ? t("navigation.expandSidebar")
+              : t("navigation.collapseSidebar")}
           </TooltipContent>
         </Tooltip>
       </div>
@@ -124,14 +139,16 @@ export function Sidebar() {
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                {!collapsed && item.label}
+                {!collapsed && t(item.labelKey)}
               </Link>
             );
             if (collapsed) {
               return (
                 <Tooltip key={item.href} delayDuration={0}>
                   <TooltipTrigger asChild>{link}</TooltipTrigger>
-                  <TooltipContent side="right">{item.label}</TooltipContent>
+                  <TooltipContent side="right">
+                    {t(item.labelKey)}
+                  </TooltipContent>
                 </Tooltip>
               );
             }

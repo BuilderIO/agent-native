@@ -10,6 +10,7 @@
  */
 
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
+
 import { listWorkspaceApps } from "./app-creation-store.js";
 
 let registered = false;

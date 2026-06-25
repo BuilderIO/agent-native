@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
+
 import {
   applyText,
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+
 import { loadDashboardSeed } from "./dashboard-seeds";
 import { getDashboard, upsertDashboard } from "./dashboards-store";
 
@@ -60,7 +62,7 @@ function demoDashboardPath(dashboardId: string): string {
   const params = new URLSearchParams({
     tab: DEMO_NODE_EXPORTER_DEFAULT_TAB,
   });
-  return `/adhoc/${dashboardId}?${params.toString()}`;
+  return `/dashboards/${dashboardId}?${params.toString()}`;
 }
 
 function nowIso(): string {

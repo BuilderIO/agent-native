@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import {
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconArrowsExchange,
   IconChevronDown,
@@ -14,8 +17,13 @@ import {
   IconPlayerPlay,
   IconPlayerStop,
 } from "@tabler/icons-react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+
+import { CaptureInstallButton } from "@/components/capture-install-options";
+import { PageHeader } from "@/components/library/page-header";
+import { DayHeader } from "@/components/meetings/day-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,19 +32,17 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn, shortcutLabel, shortcutModifierLabel } from "@/lib/utils";
-import { DayHeader } from "@/components/meetings/day-header";
-import { PageHeader } from "@/components/library/page-header";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
-import { CaptureInstallButton } from "@/components/capture-install-options";
+import enMessages from "@/i18n/en-US";
+import { cn, shortcutLabel, shortcutModifierLabel } from "@/lib/utils";
 
 export function meta() {
-  return [{ title: "Dictate · Clips" }];
+  return [{ title: enMessages.dictateRoute.pageTitle }];
 }
 
 interface Dictation {
@@ -152,14 +158,17 @@ function dayBucket(iso: string): string {
   }
 }
 
-function sourceMeta(source: string | undefined): {
+function sourceMeta(
+  source: string | undefined,
+  t: ReturnType<typeof useT>,
+): {
   label: string;
   icon: React.ReactNode;
 } {
   switch (source) {
     case "fn-hold":
       return {
-        label: "Hold Fn",
+        label: t("dictateRoute.holdFn"),
         icon: <IconKeyboard className="h-3 w-3" />,
       };
     case "cmd-shift-space":
@@ -169,7 +178,7 @@ function sourceMeta(source: string | undefined): {
       };
     case "manual":
       return {
-        label: "Browser",
+        label: t("dictateRoute.browserDictation"),
         icon: <IconMicrophone2 className="h-3 w-3" />,
       };
     default:
@@ -198,6 +207,7 @@ function Kbd({ children }: { children: React.ReactNode }) {
 }
 
 function HowToCard({ defaultOpen = true }: { defaultOpen?: boolean }) {
+  const t = useT();
   const [open, setOpen] = useState(defaultOpen);
   return (
     <Collapsible
@@ -208,12 +218,14 @@ function HowToCard({ defaultOpen = true }: { defaultOpen?: boolean }) {
       <CollapsibleTrigger className="w-full flex items-center justify-between px-4 py-3 cursor-pointer">
         <div className="flex items-center gap-2">
           <IconMicrophone2 className="h-4 w-4 text-foreground" />
-          <span className="text-sm font-medium">How to use Dictate</span>
+          <span className="text-sm font-medium">
+            {t("dictateRoute.howToUse")}
+          </span>
         </div>
         {open ? (
           <IconChevronDown className="h-4 w-4 text-muted-foreground" />
         ) : (
-          <IconChevronRight className="h-4 w-4 text-muted-foreground" />
+          <IconChevronRight className="h-4 w-4 text-muted-foreground rtl:-scale-x-100" />
         )}
       </CollapsibleTrigger>
       <CollapsibleContent>
@@ -221,22 +233,25 @@ function HowToCard({ defaultOpen = true }: { defaultOpen?: boolean }) {
           <div className="rounded-md border border-border bg-background px-3 py-3">
             <div className="flex items-center gap-2 mb-1.5">
               <IconMicrophone2 className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium">Browser dictation</span>
+              <span className="text-xs font-medium">
+                {t("dictateRoute.browserDictation")}
+              </span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Use the button on this page, or press the shortcut while this tab
-              is focused. Browser dictation saves here for copy and cleanup.
+              {t("dictateRoute.browserDictationDescription")}
             </p>
           </div>
           <div className="rounded-md border border-border bg-background px-3 py-3">
             <div className="flex items-center gap-2 mb-1.5">
               <IconDeviceDesktop className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium">Desktop shortcuts</span>
+              <span className="text-xs font-medium">
+                {t("dictateRoute.desktopShortcuts")}
+              </span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
               Hold <Kbd>Fn</Kbd> anywhere on your Mac, or use{" "}
               <Kbd>{shortcutModifierLabel()}</Kbd> <Kbd>⇧</Kbd> <Kbd>Space</Kbd>
-              , in the desktop app.
+              {t("dictateRoute.desktopShortcutsDescriptionSuffix")}
             </p>
           </div>
         </div>
@@ -254,10 +269,11 @@ function FilterTabs({
   onChange: (next: SourceFilter) => void;
   counts: Record<SourceFilter, number>;
 }) {
+  const t = useT();
   const tabs: Array<{ id: SourceFilter; label: string }> = [
     { id: "all", label: "All" },
-    { id: "manual", label: "Browser" },
-    { id: "fn-hold", label: "Hold Fn" },
+    { id: "manual", label: t("dictateRoute.browserDictation") },
+    { id: "fn-hold", label: t("dictateRoute.holdFn") },
     { id: "cmd-shift-space", label: shortcutLabel("cmd+shift+space") },
   ];
   return (
@@ -309,6 +325,7 @@ function WebDictationPanel({
   onStart: () => void;
   onStop: () => void;
 }) {
+  const t = useT();
   const preview = [draftText, interimText].filter(Boolean).join(" ").trim();
   return (
     <div className="mb-6 rounded-lg border border-border bg-background px-4 py-3">
@@ -316,7 +333,7 @@ function WebDictationPanel({
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-medium">
             <IconMicrophone2 className="h-4 w-4 text-foreground" />
-            Browser dictation
+            {t("dictateRoute.browserDictation")}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             Press{" "}
@@ -348,8 +365,7 @@ function WebDictationPanel({
 
       {!supported ? (
         <div className="mt-3 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs text-muted-foreground">
-          Browser speech recognition is unavailable here. Use Chrome or the
-          desktop app for global dictation.
+          {t("dictateRoute.browserUnavailable")}
         </div>
       ) : listening || preview ? (
         <div className="mt-3 rounded-md border border-border bg-accent/20 px-3 py-2">
@@ -361,7 +377,9 @@ function WebDictationPanel({
           </div>
           <p className="min-h-5 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
             {preview || (
-              <span className="text-muted-foreground">Start speaking...</span>
+              <span className="text-muted-foreground">
+                {t("dictateRoute.startSpeaking")}
+              </span>
             )}
           </p>
         </div>
@@ -371,6 +389,7 @@ function WebDictationPanel({
 }
 
 function DictationRow({ dictation }: { dictation: Dictation }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const qc = useQueryClient();
   const cleanup = useActionMutation<any, { id: string }>("cleanup-dictation");
@@ -378,7 +397,7 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
     any,
     { id: string; fullText: string }
   >("update-dictation");
-  const { label, icon } = sourceMeta(dictation.source);
+  const { label, icon } = sourceMeta(dictation.source, t);
 
   const preview = (dictation.cleanedText || dictation.fullText || "").slice(
     0,
@@ -415,7 +434,7 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
       { id: dictation.id, fullText: next },
       {
         onSuccess: () => {
-          toast.success("Replaced original with cleaned text");
+          toast.success(t("dictateRoute.replacedOriginal"));
           qc.invalidateQueries({ queryKey: ["action", "list-dictations"] });
         },
         onError: () => {
@@ -439,7 +458,7 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
           {expanded ? (
             <IconChevronDown className="h-3.5 w-3.5" />
           ) : (
-            <IconChevronRight className="h-3.5 w-3.5" />
+            <IconChevronRight className="h-3.5 w-3.5 rtl:-scale-x-100" />
           )}
           {formatTime(dictation.createdAt)}
         </div>
@@ -451,10 +470,12 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
         </div>
         <div className="col-span-6 truncate text-foreground/90">
           {preview || (
-            <span className="text-muted-foreground italic">No text</span>
+            <span className="text-muted-foreground italic">
+              {t("dictateRoute.noText")}
+            </span>
           )}
         </div>
-        <div className="col-span-1 text-right text-xs text-muted-foreground tabular-nums">
+        <div className="col-span-1 text-end text-xs text-muted-foreground tabular-nums">
           {formatDuration(dictation.durationMs)}
         </div>
         <div className="col-span-1 flex justify-end">
@@ -503,7 +524,7 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
               <p className="text-sm leading-relaxed whitespace-pre-wrap">
                 {dictation.fullText || (
                   <span className="text-muted-foreground italic">
-                    Empty transcript
+                    {t("dictateRoute.emptyTranscript")}
                   </span>
                 )}
               </p>
@@ -549,7 +570,7 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          Replace original with cleaned
+                          {t("dictateRoute.replaceOriginal")}
                         </TooltipContent>
                       </Tooltip>
                     </>
@@ -564,15 +585,14 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
                     {cleanup.isPending ? (
                       <IconLoader2 className="h-3 w-3 animate-spin" />
                     ) : null}
-                    Cleanup with AI
+                    {t("dictateRoute.cleanupWithAi")}
                   </Button>
                 </div>
               </div>
               <p className="text-sm leading-relaxed whitespace-pre-wrap">
                 {dictation.cleanedText || (
                   <span className="text-muted-foreground italic">
-                    Click "Cleanup with AI" to fix punctuation, casing, and
-                    filler words.
+                    {t("dictateRoute.cleanupHint")}
                   </span>
                 )}
               </p>
@@ -585,43 +605,47 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
 }
 
 function EmptyState({ isDesktopApp }: { isDesktopApp: boolean }) {
+  const t = useT();
   return (
     <div className="rounded-xl border border-dashed border-border bg-gradient-to-br from-accent/30 via-transparent to-transparent px-6 py-16 text-center">
       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background">
         <IconMicrophone2 className="h-6 w-6" />
       </div>
       <p className="mt-4 text-base font-medium text-foreground">
-        Start your first dictation
+        {t("dictateRoute.startFirst")}
       </p>
       {isDesktopApp ? (
         <>
           <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
-            Hold <Kbd>Fn</Kbd> anywhere on your Mac, or press{" "}
-            <Kbd>{shortcutModifierLabel()}</Kbd>
-            <Kbd>⇧</Kbd>
-            <Kbd>Space</Kbd>. Your history will live here.
+            {t("dictateRoute.emptyDesktopDescription", {
+              fnKey: "Fn",
+              modifierKey: shortcutModifierLabel(),
+            })}
           </p>
         </>
       ) : (
         <>
           <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
-            Dictation runs through the desktop app for global shortcuts that
-            work in any app — Slack, your editor, anywhere.
+            {t("dictateRoute.emptyWebDescription")}
           </p>
           <div className="mt-5 flex items-center justify-center">
             <CaptureInstallButton size="sm" className="gap-1.5">
               <IconDownload className="h-3.5 w-3.5" />
-              Download Clips desktop app
+              {t("dictateRoute.downloadDesktopApp")}
             </CaptureInstallButton>
           </div>
           <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
             <Kbd>Fn</Kbd>
-            <span className="text-muted-foreground/60">hold to dictate</span>
+            <span className="text-muted-foreground/60">
+              {t("dictateRoute.holdToDictate")}
+            </span>
             <span className="text-muted-foreground/40">·</span>
             <Kbd>{shortcutModifierLabel()}</Kbd>
             <Kbd>⇧</Kbd>
             <Kbd>Space</Kbd>
-            <span className="text-muted-foreground/60">toggle</span>
+            <span className="text-muted-foreground/60">
+              {t("dictateRoute.toggle")}
+            </span>
           </div>
         </>
       )}
@@ -630,29 +654,30 @@ function EmptyState({ isDesktopApp }: { isDesktopApp: boolean }) {
 }
 
 function DownloadDesktopAppCard() {
+  const t = useT();
   return (
     <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-accent/20 px-4 py-3">
       <div className="min-w-0">
         <div className="flex items-center gap-2 text-sm font-medium">
           <IconDeviceDesktop className="h-4 w-4 text-foreground" />
-          Dictate from anywhere with the desktop app
+          {t("dictateRoute.desktopCtaTitle")}
         </div>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          Hold <Kbd>Fn</Kbd> or press <Kbd>{shortcutModifierLabel()}</Kbd>
-          <Kbd>⇧</Kbd>
-          <Kbd>Space</Kbd> in any app. Browser dictation is unreliable — the
-          desktop app is the way to use this.
+          {t("dictateRoute.desktopCtaDescription", {
+            modifierKey: shortcutModifierLabel(),
+          })}
         </p>
       </div>
       <CaptureInstallButton size="sm" className="gap-1.5">
         <IconDownload className="h-3.5 w-3.5" />
-        Download
+        {t("dictateRoute.downloadDesktopApp")}
       </CaptureInstallButton>
     </div>
   );
 }
 
 export default function DictateRoute() {
+  const t = useT();
   const { data, isLoading, isError } = useActionQuery<
     { dictations: Dictation[] } | Dictation[] | undefined
   >("list-dictations", {}, { retry: false });
@@ -699,7 +724,7 @@ export default function DictateRoute() {
       return;
     }
     if (!text) {
-      toast.error("No speech captured");
+      toast.error(t("dictateRoute.noSpeechCaptured"));
       finishingRef.current = false;
       return;
     }
@@ -715,7 +740,7 @@ export default function DictateRoute() {
       },
       {
         onSuccess: () => {
-          toast.success("Dictation saved");
+          toast.success(t("dictateRoute.dictationSaved"));
           qc.invalidateQueries({ queryKey: ["action", "list-dictations"] });
         },
         onError: (err: Error) => {
@@ -746,7 +771,7 @@ export default function DictateRoute() {
       if (listening || createDictation.isPending) return;
       const Recognition = getSpeechRecognitionCtor();
       if (!Recognition) {
-        toast.error("Browser speech recognition is unavailable here");
+        toast.error(t("dictateRoute.browserUnavailableShort"));
         return;
       }
 
@@ -893,9 +918,7 @@ export default function DictateRoute() {
       <div className="p-6 max-w-5xl mx-auto w-full">
         <div className="mb-6">
           <p className="text-sm text-muted-foreground">
-            {isDesktopApp
-              ? "Voice-to-text dictation with AI cleanup. Use the global shortcut from any app."
-              : "Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut."}
+            {t("dictateRoute.voiceToTextDescription")}
           </p>
         </div>
 
@@ -924,7 +947,7 @@ export default function DictateRoute() {
           </div>
         ) : isError ? (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-            Couldn't load dictations.
+            {t("dictateRoute.loadFailed")}
           </div>
         ) : isEmpty ? (
           <EmptyState isDesktopApp={isDesktopApp} />
@@ -934,7 +957,7 @@ export default function DictateRoute() {
 
             {filtered.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-10 text-center text-sm text-muted-foreground">
-                No dictations matching this filter.
+                {t("dictateRoute.noFilterMatches")}
               </div>
             ) : (
               <div className="space-y-6">
@@ -946,7 +969,7 @@ export default function DictateRoute() {
                         <div className="col-span-2">When</div>
                         <div className="col-span-2">Source</div>
                         <div className="col-span-6">Text</div>
-                        <div className="col-span-1 text-right">Duration</div>
+                        <div className="col-span-1 text-end">Duration</div>
                         <div className="col-span-1" />
                       </div>
                       <div>

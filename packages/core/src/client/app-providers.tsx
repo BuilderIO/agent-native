@@ -46,13 +46,18 @@
  *                              intentionally animates theme changes (e.g. content).
  */
 
-import React from "react";
+import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { ThemeProvider, type Attribute } from "next-themes";
-import { TooltipProvider } from "@radix-ui/react-tooltip";
+import React from "react";
 import { Toaster } from "sonner";
+
 import { ClientOnly } from "./ClientOnly.js";
 import { DefaultSpinner } from "./DefaultSpinner.js";
+import {
+  AgentNativeI18nProvider,
+  type AgentNativeI18nProviderProps,
+} from "./i18n.js";
 
 export interface AppProvidersProps {
   /** QueryClient instance — create with `createAgentNativeQueryClient()`. */
@@ -95,6 +100,13 @@ export interface AppProvidersProps {
   disableThemeTransitions?: boolean;
 
   /**
+   * Optional localization runtime configuration. When omitted, AppProviders
+   * still mounts the i18n provider with an English fallback so templates can
+   * call useT/useLocale before they add catalogs. Pass false to opt out.
+   */
+  i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
+
+  /**
    * When true the providers render without a `<ClientOnly>` gate so SSR
    * streams real markup for public/unauthenticated paths.
    * Defaults to false (authenticated app shell, ClientOnly-gated).
@@ -119,6 +131,7 @@ function ProvidersInner({
   tooltipDelayDuration,
   toaster = DEFAULT_TOASTER,
   disableThemeTransitions = true,
+  i18n,
   children,
 }: {
   queryClient: QueryClient;
@@ -127,8 +140,18 @@ function ProvidersInner({
   tooltipDelayDuration?: number;
   toaster?: React.ReactNode | null;
   disableThemeTransitions?: boolean;
+  i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
   children: React.ReactNode;
 }) {
+  const localizedChildren =
+    i18n === false ? (
+      children
+    ) : (
+      <AgentNativeI18nProvider {...(i18n ?? {})}>
+        {children}
+      </AgentNativeI18nProvider>
+    );
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider
@@ -138,7 +161,7 @@ function ProvidersInner({
         disableTransitionOnChange={disableThemeTransitions}
       >
         <TooltipProvider delayDuration={tooltipDelayDuration}>
-          {children}
+          {localizedChildren}
           {toaster}
         </TooltipProvider>
       </ThemeProvider>
@@ -155,6 +178,7 @@ export function AppProviders({
   tooltipDelayDuration,
   toaster,
   disableThemeTransitions,
+  i18n,
   children,
 }: AppProvidersProps) {
   const fallback = clientOnlyFallback ?? <DefaultSpinner />;
@@ -168,6 +192,7 @@ export function AppProviders({
         tooltipDelayDuration={tooltipDelayDuration}
         toaster={toaster}
         disableThemeTransitions={disableThemeTransitions}
+        i18n={i18n}
       >
         {children}
       </ProvidersInner>
@@ -183,6 +208,7 @@ export function AppProviders({
         tooltipDelayDuration={tooltipDelayDuration}
         toaster={toaster}
         disableThemeTransitions={disableThemeTransitions}
+        i18n={i18n}
       >
         {children}
       </ProvidersInner>

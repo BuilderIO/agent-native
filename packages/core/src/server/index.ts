@@ -79,6 +79,14 @@ export {
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export { verifyCaptcha, type CaptchaVerifyResult } from "./captcha.js";
 export {
+  getLocaleInitScript,
+  parseAcceptLanguage,
+  resolveLocaleFromRequest,
+  type LocaleInitScriptOptions,
+  type ResolveLocaleFromRequestOptions,
+  type ResolvedRequestLocale,
+} from "../localization/server.js";
+export {
   createProductionAgentHandler,
   type ActionEntry,
   type ScriptEntry,
@@ -162,6 +170,7 @@ export type { GoogleAuthMode } from "./google-auth-mode.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
+  refreshGlobalMcpManager,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
 export {

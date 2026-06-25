@@ -1,3 +1,4 @@
+import { IconPlus, IconX } from "@tabler/icons-react";
 /**
  * DurationPicker — multi-select of booking durations rendered as pills.
  *
@@ -8,9 +9,11 @@
  * Shadcn primitives expected in the consumer: button, input, label.
  */
 import { useState } from "react";
-import { IconPlus, IconX } from "@tabler/icons-react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+import { useSchedulingT } from "../../i18n.js";
 
 const DEFAULT_PRESETS = [15, 30, 45, 60];
 
@@ -27,6 +30,7 @@ function cls(...parts: (string | false | null | undefined)[]) {
 }
 
 export function DurationPicker(props: DurationPickerProps) {
+  const t = useSchedulingT();
   const { value, onChange, presets = DEFAULT_PRESETS, min = 5 } = props;
   const [custom, setCustom] = useState(15);
 
@@ -73,7 +77,7 @@ export function DurationPicker(props: DurationPickerProps) {
                   : "border-border text-muted-foreground hover:bg-accent/60 hover:text-foreground",
               )}
             >
-              {mins} min
+              {mins} {t("minAbbrev")}
               {isSelected && isCustom && (
                 <span
                   role="button"
@@ -99,15 +103,17 @@ export function DurationPicker(props: DurationPickerProps) {
           onChange={(e) => setCustom(Number(e.currentTarget.value))}
           min={min}
         />
-        <span className="text-sm text-muted-foreground">minutes</span>
+        <span className="text-sm text-muted-foreground">{t("minutes")}</span>
         <Button size="sm" variant="outline" onClick={add}>
           <IconPlus className="mr-1 h-3.5 w-3.5" />
-          Add
+          {t("add")}
         </Button>
       </div>
       {value.length > 1 && (
         <p className="text-xs text-muted-foreground">
-          Bookers will choose between: {value.map((d) => `${d} min`).join(", ")}
+          {t("bookersChooseBetween", {
+            durations: value.map((d) => `${d} ${t("minAbbrev")}`).join(", "),
+          })}
         </p>
       )}
     </div>

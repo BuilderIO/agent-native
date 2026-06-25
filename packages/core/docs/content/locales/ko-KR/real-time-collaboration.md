@@ -1,0 +1,680 @@
+---
+title: "실시간 협업"
+description: "AI 에이전트가 최고 수준의 피어인 다중 사용자 공동 편집: CRDT 병합, 실시간 존재, SSE 빠른 경로 및 세분화된 서버측 병합 — 모든 SQL 데이터베이스 및 모든 호스트에서 가능합니다."
+---
+
+# 실시간 협업
+
+문서를 열고 동료의 커서가 단락으로 스크롤되는 것을 상상해 보세요.
+그런 다음 위치를 잃지 않고 수술적으로 텍스트를 다시 작성합니다. 그
+동료는 팀원일 수 있습니다. 대리인일 수도 있습니다. 프레임워크에서
+관점은 동일합니다. 둘 다 병합하는 Yjs 작업을 생성합니다
+공유 문서에 충돌이 발생하지 않습니다. 이것이 바로
+에이전트 기반 협업 모델
+
+## 비전 {#vision}
+
+에이전트와 함께 편집하는 것은 Google Docs나 Figma에서 작업하는 것과 같습니다.
+즉각적이고 지치지 않는 동료:
+
+상담원이나 다른 사용자가 SQL에 쓸 때 새로 고치기 위해 UI만 필요한 경우에는 이 중 어떤 것도 필요하지 않습니다. [`useDbSync`](/docs/client)를 사용하세요. 이 페이지는 단일 서식 있는 텍스트 문서의 문자 수준 공동 편집을 위한 것입니다(공유 커서, 충돌 없는 병합). 둘 다 동일한 `/_agent-native/poll` 채널을 타고 있습니다.
+
+이것은 **Yjs**(충돌 없는 병합을 위한 CRDT), **TipTap**(서식 있는 텍스트 편집기) 및 **폴링 기반 동기화**(서버리스 및 엣지를 포함한 모든 배포 환경에서 작동)의 세 가지 검증된 기술을 기반으로 구축되었습니다.
+
+- **CRDT 병합** — 사람과 상담원의 동시 편집 내용이 병합되지 않음
+  충돌. 한 단락을 입력합니다. 에이전트가 다른 에이전트를 다시 작성합니다. 둘 다
+  깨끗하게 착륙하세요.
+- **현재 상태** — `PresenceBar`는 현재 문서에 누가 있는지 보여줍니다.
+  에이전트가 적극적으로 편집 중일 때 에이전트 존재 표시기를 포함합니다.
+- **피어 편집자로서의 에이전트** — 에이전트는 동일한 Yjs를 통해 흐름을 편집합니다
+  사람이 편집하는 인프라. 커서를 방해하지 않고 실시간으로 나타납니다.
+  위치, 선택 또는 실행 취소 스택
+- **어디서나 작동** — Drizzle가 지원하는 모든 SQL 데이터베이스(SQLite, Postgres).
+  서버리스 및 엣지를 포함하여 Nitro가 지원하는 모든 호스팅 대상.
+
+## 건축 {#architecture}
+
+협업 시스템에는 5개의 연동 레이어가 있습니다.
+
+```an-diagram title="다섯 개의 연동 레이어" summary="인메모리 CRDT부터 피어 간에 업데이트를 전달하는 전송까지, 각 계층에는 하나의 작업이 있습니다."
+{
+  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; 충돌 없는 병합, 조정자 없음</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; SQL 표준 콘텐츠</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; updatedAt 기준 조정</span><small class=\"diagram-muted\">에이전트 편집은 SQL bump를 통해 전파</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; 리드 클라이언트 선출</span><small class=\"diagram-muted\">정확히 하나의 탭이 스냅샷 적용</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; SSE 빠른 경로 + 폴링</span><small class=\"diagram-muted\">수십 ms 수준, 어디서나 2초 폴링으로 폴백</small></div></div>",
+  "css": ".diagram-stack{display:flex;flex-direction:column;gap:8px}.diagram-stack .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
+}
+```
+
+### 1. Yjs Y.Doc(CRDT 레이어)
+
+각 공동 작업 문서는 공유 유형을 포함하는 `Y.Doc`입니다. 일반적으로
+서식 있는 텍스트(TipTap이 읽는 ProseMirror 노드 트리)의 경우 `Y.XmlFragment` 또는
+구조화된 JSON 데이터의 경우 `Y.Map` / `Y.Array`. Yjs는 동시 업데이트를 병합합니다
+중앙 조정자가 없습니다. 상태 도달 범위를 교환하는 두 클라이언트
+순서에 관계없이 동일한 결과입니다.
+
+### 2. SQL 표준 콘텐츠(영속적인 진실 소스)
+
+Yjs 상태는 `_collab_docs` 테이블에 base64로 인코딩된 바이너리로 유지됩니다.
+이 테이블은 프레임워크에서 관리되며 공급자에 구애받지 않습니다(SQLite 및 Postgres 사용
+동일한 스키마). 각 행에는 낙관적 동시성 버전 열이 있습니다
+동시 쓰기 경합을 방지합니다. Tombstone 압축은 기회에 따라 실행됩니다.
+저장된 blob이 새로 인코딩된 상태의 4배를 초과하는 경우 — 백그라운드 작업 없음
+필수입니다.
+
+### 3. `updatedAt` 제어 조정(에이전트 편집 전파)
+
+actions 에이전트는 진행 중인 Yjs에 푸시하지 않습니다. 대신 해당 작업은
+표준 SQL 콘텐츠 열 및 범프 `updatedAt`. 변경 동기화 시스템
+범프를 감지하면 열린 편집기가 기록을 다시 가져오고 리드 클라이언트가
+`setContent`를 통해 공유 Y.Doc에 새 콘텐츠를 적용합니다. `updatedAt`
+게이트는 최신 콘텐츠만 채택되도록 보장합니다. 설문 조사 응답이 지연됩니다
+편집 내용을 되돌릴 수 없습니다.
+
+### 4. 리드 클라이언트 선택(중복 제거)
+
+여러 개의 탭이 열려 있으면 정확히 하나의 탭만 신뢰할 수 있는 SQL 스냅샷을 적용합니다.
+공유된 Y.Doc에. 리드는 Yjs가 가장 낮은 탭입니다 `clientID`
+현재 표시되는 동료 중. 에이전트의 인식 항목은
+`AGENT_CLIENT_ID` (최대 정수)이므로 절대로 선두가 될 수 없습니다. 클라이언트 편집
+항상 혼자가 선두입니다. 선거는 조정 없이 결정론적으로 진행됩니다
+왕복(`@agent-native/core/client`에서 `isReconcileLeadClient`).
+
+### 5. SSE 빠른 경로 + 폴링 대체(전송)
+
+콜라보 업데이트 이벤트는 두 가지 경로를 통해 이동합니다:
+
+- **SSE 빠른 경로** — 클라이언트가 `/_agent-native/poll-events`를 구독합니다
+  (`useDbSync`에서 사용하는 것과 동일한 `EventSource`). 콜라보 업데이트 이벤트 도착
+  푸시 스타일, 일반적으로 수십 밀리초. SSE는 건강하지만
+  폴링 루프는 느린 속도(기본적으로 최대 12초)로 완화됩니다.
+- **폴링 대체** — `/_agent-native/poll?since=N`는 2초마다 폴링됩니다.
+  SSE를 사용할 수 없는 경우. 이를 통해 모든 배포에서 협업이 가능해집니다.
+  대상 — 지속적인 연결이 있는 서버리스 기능 포함
+  불가능하고 다른 호출이 다른 요청을 처리할 수 있습니다.
+
+로컬 Yjs 업데이트가 디바운싱되고 `Y.mergeUpdates`(~80ms)와 통합됩니다.
+서버로 전송되기 전에 키 입력 수준의 네트워크 트래픽을 줄입니다.
+일괄 처리는 `visibilitychange` 또는 `pagehide`에서 즉시 플러시됩니다. ㅇ
+상태 벡터 차이(`GET /:docId/state?stateVector=…`)는 다음에서만 가져옵니다.
+재연결, 링 버퍼 오버플로 또는 매 15번째 폴링 주기마다 — 매번은 아님
+주기.
+
+네트워크 오류는 최대 15초로 제한되는 지터가 있는 지수 백오프를 사용합니다.
+
+```an-diagram title="두 개의 편집 경로, 하나의 병합" summary="인간의 키 입력 흐름은 Y.Doc → 서버 → SSE입니다. 상담원 편집은 SQL을 거칩니다. 작업 범프가 업데이트되고 리드 클라이언트가 조정된 다음 변경 사항이 Yjs에 다시 들어갑니다."
+{
+  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">사람 편집</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce 약 80ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">에이전트 편집</span><div class=\"diagram-node\">Action이 SQL 작성<br><small class=\"diagram-muted\">updatedAt 업데이트</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>리드 클라이언트<br><small class=\"diagram-muted\">setContent를 Y.Doc에 적용</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
+  "css": ".diagram-collab{display:flex;flex-direction:column;gap:14px}.diagram-collab .lane{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-collab .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## 빠른 시작 {#quickstart}
+
+### 1. 패키지 설치
+
+```bash
+pnpm add @tiptap/extension-collaboration @tiptap/extension-collaboration-caret @tiptap/y-tiptap @tiptap/core
+```
+
+### 2. ViteoptimDeps 추가
+
+Vite가 개발 중에 호환되지 않는 방식으로 TipTap을 다시 번들링하는 것을 방지합니다.
+
+```ts
+// vite.config.ts
+import { reactRouter } from "@react-router/dev/vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [reactRouter(), agentNative()],
+  optimizeDeps: {
+    include: [
+      "yjs",
+      "y-protocols/awareness",
+      "@tiptap/core",
+      "@tiptap/extension-collaboration",
+      "@tiptap/extension-collaboration-caret",
+      "@tiptap/y-tiptap",
+    ],
+  },
+});
+```
+
+### 3. 협업 서버 플러그인 추가
+
+항상 등록된 공유 가능한 리소스의 이름으로 `resourceType`를 설정하세요.
+`registerShareableResource`를 통해. 없으면 콜라보 푸시 이벤트가 전달됩니다
+문서 수준 범위 지정 없이 인증된 모든 사용자 및 서버
+일회성 경고를 기록합니다.
+
+```ts
+// server/plugins/collab.ts
+import { createCollabPlugin } from "@agent-native/core/server";
+
+export default createCollabPlugin({
+  table: "documents",
+  contentColumn: "content",
+  idColumn: "id",
+  resourceType: "document", // required for access-scoped event delivery
+});
+```
+
+### 4. 클라이언트 후크를 사용하세요
+
+```ts
+import {
+  useCollaborativeDoc,
+  emailToColor,
+  emailToName,
+} from "@agent-native/core/client";
+
+const TAB_ID = generateTabId(); // or Math.random().toString(36)
+
+const { ydoc, awareness, isLoading, activeUsers, agentActive, agentPresent } =
+  useCollaborativeDoc({
+    docId: documentId,
+    requestSource: TAB_ID,
+    user: {
+      name: emailToName(session.email),
+      email: session.email,
+      color: emailToColor(session.email),
+    },
+  });
+```
+
+### 5. TipTap 확장 추가
+
+```ts
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+
+const editor = useEditor({
+  extensions: [
+    StarterKit.configure({ history: false }), // Yjs owns undo
+    Collaboration.configure({ document: ydoc }),
+    CollaborationCaret.configure({
+      provider: { awareness },
+      user: { name, color },
+    }),
+  ],
+  // Do NOT pass content here — Yjs owns the content
+});
+```
+
+### 6. 첫 번째 로드 시 시드(콘텐츠가 존재하는 경우)
+
+Collaboration 확장은 `content` 소품에서 자동 시드되지 않습니다. 만약
+Y.Doc이 비어 있고 문서에 기존 콘텐츠가 있습니다. 시드하세요:
+
+```ts
+useEffect(() => {
+  if (!ydoc || !editor || !isLoaded) return;
+  const fragment = ydoc.getXmlFragment("default");
+  if (fragment.length === 0 && initialContent) {
+    editor.commands.setContent(initialContent);
+  }
+}, [ydoc, editor, isLoaded]);
+```
+
+사용자 신원은 세션 이메일에서 파생됩니다. 프레임워크는 `emailToColor()` 및 `emailToName()` 도우미를 제공하여 이메일 주소에서 일관된 커서 색상과 표시 이름을 생성합니다.
+
+## 댓글 {#comments}
+
+템플릿은 문서에 대한 스레드 토론이 포함된 댓글 시스템을 추가할 수 있습니다. 콘텐츠 템플릿의 댓글 시스템에는 다음을 포함한 전체 구현이 포함됩니다.
+
+- `document_comments` SQL 테이블(스레드, 응답, 해결 상태)
+- `/api/comments/:id`에서 업데이트/삭제하기 위한 콘텐츠 템플릿의 REST 경로입니다. 생성 및 나열은 `add-comment` / `list-comments` actions를 통해 실행됩니다. 사용자 정의 템플릿은 핵심 `POST /_agent-native/collab/:docId/search-replace` 경로에 대해 자체적으로 동등한 엔드포인트를 구현합니다.
+- 스레드 보기 및 답글 UI가 있는 댓글 사이드바
+- 스레드 해결/해결 취소
+- **AI로 보내기** 버튼 — `sendToAgentChat()`를 통해 상담원 채팅에 댓글 스레드 컨텍스트를 보냅니다.
+- actions 요원: `list-comments`, `add-comment`
+- Notion 댓글 동기화: 양방향 풀/푸시를 위한 `sync-notion-comments` 작업
+
+## 콜라보 경로 {#collab-routes}
+
+모든 협업 경로는 협업 플러그인에 의해 `/_agent-native/collab/` 아래에 자동으로 마운트됩니다:
+
+| 경로                          | 목적                                 |
+| ----------------------------- | ------------------------------------ |
+| `GET /:docId/state`           | 전체 Y.Doc 상태 가져오기(base64)     |
+| `POST /:docId/update`         | 클라이언트 Yjs 업데이트 적용         |
+| `POST /:docId/text`           | 전체 텍스트 대체 적용(diff 기반)     |
+| `POST /:docId/search-replace` | Y.XmlFragment에서 외과적 찾기/바꾸기 |
+| `POST /:docId/awareness`      | 동기화 커서/현재 상태                |
+| `GET /:docId/users`           | 문서의 활성 사용자 목록              |
+
+## 에이전트 편집 작업 {#edit-document}
+
+컨텐츠 템플릿의 `edit-document` 작업은 상담원이 공동 작업 모드에서 문서를 변경하는 기본 방법입니다.
+
+```bash
+# 단일 편집
+pnpm action edit-document --id doc123 --find "old text" --replace "new text"
+
+# 일괄 편집
+pnpm action edit-document --id doc123 --edits '[{"find":"old","replace":"new"}]'
+
+# 텍스트 삭제
+pnpm action edit-document --id doc123 --find "delete me" --replace ""
+```
+
+---
+
+## 프레즌스 키트 {#presence-kit}
+
+프레즌스 키트는 기존 인식 레이어 위에 Liveblocks/Figma급 라이브 커서 및 선택 프리미티브를 제공합니다.
+
+선택한 브라우저 하위 경로에서 클라이언트측 상태 및 편집기 UI 가져오기:
+
+```ts
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+  useCollaborativeDoc,
+  usePresence,
+} from "@agent-native/core/client/collab";
+```
+
+서버 측 에이전트 존재 도우미는 하위 수준 공동 작업 패키지에 유지됩니다.
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+```
+
+### 공개 API {#presence-public-api}
+
+| API                                                 | 목적                                                                                                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `useCollaborativeDoc(options)`                      | 안정적인 `Y.Doc` 및 인식 인스턴스를 생성하고 상태 벡터 동기화, SSE 빠른 경로, 폴링 폴백, 활성 사용자 및 에이전트 존재 플래그를 처리합니다. |
+| `usePresence(awareness, localClientId)`             | 원격 참가자를 파생시키고 커서, 선택, 뷰포트 또는 도구 모드와 같은 임의의 로컬 인식 필드를 게시합니다.                                      |
+| `<PresenceBar>`                                     | 선택적인 아바타 클릭 팔로우 모드 연결을 통해 활성 공동 작업자와 AI 에이전트를 렌더링합니다.                                                |
+| `<LiveCursorOverlay>`                               | 정규화된 0-1 좌표에서 위치가 지정된 컨테이너 위에 원격 커서 라벨을 렌더링합니다.                                                           |
+| `<RemoteSelectionRings>`                            | 앱에서 확인된 선택된 DOM 요소 주위에 컬러 링과 라벨을 렌더링합니다.                                                                        |
+| `useFollowUser(options)`                            | 팔로우 참가자가 뷰포트 변경 사항을 게시할 때 콜백을 호출합니다.                                                                            |
+| `toNormalized()` / `fromNormalized()`               | 포인터 좌표를 정규화된 컨테이너 좌표로 변환하거나 그 반대로 변환합니다.                                                                    |
+| `dedupeCollabUsersByEmail()`                        | 열린 탭당 한 번만 표시되는 사용자 없이 맞춤 아바타 스택을 구축하세요.                                                                      |
+| `useCollaborativeMap()` / `useCollaborativeArray()` | Y.Map/Y.Array 구조적 협업을 위한 클라이언트 후크입니다. 템플릿이 정확한 제품 패턴을 입증할 때까지 하위 수준으로 취급됩니다.                |
+
+`UseCollaborativeDocOptions`:
+
+| 옵션                  | 설명                                                                        |
+| --------------------- | --------------------------------------------------------------------------- |
+| `docId`               | 후크를 비활성화하려면 문서 ID 또는 `null`입니다.                            |
+| `pollInterval`        | SSE를 사용할 수 없는 경우 폴링 간격입니다. 기본값: `2000`.                  |
+| `pollIntervalWithSse` | SSE가 정상인 동안에는 폴링 간격이 느립니다. 기본값: `12000`.                |
+| `pauseWhenHidden`     | 숨겨진 동안 원격 업데이트/현재 상태 폴링을 일시 중지합니다. 기본값: `true`. |
+| `baseUrl`             | Collab 끝점 접두사. 기본값: `/_agent-native/collab`.                        |
+| `requestSource`       | 자체 새로 고침 노이즈를 무시하는 데 사용되는 안정적인 탭/소스 ID입니다.     |
+| `user`                | `{ name, email, color }`는 커서와 UI의 존재로 표시됩니다.                   |
+
+`UseCollaborativeDocResult`:
+
+| 필드           | 설명                                                     |
+| -------------- | -------------------------------------------------------- |
+| `ydoc`         | 현재 `docId`에 대한 안정적인 `Y.Doc`.                    |
+| `awareness`    | 커서, 선택 및 팔로우 모드에서 사용되는 Yjs 인식 인스턴스 |
+| `isLoading`    | 초기 서버 상태가 아직 로드 중입니다.                     |
+| `isSynced`     | 후크가 서버 상태를 따라잡았습니다.                       |
+| `activeUsers`  | 인식의 인간 협력자.                                      |
+| `agentActive`  | 현재 상담원이 편집 중입니다.                             |
+| `agentPresent` | 에이전트가 이 문서에 대한 인식 항목을 가지고 있습니다.   |
+
+### 빠른 인식 {#fast-awareness}
+
+인식 상태 변경 사항은 이제 2초 폴링 주기 대신 ~150ms에 전파됩니다.
+
+- **클라이언트 → 서버**: `setPresence()` 또는 `awareness.setLocalStateField()`에 대한 모든 호출은 150ms 이내에 제한된 POST에서 `/_agent-native/collab/:docId/awareness`로 트리거되어 빠른 변경 사항을 하나의 요청으로 통합합니다.
+- **서버 → 클라이언트**: `postAwareness` 핸들러는 저장 후 `AWARENESS_CHANGE_EVENT`를 내보냅니다. `/_agent-native/poll-events` SSE 스트림은 이러한 이벤트를 푸시 스타일로 연결된 피어에 전달합니다. 폴링 전용 배포는 계속 작동합니다. 커서는 오류 없이 폴링 주기로 저하됩니다.
+
+### `usePresence(awareness, localClientId)` {#use-presence}
+
+원격 참가자의 반응 목록과 로컬 존재 페이로드에 대한 설정자를 반환합니다.
+
+```ts
+import { usePresence } from "@agent-native/core/client";
+
+const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
+
+// Publish cursor position (normalized 0–1)
+setPresence({ cursor: { x: 0.4, y: 0.7 }, selection: "#hero" });
+
+// others: OtherPresence[]
+// {
+//   clientId: number
+//   user: { name, email, color }
+//   presence: { cursor?, selection?, viewport?, ... }
+//   isAgent: boolean   ← true for AGENT_CLIENT_ID
+// }
+```
+
+에이전트(AGENT_CLIENT_ID)는 `isAgent: true`와 함께 1급 참가자로 나타납니다. `agentUpdateSelection()`가 서버 측으로 호출되면 해당 선택 메타데이터는 다른 참가자와 마찬가지로 `usePresence`를 통해 흐릅니다.
+
+### `LiveCursorOverlay` {#live-cursor-overlay}
+
+원격 커서를 컨테이너 요소 위에 절대 위치 레이블로 렌더링합니다.
+
+```tsx
+import { LiveCursorOverlay } from "@agent-native/core/client";
+
+// cursor positions stored as { x, y } normalized 0–1 under presence.cursor
+<div ref={containerRef} style={{ position: "relative" }}>
+  {content}
+  <LiveCursorOverlay
+    others={others} // from usePresence
+    containerRef={containerRef}
+    cursorKey="cursor" // key in presence payload (default: "cursor")
+  />
+</div>;
+```
+
+에이전트의 커서는 반짝이는 아이콘으로 뚜렷하게 렌더링됩니다. 120ms의 부드러운 CSS 전환으로 10초 동안 활동이 없으면 커서가 사라집니다.
+
+### `RemoteSelectionRings` {#remote-selection-rings}
+
+원격으로 선택된 요소 위에 색상 외곽선 링 + 이름 태그를 렌더링합니다.
+
+```tsx
+import { RemoteSelectionRings } from "@agent-native/core/client";
+
+<div ref={containerRef} style={{ position: "relative" }}>
+  {content}
+  <RemoteSelectionRings
+    others={others}
+    selectionKey="selection" // key in presence payload (default: "selection")
+    resolveRect={(descriptor) =>
+      document.querySelector(descriptor)?.getBoundingClientRect() ?? null
+    }
+    containerRef={containerRef}
+  />
+</div>;
+```
+
+### `useFollowUser` {#follow-user}
+
+팔로우하는 참가자의 뷰포트가 변경될 때마다 콜백을 호출합니다.
+
+```ts
+import { useFollowUser } from "@agent-native/core/client";
+
+const { isFollowing, stopFollowing } = useFollowUser({
+  others,
+  followingId, // null to stop following
+  viewportKey: "viewport",
+  onViewport: (vp) => {
+    if (vp.fileId) setActiveFileId(vp.fileId);
+    if (vp.zoom) setZoom(vp.zoom);
+  },
+});
+```
+
+참가자는 `setPresence({ viewport: { fileId, zoom } })`로 뷰포트를 게시합니다.
+
+### `PresenceBar` 팔로우 모드 소품 {#presence-bar-follow}
+
+`PresenceBar` 구성요소는 이제 선택적인 팔로우 모드 소품을 허용합니다:
+
+```tsx
+<PresenceBar
+  activeUsers={activeUsers}
+  agentActive={agentActive}
+  onAvatarClick={(user) => {
+    // user is null for the agent avatar
+    const email = user?.email ?? "agent@system";
+    setFollowing((prev) => (prev === email ? null : email));
+  }}
+  followingEmail={followingEmail} // highlighted avatar + "Following X" chip
+/>
+```
+
+### 정규화된 좌표 도우미 {#norm-coords}
+
+```ts
+import { toNormalized, fromNormalized } from "@agent-native/core/client";
+
+// In a pointer event handler:
+const norm = toNormalized(
+  e.clientX,
+  e.clientY,
+  container.getBoundingClientRect(),
+);
+setPresence({ cursor: norm });
+
+// In a cursor renderer:
+const px = fromNormalized(norm, container.getBoundingClientRect());
+```
+
+### 에이전트 커서 연결 {#agent-cursor}
+
+서버측 actions는 `agentUpdateSelection()`를 호출하여 에이전트가 작업 중인 위치를 게시합니다. 디자인 템플릿의 `edit-design` 및 `generate-design` actions는 ​​이를 자동으로 호출합니다. 다른 템플릿도 동일한 작업을 수행할 수 있습니다:
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+
+agentEnterDocument(docId);
+agentUpdateSelection(docId, {
+  selection: "#target-element",
+  editingFile: "index.html",
+});
+try {
+  // ... perform edits ...
+} finally {
+  agentLeaveDocument(docId);
+}
+```
+
+선택 메타데이터는 연결된 클라이언트의 `usePresence`를 통해 `other.presence.selection`로 흐릅니다.
+
+---
+
+## 경로 테이블 {#routes}
+
+모든 경로는 공동 작업에 의해 `/_agent-native/collab/` 아래에 자동 마운트됩니다.
+플러그인:
+
+| 경로                          | 목적                                                              |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `GET /:docId/state`           | 전체 Y.Doc 상태(base64). 차이점에 대해 `?stateVector=` 허용       |
+| `POST /:docId/update`         | 클라이언트 Yjs 업데이트(base64)를 적용합니다. 기본적으로 최대 2MB |
+| `POST /:docId/text`           | 전체 텍스트 대체 적용(diff 기반)                                  |
+| `POST /:docId/search-replace` | Y.XmlFragment에서 외과적 찾기/바꾸기                              |
+| `POST /:docId/json`           | Y.Map/Y.Array에 전체 JSON 차이 적용                               |
+| `GET /:docId/json`            | 현재 JSON 상태 읽기                                               |
+| `POST /:docId/patch`          | 수술용 JSON 패치 작업 적용(업로드/제거/재주문)                    |
+| `POST /:docId/awareness`      | 동기화 커서/현재 상태                                             |
+| `GET /:docId/users`           | 문서의 활성 사용자 목록                                           |
+
+## 운송 및 성능 {#transport}
+
+| 재산                    | 값                                                                 |
+| ----------------------- | ------------------------------------------------------------------ |
+| 디바운스 업데이트       | ~80ms(`Y.mergeUpdates`를 통해 빠른 키 입력 통합)                   |
+| 폴링 간격(SSE 없음)     | 2초(`pollInterval`를 통해 구성 가능)                               |
+| 폴링 간격(SSE 정상)     | ~12초(`pollIntervalWithSse`를 통해 구성 가능)                      |
+| 상태 벡터 가져오기 빈도 | 재연결 시, 링 버퍼 간격 또는 15번째 폴링 주기마다                  |
+| 오류 시 백오프          | 지터가 있는 지수, 최대 15초                                        |
+| 최대 페이로드(쓰기)     | 기본값 2MB, `maxPayloadBytes`를 통해 구성 가능                     |
+| 압축 임계값             | 저장된 blob > 4배의 새로운 인코딩으로 Tombstone Compact가 트리거됨 |
+| 쓰기별 DB 읽기          | 1(`persistMergedState` 내부에서 읽은 CAS 버전만 해당)              |
+
+## 보안 {#security}
+
+### 항상 `resourceType`로 설정
+
+```ts
+createCollabPlugin({
+  resourceType: "document", // the name passed to registerShareableResource
+});
+```
+
+`resourceType`가 없으면 플러그인은 경고를 기록하고 공동 작업 푸시를 브로드캐스트합니다.
+문서 수준 없이 배포 시 인증된 모든 사용자에 대한 이벤트
+범위 지정. 비소유자는 상태 벡터 따라잡기로 돌아갑니다(안전하지만 더 높음
+대기 시간) `resourceType` 설정 여부에 관계 없음
+
+### 액세스 확인
+
+모든 협력 경로에는 인증이 필요합니다. `resourceType`가 설정되면 읽습니다.
+적어도 뷰어 액세스 권한이 필요하며 쓰기에는 편집자 액세스 권한이 필요합니다.
+공유 시스템과 동일한 `resolveAccess` / `assertAccess` 도우미. 404
+(403 아님)은 문서 존재 누출을 방지하기 위해 액세스 실패 시 반환됩니다.
+
+### 페이로드 제한
+
+쓰기 경로(`update`, `text`, `json`, `patch`, `search-replace`) 거부
+HTTP 413으로 구성된 제한을 초과하는 페이로드. 기본값은 2MB입니다.
+플러그인별 재정의:
+
+```ts
+createCollabPlugin({
+  resourceType: "document",
+  maxPayloadBytes: 512 * 1024, // 512 KB
+});
+```
+
+### 인식 범위
+
+인식 경로(`POST /awareness`, `GET /users`)는 동일한 방식으로 통제됩니다.
+읽은 대로 액세스 확인 - 뷰어 액세스가 부족한 사용자는 다른 사용자를 알 수 없습니다.
+문서를 수정 중입니다.
+
+## 패턴 {#patterns}
+
+### 구조화된 데이터를 위한 세분화된 서버 측 병합
+
+구조화된 문서(슬라이드 데크, 양식 작성 도구, 디자인 파일)의 경우 Yjs
+두 명의 에이전트 또는 사용자가 동일한 내용을 다시 작성하면 본문 공동 작업 모델이 충돌할 수 있습니다.
+최상위 레벨 동시 기록. 더 안전한 패턴은 **세부적인 서버 측
+병합**: 일련의 대상 작업을 허용하는 작업을 정의하고
+원자적으로 적용되므로 서로 다른 항목에 대한 동시 편집이 모두 유지됩니다.
+
+**슬라이드(`patch-deck`)** — 매번 전체 데크 JSON를 교체하는 대신
+변경하면 해당 작업은 슬라이드별 작업을 허용합니다.
+
+```ts
+// Conceptual patch-deck action shape
+type PatchDeckOp =
+  | { type: "patch"; slideId: string; fields: Partial<SlideFields> }
+  | { type: "add"; position: number; slide: SlideData }
+  | { type: "delete"; slideId: string }
+  | { type: "reorder"; slideId: string; newIndex: number };
+```
+
+두 명의 사용자가 서로 다른 슬라이드를 편집하는 데 성공했습니다.
+데크 레벨
+
+**양식(`patch-form-fields`)** — upsert/remove/reorder를 사용한 필드 수준 병합
+ops이므로 서로 다른 양식 필드에 대한 동시 편집이 모두 유지됩니다.
+
+다음과 같은 경우에 이 패턴을 사용하세요:
+
+- 문서가 구조화되어 있습니다(컨테이너 내부의 항목).
+- 동시 편집은 다른 항목을 대상으로 합니다.
+- 바디 콜라보(Yjs `Y.XmlFragment`)는 과도하거나 적용할 수 없습니다.
+
+다음과 같은 경우 본문 공동작업(Y.XmlFragment + TipTap)을 사용하세요.
+
+- 문서는 모든 영역을 편집할 수 있는 자유 형식의 서식 있는 텍스트입니다.
+- 커서 수준 CRDT 병합이 중요합니다.
+
+### 공동 실행 취소 범위 지정(Y.UndoManager)
+
+디자인 템플릿은 `Y.UndoManager`를 사용하여 실행 취소/다시 실행 범위를 로컬로 지정합니다.
+사용자 자신의 편집. 원격 피어 편집 및 에이전트 편집은
+사용자의 Cmd+Z.
+
+```ts
+import * as Y from "yjs";
+
+const LOCAL_EDIT_ORIGIN = "local";
+
+const undoManager = new Y.UndoManager(ydoc.getText("content"), {
+  trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
+  captureTimeout: 800, // coalesce rapid slider drags into one undo step
+});
+
+// Wrap local edits with the tracked origin
+ydoc.transact(() => {
+  // apply local style change
+}, LOCAL_EDIT_ORIGIN);
+
+// Undo/redo — only reverses LOCAL_EDIT_ORIGIN transactions
+undoManager.undo(); // Cmd+Z
+undoManager.redo(); // Shift+Cmd+Z
+```
+
+주요 속성:
+
+- `trackedOrigins`는 `Set`여야 합니다. 원본이 일치하는 transactions만
+  실행 취소 스택에 캡처됩니다.
+- 원격 업데이트(원본 `"remote"`) 및 에이전트 업데이트(원본 `"agent"`)는
+  캡처되지 않았습니다.
+- 활성 문서가 변경되면 관리자를 다시 만들고 폐기합니다. 부실함
+  관리자는 무한히 성장할 수 있는 참고 자료를 보유하고 있습니다.
+
+## 알려진 제한사항 {#limitations}
+
+```an-callout
+{
+  "tone": "risk",
+  "body": "**동일 영역 동시 재작성은 마지막 쓰기 승리입니다.**사람이 *정확히 동일한 영역*에 저장하지 않은 편집 내용을 가지고 있는 동안 에이전트가 구절을 다시 작성하는 경우 리드 클라이언트 스냅샷이 진행 중인 사람의 편집 내용을 방해할 수 있습니다. 다른 영역의 편집 내용은 항상 CRDT를 통해 깔끔하게 병합됩니다. 구조화된 문서의 경우 세분화된 서버 측 병합을 사용하여 이를 완전히 회피합니다."
+}
+```
+
+- **동일 지역 동시 재작성은 LWW** — 에이전트가
+  구절과 인간이 정확히 같은 지역에 저장되지 않은 편집 내용을 가지고 있습니다.
+  리드 클라이언트 스냅샷은 사람의 진행 중인 변경 사항을 덮어쓸 수 있습니다.
+  다른 지역은 CRDT를 통해 올바르게 병합됩니다. 세분화된 서버측 병합
+  (위 참조)는 구조화된 문서에 대해 이를 방지합니다.
+- **서버리스에서 진행 중인 쓰기 잠금** — `_writeLocks` 맵은
+  프로세스-로컬. 다른 서버리스에 동시 요청이 도착함
+  호출은 SQL CAS 계층(낙관적 동시성)에서 직렬화됩니다.
+  메모리 내 잠금보다. 이는 안전하지만 처리량이 많은 시나리오를 의미합니다.
+  서버리스에서는 CAS 재시도가 더 많이 나타날 수 있습니다.
+- **인식은 프로세스별로 이루어집니다** — 메모리 내 저장소 인식은
+  프로세스-로컬. 서버리스/다중 프로세스 배포에서는 부분적 인식이 보입니다.
+  호출당 상태. 클라이언트는 각 항목에 대한 전체 인식 스냅샷을 계속 수신합니다
+  폴링 주기이므로 현재 상태 표시기가 하나의 폴 간격 내에 업데이트됩니다.
+
+## 존재감 {#presence}
+
+`useCollaborativeDoc` 후크는 다음을 반환합니다:
+
+- `activeUsers` — 모든 피어에 대한 `CollabUser` 배열(이름, 이메일, 색상)
+  현재 문서에 있습니다(Awareness에서 출처).
+- `agentActive` — 상담원이 편집한 후 잠시 동안 `true`(
+  일시적인 시각적 표시기).
+- `agentPresent` — 상담원이 활성 인식 항목을 갖고 있는 동안 `true`
+  (지속적인 존재 하트비트).
+
+다음에서 `emailToColor(email)` 및 `emailToName(email)` 사용
+일관된 커서 색상과 디스플레이를 생성하는 `@agent-native/core/client`
+이메일 주소의 이름.
+
+`activeUsers`로 렌더링된 `PresenceBar`는 실제 인간과 에이전트를 보여줍니다
+협력자. 슬라이드별 존재(사용자가 특정 슬라이드를 보고 있음)
+동일한 인식 상태 위에 레이어
+
+## 관련 문서 {#related}
+
+- [Real-Time Sync](/docs/client#usedbsync) — `useDbSync` + `useChangeVersion`
+  `updatedAt` 범프 드라이빙 에디터 조정을 제공하는 시스템
+- [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
+  `resourceType`에서 참조하는 액세스 모델의 경우 `assertAccess`입니다.
+- [Sharing](/docs/sharing) — 문서 공유 방법 및 액세스 권한 부여 방법
+- [Template: Content](/docs/template-content) — 참조 구현
+  공동 서식 있는 텍스트 편집.
+- [Template: Slides](/docs/template-slides) — granular `patch-deck` action for
+  구조화된 동시 편집
+- [Template: Forms](/docs/template-forms) — 필드 수준 `patch-form-fields`
+  서버측 병합.
+- [Template: Design](/docs/template-design) — `Y.UndoManager` 실행 취소/다시 실행 범위
+  로컬 사용자 편집

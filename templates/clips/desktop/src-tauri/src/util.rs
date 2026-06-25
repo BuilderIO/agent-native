@@ -208,7 +208,10 @@ pub fn reapply_capture_exclusion_to_overlays(app: &tauri::AppHandle) {
                 set_window_capture_excluded(window, false);
                 continue;
             }
-            let private_guide = matches!(label.as_str(), "region-guides" | "region-guide-editor");
+            let private_guide = matches!(
+                label.as_str(),
+                "region-guides" | "region-guide-editor" | "region-record-border"
+            );
             set_window_capture_excluded(window, private_guide || !visible);
         }
     }
@@ -271,6 +274,60 @@ pub fn show_without_activation(window: &WebviewWindow) {
     // is a macOS-flavored complaint; if it shows up on Windows / Linux
     // we'll add a per-platform fix.
     let _ = window.show();
+}
+
+/// Show a user-invoked popover and make a best-effort pass at bringing it to
+/// the front even when Clips was launched as a background login item.
+#[cfg(target_os = "macos")]
+pub fn present_interactive_window(window: &WebviewWindow) {
+    let _ = window.show();
+    let win = window.clone();
+    if let Err(err) = win.clone().run_on_main_thread(move || {
+        use objc2::runtime::{AnyClass, AnyObject, Bool};
+
+        let label = win.label().to_string();
+        let ns_window_ptr = match win.ns_window() {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!(
+                    "[clips-tray] present_interactive_window({label}): ns_window() failed: {err}"
+                );
+                return;
+            }
+        };
+        if ns_window_ptr.is_null() {
+            eprintln!("[clips-tray] present_interactive_window({label}): ns_window is null");
+            return;
+        }
+
+        unsafe {
+            if let Ok(class_name) = std::ffi::CString::new("NSApplication") {
+                if let Some(cls) = AnyClass::get(&class_name) {
+                    let ns_app: *mut AnyObject = objc2::msg_send![cls, sharedApplication];
+                    if !ns_app.is_null() {
+                        let _: () =
+                            objc2::msg_send![&*ns_app, activateIgnoringOtherApps: Bool::YES];
+                    }
+                }
+            }
+
+            let obj = ns_window_ptr as *mut AnyObject;
+            let _: () = objc2::msg_send![&*obj, setHidesOnDeactivate: false];
+            let _: () = objc2::msg_send![&*obj, orderFrontRegardless];
+            let _: () =
+                objc2::msg_send![&*obj, makeKeyAndOrderFront: std::ptr::null::<AnyObject>()];
+        }
+        dlog!("[clips-tray] present_interactive_window({label}): ordered front");
+    }) {
+        eprintln!("[clips-tray] present_interactive_window: run_on_main_thread failed: {err}");
+    }
+    let _ = window.set_focus();
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn present_interactive_window(window: &WebviewWindow) {
+    let _ = window.show();
+    let _ = window.set_focus();
 }
 
 /// Returns `(x, y, width, height)` of the monitor where the tray icon was last

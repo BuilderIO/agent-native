@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { runSkills as runCoreSkills } from "@agent-native/core/cli/skills";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   installSkills,
@@ -95,6 +95,17 @@ describe("@agent-native/skills", () => {
       clients: ["codex", "cowork"],
       scope: "project",
       updateInstructions: true,
+    });
+  });
+
+  it("parses scaffold update commands for generated workspaces", () => {
+    expect(
+      parseSkillsCliArgs(["update", "scaffold", "--project"]),
+    ).toMatchObject({
+      command: "update",
+      source: "scaffold",
+      scope: "project",
+      scopeExplicit: true,
     });
   });
 
@@ -194,6 +205,17 @@ describe("@agent-native/skills", () => {
     ).toBe(false);
   });
 
+  it("forwards scaffold update commands through the shared core flow", async () => {
+    await runSkillsCli(["update", "scaffold", "--project"], {
+      isInteractive: () => false,
+    });
+
+    expect(runCoreSkills).toHaveBeenCalledWith(
+      ["update", "scaffold", "--scope", "project"],
+      expect.objectContaining({ catalogMode: "all" }),
+    );
+  });
+
   it("installs every plain source skill directly when no skill is explicit", async () => {
     const repo = tmpDir();
     const project = tmpDir();
@@ -273,6 +295,7 @@ describe("@agent-native/skills", () => {
     writeSkill(repo, "quick-recap");
     writeSkill(repo, "efficient-fable");
     let skillContext: SkillsPromptContext | undefined;
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await runSkillsCli(["add", "--copy", repo], {
       baseDir: project,
@@ -320,6 +343,66 @@ describe("@agent-native/skills", () => {
       initialSkills: ["visual-plan", "visual-recap"],
       options: [{ value: "quick-recap" }],
     });
+  });
+
+  it("prints startup progress before interactive delegated installs", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "quick-recap");
+    const stderr: string[] = [];
+    const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
+    delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+
+    try {
+      await runSkillsCli(["add", "--copy", repo], {
+        baseDir: project,
+        isInteractive: () => true,
+      });
+    } finally {
+      if (previousDirect === undefined)
+        delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+      else process.env.AGENT_NATIVE_SKILLS_DIRECT = previousDirect;
+    }
+
+    expect(stderr.join("")).toContain("Preparing Agent Native skills");
+  });
+
+  it("keeps delegated startup progress out of machine-readable and non-interactive output", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "quick-recap");
+    const stderr: string[] = [];
+    const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
+    delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+
+    try {
+      await runSkillsCli(["add", "--copy", repo, "--json"], {
+        baseDir: project,
+        isInteractive: () => true,
+      });
+      await runSkillsCli(["add", "--copy", repo, "--quiet"], {
+        baseDir: project,
+        isInteractive: () => true,
+      });
+      await runSkillsCli(["add", "--copy", repo], {
+        baseDir: project,
+        isInteractive: () => false,
+      });
+    } finally {
+      if (previousDirect === undefined)
+        delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+      else process.env.AGENT_NATIVE_SKILLS_DIRECT = previousDirect;
+    }
+
+    expect(stderr.join("")).toBe("");
   });
 
   it("installs copied source skills headlessly in direct mode", async () => {

@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import { pushDocumentToNotion } from "../server/lib/notion-sync.js";
 import { z } from "zod";
+
+import { pushDocumentToNotion } from "../server/lib/notion-sync.js";
 
 export default defineAction({
   description: "Push local document content to a linked Notion page.",

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentChatEvent } from "./types.js";
+
 import { EngineError } from "./engine/types.js";
+import type { AgentChatEvent } from "./types.js";
 
 vi.mock("./run-store.js", () => ({
   insertRun: vi.fn(() => Promise.resolve()),
@@ -21,6 +22,7 @@ vi.mock("./run-store.js", () => ({
   updateRunHeartbeat: vi.fn(() => Promise.resolve()),
   bumpRunProgress: vi.fn(() => Promise.resolve()),
   reapIfStale: vi.fn(() => Promise.resolve(null)),
+  reapUnclaimedBackgroundRun: vi.fn(() => Promise.resolve(false)),
   ensureTerminalRunEvent: vi.fn(() => Promise.resolve()),
   setRunError: vi.fn(() => Promise.resolve()),
   STALE_RUN_ERROR_EVENT: {
@@ -34,8 +36,12 @@ vi.mock("./run-store.js", () => ({
   },
 }));
 
+import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
+  BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+  DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
   DEFAULT_ERRORED_RUN_RETENTION_MS,
   DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
@@ -62,8 +68,9 @@ import {
   ensureTerminalRunEvent,
   cleanupOldRuns,
   setRunError,
+  reapIfStale,
+  reapUnclaimedBackgroundRun,
 } from "./run-store.js";
-import { registerErrorCaptureProvider } from "../server/capture-error.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
 const originalRetentionEnv = process.env.AGENT_RUN_RETENTION_MS;
@@ -141,6 +148,10 @@ describe("run manager soft timeout", () => {
     vi.mocked(updateRunStatusIfRunning).mockResolvedValue(true);
     vi.mocked(cleanupOldRuns).mockClear();
     vi.mocked(setRunError).mockClear();
+    vi.mocked(reapUnclaimedBackgroundRun).mockReset();
+    vi.mocked(reapUnclaimedBackgroundRun).mockResolvedValue(false);
+    vi.mocked(reapIfStale).mockReset();
+    vi.mocked(reapIfStale).mockResolvedValue(null as any);
   });
 
   afterEach(() => {
@@ -310,6 +321,119 @@ describe("run manager soft timeout", () => {
 
     expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
       HOSTED_SOFT_TIMEOUT_CEILING_MS,
+    );
+  });
+
+  // ── Durable background soft-timeout (opt-in `backgroundFunction`) ─────────
+  // The foreground/interactive path is unchanged (40s clamp); only an explicit
+  // background-function invocation lifts the ceiling to the host-natural budget.
+
+  it("FOREGROUND hosted run still clamps to the 40s interactive ceiling (guardrail)", () => {
+    process.env.NETLIFY = "true";
+    // No backgroundFunction flag — this is the normal interactive path.
+    expect(resolveRunSoftTimeoutMs(240_000)).toBe(
+      HOSTED_SOFT_TIMEOUT_CEILING_MS,
+    );
+    expect(HOSTED_SOFT_TIMEOUT_CEILING_MS).toBe(40_000);
+  });
+
+  it("BACKGROUND hosted run uses the host-natural ~13min budget by default", () => {
+    process.env.NETLIFY = "true";
+    expect(
+      resolveRunSoftTimeoutMs(undefined, { backgroundFunction: true }),
+    ).toBe(DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS);
+    // Sanity: that default is well above the 40s interactive clamp.
+    expect(DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS).toBe(
+      BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+    );
+    expect(BACKGROUND_SOFT_TIMEOUT_CEILING_MS).toBeGreaterThan(
+      HOSTED_SOFT_TIMEOUT_CEILING_MS,
+    );
+  });
+
+  it("BACKGROUND hosted run clamps to the 13min ceiling, NOT the 40s one", () => {
+    process.env.NETLIFY = "true";
+    // An override that exceeds the background ceiling clamps down to ~13min,
+    // but is NOT pulled down to the foreground 40s clamp.
+    const resolved = resolveRunSoftTimeoutMs(60 * 60_000, {
+      backgroundFunction: true,
+    });
+    expect(resolved).toBe(BACKGROUND_SOFT_TIMEOUT_CEILING_MS);
+    expect(resolved).toBeGreaterThan(HOSTED_SOFT_TIMEOUT_CEILING_MS);
+  });
+
+  it("BACKGROUND override below the ceiling is honored as-is on hosted", () => {
+    process.env.NETLIFY = "true";
+    // A short serverless host that DOES have a wall keeps its small budget and
+    // would chain — the background ceiling is a max, not a floor.
+    expect(
+      resolveRunSoftTimeoutMs(5 * 60_000, { backgroundFunction: true }),
+    ).toBe(5 * 60_000);
+  });
+
+  it("BACKGROUND on a non-hosted (long-lived) runtime is effectively unbounded (0)", () => {
+    // Local / self-hosted Node: one chunk, no host wall, no framework timeout.
+    expect(
+      resolveRunSoftTimeoutMs(undefined, { backgroundFunction: true }),
+    ).toBe(0);
+  });
+
+  // ── Regression: soft-timeout MUST match the REAL function budget ──────────
+  // The 60s-wall overshoot bug came from selecting `backgroundFunction: true`
+  // whenever the run was a `_process-run` worker, regardless of whether it was
+  // actually inside a real `-background` (15-min) function. These tests pin the
+  // exact composition production-agent.ts uses:
+  //   backgroundFunction = isBackgroundWorker && isInBackgroundFunctionRuntime()
+  // so a worker that landed on the ~60s synchronous function keeps the 40s
+  // clamp and checkpoints cleanly instead of looping at the 60s hard wall.
+  function resolveForWorker(opts: {
+    isBackgroundWorker: boolean;
+    overrideMs?: number;
+  }): number {
+    const runsInBackgroundFunction =
+      opts.isBackgroundWorker && isInBackgroundFunctionRuntime();
+    return resolveRunSoftTimeoutMs(opts.overrideMs, {
+      useHostedDefault: true,
+      backgroundFunction: runsInBackgroundFunction,
+    });
+  }
+
+  it("FOREGROUND POST (not a worker) uses the 40s hosted default regardless of function name", () => {
+    process.env.NETLIFY = "true";
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+    expect(resolveForWorker({ isBackgroundWorker: false })).toBe(
+      DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+    );
+  });
+
+  it("INLINE FALLBACK (foreground ~60s fn, not a worker) uses the 40s default", () => {
+    // The graceful inline fallback runs in the foreground ~60s function. Even
+    // though durable is active, it is NOT a background worker → must stay 40s.
+    process.env.NETLIFY = "true";
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+    expect(
+      resolveForWorker({ isBackgroundWorker: false, overrideMs: 240_000 }),
+    ).toBe(HOSTED_SOFT_TIMEOUT_CEILING_MS);
+  });
+
+  it("WORKER on the regular ~60s function (name does NOT end in -background) keeps the 40s clamp (the bug)", () => {
+    // This is the exact overshoot scenario: the `_process-run` worker re-entered
+    // but the `-background` function was never emitted, so it landed on the
+    // synchronous `server` function. It MUST checkpoint at 40s, not 13min.
+    process.env.NETLIFY = "true";
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+    expect(isInBackgroundFunctionRuntime()).toBe(false);
+    expect(resolveForWorker({ isBackgroundWorker: true })).toBe(
+      DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+    );
+  });
+
+  it("WORKER inside a real -background function gets the ~13min budget", () => {
+    process.env.NETLIFY = "true";
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server-agent-background";
+    expect(isInBackgroundFunctionRuntime()).toBe(true);
+    expect(resolveForWorker({ isBackgroundWorker: true })).toBe(
+      DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
     );
   });
 
@@ -997,6 +1121,59 @@ describe("run manager soft timeout", () => {
     expect(result).toMatchObject({
       runId: "run-recent-errored",
       status: "errored",
+    });
+  });
+
+  // ─── FALLBACK HARDENING: unclaimed background run recovery ──────────────────
+  it("recovers an unclaimed-stale background run (202 acked, worker never started)", async () => {
+    // dispatch_mode still 'background' (never flipped to 'background-processing')
+    // means the bg-fn worker silently died. The read path must recover it.
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-unclaimed",
+      threadId: "thread-unclaimed",
+      status: "running",
+      startedAt: Date.now() - 30_000,
+      heartbeatAt: Date.now() - 30_000,
+      completedAt: null,
+      lastProgressAt: null,
+      dispatchMode: "background",
+      diagStage: null,
+    });
+    vi.mocked(reapUnclaimedBackgroundRun).mockResolvedValueOnce(true);
+    vi.mocked(reapIfStale).mockClear();
+
+    const result = await getActiveRunForThreadAsync("thread-unclaimed");
+
+    // Recovered → the read returns null (run no longer "active"), and we never
+    // fell through to the generic stale reaper.
+    expect(result).toBeNull();
+    expect(reapUnclaimedBackgroundRun).toHaveBeenCalledWith("run-unclaimed");
+    expect(reapIfStale).not.toHaveBeenCalled();
+  });
+
+  it("does NOT attempt unclaimed recovery for a claimed (background-processing) run", async () => {
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-processing",
+      threadId: "thread-processing",
+      status: "running",
+      startedAt: Date.now() - 5_000,
+      heartbeatAt: Date.now() - 1_000,
+      completedAt: null,
+      lastProgressAt: Date.now() - 1_000,
+      dispatchMode: "background-processing",
+      diagStage: '{"stage":"worker_started","at":1}',
+    });
+    vi.mocked(reapUnclaimedBackgroundRun).mockClear();
+
+    const result = await getActiveRunForThreadAsync("thread-processing");
+
+    // A claimed, heartbeating worker is left alone and its diagnostics surface.
+    expect(reapUnclaimedBackgroundRun).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      runId: "run-processing",
+      status: "running",
+      dispatchMode: "background-processing",
+      diagStage: '{"stage":"worker_started","at":1}',
     });
   });
 

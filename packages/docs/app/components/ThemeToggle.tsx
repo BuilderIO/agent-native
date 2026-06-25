@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconMoon, IconSun } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
@@ -27,6 +28,7 @@ function applyTheme(theme: Theme) {
 
 export default function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>("light");
+  const t = useT();
 
   useEffect(() => {
     const initial = getInitialTheme();
@@ -41,7 +43,7 @@ export default function ThemeToggle() {
     window.localStorage.setItem("theme", next);
   }
 
-  const label = `Theme: ${theme}`;
+  const label = t("theme.label", { theme: t(`theme.${theme}`) });
 
   return (
     <button

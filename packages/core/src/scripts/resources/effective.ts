@@ -8,12 +8,12 @@
  *   pnpm action resource-effective --path <path> [--format json|text]
  */
 
-import { parseArgs, fail } from "../utils.js";
 import {
   ensurePersonalDefaults,
   resourceEffectiveContext,
 } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { parseArgs, fail } from "../utils.js";
 
 export default async function resourceEffectiveScript(
   args: string[],

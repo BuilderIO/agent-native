@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useT } from "@agent-native/core/client";
+import type { CalendarEvent } from "@shared/api";
+import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import {
   eachHourOfInterval,
   format,
@@ -12,16 +14,17 @@ import {
   addDays,
   min,
 } from "date-fns";
-import { cn } from "@/lib/utils";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+
+import { useCalendarContext } from "@/components/layout/AppLayout";
+import { useEventDrag } from "@/hooks/use-event-drag";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
 import { EventStatusIcon } from "@/lib/rsvp-status";
-import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
-import { IconAlertTriangleFilled } from "@tabler/icons-react";
+import { cn } from "@/lib/utils";
+
 import { EventDetailPopover } from "./EventDetailPopover";
-import type { CalendarEvent } from "@shared/api";
-import { useEventDrag } from "@/hooks/use-event-drag";
-import { useCalendarContext } from "@/components/layout/AppLayout";
-import { useViewPreferences } from "@/hooks/use-view-preferences";
 
 interface DayViewProps {
   events: CalendarEvent[];
@@ -128,6 +131,7 @@ export function DayView({
   onDraftDiscard,
   isLoading = false,
 }: DayViewProps) {
+  const t = useT();
   const { setFocusedEvent } = useCalendarContext();
   const { prefs } = useViewPreferences();
   const [now, setNow] = useState(new Date());
@@ -243,7 +247,7 @@ export function DayView({
       {allDayEvents.length > 0 && (
         <div className="border-b border-border bg-card/50 px-4 py-2">
           <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            All day
+            {t("eventForm.allDay")}
           </p>
           <div className="space-y-1">
             {allDayEvents.map((event) => {

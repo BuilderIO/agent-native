@@ -1,0 +1,330 @@
+---
+title: "MCP 클라이언트"
+description: "에이전트 네이티브 앱을 로컬 MCP 서버(claude-in-chrome, 파일 시스템, 극작가 등)에 연결하면 에이전트가 도구를 얻을 수 있습니다."
+---
+
+# MCP 클라이언트
+
+**이 페이지: 상담원에게 더 많은 도구를 제공하세요.** MCP 서버(로컬 또는 원격)에 상담원 기본 앱을 지정하면 해당 도구가 상담원 채팅에 표시됩니다. 이는 _클라이언트_ 방향, 즉 [MCP Protocol](/docs/mcp-protocol)의 미러 이미지입니다(앱을 MCP *서버*로 만듭니다).
+
+| 원한다면...                                             | 읽기                                     |
+| ------------------------------------------------------- | ---------------------------------------- |
+| 외부 에이전트/호스트를 앱에 연결                        | [External Agents](/docs/external-agents) |
+| 에이전트에게 더 많은 도구 제공(다른 MCP 서버 사용)      | **이 페이지** — MCP 클라이언트           |
+| Claude/ChatGPT에서 렌더링되는 인라인 UI 빌드            | [MCP Apps](/docs/mcp-apps)               |
+| 하위 수준 MCP 서버 참조(인증, 도구, 사용자 정의 마운트) | [MCP Protocol](/docs/mcp-protocol)       |
+
+하나의 구성 파일을 사용하면 작업 영역의 모든 에이전트 기반 앱이 컴퓨터의 MCP 서버에서 제공하는 도구(브라우저 자동화용 `claude-in-chrome`, 파일 읽기용 `@modelcontextprotocol/server-filesystem`, 브라우저 테스트용 `@playwright/mcp` 및 MCP를 말하는 기타 모든 도구)에 액세스할 수 있습니다.
+
+구성 파일을 편집하지 않고도 개별 사용자 또는 전체 조직인 [connect remote (HTTP) MCP servers at runtime](#remote-via-ui)를 사용할 수도 있습니다.
+
+모든 소스는 하나의 런타임 **MCP 관리자**로 확인되며, 학습한 모든 도구는 `tool-search`를 통해 의도로 검색 가능한 충돌 방지 `mcp__<server-id>__<tool>` 접두사 아래 에이전트의 도구 레지스트리에 저장됩니다.
+
+```an-diagram title="클라이언트 방향: 다양한 소스, 하나의 도구 레지스트리" summary="구성 파일, 환경 및 런타임 UI는 모두 MCP 관리자로 병합됩니다. 해당 도구는 접두사가 붙어 표시되며 앱 작업과 함께 도구 검색이 가능합니다. 이는 서버 방향의 미러입니다."
+{
+  "html": "<div class=\"mcp-merge\"><div class=\"diagram-col sources\"><div class=\"diagram-box\" data-rough>Workspace <code>mcp.config.json</code><br><small class=\"diagram-muted\">앱 간 공유</small></div><div class=\"diagram-box\" data-rough>앱 루트 <code>mcp.config.json</code><br><small class=\"diagram-muted\">앱별 재정의</small></div><div class=\"diagram-box\" data-rough><code>MCP_SERVERS</code> env<br><small class=\"diagram-muted\">CI / 프로덕션</small></div><div class=\"diagram-box\" data-rough>설정 UI를 통한 원격<br><small class=\"diagram-muted\">personal &amp; org scope</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">MCP 관리자</span><small class=\"diagram-muted\">merge &middot; hot-reload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col out\"><div class=\"diagram-node\">에이전트 도구 registry<br><small class=\"diagram-muted\"><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small></div><div class=\"diagram-node\"><code>tool-search</code><br><small class=\"diagram-muted\">의도로 발견</small></div></div></div>",
+  "css": ".mcp-merge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-merge .diagram-col{display:flex;flex-direction:column;gap:8px}.mcp-merge .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-merge .diagram-arrow{font-size:22px;line-height:1}.mcp-merge code{font-size:.85em}"
+}
+```
+
+> _your_ 앱을 다른 호스트가 사용하는 MCP 서버로 만드는 반대 방향은 [MCP Protocol](/docs/mcp-protocol) 및 [External Agents](/docs/external-agents)에 있습니다.
+
+## 내장 브라우저 및 컴퓨터 사용 기능 {#built-in-capabilities}
+
+에이전트 네이티브에는 일반적인 stdio MCP 서버에 대한 로컬 개발 토글이 포함되어 있습니다.
+기본적으로 꺼져 있으며 사용자 또는 조직별로만 활성화할 수 있습니다.
+앱이 로컬에서 실행 중일 때. 프로덕션 및 호스팅된 서버리스 런타임 건너뛰기
+이전 설정 행이 존재하더라도 이러한 내장 기능과 작업 공간 리소스
+트리에는 기본 `mcp-servers/*.json` 리소스로 표시되지 않습니다.
+
+| 능력             | 서버 ID           | 명령                                                                    |
+| ---------------- | ----------------- | ----------------------------------------------------------------------- |
+| 크롬 개발자 도구 | `chrome-devtools` | `npx -y chrome-devtools-mcp@latest --autoConnect --no-usage-statistics` |
+| 극작가 브라우저  | `playwright`      | `npx -y @playwright/mcp@latest`                                         |
+| 컴퓨터 사용      | `computer-use`    | `npx -y computer-use-mcp@latest`                                        |
+
+한 범위에서는 한 번에 하나의 브라우저 기능만 활성화할 수 있습니다. Chrome DevTools를 활성화하면 동일한 사용자 또는 조직에 대해 Playwright가 비활성화되고, Playwright를 활성화하면 Chrome DevTools가 비활성화됩니다.
+
+컴퓨터 사용은 macOS에서만 가능합니다. 다른 플랫폼에서는 사용할 수 없는 것으로 나열되며 이전 설정 행에 포함되어 있어도 건너뜁니다.
+
+Chrome DevTools는 기본적으로 `--autoConnect`를 사용합니다. 이는 실행 중인 적격한 Chrome 인스턴스에 연결됩니다. 격리된 브라우저 프로필을 생성하거나 사용자의 일반 프로필에 로그인하지 않습니다. 원격 디버깅이 활성화된 Chrome 144 이상이 필요합니다. 나중에 배포에 특정 디버깅 엔드포인트가 필요할 때 수동 `browser-url` 구성을 추가할 수 있습니다.
+
+기본 제공은 개인 토글의 경우 `u:<email>:mcp-builtin-capabilities` 아래, 팀 토글의 경우 `o:<orgId>:mcp-builtin-capabilities` 아래 프레임워크의 `settings` 테이블에 유지됩니다. 활성화되면 원격 서버와 동일한 범위 지정 가시성 형식(예: `mcp__user_<emailhash>_playwright__*` 또는 `mcp__org_<orgId>_chrome-devtools__*`)을 사용하여 런타임 MCP 관리자에 병합됩니다.
+
+### 사용자 표시 설정 참고사항
+
+민감한 내장 기능에는 간결하고 명시적인 설정 사본을 사용하세요.
+
+- **Chrome DevTools**는 실행 중인 Chrome 디버깅 대상에 연결됩니다. 사용자에게 알리기
+  브라우저 테스트 및 로그인 확인을 위한 것이며
+  도구가 나타나기 전에 Chrome 원격 디버깅을 활성화해야 할 수도 있습니다.
+- **Playwright**는 격리된 브라우저를 시작합니다. 결정론적 용도로 권장
+  사용자의 실시간 Chrome 프로필이 필요하지 않은 경우 QA
+- **컴퓨터 사용**으로 로컬 앱을 작동할 수 있습니다. 기본적으로 사용 중지 상태로 유지하세요.
+  macOS 화면 녹화 및 접근성 프롬프트, 촬영 전 물어보기
+  구매, 금전적 변경, 계정 변경 등 민감한 actions
+
+### 내장 엔드포인트
+
+| 방법 | 경로                         | 목적                                                                                |
+| ---- | ---------------------------- | ----------------------------------------------------------------------------------- |
+| GET  | `/_agent-native/mcp/builtin` | 내장된 기능, 활성화된 범위, 병합된 ID 및 실시간 상태를 나열합니다.                  |
+| POST | `/_agent-native/mcp/builtin` | 범위를 업데이트합니다. 본문: `{ scope, enabledIds }` 또는 `{ scope, id, enabled }`. |
+
+## 로컬 MCP 서버 추가 {#adding-a-server}
+
+작업 공간 루트(또는 개별 앱 루트 - 둘 다 존재할 경우 작업 공간 루트가 우선)에서 `mcp.config.json`를 만듭니다.
+
+```jsonc
+{
+  "$schema": "https://agent-native.com/schema/mcp.config.json",
+  "servers": {
+    "claude-in-chrome": {
+      "command": "claude-in-chrome-mcp",
+      "args": [],
+      "env": { "LOG_LEVEL": "info" },
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"],
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem@latest",
+        "/Users/me/projects",
+      ],
+    },
+  },
+}
+```
+
+모양은 작습니다. 서버 ID로 키가 지정된 `servers` 맵입니다. 여기서 각 항목은 stdio 실행기(`command` + `args` + 선택적 `env`) 또는 원격 `{ "type": "http", "url", "headers" }` 항목입니다.
+
+```an-annotated-code title="mcp.config.json, 주석 처리됨"
+{
+  "filename": "mcp.config.json",
+  "language": "jsonc",
+  "code": "{\n  \"$schema\": \"https://agent-native.com/schema/mcp.config.json\",\n  \"servers\": {\n    \"claude-in-chrome\": {\n      \"command\": \"claude-in-chrome-mcp\",\n      \"args\": [],\n      \"env\": { \"LOG_LEVEL\": \"info\" }\n    },\n    \"filesystem\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem@latest\", \"/Users/me/projects\"]\n    }\n  }\n}",
+  "annotations": [
+    { "lines": "3", "label": "서버ID", "note": "키는 도구 접두사가 됩니다. 이 서버의 도구는 에이전트 레지스트리에 `mcp__claude-in-chrome__*`으로 표시되므로 템플릿 작업과 충돌할 수 없습니다." },
+    { "lines": "4-6", "label": "stdio launcher", "note": "`command` + `args`는 로컬 바이너리를 생성합니다. Stdio 서버는**로컬 개발**용으로 설계되었으며 Edge 런타임에서는 작동하지 않습니다." },
+    { "lines": "6", "label": "프로세스 환경", "note": "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens." }
+  ]
+}
+```
+
+다음에 앱을 시작하면 다음이 표시됩니다.
+
+```
+[mcp-client] loaded config from /path/to/mcp.config.json (3 server(s))
+[mcp-client] connected to claude-in-chrome: 12 tools
+[mcp-client] connected to playwright: 9 tools
+[mcp-client] connected to filesystem: 4 tools
+```
+
+도구는 접두사 `mcp__<server-id>__<tool-name>`를 사용하여 에이전트의 도구 레지스트리에 등록되므로 템플릿의 actions와 충돌할 수 없습니다. `tool-search`에도 포함되어 있으므로 에이전트는 정확한 접두사가 붙은 이름을 미리 입력할 필요 없이 새로 연결된 MCP 기능을 의도적으로 검색할 수 있습니다.
+
+## 구성 우선순위 {#precedence}
+
+MCP 구성은 다음 순서로 해결되며 첫 번째 일치 항목이 승리합니다.
+
+1. **작업공간 루트 `mcp.config.json`** — `package.json`의 `agent-native.workspaceCore`를 통해 감지됩니다. 작업 공간의 모든 앱에서 공유됩니다.
+2. **앱 루트 `mcp.config.json`** — 모든 앱에서 MCP 서버를 사용하지 않으려는 경우 앱별 재정의
+3. **`MCP_SERVERS` env var** — 파일이 의미가 없는 CI/프로덕션의 경우 동일한 모양의 JSON 문자열입니다.
+
+## 프로덕션 배포: `MCP_SERVERS` {#mcp-servers-env}
+
+프로덕션 배포의 경우 원격 HTTP MCP 서버를 선호하고 전체 구성을 설정하세요.
+환경 변수로서의 모양(또는 내부 서버 맵):
+
+```bash
+MCP_SERVERS='{"servers":{"zapier":{"type":"http","url":"https://mcp.example.com/mcp","headers":{"Authorization":"Bearer paste-token-value-here"}}}}'
+```
+
+`MCP_SERVERS`는 JSON로 구문 분석되므로 `${...}` 자리 표시자는 확장되지 않습니다.
+문자열 내부. 토큰을 다른 보안 비밀에 저장하는 경우 먼저 확장하십시오.
+최종 JSON 값을 작성합니다.
+
+Stdio MCP 서버는 로컬 바이너리를 생성하며 로컬 개발을 위한 것입니다.
+MCP 도구는 노드 런타임(Cloudflare 작업자 및 기타 에지)에서만 활성화됩니다.
+대상은 자동으로 MCP를 건너뛰고 나머지 앱 작업을 계속합니다.
+보통.
+
+## 자동 감지: `claude-in-chrome` {#autodetect}
+
+`mcp.config.json`가 **아니요** 있고 `claude-in-chrome-mcp` 바이너리가 `PATH`(또는 잘 알려진 설치 위치 `~/.claude-in-chrome/bin/claude-in-chrome-mcp`)에 있는 경우 에이전트 네이티브는 이를 기본 MCP 서버로 자동 등록합니다. 선택 해제하려면 `AGENT_NATIVE_DISABLE_MCP_AUTODETECT=1`를 설정하세요.
+
+즉, clude-in-chrome 확장 프로그램을 설치한 사용자는 구성 변경 없이 자신이 여는 모든 에이전트 기반 앱에서 브라우저 제어권을 갖게 됩니다.
+
+## UI 설정을 통한 원격 MCP 서버 {#remote-via-ui}
+
+MCP(모델 컨텍스트 프로토콜) 서버는 에이전트에 Zapier, Cloudflare, Composio 또는 회사 내부 도구에 연결하는 것과 같은 새로운 기능을 제공합니다. 일단 연결되면 에이전트는 내장된 도구와 마찬가지로 해당 도구를 사용할 수 있습니다.
+
+### 원격 MCP 서버 연결 방법
+
+1. **서버 이름** — 참조용 짧은 라벨(예: "zapier", "slack-tools").
+2. **URL** — MCP 서버 공급자가 제공한 HTTPS 엔드포인트(예: `https://mcp.zapier.com/s/abc123/mcp`). 이는 일반적으로 제공업체의 대시보드 또는 통합 문서에서 찾을 수 있습니다.
+3. **설명** (선택 사항) — 이 서버의 기능에 대한 참고 사항
+4. **헤더** — 서버에서 요구하는 인증 자격 증명(한 줄에 하나씩). 대부분의 서버에는 `Authorization` 헤더가 필요합니다. 예: `Authorization: Bearer sk-your-key-here`. 여기에 무엇을 입력할지 제공업체의 문서를 참조하세요.
+
+**테스트**를 클릭하여 저장하기 전에 연결을 확인하세요. 성공하면 사용 가능한 도구 수가 표시됩니다. **연결**을 클릭하여 추가하세요.
+
+### 개인 및 조직 범위
+
+두 가지 범위가 지원됩니다:
+
+- **개인** — 로그인한 사용자만 도구를 얻을 수 있습니다. 사용자 범위 설정으로 저장됩니다.
+- **팀** — 활동 중인 조직의 모든 사람이 도구를 받습니다. 소유자와 관리자가 추가할 수 있습니다. 구성원은 목록을 읽기 전용으로 볼 수 있습니다. 조직 범위 설정으로 저장됩니다.
+
+실행 중인 MCP 관리자에 핫 리로드를 추가 및 제거합니다. 프로세스를 다시 시작하지 않고 서버를 다시 시작하지 않습니다. 새로운 `mcp__<scope>-<name>__*` 도구는 다음 메시지에서 상담원에게 나타나며 `tool-search`를 통해 검색할 수 있습니다.
+
+HTTPS URL는 모든 곳에서 허용됩니다. 일반 `http://`는 개발 중에 `localhost`에만 허용됩니다. 선택적 인증은 모든 요청에서 `Authorization: Bearer …`를 통해 전송되는 Bearer 토큰으로 들어갑니다.
+
+내부적으로 이러한 서버는 `u:<email>:mcp-servers-remote`(개인) 또는 `o:<orgId>:mcp-servers-remote`(팀) 키 아래 프레임워크의 `settings` 테이블에 유지되며 시작 시 `mcp.config.json`와 병합됩니다.
+
+### HTTP 엔드포인트
+
+| 방법   | 경로                                                  | 목적                                                                     |
+| ------ | ----------------------------------------------------- | ------------------------------------------------------------------------ |
+| GET    | `/_agent-native/mcp/servers`                          | 현재 사용자의 개인 + 조직 서버를 실시간 상태로 나열합니다.               |
+| POST   | `/_agent-native/mcp/servers`                          | 서버를 추가합니다. 본문: `{ scope, name, url, headers?, description? }`. |
+| DELETE | `/_agent-native/mcp/servers/:id?scope=user\|org`      | Remove a server and reconfigure the manager.                             |
+| POST   | `/_agent-native/mcp/servers/:id/test?scope=user\|org` | Dry-run the existing server's connect + list-tools.                      |
+| POST   | `/_agent-native/mcp/servers/test`                     | 지속하기 전에 임의의 URL를 시험 실행하세요. 본문: `{ url, headers? }`.   |
+
+Stdio 서버는 여전히 노드 런타임 외부에서는 작동하지 않지만 원격 HTTP MCP 서버는 데스크톱 프로덕션 빌드를 포함하여 `fetch`가 있는 모든 환경에서 작동합니다.
+
+## 허브를 통한 공유 MCP 서버 {#hub}
+
+작업 영역에서 여러 에이전트 기본 앱(예: 발송 + 메일 + 클립)을 실행하는 경우 **한 앱**을 허브로 구성하고 나머지 앱은 조직 범위 MCP 서버를 자동으로 가져오도록 할 수 있습니다. URL 및 전달자 토큰을 앱별로 복사하여 붙여넣을 수 없습니다. Dispatch 작업 공간 MCP 리소스를 사용하는 표준 접근 방식은 [Multi-App Workspace](/docs/multi-app-workspace)를 참조하세요.
+
+Dispatch는 기존의 허브로 이미 앱 전체를 조정하고 있습니다.
+
+```an-diagram title="허브 모델: 하나의 앱이 조직 범위 MCP 서버를 제공합니다." summary="Dispatch는 조직 범위 MCP 서버를 보유합니다. 소비자 앱은 이를 mcp__hub_<orgId>_<name>__*으로 끌어오고 병합합니다. 조직 범위 행만 공유되며 개인 자격 증명은 그대로 유지됩니다."
+{
+  "html": "<div class=\"mcp-hub\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Dispatch hub</span><small class=\"diagram-muted\">조직 범위 MCP 서버</small><small class=\"diagram-muted\"><code>GET /mcp/hub/servers</code></small></div><div class=\"diagram-col arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div></div><div class=\"diagram-col consumers\"><div class=\"diagram-box\" data-rough>Mail<br><small class=\"diagram-muted\"><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small></div><div class=\"diagram-box\" data-rough>Clips<br><small class=\"diagram-muted\">약 60초마다 pull + merge</small></div></div></div><p class=\"diagram-muted note\">Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope) servers are never re-exposed.</p>",
+  "css": ".mcp-hub{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-hub .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-hub .diagram-col{display:flex;flex-direction:column;gap:10px}.mcp-hub .arrows .diagram-arrow{font-size:22px;line-height:1}.mcp-hub .note{margin:8px 0 0;font-size:.85em}.mcp-hub code{font-size:.85em}"
+}
+```
+
+새 작업 공간 설정의 경우 **작업 공간 MCP 리소스 발송**을 선호하세요
+작업 공간 skills에서 사용되는 동일한 모든 앱과 선택된 앱 부여 모델을 원합니다.
+지침 및 참조 자료. 다음을 사용하여 작업공간 리소스를 추가하세요:
+
+```json
+{
+  "type": "http",
+  "url": "https://example.com/mcp",
+  "headers": {
+    "Authorization": "Bearer ${keys.MCP_SERVER_TOKEN}"
+  },
+  "description": "Shared MCP 도구s for workspace apps"
+}
+```
+
+`mcp-server` 종류를 사용하여 `mcp-servers/<name>.json` 아래에 저장합니다. 모든 앱
+리소스는 모든 작업 공간 앱에서 로드됩니다. 선택한 리소스는
+활성 파견 보조금이 있는 앱. 비밀 자리 표시자는 앱에서 해결됩니다.
+비밀 저장소이므로 원시 전달자 토큰을 Dispatch Vault에 넣고 참조
+리소스 본문에 저장하는 대신 `${keys.NAME}`를 사용하세요.
+
+앱은 병합된 MCP 구성을 약 1분에 한 번씩 새로 고치므로 중앙 리소스
+편집, 변경 부여, 제거는 배포 없이 적용됩니다. 설정
+백그라운드 새로 고침을 비활성화하려면 `AGENT_NATIVE_MCP_CONFIG_REFRESH_MS=0`
+간격을 조정하려면 최소 `5000` 밀리초의 값으로 설정하세요.
+
+아래의 이전 허브 모드는 대략적인 "모든 조직 범위 MCP 공유"에 여전히 유용합니다.
+Server from Dispatch” 설정 및 이미 MCP를 사용하는 배포용
+UI를 정보 소스로 설정합니다.
+
+### 1. 허브 앱에서 허브 서비스 활성화(디스패치)
+
+디스패치 배포 시 환경 변수 설정:
+
+```bash
+AGENT_NATIVE_MCP_HUB_TOKEN=<a-long-random-secret>
+```
+
+Dispatch는 이제 토큰으로 인증된 전체 URL + 헤더와 함께 `settings` 테이블에 저장된 모든 조직 범위 MCP 서버를 반환하는 `GET /_agent-native/mcp/hub/servers`를 마운트합니다.
+
+### 2. 허브에서 포인트를 소비하는 앱
+
+모든 소비자에게 설정(메일, 클립 등):
+
+```bash
+AGENT_NATIVE_MCP_HUB_URL=https://dispatch.acme.com
+AGENT_NATIVE_MCP_HUB_TOKEN=<the-same-secret>
+```
+
+시작 시 각 소비자는 허브의 서버 목록을 가져와 자체 MCP 관리자에 병합합니다. 도구는 에이전트에게 `mcp__hub_<orgId>_<name>__*`로 표시됩니다. 이는 소비자의 로컬 `mcp__org_…`와 구별되므로 충돌이 없습니다.
+
+### 3. 공유되는 내용
+
+**조직 범위** 서버만 공유됩니다. 사용자 범위(개인) 서버는 자신을 추가한 사용자와 함께 유지됩니다. 허브는 절대 앱 전체에 개인 자격 증명을 다시 노출하지 않습니다.
+
+허브 응답에는 전체 인증 헤더(Bearer 토큰 등)가 포함됩니다. 전송은 HTTPS이고 엔드포인트에는 공유 비밀이 필요하며 조직 범위 행만 반환합니다. 허브 URL + 토큰을 데이터베이스 자격 증명처럼 처리합니다.
+
+### 4. 핫 리로드와 재시작
+
+로컬 UI는 `McpClientManager.reconfigure()`를 통해 각 앱에 핫 리로드를 추가합니다. 다시 시작할 필요가 없습니다. 허브 소스 서버는 작업 영역 리소스 경로가 사용하는 것과 동일한 주기적인 백그라운드 새로 고침(약 60초, `AGENT_NATIVE_MCP_CONFIG_REFRESH_MS`를 통해 조정 가능 또는 비활성화 가능)에 의해 선택되므로 Dispatch에서 변경한 사항은 다시 시작하지 않고도 약 1분 내에 모든 소비자 앱에 전파됩니다. 또한 소비자 앱의 모든 로컬 변형은 해당 앱에 대한 재구성을 즉시 트리거합니다.
+
+### 엔드포인트 요약
+
+| 방법 | 경로                             | 목적                                                                                                                         |
+| ---- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| GET  | `/_agent-native/mcp/hub/servers` | 전체 자격 증명으로 모든 조직 범위 서버를 제공합니다(베어러 게이트, `AGENT_NATIVE_MCP_HUB_TOKEN`가 설정된 경우에만 마운트됨). |
+| GET  | `/_agent-native/mcp/hub/status`  | 설정 UI 카드에 대해 `{ serving, consuming, hubUrl }`를 반환합니다.                                                           |
+
+## 상태 경로 {#status-route}
+
+모든 앱은 툴링 및 온보딩을 위해 `GET /_agent-native/mcp/status`를 노출합니다.
+
+```an-api
+{
+  "method": "GET",
+  "path": "/_agent-native/mcp/status",
+  "summary": "도구 및 온보딩을 위한 MCP 클라이언트 상태",
+  "description": "Reports which configured servers connected, the total live tool count, the merged prefixed tool list, and any per-server connection errors. Use it to build \"detected — your agent can now drive X\" hints or to debug connection problems.",
+  "responses": [
+    {
+      "status": "200",
+      "description": "Configured vs connected servers, tool inventory, and per-server errors.",
+      "example": "{\n  \"configuredServers\": [\"claude-in-chrome\", \"playwright\"],\n  \"connectedServers\": [\"claude-in-chrome\", \"playwright\"],\n  \"totalTools\": 21,\n  \"tools\": [\n    {\n      \"source\": \"claude-in-chrome\",\n      \"name\": \"mcp__claude-in-chrome__navigate\",\n      \"description\": \"Navigate the browser to a URL\"\n    }\n  ],\n  \"errors\": {}\n}"
+    }
+  ]
+}
+```
+
+```json
+{
+  "configuredServers": ["claude-in-chrome", "playwright"],
+  "connectedServers": ["claude-in-chrome", "playwright"],
+  "totalTools": 21,
+  "tools": [
+    {
+      "source": "claude-in-chrome",
+      "name": "mcp__claude-in-chrome__navigate",
+      "description": "Navigate the browser to a URL"
+    }
+  ],
+  "errors": {}
+}
+```
+
+이를 사용하여 'claude-in-chrome 감지됨 - 이제 에이전트가 Chrome을 구동할 수 있음' 온보딩 힌트를 구축하거나 MCP 연결 문제를 디버그할 수 있습니다.
+
+## 실패 모드 {#failures}
+
+개별 MCP 서버 오류로 인해 에이전트가 중단되지는 않습니다.
+
+- 잘못 구성된 `command` → 서버를 건너뛰고 해당 오류가 `errors.<server-id>` 아래의 `/mcp/status`에 나타나고 다른 모든 서버는 계속 작동합니다.
+- MCP SDK는 `node_modules`에서 누락되었습니다. → 모든 MCP 기능은 경고와 함께 건너뛰었습니다. 에이전트 채팅은 MCP 도구 없이도 계속 작동합니다.
+- 에지 런타임에서 실행 → MCP 클라이언트는 작동하지 않습니다.
+
+에이전트 기본은 항상 부팅됩니다. 손상된 MCP 구성은 도구 수가 적다는 것을 의미합니다.
+
+## 보안 {#security}
+
+MCP 도구는 생성된 프로세스에 있는 모든 권한을 사용하여 컴퓨터에서 실행됩니다. `mcp.config.json`를 에이전트가 구동하도록 허용할 다른 실행 파일 목록처럼 취급하십시오. MCP 서버의 도구는 템플릿의 자체 actions와 마찬가지로 상담원의 도구 사용 루프에 표시되므로 구성하는 모든 서버를 신뢰할 수 있는지 확인하세요.

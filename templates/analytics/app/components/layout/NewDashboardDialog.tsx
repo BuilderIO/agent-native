@@ -1,11 +1,16 @@
+import {
+  useSendToAgentChat,
+  PromptComposer,
+  useT,
+} from "@agent-native/core/client";
+import { IconPlus } from "@tabler/icons-react";
 import { useState } from "react";
-import { useSendToAgentChat, PromptComposer } from "@agent-native/core/client";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { IconPlus } from "@tabler/icons-react";
 
 const DASHBOARD_CONTEXT =
   "The user wants to create a new analytics dashboard. " +
@@ -26,6 +31,7 @@ const DASHBOARD_CONTEXT =
   "After saving, call the `navigate` action with view='adhoc' and dashboardId so the new dashboard opens immediately.";
 
 export function NewDashboardDialog() {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const { send, isGenerating } = useSendToAgentChat();
 
@@ -41,7 +47,7 @@ export function NewDashboardDialog() {
       <PopoverTrigger asChild>
         <button className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-muted-foreground/60 hover:bg-sidebar-accent/50 hover:text-primary">
           <IconPlus className="h-3 w-3" />
-          New Dashboard
+          {t("dialogs.newDashboard")}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -50,12 +56,12 @@ export function NewDashboardDialog() {
         align="start"
       >
         <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-          New dashboard
+          {t("dialogs.newDashboardTitle")}
         </p>
         <PromptComposer
           autoFocus
           disabled={isGenerating}
-          placeholder="Describe the dashboard you want to create..."
+          placeholder={t("dialogs.newDashboardPlaceholder")}
           draftScope="analytics:new-dashboard"
           onSubmit={handleSubmit}
         />

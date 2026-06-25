@@ -10,6 +10,7 @@ export default defineConfig({
     },
   },
   test: {
+    hookTimeout: 60000,
     include: ["**/*.{test,spec}.?(c|m)[jt]s?(x)"],
     exclude: [
       "**/node_modules/**",

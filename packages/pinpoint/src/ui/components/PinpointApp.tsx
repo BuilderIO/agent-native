@@ -7,6 +7,17 @@ import {
   onCleanup,
   type Component,
 } from "solid-js";
+
+import { DragSelect } from "../../detection/drag-select.js";
+import {
+  buildElementContext,
+  extractElementInfo,
+} from "../../detection/element-info.js";
+import { ElementPicker } from "../../detection/element-picker.js";
+import { TextSelect } from "../../detection/text-select.js";
+import { detectFramework } from "../../frameworks/adapter.js";
+import { MemoryStore } from "../../storage/memory-store.js";
+import { RestClient } from "../../storage/rest-client.js";
 import type {
   PinpointConfig,
   Pin,
@@ -18,25 +29,15 @@ import type {
   QueuedAnnotation,
   AgentOutput,
 } from "../../types/index.js";
-import { ElementPicker } from "../../detection/element-picker.js";
-import { DragSelect } from "../../detection/drag-select.js";
-import { TextSelect } from "../../detection/text-select.js";
-import {
-  buildElementContext,
-  extractElementInfo,
-} from "../../detection/element-info.js";
-import { detectFramework } from "../../frameworks/adapter.js";
-import { Toolbar } from "./Toolbar.js";
-import { OverlayCanvas } from "./OverlayCanvas.js";
-import { PinPopup } from "./PinPopup.js";
-import { PinMarkerManager } from "./PinMarker.js";
-import { ContextMenu } from "./ContextMenu.js";
-import { SelectionLabel } from "./SelectionLabel.js";
-import { PromptMode } from "./PromptMode.js";
-import { TextInputPopup } from "./TextInputPopup.js";
-import { MemoryStore } from "../../storage/memory-store.js";
-import { RestClient } from "../../storage/rest-client.js";
 import type { PinStorage } from "../../types/index.js";
+import { ContextMenu } from "./ContextMenu.js";
+import { OverlayCanvas } from "./OverlayCanvas.js";
+import { PinMarkerManager } from "./PinMarker.js";
+import { PinPopup } from "./PinPopup.js";
+import { PromptMode } from "./PromptMode.js";
+import { SelectionLabel } from "./SelectionLabel.js";
+import { TextInputPopup } from "./TextInputPopup.js";
+import { Toolbar } from "./Toolbar.js";
 
 export interface PinpointAppProps {
   config: PinpointConfig;

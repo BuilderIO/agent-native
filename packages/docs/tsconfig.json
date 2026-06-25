@@ -11,8 +11,8 @@
     "jsx": "react-jsx",
     "module": "ESNext",
     "rootDirs": [".", "./.react-router/types"],
-    "baseUrl": ".",
     "paths": {
+      "*": ["./*"],
       "@/*": ["./app/*"]
     },
     "lib": ["ES2022", "DOM", "DOM.Iterable"],

@@ -1,5 +1,8 @@
-import { useMemo, useState } from "react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconAlertTriangle,
   IconClipboardList,
@@ -8,6 +11,8 @@ import {
   IconShieldCheck,
   IconX,
 } from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,9 +24,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
+
 import {
   IMAGE_MODELS,
   VIDEO_MODELS,
@@ -65,6 +71,7 @@ interface AuditRun {
 }
 
 export default function AuditPage() {
+  const t = useT();
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   const [ownerEmail, setOwnerEmail] = useState<string>("");
@@ -177,22 +184,22 @@ export default function AuditPage() {
             <div className="flex items-center gap-2">
               <IconClipboardList className="h-5 w-5 text-muted-foreground" />
               <h1 className="text-xl font-semibold tracking-tight">
-                Audit log
+                {t("audit.title")}
               </h1>
               {ownerScoped ? (
                 <Badge variant="outline" className="ml-1">
-                  Owner-only fallback
+                  {t("audit.ownerOnlyFallback")}
                 </Badge>
               ) : (
                 <Badge variant="secondary" className="ml-1">
-                  Org-wide
+                  {t("audit.orgWide")}
                 </Badge>
               )}
             </div>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
               {ownerScoped
-                ? "No org context detected, so this view is restricted to runs you triggered. Org admins see the full org-wide audit feed."
-                : "Viewing org-wide audit data. This is intended for governance review only — every generation across the workspace is listed below."}
+                ? t("audit.ownerScopedDescription")
+                : t("audit.orgScopedDescription")}
             </p>
           </div>
           <Button
@@ -202,40 +209,40 @@ export default function AuditPage() {
             className="cursor-pointer gap-2"
           >
             <IconDownload className="h-4 w-4" />
-            {exportCsv.isPending ? "Exporting…" : "Export CSV"}
+            {exportCsv.isPending ? t("audit.exporting") : t("audit.exportCsv")}
           </Button>
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <FilterField label="Date from">
+          <FilterField label={t("audit.dateFrom")}>
             <Input
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
             />
           </FilterField>
-          <FilterField label="Date to">
+          <FilterField label={t("audit.dateTo")}>
             <Input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
             />
           </FilterField>
-          <FilterField label="Owner email">
+          <FilterField label={t("audit.ownerEmail")}>
             <Input
               value={ownerEmail}
               placeholder="user@example.com"
               onChange={(e) => setOwnerEmail(e.target.value)}
             />
           </FilterField>
-          <FilterField label="Prompt search">
+          <FilterField label={t("audit.promptSearch")}>
             <Input
               value={promptSearch}
               placeholder="cold-start latency"
               onChange={(e) => setPromptSearch(e.target.value)}
             />
           </FilterField>
-          <FilterField label="Model">
+          <FilterField label={t("audit.model")}>
             <Select
               value={model}
               onValueChange={(v) => setModel(v as ModelFilter)}
@@ -244,7 +251,7 @@ export default function AuditPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All models</SelectItem>
+                <SelectItem value="all">{t("audit.allModels")}</SelectItem>
                 {[...IMAGE_MODELS, ...VIDEO_MODELS].map((m) => (
                   <SelectItem key={m} value={m}>
                     {m}
@@ -253,7 +260,7 @@ export default function AuditPage() {
               </SelectContent>
             </Select>
           </FilterField>
-          <FilterField label="Status">
+          <FilterField label={t("audit.status")}>
             <Select
               value={status}
               onValueChange={(v) => setStatus(v as StatusFilter)}
@@ -262,7 +269,7 @@ export default function AuditPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="all">{t("audit.allStatuses")}</SelectItem>
                 {RUN_STATUSES.map((s) => (
                   <SelectItem key={s} value={s}>
                     {s}
@@ -271,7 +278,7 @@ export default function AuditPage() {
               </SelectContent>
             </Select>
           </FilterField>
-          <FilterField label="Source">
+          <FilterField label={t("audit.source")}>
             <Select
               value={source}
               onValueChange={(v) => setSource(v as SourceFilter)}
@@ -280,7 +287,7 @@ export default function AuditPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All sources</SelectItem>
+                <SelectItem value="all">{t("audit.allSources")}</SelectItem>
                 {RUN_SOURCES.map((s) => (
                   <SelectItem key={s} value={s}>
                     {s}
@@ -289,7 +296,7 @@ export default function AuditPage() {
               </SelectContent>
             </Select>
           </FilterField>
-          <FilterField label="Calling app (A2A)">
+          <FilterField label={t("audit.callingApp")}>
             <Input
               value={callerAppId}
               placeholder="slides"
@@ -307,7 +314,7 @@ export default function AuditPage() {
               className="cursor-pointer gap-2"
             >
               <IconX className="h-3.5 w-3.5" />
-              Clear filters
+              {t("audit.clearFilters")}
             </Button>
           </div>
         )}
@@ -361,19 +368,20 @@ function RunTable({
   runs: AuditRun[];
   onSelect: (runId: string) => void;
 }) {
+  const t = useT();
   return (
     <div className="overflow-hidden rounded-md border border-border">
       <table className="w-full text-sm">
         <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
-            <th className="px-3 py-2">When</th>
-            <th className="px-3 py-2">Owner</th>
-            <th className="px-3 py-2">Brand Kit</th>
-            <th className="px-3 py-2">Source</th>
-            <th className="px-3 py-2">Model</th>
-            <th className="px-3 py-2">Prompt</th>
-            <th className="px-3 py-2">Status</th>
-            <th className="px-3 py-2 text-right">Saved / Total</th>
+            <th className="px-3 py-2">{t("audit.when")}</th>
+            <th className="px-3 py-2">{t("audit.owner")}</th>
+            <th className="px-3 py-2">{t("audit.brandKit")}</th>
+            <th className="px-3 py-2">{t("audit.source")}</th>
+            <th className="px-3 py-2">{t("audit.model")}</th>
+            <th className="px-3 py-2">{t("audit.prompt")}</th>
+            <th className="px-3 py-2">{t("audit.status")}</th>
+            <th className="px-3 py-2 text-right">{t("audit.savedTotal")}</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -384,7 +392,7 @@ function RunTable({
               className="cursor-pointer hover:bg-muted/30"
             >
               <td className="px-3 py-2 align-top text-xs text-muted-foreground">
-                {formatRelative(run.createdAt)}
+                {formatRelative(run.createdAt, t)}
               </td>
               <td className="px-3 py-2 align-top text-xs">
                 {run.ownerEmail ?? "—"}
@@ -419,6 +427,7 @@ function RunTable({
 }
 
 function RunDetail({ runId }: { runId: string }) {
+  const t = useT();
   const { data, isLoading, error } = useActionQuery("get-audit-run", {
     runId,
   } as any) as {
@@ -450,7 +459,10 @@ function RunDetail({ runId }: { runId: string }) {
               {run.libraryTitle}
             </h2>
             <p className="text-xs text-muted-foreground">
-              Run {run.runId.slice(0, 12)}… · {formatRelative(run.createdAt)}
+              {t("audit.runSummary", {
+                id: run.runId.slice(0, 12),
+                time: formatRelative(run.createdAt, t),
+              })}
             </p>
           </div>
           <StatusPill status={run.status} />
@@ -463,23 +475,28 @@ function RunDetail({ runId }: { runId: string }) {
           )}
           {run.mediaType === "video" ? (
             <Badge variant="outline">
-              {run.durationSeconds || "?"}s · {run.resolution || run.imageSize}
+              {t("audit.videoBadge", {
+                duration: run.durationSeconds || "?",
+                resolution: run.resolution || run.imageSize,
+              })}
             </Badge>
           ) : (
             run.imageSize && <Badge variant="outline">{run.imageSize}</Badge>
           )}
           {run.ownerEmail && (
-            <Badge variant="outline">by {run.ownerEmail}</Badge>
+            <Badge variant="outline">
+              {t("audit.byOwner", { email: run.ownerEmail })}
+            </Badge>
           )}
         </div>
       </div>
 
-      <Section title="User prompt">
+      <Section title={t("audit.userPrompt")}>
         <p className="whitespace-pre-wrap text-sm">{run.userPrompt}</p>
       </Section>
 
       {run.compiledPrompt && (
-        <Section title="Compiled prompt">
+        <Section title={t("audit.compiledPrompt")}>
           <pre className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
             {run.compiledPrompt}
           </pre>
@@ -490,25 +507,27 @@ function RunDetail({ runId }: { runId: string }) {
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           <div className="flex items-center gap-2 font-medium">
             <IconAlertTriangle className="h-4 w-4" />
-            Failed
+            {t("audit.failed")}
           </div>
           <p className="mt-1 text-xs">{run.errorMessage}</p>
         </div>
       )}
 
       {parentRun && (
-        <Section title="Parent run (refinement source)">
+        <Section title={t("audit.parentRun")}>
           <div className="rounded-md border border-border p-3 text-xs">
             <div className="font-medium">{parentRun.prompt}</div>
             <div className="mt-1 text-muted-foreground">
-              {parentRun.model} · {formatRelative(parentRun.createdAt)}
+              {parentRun.model} · {formatRelative(parentRun.createdAt, t)}
             </div>
           </div>
         </Section>
       )}
 
       {references.length > 0 && (
-        <Section title={`References (${references.length})`}>
+        <Section
+          title={t("audit.referencesCount", { count: references.length })}
+        >
           <div className="grid grid-cols-3 gap-2">
             {references.map((ref) => (
               <AssetThumb key={ref.id} asset={ref} label={ref.role} />
@@ -517,9 +536,13 @@ function RunDetail({ runId }: { runId: string }) {
         </Section>
       )}
 
-      <Section title={`Generated children (${children.length})`}>
+      <Section
+        title={t("audit.generatedChildrenCount", { count: children.length })}
+      >
         {children.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No children produced.</p>
+          <p className="text-xs text-muted-foreground">
+            {t("audit.noChildrenProduced")}
+          </p>
         ) : (
           <div className="grid grid-cols-3 gap-2">
             {children.map((c) => (
@@ -535,7 +558,7 @@ function RunDetail({ runId }: { runId: string }) {
           href={`/brand-kits/${run.libraryId}`}
           className="text-xs text-muted-foreground underline-offset-4 hover:underline"
         >
-          Open brand kit →
+          {t("audit.openBrandKit")}
         </a>
       </div>
     </div>
@@ -600,10 +623,11 @@ function SourceBadge({
   source: string;
   callerAppId?: string | null;
 }) {
+  const t = useT();
   if (source === "a2a") {
     return (
       <Badge variant="outline" className="capitalize">
-        via {callerAppId || "a2a"}
+        {t("audit.viaCaller", { caller: callerAppId || "a2a" })}
       </Badge>
     );
   }
@@ -639,42 +663,43 @@ function SkeletonRows() {
 }
 
 function EmptyState() {
+  const t = useT();
   return (
     <div className="flex min-h-[320px] flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/20 p-8 text-center">
       <IconShieldCheck className="h-10 w-10 text-muted-foreground" />
-      <h2 className="mt-3 text-base font-semibold">
-        No runs match these filters
-      </h2>
+      <h2 className="mt-3 text-base font-semibold">{t("audit.noRunsMatch")}</h2>
       <p className="mt-1 max-w-md text-sm text-muted-foreground">
-        Try widening the date range or clearing filters. Generation runs from
-        the last 90 days are typically a good starting view.
+        {t("audit.noRunsDescription")}
       </p>
     </div>
   );
 }
 
 function ErrorBlock({ error }: { error: any }) {
+  const t = useT();
   return (
     <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
       <div className="flex items-center gap-2 font-medium">
         <IconAlertTriangle className="h-4 w-4" />
-        Could not load audit log
+        {t("audit.loadFailed")}
       </div>
       <p className="mt-1 text-xs">
-        {error?.message || "Unknown error. Try refreshing."}
+        {error?.message || t("audit.unknownError")}
       </p>
     </div>
   );
 }
 
 function ForbiddenPage() {
+  const t = useT();
   return (
     <div className="flex h-full flex-col items-center justify-center px-6 py-10 text-center">
       <IconAlertTriangle className="h-10 w-10 text-muted-foreground" />
-      <h1 className="mt-4 text-xl font-semibold">Audit log is admin-only</h1>
+      <h1 className="mt-4 text-xl font-semibold">
+        {t("audit.adminOnlyTitle")}
+      </h1>
       <p className="mt-2 max-w-md text-sm text-muted-foreground">
-        Only org admins can view the audit log. If you believe you should have
-        access, ask an org owner to upgrade your role.
+        {t("audit.adminOnlyDescription")}
       </p>
     </div>
   );
@@ -689,18 +714,18 @@ function isoDaysAgo(days: number): string {
   return new Date(t).toISOString().slice(0, 10);
 }
 
-function formatRelative(iso: string): string {
+function formatRelative(iso: string, t: ReturnType<typeof useT>): string {
   const ts = Date.parse(iso);
   if (Number.isNaN(ts)) return iso;
   const diffMs = Date.now() - ts;
   const sec = Math.round(diffMs / 1000);
-  if (sec < 60) return `${sec}s ago`;
+  if (sec < 60) return t("audit.secondsAgo", { count: sec });
   const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m ago`;
+  if (min < 60) return t("audit.minutesAgo", { count: min });
   const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h ago`;
+  if (hr < 24) return t("audit.hoursAgo", { count: hr });
   const day = Math.round(hr / 24);
-  if (day < 30) return `${day}d ago`;
+  if (day < 30) return t("audit.daysAgo", { count: day });
   return iso.slice(0, 10);
 }
 

@@ -1,0 +1,173 @@
+---
+title: "撰写代理说明和技能"
+description: "如何为代理原生应用或模板编写出色的代理指令：AGENTS.md、skills 和工具说明。"
+---
+
+# 撰写代理说明和技能
+
+代理在代理本机应用程序中的行为仅与您给出的说明一样好。三个表面承载该指导：`AGENTS.md`（地图）、skills（深入研究）和操作/工具描述（代理如何选择正确的工具）。写下每一篇都是为了快速检索，而不是为了散文。
+
+```an-diagram title="三个创作表面 + 一个运行时表面" summary="AGENTS.md 和工具描述每回合都会加载；按需加载技能； application_state 由您的 UI 实时编写。"
+{
+  "html": "<div class=\"diagram-surfaces\"><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">每一轮</span><strong>AGENTS.md</strong><small class=\"diagram-muted\">地图：用途、核心规则、状态键、action + skills 索引</small></div><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">每一轮</span><strong>工具描述</strong><small class=\"diagram-muted\">驱动工具选择 — 每个工具一句精确说明</small></div><div class=\"diagram-card ondemand\" data-rough><span class=\"diagram-pill\">按需</span><strong>技能</strong><small class=\"diagram-muted\">深度指南，在描述匹配时加载</small></div><div class=\"diagram-card runtime\" data-rough><span class=\"diagram-pill ok\">Live</span><strong>application_state</strong><small class=\"diagram-muted\">由你的 UI 写入：导航、选择、焦点</small></div></div>",
+  "css": ".diagram-surfaces{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.diagram-surfaces .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
+}
+```
+
+## 保持 AGENTS.md 小且可浏览 {#small-agents-md}
+
+`AGENTS.md` 作为方向加载。它应该是让代理正确行动的最小事物，所有内容都深入到 skills 中。瞄准这些部分而不是其他部分：
+
+- **目的行** — 一句话介绍应用程序是什么以及主要工作流程。
+- **核心规则** - 必须始终保持的少数不变量（SQL 中的数据，操作通过 actions，AI 通过代理聊天，模式更改是附加的）。简短、命令式的项目符号。
+- **应用程序状态键** — 代理读取 `navigation`/选择/焦点键以了解用户正在查看的内容及其形状。
+- **操作表** — 操作名称与目的的紧凑表。
+- **技能 索引** — 存在的 skills 列表以及何时读取每个 skills。
+
+如果一个部分超出了屏幕，那么它就属于一项技能。 `AGENTS.md` 回答“这个应用程序是什么以及我能做什么”，而不是“我到底如何做困难的事情。”
+
+```markdown
+# 项目应用程序
+
+One workspace for projects, tasks, and notes. Agent and UI share the same SQL
+data and the same actions.
+
+## 核心规则
+
+- Data lives in 通过 Drizzle 使用 SQL. Use actions for all writes.
+- All AI work goes through the agent chat; never call an LLM inline.
+- Schema changes are additive only.
+
+## 应用状态
+
+- `navigation.view`: `home` | `project`
+- `navigation.projectId`: selected project on a project page
+
+## 行动
+
+| Action           | Purpose                     |
+| ---------------- | --------------------------- |
+| `list-projects`  | List accessible projects    |
+| `create-project` | Create a project            |
+| `update-project` | Rename or archive a project |
+
+## 技能
+
+- `project-imports` — read before importing legacy CSV exports.
+- `sharing` — read before exposing a project to other users.
+```
+
+## 单源AGENTS.md {#single-source}
+
+保留一个规范指令文件：`AGENTS.md`。如果客户端需要 `CLAUDE.md`，请将其设为 `AGENTS.md` 的符号链接，而不是第二个副本。两个手工维护的文件发生了偏差，特工最终得出了相互矛盾的规则。真相的一个来源，在需要的地方链接。
+
+## SKILL.md frontmatter 必须说 AND 时的内容 {#skill-frontmatter}
+
+`description` 是代理在决定是否读取技能时唯一看到的东西。它必须回答两个问题：技能涵盖什么以及何时触发它。仅描述主题的描述不会触发。
+
+```markdown
+---
+name: project-imports
+description: >-
+  How to import projects from the legacy CSV export. Use when the user uploads
+  a project CSV or asks to migrate projects from the old system.
+---
+```
+
+- 以功能开头，然后添加明确的 **“何时使用…”** 子句。
+- 稍微咄咄逼人——过度触发会打败永远不会加载的技能。
+- 将其控制在约 40 个字以内；它会加载到每次对话的上下文中。
+
+## 渐进式披露 {#progressive-disclosure}
+
+将 `SKILL.md` 编写为精益的必知层：规则、如何做、该做/不该做的列表以及指针。将长示例、详尽的字段引用、API 怪癖和边缘情况表推送到 `references/` 文件中，代理仅在需要时读取它们。
+
+```text
+.agents/skills/project-imports/
+├── SKILL.md            # 规则 + 快乐路径 + do/don't
+└── references/
+    └── csv-format.md   # 全列规范、编码、边缘情况
+```
+
+这使始终加载的表面保持较小，并允许深度缩放而不会使上下文膨胀。完整技能格式请参见 [技能 Guide](/docs/skills-guide)。
+
+## 编写面向行动的表格 {#action-tables}
+
+代理扫描表格的速度比扫描散文的速度快。优先使用名称表而不是描述每个操作的段落。这同样适用于状态键、字段类型和任何可枚举集。表格可浏览、可比较，并且在添加操作时易于保持同步。
+
+## 编写清晰的工具说明 {#tool-descriptions}
+
+操作描述是工具描述——它们驱动工具选择。让每一个句子成为一个精确的、单一目的的句子：
+
+- 说明它的作用和返回什么，而不是它的实现方式。
+- 描述其 `.describe()` 中的每个参数，以便代理正确填写。
+- 每个操作都有一个责任。如果描述需要“而且还……”，请将其拆分。
+- 标记只读 actions（`readOnly: true` 或 `http: { method: "GET" }`），以便客服人员知道他们可以安全地自由呼叫。
+
+```ts
+defineAction({
+  description: "Create a project. Returns the new project id and title.",
+  schema: z.object({
+    title: z.string().min(1).describe("Project title shown in the sidebar"),
+  }),
+  // ...
+});
+```
+
+## 技能 vs actions {#skills-vs-actions}
+
+技能 和 actions 是互补的。技能是代理阅读的指南；一个
+action 是代理可以运行的代码。
+
+| 需要                                       | 使用             |
+| ------------------------------------------ | ---------------- |
+| 客服人员需要遵循工作流程、政策、清单或准则 | **技能**         |
+| 代理需要示例、参考资料或特定领域的规则     | **技能**         |
+| 代理需要读取或写入应用数据                 | **操作**         |
+| 代理需要调用外部API或执行审批              | **操作**         |
+| 代理以错误的方式调用正确的操作             | 提高**技能**     |
+| 代理无法可靠地调用操作                     | 改进**操作**     |
+| 代理选择了错误的工具                       | 改进**动作描述** |
+
+大多数实际功能都会同时使用这两种功能：技能解释如何完成任务，并且
+该操作提供类型化操作。例如，`invoice-review`技能
+可以解释审核政策和升级规则，同时`list-invoices`，
+`flag-invoice` 和 `approve-invoice` actions 执行实际的读写操作。
+
+## 烘焙反加工并在完成前进行验证 {#anti-fabrication}
+
+应用说明应将诚实和验证作为默认行为：
+
+- **切勿捏造。**如果未找到数据或操作失败，请说出来并恢复 - 不要发明结果或声称成功。在报告之前通过操作或查询读取实际值。
+- **在声明完成之前进行验证。**更改后，通过读回确认（重新查询行，通过 `view-screen` 重新读取屏幕），而不是假设写入有效。
+- **恢复，不要放弃。** 对于可恢复的错误（失败的查询、短暂的提取），重试或修复输入而不是放弃任务。将其与反捏造规则分开——不要将“不要编造事情”与“在第一个错误处停止”混为一谈。
+
+将这些作为 `AGENTS.md` 中的核心规则，以便它们适用于每个回合。
+
+## 代理看到的四个表面 {#four-surfaces}
+
+您编写的每一条指导都会落在四个表面之一上。知道使用哪个表面可以防止重复和错位细节：
+
+| 表面                      | 谁写的                 | 加载时                       | 那里属于什么                                    |
+| ------------------------- | ---------------------- | ---------------------------- | ----------------------------------------------- |
+| `AGENTS.md`说明           | 您（开发者）           | 每个回合，作为方向           | 目的、核心规则、状态键、动作索引、skills索引    |
+| 技能 (`SKILL.md`)         | 您（开发者）           | 当客服人员认为技能相关时按需 | 特定模式的分步操作方法，列出了该做/不该做的事情 |
+| 操作描述（工具）          | 您（开发者）           | 每回合，如工具列表           | 操作的作用、返回内容、参数语义                  |
+| `application_state`上下文 | 您的 UI 代码（运行时） | 每回合，作为实时应用状态     | 当前导航、选择、聚焦对象、URL                   |
+
+**快速诊断：**
+
+- “即使打开一条记录，代理也会不断询问要操作哪条记录” → 修复：将当前项目 ID 从 UI 写入 `application_state`（`navigation` 密钥）。这是 `application_state` 差距，而不是技能差距。
+- “代理调用了错误的操作或误用了参数”→修复：改进操作在参数上的`description`和`.describe()`。这是工具描述修复，而不是技能。
+
+## 什么去哪里 {#what-goes-where}
+
+- **AGENTS.md** — 适用于整个应用程序，每回合：目的、核心规则、状态键、操作索引、skills 索引。
+- **技能** — 针对特定模式的可重用操作方法，按需加载。适用于在该应用中工作的每个人。
+- **内存 (`memory/MEMORY.md`)** — 每个用户的偏好和更正，而非编写的指导。
+
+## 下一步是什么 {#whats-next}
+
+- [技能 Guide](/docs/skills-guide) — 技能文件格式、框架 skills 和应用程序支持的 skills。
+- [Creating Templates](/docs/creating-templates) — `AGENTS.md` 和 skills 如何融入可交付模板。
+- [The four-area checklist](/docs/key-concepts#four-area-checklist) - 每个特征都必须满足的四区域模型。

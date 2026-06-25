@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { runWithRequestContext } from "../../server/request-context.js";
 
 const execSyncMock = vi.hoisted(() => vi.fn(() => "ok"));

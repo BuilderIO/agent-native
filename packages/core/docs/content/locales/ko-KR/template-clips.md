@@ -1,0 +1,372 @@
+---
+title: "클립"
+description: "비동기 화면 녹화, 달력에 동기화된 회의 메모, 눌러서 말하기 음성 받아쓰기 등 상담원에게 Clips 링크를 붙여넣으면 대화 내용, 영상, 요약을 읽을 수 있습니다."
+search: "클립 브라우저 로그 개발자 로그 콘솔 로그 네트워크 로그 가져오기 XHR Chrome 확장 프로그램 진단 레코더 데스크톱 앱"
+---
+
+# 클립
+
+모든 것을 캡처하는 앱: 화면 녹화, 달력의 회의 메모, Fn 키를 누른 채 음성 받아쓰기. 에이전트는 모든 내용을 기록하고, 제목을 지정하고, 요약하고 색인화합니다. 그런 다음 "출시 계획에 대해 논의한 클립을 찾아보세요"라고 요청하고 지금까지 작성한 모든 기록을 검색할 수 있습니다.
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>엔지니어링 Clips</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>OKR 검토</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>온보딩 흐름</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Bug 재현</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>에이전트가 읽을 수 있음</span><span>전사 + 프레임 공유 링크 준비 완료</span><div style='flex:1'></div><button>공유</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>기록 검색</strong><div class='wf-box'>일치한 챕터 03:12 · 롤아웃 위험 및 담당자 인계</div><div class='wf-box'>회의 요약 및 작업 항목</div></div></div>"
+}
+```
+
+Loom + Granola + Wispr Flow가 하나의 앱으로 통합되었다고 생각해보세요. 그러나 에이전트는 모든 표면에서 일류 편집자이며 녹음, 회의 및 받아쓰기는 SaaS 공급업체의 것이 아니라 귀하의 것입니다. Clips는 공유 녹음물을 상담원이 읽을 수 있도록 해줍니다. 일반 Clips 공유 링크를 상담원에 붙여넣으면 대본을 텍스트로 "듣고" 타임스탬프가 표시된 화면 프레임을 이미지로 "볼" 수 있습니다. 원본 비디오는 필요하지 않습니다. 프레임 보기는 모든 이미지 지원 에이전트(ChatGPT, Claude 코드, 커서, Codex)에서 작동합니다. 텍스트 전용 웹 채팅은 여전히 ​​전체 내용을 얻을 수 있으며 업로드한 프레임을 사용할 수 있습니다.
+
+```an-diagram title="캡처, 복사, 재사용" summary="세 가지 캡처 유형이 하나의 라이브러리에 포함됩니다. 상담원이 스크립트를 작성하고 제목을 지정하고 요약하면 모든 스크립트를 검색하고 공유할 수 있습니다."
+{
+  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">화면 녹화</div><div class=\"diagram-node\">캘린더 회의</div><div class=\"diagram-node\">Fn 길게 누르기 받아쓰기</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>하나의 라이브러리<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">제목 · 요약 · 챕터</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">검색</div><div class=\"diagram-pill\">공유</div><div class=\"diagram-pill\">에이전트가 읽을 수 있음 links</div></div></div>",
+  "css": ".diagram-clips{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-clips .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-clips .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-clips .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## 그것으로 무엇을 할 수 있나요
+
+- **내장 레코더, 웹캠 오버레이, 오디오 캡처 및 일시 중지/자르기를 사용하여 화면을 녹화**하세요.
+- **캘린더에서 회의를 캡처하세요.** Google Calendar를 연결하고 사이드바에서 예정된 회의를 확인하고 원하는 회의를 기록하세요. 실시간 기록과 AI 요약, 글머리 기호 메모, 작업 항목이 끝나는 순간 바로 받아보실 수 있습니다.
+- **푸시 투 토크 받아쓰기.** 컴퓨터에서 Fn을 누른 채 말을 하면 정리된 텍스트가 사용 중인 앱에 드롭됩니다. 모든 받아쓰기는 원본과 AI 정리 버전이 나란히 검색 가능한 기록에 보관됩니다.
+- **모든 녹음에 대해 자동 생성된 제목, 요약 및 챕터 마커**를 받으세요. 상담원이 이를 채우고 최신 상태로 유지합니다.
+- **모든 기록을 검색**합니다. 화면 녹화, 회의, 받아쓰기가 모두 하나의 라이브러리에 있습니다. "우리가 출시 계획을 논의한 클립을 찾아보세요."
+- **클립 공유** 클립별 권한(공개, 팀, 비공개)이 있습니다. 링크 추적 및 스레드 댓글도 작동합니다.
+- **Slack에서 공개 클립을 미리 보세요** Loom 스타일의 재생 가능한 클립을 펼친 후
+  Workspace는 Clips Slack 앱을 설치합니다.
+- **Chrome 확장 프로그램을 사용하여 브라우저 로그를 캡처하세요.** 브라우저 녹화는
+  수정된 콘솔 로그를 첨부하고 다음 작업에 도움이 되는 가져오기/XHR 메타데이터
+  제품 버그 및 브라우저 전용 재현
+- **클립 링크를 에이전트에 붙여넣어** 에이전트가 원시 비디오 파일을 수신하지 않고도 에이전트가 읽을 수 있는 컨텍스트(메타데이터, 스크립트 세그먼트, 권장 프레임, 타임스탬프 프레임 이미지)를 검색할 수 있도록 합니다.
+- **스마트 라이브러리 보기.** 프로젝트별로 그룹화하고, 발표자별로 필터링하고, 콘텐츠에 따라 자동 태그를 지정합니다.
+- **채팅을 통해 스크립트를 편집하세요.** "1:42에서 잘못 표기된 단어를 수정하세요." "블로그 게시물에 대한 세 가지 인용문을 뽑아보세요." 상담원은 대화 내용을 편집하고 UI 업데이트를 실시간으로 업데이트합니다.
+
+## 브라우저 로그 및 개발자 진단
+
+녹화와 브라우저 로그가 필요한 경우 Clips Chrome 확장 프로그램을 사용하세요.
+디버깅 중인 탭입니다. 확장 프로그램은 활성 탭 기록을 시작하고
+수정된 콘솔 로그, JavaScript 예외 저장 및 가져오기/XHR 네트워크
+방법, 수정된 URL, 상태, 기간 및 실패 텍스트와 같은 메타데이터입니다. 그것은
+요청 본문, 응답 본문 또는 헤더를 저장하지 않습니다.
+
+일반 브라우저 레코더 페이지는 레코더 페이지의 진단을 저장할 수 있습니다.
+그 자체. Chrome 확장 프로그램은 활성 탭 개발자 로그의 경로이며
+브라우저 전용 재현. 클립 UI에서 브라우저 로그에 Chrome 옵션을 사용하고
+가장 원활한 일상 캡처 경로를 위한 데스크탑 앱
+
+Agent-Native Clips Chrome 확장 프로그램 목록은 다음과 같습니다.
+`https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`.
+자신의 Clips 서버를 호스팅하는 경우 Chrome 확장 옵션을 숨김 상태로 유지하세요.
+귀하의 웹 스토어 목록이 게시되었습니다. `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` 설정
+데스크톱 앱 다운로드 프롬프트 옆에 확장 프로그램을 표시하려면 승인을 받아야 합니다. 설정
+기본값을 무시해야 하는 경우에만 `VITE_CLIPS_CHROME_EXTENSION_URL`
+URL 목록
+
+## 에이전트가 읽을 수 있는 클립
+
+일반 공개 클립 공유 링크를 에이전트에 붙여넣습니다. 공유 페이지에 광고
+컴팩트 에이전트 컨텍스트 URL, 해당 컨텍스트는 기록 및 프레임을 가리킵니다
+API, 텍스트나 정지 이미지만 허용하는 모델도 여전히 무엇을 이해할 수 있는지
+녹화 중에 이런 일이 일어났습니다.
+
+이미지 URL를 비전으로 가져올 수 있는 에이전트 — ChatGPT, Claude 코드,
+커서, Codex 및 MCP 연결 에이전트 — 기록을 읽고 내용을 봅니다.
+프레임. 일부 텍스트 전용 웹 채팅에서는 대화 내용을 읽을 수 있지만 프레임 이미지는 가져오지 않습니다.
+스스로; 거기에서 키 프레임을 업로드하거나 이미지 지원 파일에서 클립을 엽니다.
+요원.
+
+| 엔드포인트                                        | 상담원이 얻는 것                                                                                          |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`        | 클립 메타데이터, 성적 증명서 상태, 챕터, CTA, 권장 프레임 및 성적 증명서/프레임 API에 대한 링크           |
+| `/api/agent-transcript.json?id=<recordingId>`     | `startMs`, `endMs`, 읽을 수 있는 타임스탬프, 텍스트 및 선택적 소스 라벨이 포함된 타임스탬프 기록 세그먼트 |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | 원본 비디오 타임스탬프의 비디오에서 추출된 JPEG 프레임                                                    |
+
+엔드포인트는 공유 페이지와 동일한 공개/비밀번호/만료 규칙을 따릅니다.
+비밀번호로 보호된 클립에는 비밀번호가 한 번만 필요합니다. 성공적인 응답 반환
+다운스트림 에이전트에 일반 텍스트가 필요하지 않도록 단기 토큰화된 링크
+비밀번호.
+
+Slack 미리보기는 동일한 공유 경계를 사용합니다. `/api/slack/unfurl` 웹훅
+준비된 공개 클립에 대해 재생 가능한 Slack `video` 블록만 반환합니다.
+비밀번호, 만료 히트, 아카이브 마커 또는 휴지통 마커. 다른 클립에는 여전히
+일반적인 공유 페이지 제목/썸네일 메타데이터이며 클립을 열어야 합니다.
+
+```an-api title="에이전트 컨텍스트 진입점"
+{
+  "method": "GET",
+  "path": "/api/agent-context.json",
+  "summary": "에이전트가 읽을 수 있는 공유 클립에 대한 간결한 설명",
+  "description": "Returns clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript and frame APIs. Advertised by the public share page so a text- or image-only agent can understand a recording without ingesting raw video.",
+  "auth": "Same public / password / expiry rules as the share page",
+  "params": [
+    { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
+  ],
+  "responses": [
+    { "status": "200", "description": "Clip metadata plus transcript and frame API links" }
+  ]
+}
+```
+
+```an-api title="타임스탬프가 있는 성적표"
+{
+  "method": "GET",
+  "path": "/api/agent-transcript.json",
+  "summary": "공유 클립의 타임스탬프 기록 세그먼트",
+  "params": [
+    { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
+  ],
+  "responses": [
+    { "status": "200", "description": "Segments with startMs, endMs, readable timestamps, text, and optional source labels" }
+  ]
+}
+```
+
+```an-api title="타임스탬프의 프레임"
+{
+  "method": "GET",
+  "path": "/api/agent-frame.jpg",
+  "summary": "원본 비디오 타임스탬프의 비디오에서 추출된 JPEG 프레임",
+  "params": [
+    { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" },
+    { "name": "atMs", "in": "query", "type": "integer", "required": true, "description": "Original-video timestamp in milliseconds" }
+  ],
+  "responses": [
+    { "status": "200", "description": "image/jpeg frame" }
+  ]
+}
+```
+
+## 시작하기
+
+라이브 데모: [clips.agent-native.com](https://clips.agent-native.com).
+
+1. **라이브러리 열기.** 화면 녹화, 회의 녹화, 받아쓰기 등을 찾아보세요.
+   폴더와 공간을 한 곳에서.
+2. **녹화 또는 가져오기.** 화면 녹화 캡처, 달력에서 시작
+   회의 또는 푸시-투-톡 받아쓰기
+3. **에이전트가 정리하도록 합니다.** 제목, 요약, 장, 작업을 생성합니다.
+   항목 또는 정리된 기록 텍스트
+4. **검색 및 재사용.** 클립, 인용문, 작업 항목 또는 결정을 요청하세요.
+   필요한 경우 결과를 올바른 가시성과 공유하세요.
+
+### 유용한 메시지
+
+- "제품 업데이트를 위해 이 클립을 요약합니다."
+- "우리가 출시 계획을 논의한 회의를 찾아보세요."
+- "이 기록에서 고객 견적 3개를 가져옵니다."
+- "마지막 영업 통화에서 작업 항목을 만듭니다."
+- "이 받아쓰기를 정리하고 Linear 티켓으로 바꾸세요."
+
+## 개발자용
+
+이 문서의 나머지 부분은 Clips 템플릿을 포크하거나 확장하는 모든 사람을 위한 것입니다.
+
+### 빠른 시작
+
+```bash
+npx @agent-native/core@latest create my-clips --standalone --template clips
+cd my-clips
+pnpm install
+pnpm dev
+```
+
+Clips는 기본 레코더가 포함된 더 큰 템플릿입니다(로컬 캡처를 위한 데스크톱 도우미 제공). 녹화물을 업로드하려면 세 가지 설정 단계가 필요합니다:
+
+1. **비디오 저장소(필수).** 온보딩 마법사를 통해 저장소 백엔드를 연결합니다. 가장 쉬운 경로는 Builder.io(베타 기간 동안 무료, 원클릭)입니다. 자체 호스팅 스토리지의 경우 `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`를 설정하고 선택적으로 `S3_REGION` 및 `S3_PUBLIC_BASE_URL`를 설정합니다. Cloudflare R2와 DigitalOcean Spaces는 `R2_*` 접두사가 있는 동일한 환경 변수를 사용합니다.
+2. **Google Calendar(선택 사항).** 예정된 회의를 동기화하려면 설정에서 Google Calendar 계정을 연결하세요. dev의 OAuth 콜백 URL는 `http://localhost:8094/_agent-native/google/callback`입니다. Gmail 및 Google Calendar API가 활성화된 [Google Cloud Console](https://console.cloud.google.com/)에서 Google OAuth 클라이언트를 설정하세요.
+3. **화면 캡처 권한.** macOS의 경우 시스템 설정 → 개인 정보 보호 및 보안 → 화면 녹화에서 브라우저(또는 데스크톱 동반 앱)에 화면 녹화 권한을 부여하세요. 브라우저 녹화는 수정된 콘솔을 저장하고 레코더 페이지에서 XHR 진단을 가져올 수 있습니다. Chrome 확장 프로그램 목록을 사용할 수 있게 되면 사용자가 활성 탭 브라우저 로그용 확장 프로그램이나 가장 원활한 기본 캡처 경로를 위한 데스크톱 앱을 선택할 수 있도록 `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1`를 활성화하세요.
+4. **Slack 미리보기(선택 사항).** `links:read`, `links:write` 및 `links.embed:write`를 사용하여 Slack 앱을 만듭니다. `link_shared`를 구독하세요. **App Unfurl Domains** 아래에 Clips 공유 도메인을 추가하세요. 요청 URL를 `https://your-clips.example.com/api/slack/unfurl`로 설정합니다. OAuth 리디렉션 URL `https://your-clips.example.com/api/slack/oauth/callback`를 추가합니다. `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` 및 `SLACK_SIGNING_SECRET`를 구성한 다음 클립 설정에서 작업 공간을 연결하세요.
+
+### 나만의 Clips 서버 호스팅
+
+[clips.agent-native.com](https://clips.agent-native.com)에 호스팅된 Clips 앱
+은 Clips 템플릿의 배포된 복사본입니다. 자신의 서버를 운영하려면 비계
+템플릿을 다른 에이전트 기반 앱처럼 배포한 다음 데스크톱을 가리킵니다
+배포된 트레이 앱
+
+1. **앱을 만듭니다.**
+
+   ````배쉬
+   npx @agent-native/core@latest 내 클립 생성 --standalone --템플릿 클립
+   CD 내 클립
+   pnpm 설치
+   ```
+
+   ````
+
+2. **프로덕션 상태를 구성합니다.** 영구 `DATABASE_URL`, 일반 설정
+   [Deployment](/docs/deployment)의 프로덕션 인증/비밀 변수 및
+   비디오 저장 제공업체. Builder.io Connect는 가장 쉬운 저장 경로입니다. 를 위해
+   자체 호스팅 스토리지, S3 호환을 위해 `S3_*` 또는 `R2_*` 변수 사용
+   버킷.
+
+3. **웹 앱을 배포합니다.** 일반 노드 배포의 경우:
+
+   ````배쉬
+   pnpm 빌드
+   노드 .output/server/index.mjs
+   ```
+
+   또한 [Deployment](/docs/deployment)의 Nitro 타겟을 사용할 수도 있습니다.
+   Netlify, Vercel, Cloudflare Pages, AWS Lambda 또는 Deno Deploy. 꼭
+   `BETTER_AUTH_URL`는 예를 들어 공개 클립 원본입니다.
+   `https://clips.example.com`.
+
+   ````
+
+4. **데스크탑 트레이 앱을 연결합니다.** Clips 데스크탑 설정을 열고 설정
+   **서버 URL**를 배포의 공개 기반 URL에 클립합니다. 예를 들어
+   `https://clips.example.com`. 앱이 작업공간 경로 아래에 마운트된 경우
+   `https://example.com/clips`와 같은 경로를 포함합니다. **연결**을 클릭하세요.
+   그런 다음 해당 Clips 서버의 계정으로 로그인하세요.
+
+5. **게시 후 Chrome 확장 프로그램을 활성화하세요.** 유지
+   Chrome 웹 스토어 목록이 나올 때까지 `VITE_CLIPS_CHROME_EXTENSION_ENABLED`가 설정되지 않습니다.
+   승인되었습니다. 그런 다음 `1`로 설정하여
+   데스크톱 앱 프롬프트. 기본 목록 URL는
+   `https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`;
+   배포에서 다음을 사용하는 경우에만 `VITE_CLIPS_CHROME_EXTENSION_URL`를 설정하세요
+   다른 확장 프로그램 목록
+
+6. **선택적 통합을 연결하세요.** Google Calendar는 회의 탭을 강화합니다.
+   `GEMINI_API_KEY` 또는 Builder.io Connect는 성적표 정리 및 제목을 강화합니다.
+   `GROQ_API_KEY`는 음성-텍스트 대체 기능을 제공할 수 있으며 Slack OAuth
+   설정에서 연결하면 플레이 가능한 Slack 전개가 가능해집니다.
+
+로컬 개발의 경우 `pnpm dev`로 웹 앱을 실행하고 데스크톱을 가리킵니다
+`http://localhost:8094`의 트레이 앱
+
+### 주요 기능
+
+**하나의 라이브러리, 세 가지 캡처 유형.** 화면 녹화, 일정 회의 및 푸시-투-톡 받아쓰기는 검색 가능한 하나의 라이브러리를 공유합니다.
+
+**스크립트 및 AI 파이프라인.** 녹음에는 타임스탬프가 지정된 스크립트 세그먼트, 생성된 제목, 요약 및 챕터 마커가 포함됩니다.
+
+**비파괴 편집.** 다듬기, 분할, 필러 단어 제거, 묵음 제거 및 연결이 `edits_json`에 유지되므로 원본 미디어가 그대로 유지됩니다.
+
+**에이전트가 읽을 수 있는 공유 링크.** 공개 공유 링크는 스크립트와 프레임 API를 노출하므로 에이전트는 원본 비디오를 수집하지 않고도 녹화물을 이해할 수 있습니다.
+
+**Slack 재생 가능한 전개.** 공개 공유 링크는 Slack `video` 블록을 렌더링할 수 있습니다.
+기존 `/embed/:id` 플레이어를 가리킵니다. 이것은 작업공간 Slack 앱입니다
+설치, 전역 크롤러 동작 아님: 일반적인 Open Graph/Twitter 메타데이터는
+앱이 설치되지 않은 경우 대체
+
+### 데이터 모델
+
+모든 데이터는 Drizzle ORM를 통해 SQL에 있습니다. 스키마: `templates/clips/server/db/schema.ts`. 녹음, 회의, 받아쓰기, 캘린더 계정 및 어휘는 모두 표준 `ownableColumns`를 전달하고 일치하는 프레임워크 공유 테이블을 가지므로 사용자별/조직별 공유 모델에 속합니다.
+
+```an-schema title="클립 핵심 데이터 모델" summary="recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
+{
+  "entities": [
+    {
+      "id": "recordings",
+      "name": "recordings",
+      "note": "Core resource; source of truth for media. ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "title", "type": "text" },
+        { "name": "video_url", "type": "text", "note": "plus format / size / duration / thumbnails" },
+        { "name": "status", "type": "text" },
+        { "name": "edits_json", "type": "text", "note": "비파괴적인 편집" },
+        { "name": "chapters_json", "type": "text", "nullable": true },
+        { "name": "password", "type": "text", "nullable": true, "note": "개인정보 보호: 비밀번호/만료" }
+      ]
+    },
+    {
+      "id": "recording_transcripts",
+      "name": "recording_transcripts",
+      "note": "라이브러리 및 스크립트 보기가 빠르게 렌더링되도록 분할",
+      "fields": [
+        { "name": "recording_id", "type": "text", "fk": "recordings.id" },
+        { "name": "segments_json", "type": "text", "note": "{ startMs, endMs, text }" },
+        { "name": "full_text", "type": "text" },
+        { "name": "language", "type": "text" },
+        { "name": "status", "type": "text" }
+      ]
+    },
+    {
+      "id": "clips_meetings",
+      "name": "clips_meetings",
+      "note": "Calendar-sourced or ad-hoc; owns a recording",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "recording_id", "type": "text", "fk": "recordings.id", "nullable": true },
+        { "name": "summary_md", "type": "text", "nullable": true },
+        { "name": "bullets_json", "type": "text", "nullable": true },
+        { "name": "action_items_json", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "id": "clips_dictations",
+      "name": "clips_dictations",
+      "note": "Push-to-talk dictation history; ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "full_text", "type": "text", "note": "원시" },
+        { "name": "cleaned_text", "type": "text", "nullable": true },
+        { "name": "source", "type": "text", "note": "fn-hold 등" },
+        { "name": "target_app", "type": "text", "nullable": true }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "recordings", "to": "recording_transcripts", "kind": "1-1", "label": "transcript" },
+    { "from": "recordings", "to": "clips_meetings", "kind": "1-1", "label": "captured by" }
+  ]
+}
+```
+
+| 테이블                                          | 무엇을 담고 있는지                                                                                                                                         |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recordings`                                    | 핵심 리소스 — 제목, 비디오 URL/형식/크기, 재생 시간, 썸네일, 상태, 비파괴적 `edits_json`, `chapters_json`, 개인 정보 보호(비밀번호, 만료) 및 플레이어 토글 |
+| `recording_transcripts`                         | 녹음별 기록: `segments_json`(`{startMs,endMs,text}`), `full_text`, 언어 및 상태                                                                            |
+| `recording_tags`                                | 녹화의 자유 형식 태그                                                                                                                                      |
+| `recording_ctas`                                | 녹화에 오버레이된 클릭 유도 버튼(라벨, URL, 색상, 배치)                                                                                                    |
+| `recording_comments`                            | 이모지 반응 맵 및 해결 플래그가 포함된 스레드된 타임스탬프 댓글                                                                                            |
+| `recording_reactions`                           | 동영상 타임스탬프에 고정된 reactions 이모티콘(익명 시청자 허용)                                                                                            |
+| `recording_viewers` / `recording_events`        | 분석 보기: 시청자별 시청 시간 및 완료, 세부적인 이벤트(보기 시작, 시청 진행률, 탐색, 일시중지, CTA 클릭, 반응)                                             |
+| `clips_meetings`                                | 캘린더 소스 또는 임시 회의 — 일정/실제 범위, 플랫폼, 사용자 메모, AI `summary_md`, `bullets_json`, `action_items_json` 및 `recording_id`에 대한 링크       |
+| `meeting_participants` / `meeting_action_items` | 회의 참석자 및 추출된 작업 항목                                                                                                                            |
+| `calendar_accounts` / `calendar_events`         | 연결된 캘린더 계정(OAuth 토큰은 `app_secrets`에 있으며 여기에서만 참조됨) 및 동기화된 이벤트 스냅샷                                                        |
+| `clips_dictations`                              | Push-to-talk 받아쓰기 기록 — 원시 `full_text`, 선택적 `cleaned_text`, 소스(`fn-hold` 등) 및 대상 앱                                                        |
+| `clips_vocabulary`                              | 향후 받아쓰기를 편향시키는 개인 어휘 수정(용어 → 선호 대체)                                                                                                |
+| `spaces` / `space_members` / `folders`          | 라이브러리 조직 — 스페이스(주제 범위 컨테이너), 해당 구성원 및 중첩 가능한 폴더                                                                            |
+| `organization_settings`                         | 조직별 클립 사이드카: 브랜드 색상, 로고, 기본 공개 상태                                                                                                    |
+
+녹화 및 녹취록은 의도적으로 별도의 테이블이므로 라이브러리 및 녹취록 보기가 각각 빠르게 렌더링될 수 있습니다. 회의는 미디어 복제가 아닌 녹화로 작성됩니다. 회의는 캡처한 녹화를 소유하지만 `recordings` 행은 비디오 및 세그먼트별 기록의 진실 소스로 남아 있습니다.
+
+UI의 경로는 `templates/clips/app/routes/` 아래에 있습니다. 인증된 앱은 `_app.*`(라이브러리, 스페이스, 폴더, 회의, 받아쓰기, 통찰력, 휴지통, 설정) 아래에 위치하며 공개 표면은 `r.$recordingId`, `share.$shareId`, `embed.$shareId` 및 `invite.$token`에 있습니다.
+
+### 키 actions
+
+모든 에이전트 호출 가능 작업은 `templates/clips/actions/`의 TypeScript 파일이며, `POST /_agent-native/actions/:name`에 자동으로 마운트되고 CLI에서 `pnpm action <name>`로 실행 가능합니다. ~80개의 actions가 있습니다. 유용한 그룹화:
+
+- **녹화 수명 주기** — `create-recording`, `finalize-recording`, `update-recording`, `set-thumbnail`, `archive-recording` / `restore-recording` / `trash-recording` / `delete-recording-permanent`, `move-recording`, `tag-recording`.
+- **기록 및 AI** — `request-transcript`, `cleanup-transcript`, `regenerate-title` / `regenerate-summary` / `regenerate-chapters`, `set-chapters`, `generate-workflow`. (`cleanup-transcript` 및 `finalize-meeting`는 서버 측 미디어 파이프라인 호출입니다. 대부분의 다른 AI 기능은 에이전트 채팅에 위임됩니다.)
+- **편집** — 비파괴적 `trim-recording`, `split-recording`, `remove-filler-words`, `remove-silences` 및 `stitch-recordings`, `undo-edit`, `clear-edits`. 편집 내용은 `edits_json`에 누적됩니다. 클라이언트는 ffmpeg.wasm을 통해 연결/내보냅니다.
+- **회의** — `create-meeting`, `start-meeting-recording` / `stop-meeting-recording`, `finalize-meeting`, `update-meeting`, `get-meeting`, `list-meetings`, 달력 배선 `connect-calendar` / `disconnect-calendar` / `sync-calendars` / `list-calendar-accounts`.
+- **받아쓰기** — 개인 어휘 편향을 위한 `create-dictation`, `cleanup-dictation`, `update-dictation`, `list-dictations` 및 `add-vocabulary-term` / `list-vocabulary`.
+- **도서관 조직** — `create-space` / `rename-space` / `delete-space`, `add-space-member` / `remove-space-member`, `create-folder` / `rename-folder` / `delete-folder`, `add-recording-to-space`.
+- **공유, 댓글 및 참여** — 프레임워크 공유 actions + `create-cta` / `update-cta` / `delete-cta`, `add-comment` / `reply-to-comment` / `resolve-comment` / `react-to-comment` / `delete-comment`, `react-to-recording`, `list-viewers`.
+- **조직 및 구성원** — `create-organization`, `set-organization-branding`, `invite-member` / `accept-invite` / `decline-invite` / `get-invite`, `remove-member`, `update-member-role`, `list-organization-state`, `list-notifications`.
+- **검색, 인사이트 및 내보내기** — `search-recordings`(타임스탬프와 함께 제목, 설명, 기록 텍스트 및 댓글과 일치), `get-recording-insights`, `get-organization-insights`, `export-insights-csv`, `export-to-brain`.
+- **컨텍스트 및 탐색** — `view-screen`(현재 클립, 재생 헤드, 선택한 스크립트 범위) 및 `navigate`; 돌연변이 후 `refresh-list`.
+
+### 맞춤 설정
+
+Clips는 완벽하고 복제 가능한 템플릿입니다. 이를 포크하고 에이전트에게 확장을 요청하세요. 몇 가지 예:
+
+- "대본에서 음과 어를 제거하고 비디오를 다시 연결하는 필러 단어 제거 버튼을 추가하세요."
+- "회의가 끝날 때마다 내 스탠드업 메모를 Slack #eng에 자동으로 게시합니다." (먼저 [Messaging](/docs/messaging)를 통해 Slack를 연결하세요.)
+- "마지막 받아쓰기를 새 티켓으로 Linear에 드롭하는 단축키를 추가하세요."
+- "프로젝트별로 라이브러리를 그룹화합니다. 각 기록의 첫 번째 단어에서 프로젝트를 감지합니다."
+- "대본에서 게시물 초안을 작성하고 초안으로 저장하는 '이 클립에서 블로그 게시물 생성' 버튼을 추가하세요."
+- "시청자가 공유 클립에 타임스탬프 reactions를 남길 수 있습니다."
+
+에이전트는 필요에 따라 경로, 구성 요소, 기록 파이프라인 및 스키마를 편집합니다. 전체 복제, 사용자 정의, 배포 흐름은 [Templates](/docs/cloneable-saas)를 참조하고, 이것이 첫 번째 에이전트 기본 템플릿인 경우 [Getting Started](/docs/getting-started)를 참조하세요.
+
+## 다음 단계
+
+- [**Templates**](/docs/cloneable-saas) — 복제 및 소유 모델
+- [**Context Awareness**](/docs/context-awareness) — 에이전트가 현재 클립과 재생 헤드를 아는 방법
+- [**Agent Teams**](/docs/agent-teams) — 전문 하위 에이전트에게 성적표 정리 위임

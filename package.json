@@ -1,28 +1,33 @@
 {
   "name": "agentnative",
+  "version": "1.0.0",
   "private": true,
-  "type": "module",
+  "description": "Don't choose between rich user interfaces and autonomous agents. Every Agent-Native app is both.",
+  "keywords": [],
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "license": "ISC",
+  "author": "",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/BuilderIO/agent-native.git"
   },
-  "bugs": {
-    "url": "https://github.com/BuilderIO/agent-native/issues"
+  "directories": {
+    "doc": "docs"
   },
-  "homepage": "https://github.com/BuilderIO/agent-native#readme",
-  "packageManager": "pnpm@10.29.1",
-  "engines": {
-    "node": ">=22"
-  },
+  "type": "module",
+  "main": "index.js",
   "scripts": {
-    "postinstall": "pnpm --filter @agent-native/shared-app-config --filter @agent-native/core --filter @agent-native/code-agents-ui --filter @agent-native/migrate --filter @agent-native/pinpoint --filter @agent-native/scheduling --filter @agent-native/embedding --filter @agent-native/dispatch run build && pnpm rebuild better-sqlite3",
+    "postinstall": "node scripts/prebuild-workspace-packages.ts postinstall && pnpm rebuild better-sqlite3",
     "setup": "pnpm install",
     "build": "pnpm -r build",
     "dev": "node scripts/dev-lazy.ts",
     "typecheck": "tsx scripts/workspace-run.ts typecheck",
-    "fmt": "prettier --write --cache --cache-location node_modules/.cache/prettier/.prettier-cache --log-level warn .",
-    "fmt:check": "prettier --check --cache --cache-location node_modules/.cache/prettier/.prettier-cache --log-level warn .",
-    "fix:imports": "prettier --write --plugin prettier-plugin-organize-imports --log-level warn .",
+    "fmt": "oxfmt --write .",
+    "fmt:check": "oxfmt --check .",
+    "fix:imports": "oxfmt --write .",
     "test": "tsx scripts/workspace-run.ts test",
     "test:brain-evals": "pnpm --filter brain eval:ci",
     "qa:cli": "tsx scripts/qa-cli-smoke.ts",
@@ -51,6 +56,7 @@
     "guard:no-generated-artifacts": "node scripts/guard-no-generated-artifacts.mjs",
     "guard:extension-no-public": "node scripts/guard-extension-no-public.mjs",
     "guard:no-one-off-mcp-app-html": "node scripts/guard-no-one-off-mcp-app-html.mjs",
+    "guard:i18n-catalogs": "tsx scripts/guard-i18n-catalogs.ts",
     "guard:plan-marketplace": "tsx scripts/sync-plan-marketplace.ts --check",
     "guard:no-error-string-returns": "node scripts/guard-no-error-string-returns.mjs",
     "guard:no-action-twin-routes": "node scripts/guard-no-action-twin-routes.mjs",
@@ -63,7 +69,7 @@
     "changeset:status": "changeset status --since=origin/main",
     "changeset:version": "changeset version",
     "changeset:publish": "pnpm -r build && changeset publish",
-    "prep": "concurrently -n fmt,types,test,guard -c blue,cyan,green,yellow \"pnpm fmt:check\" \"pnpm typecheck\" \"pnpm test\" \"pnpm guards\"",
+    "prep": "pnpm fmt && concurrently -n types,test,guard -c cyan,green,yellow \"pnpm typecheck\" \"pnpm test\" \"pnpm guards\"",
     "dev:lazy": "node scripts/dev-lazy.ts",
     "dev:desktop": "node scripts/dev-lazy.ts --desktop --electron",
     "dev:lazy:desktop": "node scripts/dev-lazy.ts --desktop --electron",
@@ -81,13 +87,19 @@
     "@cloudflare/vite-plugin": "^1.31.0",
     "@libsql/linux-x64-gnu": "^0.5.29",
     "@playwright/test": "^1.60.0",
+    "@typescript/native-preview": "7.0.0-dev.20260624.1",
     "concurrently": "^9.1.0",
-    "oxlint": "1.69.0",
+    "oxfmt": "0.56.0",
+    "oxlint": "1.71.0",
+    "oxlint-tsgolint": "0.23.0",
     "prettier": "^3.6.2",
-    "prettier-plugin-organize-imports": "4.3.0",
     "tsx": "^4.20.3",
     "wrangler": "^4.80.0"
   },
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "packageManager": "pnpm@10.29.1",
   "pnpm": {
     "overrides": {
       "react": "19.2.7",
@@ -97,7 +109,7 @@
       "rollup": ">=4.59.0",
       "multer": ">=2.1.1",
       "minimatch": ">=9.0.7",
-      "undici": ">=7.24.0",
+      "undici": "^7.28.0",
       "lodash": ">=4.18.0",
       "@remix-run/router": ">=1.23.2",
       "node-forge": ">=1.4.0",
@@ -109,14 +121,5 @@
       "hono": ">=4.12.4",
       "kysely": "^0.28.9"
     }
-  },
-  "version": "1.0.0",
-  "description": "Don't choose between rich user interfaces and autonomous agents. Every Agent-Native app is both.",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  }
 }

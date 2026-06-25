@@ -1,0 +1,348 @@
+---
+title: "Implantação"
+description: "Implemente aplicativos nativos de agente em qualquer plataforma com predefinições Nitro — Node.js, Vercel, Netlify, Cloudflare, AWS e muito mais."
+---
+
+# Implantação
+
+Os aplicativos nativos do agente usam [Nitro](https://nitro.build) internamente, o que significa que você pode implantar em qualquer plataforma sem nenhuma alteração de configuração. Basta definir uma predefinição.
+
+## Antes de implantar: escolha um banco de dados persistente {#persistent-database}
+
+Todo aplicativo implantado precisa de um banco de dados SQL persistente. No desenvolvimento local, o agente nativo recorre a um arquivo SQLite em `data/app.db`; isso é conveniente em sua máquina, mas não é durável em contêineres, visualizações ou ambientes sem servidor onde o sistema de arquivos pode ser redefinido.
+
+Defina `DATABASE_URL` em seu provedor de implantação antes de promover um aplicativo para produção. O agente nativo usa Drizzle para esquema e consultas, portanto, a camada de dados é portátil em back-ends SQL compatíveis com Drizzle e a estrutura detecta automaticamente o dialeto do URL. Consulte [Database](/docs/database#production) para obter a lista de adaptadores e detalhes do dialeto.
+
+Use `DATABASE_AUTH_TOKEN` somente quando seu provedor de banco de dados exigir um token separado, como Turso/libSQL. Para espaços de trabalho, todos os aplicativos herdam a raiz `DATABASE_URL` por padrão; defina `<APP_NAME>_DATABASE_URL` quando um aplicativo deve usar um banco de dados diferente.
+
+## Implantação do espaço de trabalho: uma origem, muitos aplicativos {#workspace-deploy}
+
+Se o seu projeto for um [workspace](/docs/multi-app-workspace), você poderá enviar todos os aplicativos nele para uma única origem com um comando:
+
+```bash
+npx @agent-native/core@latest deploy
+# https://your-agents.com/mail/*       → apps/mail
+# https://your-agents.com/calendar/*   → apps/calendar
+# https://your-agents.com/forms/*      → apps/forms
+```
+
+Cada aplicativo é criado com `APP_BASE_PATH=/<name>` e `VITE_APP_BASE_PATH=/<name>` e, em seguida, empacotado para a predefinição Nitro de destino. Cloudflare Pages é a predefinição padrão e usa um expedidor trabalhador gerado em `dist/_worker.js`; Netlify usa uma função por aplicativo em `.netlify/functions-internal/<app>-server` mais redirecionamentos gerados; Vercel grava um `.vercel/output` em nível de espaço de trabalho usando Build Output API.
+
+```an-diagram title="Uma origem, muitos aplicativos" summary="Cada aplicativo de espaço de trabalho é construído com seu próprio caminho base e montado sob um prefixo de caminho em uma única origem - portanto, o login e o cross-app A2A são da mesma origem e gratuitos."
+{
+  "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">A2A entre apps sem configuração</span></div></div>",
+  "css": ".diagram-ws{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-ws .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-ws .diagram-row{display:flex;align-items:center;gap:8px}.diagram-ws .wins{display:flex;flex-direction:column;gap:8px;align-items:flex-start}"
+}
+```
+
+A implantação da mesma origem oferece duas grandes vitórias gratuitamente:
+
+- **Sessão de login compartilhada** — faça login em qualquer aplicativo, todos os aplicativos estarão conectados.
+- **A2A entre aplicativos com configuração zero** — marcar `@calendar` do correio é uma busca de mesma origem; sem CORS, sem assinatura JWT entre irmãos.
+
+Publique a saída com:
+
+```bash
+wrangler pages deploy dist
+```
+
+Para implantações unificadas do Netlify, use a predefinição do Netlify:
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+Para implantações unificadas do Vercel, use a predefinição do Vercel:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+Ao configurar um comando de construção de provedor, use o mesmo comando com `--build-only`. Vercel deve rodar `npx @agent-native/core@latest deploy --preset vercel --build-only`; o comando grava `.vercel/output` diretamente, portanto, nenhum `vercel.json` é necessário para o roteamento do espaço de trabalho.
+
+As compilações de espaço de trabalho hospedado exigem `A2A_SECRET` no ambiente do provedor de implantação.
+Isso faz com que Slack, webhooks de entrada e A2A entre aplicativos retomem o trabalho por meio de assinatura
+processadores em segundo plano. As verificações locais do artefato `--build-only` ainda são executadas sem ele.
+
+A implantação independente por aplicativo ainda é suportada — apenas `cd apps/<name> && npx @agent-native/core@latest build` como uma estrutura independente.
+
+## Como funciona {#how-it-works}
+
+Quando você executa `npx @agent-native/core@latest build`, Nitro cria o cliente SPA e o servidor API em `.output/`:
+
+```an-file-tree title="Saída do build"
+{
+  "entries": [
+    { "path": ".output/", "note": "Autônomo: copie para qualquer ambiente e execute" },
+    { "path": ".output/public/", "note": "SPA buildada (assets estáticos)" },
+    { "path": ".output/server/index.mjs", "note": "Ponto de entrada do servidor" },
+    { "path": ".output/server/chunks/", "note": "Chunks de código do servidor" }
+  ]
+}
+```
+
+A saída é independente – copie `.output/` para qualquer ambiente e execute-o.
+
+```an-diagram title="Construa para implantar" summary="Uma árvore de origem é construída para uma predefinição Nitro; a mesma saída independente é executada em Node, Vercel, Netlify, Cloudflare, AWS ou Deno. Cada instância aponta para o mesmo DATABASE_URL persistente."
+{
+  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>Fonte do app</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>DATABASE_URL persistente<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
+  "css": ".diagram-deploy{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-deploy .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-deploy .diagram-arrow{font-size:22px;line-height:1}.diagram-deploy .diagram-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}"
+}
+```
+
+## Configurando a predefinição {#setting-the-preset}
+
+Por padrão, Nitro é compilado para Node.js. Para atingir uma plataforma diferente, defina a predefinição em seu `vite.config.ts`:
+
+```ts
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+Ou use a variável de ambiente `NITRO_PRESET` no momento da construção:
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+```
+
+## Node.js (padrão) {#nodejs}
+
+A predefinição padrão. Construir e executar:
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+Defina `PORT` para configurar a porta de escuta (padrão: `3000`).
+
+Use a linha Node.js LTS atual para implantações de produção. Em maio de 2026, isso
+é Node.js 24; Node.js 20 atingiu o fim da vida útil em 30 de abril de 2026 e não mais
+recebe atualizações de segurança upstream.
+
+### Docker {#docker}
+
+```dockerfile
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+# data/ é um diretório SQLite criado em tempo de execução - não copie um banco de dados dev para prod.
+# Para produção, defina DATABASE_URL como uma instância hospedada Postgres ou Turso.
+RUN mkdir -p /app/data
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+## Vercel {#vercel}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+Implante por meio do Vercel CLI ou git push:
+
+```bash
+vercel deploy
+```
+
+Para um espaço de trabalho, crie cada aplicativo em um pacote Vercel Build Output API:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+Para implantações do Vercel Git, defina o comando build como:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel --build-only
+```
+
+A compilação do espaço de trabalho copia a saída Nitro `vercel` de cada aplicativo para o `.vercel/output` raiz, fornece a cada função seu próprio ambiente de caminho de montagem e grava a configuração de rota que atende aplicativos em `/<app-id>`.
+
+## Netlify {#netlify}
+
+A predefinição Nitro `netlify` funciona bem e, na prática, nos proporcionou inicializações a frio muito mais rápidas do que Cloudflare Pages (~200ms TTFB vs ~9s) para modelos que se comunicam com Postgres externo (Neon). Defina a predefinição em `vite.config.ts`:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
+});
+```
+
+…ou defina `NITRO_PRESET=netlify` no momento da compilação.
+
+Para um espaço de trabalho, implante todos os aplicativos de um site Netlify executando:
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+A construção do espaço de trabalho grava ativos estáticos em `dist/_workspace_static/` e roteia cada aplicativo para sua própria função Netlify sem redirecionamentos forçados de ativos, de modo que arquivos como `/mail/assets/...` sejam servidos estaticamente antes que a função do servidor lide com as rotas do aplicativo.
+
+## Páginas Cloudflare {#cloudflare-pages}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
+});
+```
+
+## Lambda AWS {#aws-lambda}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
+});
+```
+
+## Implantação Deno {#deno-deploy}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
+});
+```
+
+## Variáveis de ambiente {#environment-variables}
+
+### Compilação/Tempo de execução {#env-runtime}
+
+| Variável                    | Descrição                                                                                                                                                         |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                      | Porta do servidor (somente Node.js)                                                                                                                               |
+| `NITRO_PRESET`              | Substituir predefinição de compilação no momento da compilação                                                                                                    |
+| `APP_BASE_PATH`             | Monte o aplicativo sob um prefixo (por exemplo, `/mail`). Definido automaticamente por `npx @agent-native/core@latest deploy`; deixe sem definição para autônomo. |
+| `AGENT_PROD_CODE_EXECUTION` | Modo de execução de código de produção opcional: `off` (padrão), `sandboxed` ou `trusted`. Consulte [Production Code Execution](#production-code-execution).      |
+
+Variáveis de conexão de banco de dados (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `<APP_NAME>_DATABASE_URL` por aplicativo) residem em [Database](/docs/database#production).
+
+### Obrigatório na produção {#env-required-prod}
+
+Eles devem ser definidos antes de promover um aplicativo para uma implantação de produto real. Valores ausentes podem ser fechados com falha (a estrutura se recusa a iniciar/recusa-se a lidar com solicitações) ou retornam para um comportamento mais fraco com um aviso alto.
+
+| Variável                 | Descrição                                                                                                                                                                                                                                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`     | 32+ caracteres aleatórios. Os cookies de sessão de sinais AND são o substituto HMAC para `OAUTH_STATE_SECRET` e `SECRETS_ENCRYPTION_KEY`. Requerido: a estrutura é lançada na inicialização se estiver faltando na produção.                                                                      |
+| `BETTER_AUTH_URL`        | Origem pública deste aplicativo (por exemplo, `https://mail.example.com`). Usado para construção de domínio de cookie e redirecionamento OAuth.                                                                                                                                                   |
+| `ANTHROPIC_API_KEY`      | Chave API para o agente de produção integrado. **Em implantações multilocatários**, a estrutura se recusa a recorrer a isso quando o usuário não tem uma chave por usuário — é necessário trazer sua própria chave. Instalações auto-hospedadas de locatário único usam-no como uma chave global. |
+| `OAUTH_STATE_SECRET`     | Chave HMAC dedicada para envelopes de estado OAuth (Google, Atlassian, Zoom). Volta para `BETTER_AUTH_SECRET` quando não definido, mas um valor dedicado é recomendado para que a rotação de um não invalide o outro. Gere via `openssl rand -hex 32`.                                            |
+| `A2A_SECRET`             | HMAC compartilhado para inter-aplicativos A2A JSON-RPC. Sem ele, cada endpoint A2A e o endpoint de disparo automático `/_agent-native/integrations/process-task` retornam 503 em produção.                                                                                                        |
+| `SECRETS_ENCRYPTION_KEY` | Chave AES-256-GCM para o cofre de segredos criptografados em repouso. Volta para `BETTER_AUTH_SECRET`. Falha grave na produção quando ambos não estão definidos.                                                                                                                                  |
+
+### Autenticação e identidade {#env-auth}
+
+Credenciais do provedor OAuth (Google, GitHub), substitutos estáticos do portador MCP (`ACCESS_TOKEN`/`ACCESS_TOKENS`) e alternâncias de verificação de e-mail estão documentados em [Authentication](/docs/authentication). Defina-os de acordo com o modo de autenticação que você escolher.
+
+### Entrada Webhooks {#env-webhooks}
+
+Cada integração de mensagens requer seu próprio segredo de assinatura na produção (manipuladores falham em solicitações forjadas quando o segredo está faltando). As variáveis ​​por integração estão listadas em [Messaging](/docs/messaging) e [Security](/docs/security). Apenas para desenvolvimento local, `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` opta novamente por "avisar e aceitar" - nunca coloque-o em produção.
+
+### Configuração de segurança (aceitação) {#security-config}
+
+Os padrões são rigorosos. Um punhado de sinalizadores opt-in relaxam o comportamento (rastreamentos de pilha de depuração, webhooks não verificado, fallback de chave no escopo do espaço de trabalho, switch multi-org do hub MCP, gravações env-var em tempo de execução). Eles estão documentados com suas compensações de segurança em [Security](/docs/security). Não os defina, a menos que queira especificamente um caminho descontraído.
+
+### Herança .env do espaço de trabalho {#env-inheritance}
+
+Dentro de um espaço de trabalho, o `.env` raiz é carregado em cada aplicativo automaticamente, portanto, chaves compartilhadas como `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET` e `OAUTH_STATE_SECRET` só precisam ser definidas uma vez. `apps/<name>/.env` por aplicativo vence em conflito.
+
+### Gerando segredos fortes {#env-generate-secrets}
+
+Para qualquer segredo marcado como "32+ caracteres aleatórios" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`), gere novos valores com:
+
+```bash
+openssl rand -hex 32
+```
+
+Alterne-os substituindo o env var em cada instância e reimplantando. As sessões/envelopes de estado OAuth assinados com a chave antiga tornam-se inválidos, portanto, os usuários podem precisar fazer login novamente.
+
+## Ferramentas do agente de produção {#production-agent-tools}
+
+Os agentes de produção obtêm o actions registrado do aplicativo, além das ferramentas de estrutura de
+o plugin de chat do agente. As gravações no banco de dados são habilitadas por padrão porque o banco de dados bruto
+as ferramentas têm como escopo o usuário/organização autenticado, mas os proprietários de aplicativos podem restringir o
+descobre quando uma implantação deveria ser mais opinativa:
+
+```ts
+// server/plugins/agent-chat.ts
+export default createAgentChatPlugin({
+  // Default: "write" (also true)
+  databaseTools: "read", // "write" | "read" | "off"
+  extensionTools: false,
+});
+```
+
+- `databaseTools: "write"` — padrão. Registra `db-schema`, `db-query`,
+  `db-exec` e `db-patch`. As gravações têm como escopo o usuário/organização atual e
+  as alterações de esquema estão bloqueadas.
+- `databaseTools: "read"` — registra apenas `db-schema` e `db-query`; agentes
+  inspecione os dados com SQL, mas deve usar o aplicativo digitado actions para gravações.
+- `databaseTools: "off"` ou `false` — remove ferramentas de banco de dados brutos do
+  superfície do agente para que o actions do aplicativo seja o único caminho de acesso aos dados.
+- `extensionTools: false` — remove o gerenciamento de extensão da estrutura actions e
+  orientação imediata (`create-extension`, `update-extension` etc.) para aplicativos que
+  não queremos que o agente crie miniaplicativos em sandbox.
+
+## Execução de código de produção {#production-code-execution}
+
+Por padrão, os agentes de produção são executados sem ferramentas de execução de código. Eles podem chamar o aplicativo actions, ferramentas de banco de dados, ferramentas MCP, ferramentas de navegador/sessão e outras ferramentas de estrutura registradas, mas não obtêm acesso ao shell ou ao sistema de arquivos.
+
+As implantações compatíveis com nós podem optar pela execução do código de produção por meio do plug-in de bate-papo do agente ou de uma substituição de ambiente:
+
+```ts
+// server/plugins/agent-chat.ts
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+Os modos disponíveis são:
+
+- `off` — o padrão. Nenhuma ferramenta de execução de código está registrada em produção.
+- `sandboxed` — registra `run-code`, um executor Node.js JavaScript isolado com um ambiente limpo, um novo diretório temporário, limites de saída/tempo e uma ponte localhost para ferramentas registradas na lista de permissões, como `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request` e o espaço de trabalho apoiado por recursos ponte de arquivos usada por `workspaceRead` / `workspaceWrite`.
+- `trusted` — registra `run-code` mais o registro completo da ferramenta de codificação (`bash`, `read`, `edit`, `write`). Use-o apenas para implantações de locatário único ou controladas pelo operador, onde o acesso total do shell ao host é intencional.
+
+Defina `AGENT_PROD_CODE_EXECUTION=sandboxed` ou `AGENT_PROD_CODE_EXECUTION=trusted` para substituir a opção de plug-in para uma implantação específica sem alterar o código. `AGENT_PROD_CODE_EXECUTION=off` força a execução do código mesmo quando a opção de plug-in o habilita.
+
+A sandbox `run-code` é um isolamento em nível de processo, não um contêiner de sistema operacional. Ele remove os segredos do aplicativo do ambiente do processo filho e usa o modelo de permissão do Node quando disponível, mas a rede de saída não é bloqueada pelo próprio Node; chamadas autenticadas devem passar pelos auxiliares de ponte que a ferramenta expõe.
+
+## Atualizando UI em produção {#updating-ui-in-production}
+
+Um dos principais recursos do agente nativo é que o agente pode modificar o código-fonte do seu aplicativo – componentes, rotas, estilos, actions. Durante o desenvolvimento local, isso funciona perfeitamente porque o agente tem acesso total ao sistema de arquivos.
+
+Em uma implantação de produção padrão com [production code execution](#production-code-execution) desativado, o agente tem acesso às ferramentas do aplicativo (actions, banco de dados, MCP), mas não ao sistema de arquivos. Isso significa que o agente pode ler e gravar dados, executar actions e interagir com serviços externos, mas não pode editar seus componentes React ou adicionar novas rotas em uma instância implantada.
+
+### Builder.io: edição visual em produção {#builderio}
+
+[Builder.io](https://www.builder.io) resolve isso fornecendo um ambiente de nuvem gerenciado onde o agente mantém a capacidade de modificar o UI do seu aplicativo em produção. Conecte seu repositório ao Builder.io e solicite alterações no UI diretamente, sem necessidade de reimplantação.
+
+**Como funciona:**
+
+1. Conecte seu repositório nativo do agente ao Builder.io
+2. Builder.io fornece um quadro de nuvem com o agente, edição visual e colaboração em tempo real
+3. Solicite ao agente para fazer alterações no UI — ele edita seus componentes, rotas e estilos ao vivo
+4. As alterações são enviadas de volta ao seu repositório
+
+Consulte [Frames](/docs/frames) para saber mais sobre o painel de agente incorporado versus opções de quadro de nuvem.
+
+## Implantações de múltiplas instâncias {#multi-instance}
+
+Os aplicativos nativos do agente armazenam todo o estado em SQL com Drizzle e sincronizam o UI via [polling](/docs/key-concepts#polling-sync) com o banco de dados – sem estado do sistema de arquivos, sem sessões fixas, sem caches na memória. Isso significa que implantações de múltiplas instâncias e sem servidor funcionam imediatamente: aponte cada instância para o mesmo `DATABASE_URL` e elas convergem automaticamente. Consulte [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) e [Portability](/docs/key-concepts#hosting-agnostic).

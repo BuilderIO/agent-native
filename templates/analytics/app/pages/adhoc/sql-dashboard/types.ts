@@ -88,10 +88,9 @@ export interface SqlPanel {
   source: DataSourceType;
   chartType: ChartType;
   /**
-   * How many grid columns this panel spans. Defaults to 1. The renderer
-   * clamps to the active section's column count, so a `width: 4` panel in a
-   * 2-column section still spans the full row. Sections always span every
-   * column regardless of this value.
+   * Legacy layout field retained for existing dashboards and action payloads.
+   * The renderer now auto-fits rows from panel order: one card in a row spans
+   * the row, two cards split it, and so on up to the section column count.
    */
   width: number;
   /**

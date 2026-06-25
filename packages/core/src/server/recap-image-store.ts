@@ -18,7 +18,14 @@
  * libSQL/Turso, and D1 without per-dialect blob/bytea handling.
  */
 import { randomBytes } from "node:crypto";
-import { getDbExec, intType, retryOnDdlRace } from "../db/client.js";
+
+import {
+  getDbExec,
+  intType,
+  isPostgres,
+  retryOnDdlRace,
+} from "../db/client.js";
+import { ensureTableExists } from "../db/ddl-guard.js";
 
 /** Maximum stored image size (~5 MB of raw PNG bytes). */
 export const RECAP_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -43,12 +50,11 @@ const TOKEN_PATTERN = /^[0-9a-f]{32,128}$/;
 
 let _initPromise: Promise<void> | undefined;
 
-export async function ensureRecapImageTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
+// Build the CREATE SQL lazily (not at module scope) so intType() runs at
+// RUNTIME, not import time — a module-scope call breaks any consumer whose
+// db/client mock doesn't stub intType (e.g. db-admin specs).
+function buildRecapImagesCreateSql(): string {
+  return `
         CREATE TABLE IF NOT EXISTS recap_images (
           token TEXT PRIMARY KEY,
           png_base64 TEXT NOT NULL,
@@ -57,8 +63,22 @@ export async function ensureRecapImageTable(): Promise<void> {
           owner_email TEXT,
           created_at ${intType()} NOT NULL
         )
-      `),
-      );
+      `;
+}
+
+export async function ensureRecapImageTable(): Promise<void> {
+  if (!_initPromise) {
+    _initPromise = (async () => {
+      const recapImagesCreateSql = buildRecapImagesCreateSql();
+      if (isPostgres()) {
+        // PG guard: probe → guarded DDL → re-probe; skips lock on already-migrated path
+        await ensureTableExists("recap_images", recapImagesCreateSql);
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      const client = getDbExec();
+      await retryOnDdlRace(() => client.execute(recapImagesCreateSql));
     })().catch((error) => {
       // Allow a later call to retry if the first init lost a DDL race.
       _initPromise = undefined;

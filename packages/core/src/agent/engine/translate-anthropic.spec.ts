@@ -1,5 +1,7 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import { describe, it, expect } from "vitest";
+
+import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
 import {
   anthropicChunkToEngineEvents,
   createAnthropicChunkStreamState,
@@ -10,7 +12,6 @@ import {
   backfillEngineMessagesToolResults,
 } from "./translate-anthropic.js";
 import type { EngineTool, EngineMessage } from "./types.js";
-import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
 
 describe("engineToolsToAnthropic", () => {
   it("converts EngineTool to Anthropic tool format", () => {

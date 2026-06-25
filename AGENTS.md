@@ -120,7 +120,7 @@ instructions, and application state.
 ## Frontend And UX
 
 - TypeScript everywhere. Do not add `.js` or `.mjs` source files.
-- Run Prettier on modified source files.
+- Run oxfmt on modified source files.
 - Use shadcn/ui primitives for standard controls and dialogs. Do not build custom
   dropdowns/popovers/modals with absolute positioning.
 - Use Tabler Icons for UI icons. Do not use emojis as first-party icons.
@@ -147,6 +147,13 @@ instructions, and application state.
   `packages/shared-app-config/templates.ts` plus mirrored CLI/docs surfaces.
   Hidden templates must not appear in public catalogs unless they are explicitly
   unhidden first.
+- When you ship a user-facing change to a template app (new capability, visible
+  improvement, or behavior-affecting fix), record it from that app with
+  `agent-native changelog add "<one user-facing sentence>" --type <added|improved|fixed>`.
+  This writes a changeset-style pending entry under `changelog/`; `changelog
+release` rolls pending entries into the app's `CHANGELOG.md`, which renders in
+  the command menu (Cmd+K → "What's new") and settings. Skip refactors, tooling,
+  and tests. See the `changelog` skill.
 
 ## Extensions
 
@@ -178,8 +185,13 @@ Read the relevant skill before making changes in that area:
 - `context-xray` for inspecting and managing the live agent context window.
 - `actions` for action definitions and invocation.
 - `storing-data`, `portability`, `security`, `sharing` for data work.
+- `audit-log` for the automatic action-level audit trail (who changed what,
+  when, agent vs human) and the scoped `list-audit-events` read surface.
 - `performance` for keeping lists, reads, and page loads fast — column
   projection, indexing hot-path queries, and avoiding round-trip waterfalls.
+- `reliable-mutations` for writing data so it persists under the hosted run
+  budget — one atomic call, never loop many small writes, verify and report
+  proof-of-done, fail loud on cutoff.
 - `real-time-sync`, `context-awareness`, `client-side-routing` for UI state.
 - `client-methods` for browser/client APIs that must use named helpers instead
   of raw REST calls.
@@ -194,6 +206,7 @@ Read the relevant skill before making changes in that area:
 - `authentication`, `onboarding`, `secrets` for setup/auth/credentials.
 - `automations`, `recurring-jobs`, `integration-webhooks` for background work.
 - `frontend-design`, `shadcn-ui` for interface work.
+- `changelog` for the per-app user-facing "What's new" CHANGELOG workflow.
 - `extensions` for sandboxed mini-apps.
 - `observability`, `tracking`, `voice-transcription`, `a2a-protocol`,
   `external-agents`, and template-specific skills as needed.

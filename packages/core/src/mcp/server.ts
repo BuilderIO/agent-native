@@ -1,5 +1,4 @@
 import type { H3Event } from "h3";
-import { getH3App } from "../server/framework-request-handler.js";
 import {
   defineEventHandler,
   setResponseStatus,
@@ -7,9 +6,11 @@ import {
   getMethod,
   getRequestHeader,
 } from "h3";
-import { readBody } from "../server/h3-helpers.js";
-import { isLoopbackRequest } from "../server/auth.js";
+
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
+import { isLoopbackRequest } from "../server/auth.js";
+import { getH3App } from "../server/framework-request-handler.js";
+import { readBody } from "../server/h3-helpers.js";
 import {
   createMCPServerForRequest,
   verifyAuth,
@@ -103,6 +104,14 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     fullCatalogHeader === "1" ||
     fullCatalogHeader === "true" ||
     fullCatalogHeader === "yes";
+  const inlineAppsHeader = getRequestHeader(
+    event,
+    "x-agent-native-mcp-inline-apps",
+  )?.toLowerCase();
+  const inlineAppsRequested =
+    inlineAppsHeader === "1" ||
+    inlineAppsHeader === "true" ||
+    inlineAppsHeader === "yes";
   const basePath = getConfiguredAppBasePath();
   return {
     origin,
@@ -111,6 +120,7 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     clientName,
     clientHint,
     ...(fullCatalog ? { fullCatalog } : {}),
+    ...(inlineAppsRequested ? { inlineMcpApps: true } : {}),
   };
 }
 
@@ -357,6 +367,11 @@ export async function handleMcpRequest(
   const server = await createMCPServerForRequest(config, authResult.identity, {
     ...requestMeta,
     fullSurface: authResult.fullSurface === true,
+    inlineMcpApps:
+      requestMeta.inlineMcpApps === true &&
+      authResult.identity?.firstPartyMcp === true
+        ? true
+        : undefined,
     // When the caller minted their token with --full-catalog (catalog_scope:
     // "full" JWT claim), bypass the connector-catalog tier filter.
     ...(authResult.fullCatalog === true ? { fullCatalog: true } : {}),

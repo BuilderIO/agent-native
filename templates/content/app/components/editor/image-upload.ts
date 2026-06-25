@@ -73,15 +73,15 @@ export function hasAudioFiles(dataTransfer: DataTransfer | null): boolean {
 }
 
 export function imageUploadErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Image upload failed.";
+  return error instanceof Error ? error.message : "Image upload failed."; // i18n-ignore fallback for non-React upload helper
 }
 
 export function videoUploadErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Video upload failed.";
+  return error instanceof Error ? error.message : "Video upload failed."; // i18n-ignore fallback for non-React upload helper
 }
 
 export function audioUploadErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Audio upload failed.";
+  return error instanceof Error ? error.message : "Audio upload failed."; // i18n-ignore fallback for non-React upload helper
 }
 
 function uploadResponseMessage(

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { createWebSearchToolEntry } from "./web-search-tool.js";
 
 describe("createWebSearchToolEntry", () => {
@@ -103,6 +104,52 @@ describe("createWebSearchToolEntry", () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain(
       "https://api.search.brave.com/res/v1/web/search",
     );
+  });
+
+  it("uses Firecrawl when it is the only configured BYOK key", async () => {
+    const resolveSecret = vi.fn(async (key: string) =>
+      key === "FIRECRAWL_API_KEY" ? "fc-key" : null,
+    );
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            web: [
+              {
+                title: "Firecrawl result",
+                url: "https://example.com/firecrawl",
+                description: "Result from Firecrawl",
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tool = createWebSearchToolEntry({
+      resolveSecret,
+      resolveBuilderCredentials: vi.fn().mockResolvedValue({
+        privateKey: "bpk-builder",
+        publicKey: "space-123",
+      }),
+      getBuilderWebSearchBaseUrl: () =>
+        "https://builder.test/agent-native/web-search/v1",
+    })["web-search"];
+
+    const result = await tool.run({ query: "current docs", count: "3" });
+
+    expect(result).toContain("backend: Firecrawl");
+    expect(result).toContain("Firecrawl result");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      "https://api.firecrawl.dev/v2/search",
+    );
+    expect(
+      JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)),
+    ).toEqual(expect.objectContaining({ query: "current docs", limit: 3 }));
   });
 
   it("suggests Builder Connect when no backend is configured", async () => {

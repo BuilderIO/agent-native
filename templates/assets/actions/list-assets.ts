@@ -1,18 +1,19 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
 import { and, desc, eq, isNull } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import {
-  buildAssetLineage,
-  requireLibrary,
-  serializeAsset,
-} from "./_helpers.js";
 import { ASSET_MEDIA_TYPES, IMAGE_CATEGORIES } from "../shared/api.js";
 import {
   assetMatchesSearch,
   includeCandidatesSchema,
   shouldIncludeAssetInLibraryResults,
 } from "./_asset-search.js";
+import {
+  buildAssetLineage,
+  requireLibrary,
+  serializeAsset,
+} from "./_helpers.js";
 
 export default defineAction({
   description:
@@ -95,13 +96,15 @@ export default defineAction({
       .filter((asset) =>
         shouldIncludeAssetInLibraryResults(
           asset,
-          includeCandidates || status === "candidate",
+          includeCandidates ||
+            status === "candidate" ||
+            candidateRunIdSet.size > 0,
         ),
       )
       .filter((asset) => {
         if (!candidateRunIdSet.size) return true;
         if (!(asset.role === "generated" && asset.status === "candidate")) {
-          return true;
+          return false;
         }
         return Boolean(
           asset.generationRunId && candidateRunIdSet.has(asset.generationRunId),

@@ -1,6 +1,7 @@
+import { useActionQuery, useT } from "@agent-native/core/client";
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router";
-import { useActionQuery } from "@agent-native/core/client";
+
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface DesignFile {
@@ -17,6 +18,7 @@ interface DesignData {
 }
 
 export default function Present() {
+  const t = useT();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [currentPage, setCurrentPage] = useState(0);
@@ -25,7 +27,7 @@ export default function Present() {
     id: id!,
   });
 
-  const files = design?.files ?? [];
+  const files: DesignFile[] = design?.files ?? [];
 
   // Keyboard navigation
   const handleKeyDown = useCallback(
@@ -68,12 +70,12 @@ export default function Present() {
   if (!design || files.length === 0) {
     return (
       <div className="h-screen w-screen bg-black flex flex-col items-center justify-center gap-4">
-        <p className="text-white/50 text-sm">No content to present</p>
+        <p className="text-white/50 text-sm">{t("pages.presentEmpty")}</p>
         <button
           onClick={() => navigate(`/design/${id}`)}
           className="text-sm text-white/40 hover:text-white/60 underline cursor-pointer"
         >
-          Back to editor
+          {t("pages.presentBackToEditor")}
         </button>
       </div>
     );
@@ -107,7 +109,7 @@ export default function Present() {
 
       {/* Exit hint */}
       <div className="fixed top-4 right-4 text-xs text-white/20">
-        Press Esc to exit
+        {t("pages.presentExitHint")}
       </div>
     </div>
   );

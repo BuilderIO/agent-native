@@ -1,0 +1,411 @@
+---
+title: "创建模板"
+description: "如何创建和发布您自己的代理本机应用模板。"
+---
+
+# 创建模板
+
+模板是完整的、可分叉的代理本机应用程序，可解决实际工作流程。第一方模板使用您使用的相同框架表面构建：用于 UI 的 React 路由、用于数据的 Drizzle SQL、用于操作的 actions、用于代理行为的工作区资源以及轮询同步，以便代理和 UI 保持一致。
+
+一个好的模板：
+
+- 使用有用的种子数据或空状态流端到端地解决一个工作流。
+- 将持久状态存储在 SQL 中，而不是 JSON 文件中。
+- 将应用操作定义为 `defineAction()` actions。
+- 通过应用程序状态公开导航和选择。
+- 为不明显的工作流程提供清晰的 `AGENTS.md` 和重点 skills。
+- 注册所需提供商和机密的加入步骤。
+- 作为独立应用和多应用工作区的一部分工作。
+
+## 从聊天开始 {#start-from-chat}
+
+当您想要一个框架连接已就位的最小应用程序时，请使用聊天模板：
+
+```bash
+npx @agent-native/core@latest create my-template --template chat --standalone
+```
+
+对于具有多个应用程序的工作区，运行选择器并包含与您想要的任何域模板的聊天：
+
+```bash
+npx @agent-native/core@latest create my-platform
+```
+
+聊天为您提供身份验证、持久聊天线程、SQL 支持的资源、工具、应用程序状态、actions 和轮询同步。您添加域模型和产品 UI。
+
+如果您尚未构建可重复使用的 UI 模板，请使用 [Getting Started](/docs/getting-started#1-create-your-app) 中的无头入口：定义一个操作，使用 `pnpm agent` 运行它，并在工作流程需要耐用表面时添加 UI。
+
+## 项目结构 {#project-structure}
+
+每个模板都遵循相同的广泛布局：
+
+```an-file-tree title="模板项目结构"
+{
+  "title": "my-template/",
+  "entries": [
+    { "path": "app/", "note": "React 前端" },
+    { "path": "app/root.tsx", "note": "HTML shell 和 providers" },
+    { "path": "app/routes/", "note": "React Router 文件路由" },
+    { "path": "app/components/", "note": "模板 UI" },
+    { "path": "app/hooks/", "note": "UI 状态和数据 hooks" },
+    { "path": "actions/", "note": "defineAction 操作：唯一事实来源" },
+    { "path": "server/db/schema.ts", "note": "Drizzle 架构" },
+    { "path": "server/plugins/db.ts", "note": "增量 migrations" },
+    { "path": "server/plugins/", "note": "启动 integrations" },
+    { "path": "server/routes/api/", "note": "仅在 actions 不够时使用自定义路由" },
+    { "path": "shared/types.ts", "note": "共享的 client/server 类型" },
+    { "path": ".agents/skills/", "note": "<skill>/SKILL.md：复杂工作流的代理指南" },
+    { "path": "AGENTS.md", "note": "模板专用代理指令" },
+    { "path": "package.json" },
+    { "path": "react-router.config.ts" },
+    { "path": "vite.config.ts" }
+  ]
+}
+```
+
+不要为应用程序状态添加 `data/` 目录。持久应用数据属于 SQL，UI 通过 actions 或类型化服务器处理程序读取它。
+
+每个模板的四个区域通过一个共享操作界面和一个 SQL 数据库连接在一起 - 代理和 UI 是执行相同操作的平等合作伙伴：
+
+```an-diagram title="模板的四个区域如何连接" summary="UI 和代理都通过相同的操作到达 SQL；应用程序状态和轮询同步使它们保持一致。"
+{
+  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React 界面<br><small class=\"diagram-muted\">app/routes · 组件</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">行动</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>通过 Drizzle 使用 SQL<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">轮询ing sync</div></div>",
+  "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## SQL中的模型数据 {#data-models}
+
+使用框架 Drizzle 帮助程序定义域表，以便架构在 SQLite、Postgres、D1、Turso、Supabase、Neon 和其他支持的后端之间保持可移植性：
+
+```ts
+// server/db/schema.ts
+import {
+  table,
+  text,
+  integer,
+  now,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+
+export const projects = table("projects", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  status: text("status", {
+    enum: ["draft", "active", "archived"],
+  })
+    .notNull()
+    .default("draft"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  ...ownableColumns(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const projectShares = createSharesTable("project_shares");
+```
+
+架构更改必须是附加的。 `server/plugins/db.ts`中通过`runMigrations()`添加表和列；切勿使用破坏性的 SQL、`drizzle-kit push`、表重命名或列删除。
+
+对于应用程序读取和写入，请使用 Drizzle 的查询生成器和 `drizzle-orm` 的可移植运算符。当Drizzle可以表达查询时，不要使用原始SQL编写产品代码，并且不要在模板中从`drizzle-orm/sqlite-core`或`drizzle-orm/pg-core`导入。
+
+```ts
+// server/plugins/db.ts
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+在添加保存用户或组织数据的架构之前，请使用 [Database](/docs/database) 和 [Security](/docs/security) 文档。
+
+## 将操作定义为行动 {#actions}
+
+行动 是应用行为的单一事实来源。代理将它们作为工具调用，前端通过钩子调用它们，其他应用程序可以通过 MCP/A2A 访问它们。
+
+```an-annotated-code title="actions/create-project.ts"
+{
+  "filename": "actions/create-project.ts",
+  "language": "ts",
+  "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});",
+  "annotations": [
+    { "lines": "2", "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`." },
+    { "lines": "8", "label": "工具表面", "note": "`description` 是代理读取的内容，以决定何时将此操作作为工具调用。" },
+    { "lines": "9-11", "label": "类型化契约", "note": "一个 zod `schema` 会验证来自代理、UI、HTTP、MCP 和 A2A 的输入。" },
+    { "lines": "18-19", "label": "范围写入", "note": "从 `ctx` 标记 `ownerEmail` / `orgId`，以便该行正确地确定共享和访问检查的范围。" }
+  ]
+}
+```
+
+使用 `http: { method: "GET" }` 或 `readOnly: true` 表示只读 actions。仅将 `parallelSafe: true` 用于变异 actions，这些 actions 可以安全地与同轮工具调用同时运行。将 `toolCallable: false` 用于不应从沙盒工具运行的高爆炸半径 actions。
+
+## 构建 UI {#ui}
+
+路由位于 `app/routes/` 中并使用 React Router v8 文件路由。通过actions或API处理程序查询数据，并默认使突变乐观。
+
+```tsx
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+
+export default function ProjectsPage() {
+  const { data: projects = [] } = useActionQuery("list-projects", {});
+  const create = useActionMutation("create-project");
+
+  return (
+    <button onClick={() => create.mutate({ title: "Launch plan" })}>
+      New project ({projects.length})
+    </button>
+  );
+}
+```
+
+在应用程序 shell 附近连接一次实时同步，以便在代理、另一个选项卡或操作更改数据时刷新 React 查询缓存：
+
+```tsx
+import { useDbSync } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
+
+export function AppSync() {
+  const queryClient = useQueryClient();
+  useDbSync({ queryClient });
+  return null;
+}
+```
+
+**代理原生承诺：代理写入显示在 UI 中，无需手动刷新。** `useActionQuery` 是简单路径 - 当变异操作发出 `source: "action"` 时，每个钩子都会重新获取。如果您使用自定义密钥（例如，读取集成状态的低级客户端帮助程序）获取原始 `useQuery`，请将每个源计数器折叠到 queryKey 中以进行有针对性的刷新：
+
+```tsx
+import { useChangeVersions } from "@agent-native/core/client";
+
+const v = useChangeVersions(["dashboards", "action"]);
+useQuery({
+  queryKey: ["dashboard", id, v],
+  queryFn: () => fetchDashboard(id),
+  placeholderData: (prev) => prev, // no flicker on refetch
+});
+```
+
+常见来源：`"action"`（每个成功的代理操作 - 可靠的后备）、`"app-state"`、`"settings"`，以及您的商店通过 `recordChange` 发出的任何自定义资源源。完整模式请参见 `real-time-sync` 技能。
+
+## 添加应用程序状态 {#application-state}
+
+应用程序状态是代理如何了解用户所看到的内容。至少添加：
+
+- 一个 UI 钩子，当路由、所选记录、活动选项卡或编辑器选择发生更改时，它会写入语义 `navigation` 状态。
+- 读取该状态并返回当前屏幕快照的 `view-screen` 操作。
+- 一个 `navigate` 操作，写入一次性 `navigate` 命令以供 UI 使用。
+
+使用 `useAgentRouteState` 作为 UI 挂钩，以便应用程序状态写入、选项卡范围命令读取、读取后删除和重复命令保护保持一致：
+
+```tsx
+import { useAgentRouteState } from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
+
+export function useNavigationState() {
+  useAgentRouteState({
+    browserTabId: TAB_ID,
+    requestSource: TAB_ID,
+    getNavigationState: ({ pathname, searchParams }) => ({
+      view: pathname === "/" ? "home" : pathname.slice(1),
+      selectedId: searchParams.get("id"),
+    }),
+    getCommandPath: (command: any) => command.path ?? "/",
+    navigateOptions: { replace: true, flushSync: true },
+  });
+}
+```
+
+在 URL 查询参数中保留可共享过滤器。框架将它们公开为 `<current-url>` 代理，内置代理可以使用 `set-search-params` 更改它们； `navigation` 应保存语义 ID 和别名，而不是完整查询字符串的第二个副本。
+
+对于应用导航，首选包含同源的 `navigate` 命令
+`path`（当 URL 已知时）。同一动作不要写为 `__set_url__`；
+该密钥是为框架 URL 工具和仅 URL 过滤器更改保留的。
+
+```ts
+// actions/navigate.ts
+import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Navigate the UI.",
+  schema: z.object({
+    view: z.enum(["home", "project"]),
+    projectId: z.string().optional(),
+    path: z.string().optional(),
+  }),
+  run: async (args) => {
+    await writeAppState("navigate", args);
+    return { ok: true };
+  },
+});
+```
+
+请参阅 [Context Awareness](/docs/context-awareness) 了解完整模式。
+
+## 谨慎使用 API 路由 {#api-routes}
+
+首选 actions 进行应用操作。仅为无法干净地成为 actions 的表面创建自定义 Nitro 路线：
+
+- 文件上传或二进制流。
+- 公开匿名页面和webhooks。
+- OAuth 回调和特定于提供商的协议处理程序。
+- 服务器渲染的公共内容。
+
+在使用访问助手之前，接触可拥有数据的自定义路由必须调用 `getSession(event)` 并将数据库工作包装在 `runWithRequestContext({ userEmail, orgId }, fn)` 中。
+
+## 编写代理指令 {#write-agents-md}
+
+`AGENTS.md` 是您的应用程序的代理地图 - 一个可浏览的小文件，带有
+目的行、核心规则、应用程序状态键、操作表和 skills
+索引：
+
+```markdown
+# 我的模板
+
+One workspace for projects, tasks, and notes.
+
+## 核心规则
+
+- Data lives in 通过 Drizzle 使用 SQL. Use actions for all writes; schema is additive.
+- Use `view-screen` before acting on "this project" if the screen is unclear.
+
+## 应用状态
+
+- `navigation.view`: `home` | `project`
+- `navigation.projectId`: selected project on a project page
+
+## 行动
+
+| Action           | Purpose                  |
+| ---------------- | ------------------------ |
+| `list-projects`  | List accessible projects |
+| `create-project` | Create a project         |
+```
+
+每当添加新操作、路线、状态键或重复操作时更新 `AGENTS.md`
+工作流程。 [Writing Agent Instructions](/docs/writing-agent-instructions) 是
+完整指南 - 如何保持 `AGENTS.md` 可略读，这四个分别属于什么
+指导面，以及如何表达技能和工具描述，以便代理
+可靠地触发它们。
+
+## 添加Skills {#skills}
+
+使用 skills 来获取会使 `AGENTS.md` 膨胀的详细模式：特定于提供商的 API、导入/导出格式、复杂的编辑流程或域术语。
+
+```markdown
+---
+name: project-imports
+description: How to import projects from the legacy CSV export.
+---
+
+# 项目进口
+
+Use this skill when the user uploads a legacy project CSV.
+
+## 规则
+
+- Validate required columns before creating rows.
+- Use `create-project` for each project so ownership and sync are correct.
+- Save rejected rows as a note attached to the import summary.
+```
+
+将模板 skills 存储在 `.agents/skills/<name>/SKILL.md` 中。如果用户应该能够在运行时编辑指南，也可以通过工作区资源来显示它。
+
+## 注册设置步骤 {#onboarding}
+
+如果模板需要 API 密钥、OAuth 连接或提供商帐户，请注册入门步骤，而不是将要求隐藏在 README 中。
+
+```ts
+// server/plugins/onboarding.ts
+import { defineNitroPlugin } from "@agent-native/core/server";
+import { registerOnboardingStep } from "@agent-native/core/onboarding";
+
+export default defineNitroPlugin(() => {
+  registerOnboardingStep({
+    id: "github",
+    title: "Connect GitHub",
+    description: "Needed to import repositories and pull requests.",
+    order: 100,
+    methods: [
+      {
+        id: "token",
+        kind: "form",
+        primary: true,
+        label: "Save token",
+        payload: {
+          fields: [
+            { key: "GITHUB_TOKEN", label: "GitHub token", secret: true },
+          ],
+        },
+      },
+    ],
+    isComplete: () => !!process.env.GITHUB_TOKEN,
+  });
+});
+```
+
+参见[Onboarding & API Keys](/docs/onboarding)。
+
+## 使其适合工作空间 {#workspace-ready}
+
+模板应自然地适合 [Multi-App Workspaces](/docs/multi-app-workspace)，通常由 [Dispatch](/docs/dispatch) 协调。
+
+清单：
+
+- 通过框架代理聊天插件或 `mountA2A()` 挂载 A2A，以便同级应用程序可以调用您的代理。
+- 保持代理卡描述足够具体，以便 Dispatch 准确地安排工作。
+- 注册所需的机密/加入，以便设置出现在侧栏中，并且 Dispatch 可以管理共享凭据。
+- 将横切指令保留在工作区 `AGENTS.md` 或工作区资源中，而不是复制到每个应用程序中。
+- 对所有可拥有的资源使用共享/访问帮助程序，以便组织范围内的工作空间保持隔离。
+
+## 发布模板 {#publishing}
+
+分享之前：
+
+1. 运行 `pnpm install`、`pnpm typecheck` 和模板的测试。
+2. 验证其是否可以在未配置可选提供程序密钥的情况下正常工作。
+3. 检查身份验证、共享和两个用户数据隔离。
+4. 记录所需的环境变量和入门步骤。
+5. 通过附加迁移包含示例或种子行，而不是跟踪的运行时数据文件。
+
+可以从 GitHub 存储库创建社区模板：
+
+```bash
+npx @agent-native/core@latest create my-app --template github:user/repo
+```
+
+## 为框架 monorepo 做出贡献 {#contributing}
+
+### 测试未发布的框架更改 {#test-unpublished-framework-changes}
+
+当您在框架 monorepo 中工作并需要生成时
+工作区使用未发布的包或模板更改，使用
+本地包标志：
+
+```bash
+AGENT_NATIVE_CREATE_USE_LOCAL_CORE=1 pnpm --filter @agent-native/core create my-platform
+```
+
+生成的工作空间链接本地`@agent-native/core`和
+`@agent-native/dispatch` 软件包，因此更改为 Core API、Dispatch 工作区
+可以在发布之前测试行为或第一方模板。包裹
+`prepack` 脚本在链接之前构建 `dist`，这会保留生成的
+工作空间指向当前构建输出。

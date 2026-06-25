@@ -1,6 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import { appBasePath } from "@agent-native/core/client";
-import { trackEvent } from "../components/TemplateCard";
+import { appBasePath, useT } from "@agent-native/core/client";
 import {
   IconAppWindow,
   IconBrandApple,
@@ -9,6 +7,9 @@ import {
   IconDownload,
   IconTerminal2,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+
+import { trackEvent } from "../components/TemplateCard";
 
 const LATEST_JSON_URL = `${appBasePath()}/api/desktop-latest.json`;
 const RELEASES =
@@ -30,7 +31,7 @@ type DesktopAssetKind =
   | "linux-deb-arm64";
 
 interface DownloadOption {
-  label: string;
+  labelKey: string;
   assetKinds: readonly DesktopAssetKind[];
 }
 
@@ -47,12 +48,12 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
     name: "macOS",
     icon: IconBrandApple,
     primary: {
-      label: "Download for Apple Silicon",
+      labelKey: "downloadPage.platforms.mac.primary",
       assetKinds: ["mac-arm64"],
     },
     alternatives: [
       {
-        label: "Intel Mac",
+        labelKey: "downloadPage.platforms.mac.alternative",
         assetKinds: ["mac-x64"],
       },
     ],
@@ -61,35 +62,35 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
     name: "Windows",
     icon: IconBrandWindows,
     primary: {
-      label: "Download for Windows",
+      labelKey: "downloadPage.platforms.windows.primary",
       assetKinds: ["windows-x64"],
     },
     alternatives: [
       {
-        label: "ARM64",
+        labelKey: "downloadPage.platforms.windows.alternative",
         assetKinds: ["windows-arm64"],
       },
     ],
-    note: "Windows 10 or later.",
+    note: "downloadPage.platforms.windows.note",
   },
   linux: {
     name: "Linux",
     icon: IconTerminal2,
     primary: {
-      label: "Download Linux archive",
+      labelKey: "downloadPage.platforms.linux.primary",
       assetKinds: ["linux-tar-x64", "linux-tar-arm64"],
     },
     alternatives: [
       {
-        label: "Download AppImage",
+        labelKey: "downloadPage.platforms.linux.appImage",
         assetKinds: ["linux-appimage-x64", "linux-appimage-arm64"],
       },
       {
-        label: "Download .deb",
+        labelKey: "downloadPage.platforms.linux.deb",
         assetKinds: ["linux-deb-x64", "linux-deb-arm64"],
       },
     ],
-    note: "The archive works without FUSE. AppImage may require FUSE 2 on some distributions.",
+    note: "downloadPage.platforms.linux.note",
   },
 };
 
@@ -167,6 +168,7 @@ function pickAsset(manifest: Manifest | null, option: DownloadOption) {
 }
 
 export default function DownloadPage() {
+  const t = useT();
   const [platform, setPlatform] = useState<Platform>("mac");
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
@@ -221,19 +223,19 @@ export default function DownloadPage() {
       (download.asset || !manifest || manifestError),
   );
   const releaseStatus = manifest
-    ? `Latest desktop release: ${manifest.version}`
+    ? t("downloadPage.latestRelease", { version: manifest.version })
     : manifestError
-      ? "Could not load the latest desktop release. The releases page has all installers."
-      : "Checking the latest desktop release...";
+      ? t("downloadPage.loadError")
+      : t("downloadPage.checkingRelease");
   const primaryHref = primaryAsset?.url ?? RELEASES;
   const primaryLabel = primaryAsset
-    ? primaryDownload?.option.label
+    ? t(primaryDownload?.option.labelKey ?? info.primary.labelKey)
     : manifestError || !manifest
-      ? "View installers on GitHub"
-      : primaryDownload?.option.label;
+      ? t("downloadPage.viewInstallersOnGithub")
+      : t(primaryDownload?.option.labelKey ?? info.primary.labelKey);
   const desktopDownloadLabel = primaryAsset
-    ? "Download installer"
-    : "View installers";
+    ? t("downloadPage.downloadInstaller")
+    : t("downloadPage.viewInstallers");
 
   function handleDownload(label: string) {
     trackEvent("desktop download", { platform, label });
@@ -247,11 +249,10 @@ export default function DownloadPage() {
     <main className="mx-auto max-w-[960px] px-6 py-20">
       <div className="mb-14 text-center">
         <h1 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-          Download Agent Native
+          {t("downloadPage.title")}
         </h1>
         <p className="mx-auto max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-          All your agent-native apps in one desktop shell. Production apps
-          built-in, with a dev mode toggle for local development.
+          {t("downloadPage.body")}
         </p>
       </div>
 
@@ -289,7 +290,7 @@ export default function DownloadPage() {
               className="inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline"
             >
               <IconAppWindow size={18} />
-              Open Agent Native
+              {t("downloadPage.openDesktop")}
             </a>
           )}
 
@@ -297,7 +298,9 @@ export default function DownloadPage() {
             href={primaryHref}
             onClick={() =>
               handleDownload(
-                primaryDownload?.option.label ?? info.primary.label,
+                primaryDownload?.option.labelKey
+                  ? t(primaryDownload.option.labelKey)
+                  : t(info.primary.labelKey),
               )
             }
             className={
@@ -315,12 +318,12 @@ export default function DownloadPage() {
           <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2">
             {alternativeDownloads.map(({ option, asset }) => (
               <a
-                key={option.label}
+                key={option.labelKey}
                 href={asset?.url ?? RELEASES}
-                onClick={() => handleDownload(option.label)}
+                onClick={() => handleDownload(t(option.labelKey))}
                 className="text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)] hover:underline"
               >
-                {option.label}
+                {t(option.labelKey)}
               </a>
             ))}
           </div>
@@ -328,7 +331,7 @@ export default function DownloadPage() {
 
         <p className="mt-4 text-xs text-[var(--fg-secondary)]">
           {releaseStatus}
-          {info.note && <span className="block mt-1">{info.note}</span>}
+          {info.note && <span className="block mt-1">{t(info.note)}</span>}
         </p>
       </div>
 
@@ -337,12 +340,10 @@ export default function DownloadPage() {
         <div className="rounded-lg border border-[var(--docs-border)] px-6 py-5">
           <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold">
             <IconTerminal2 size={16} />
-            Or run from source
+            {t("downloadPage.runFromSource")}
           </h4>
           <p className="mb-3 text-xs text-[var(--fg-secondary)]">
-            No installer for your platform yet, or prefer the CLI? Scaffold a
-            new app with npm and run it locally — works on macOS, Windows, and
-            Linux.
+            {t("downloadPage.runFromSourceBody")}
           </p>
           <pre className="overflow-x-auto rounded-md bg-[var(--docs-code-bg,rgba(0,0,0,0.04))] px-4 py-3 text-xs">
             <code>{`npx @agent-native/core@latest create my-platform
@@ -361,7 +362,7 @@ pnpm install && pnpm dev`}</code>
           className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
         >
           <IconBrandGithub size={16} />
-          View all releases on GitHub
+          {t("downloadPage.viewAllReleases")}
         </a>
       </div>
     </main>

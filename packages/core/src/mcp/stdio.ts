@@ -23,8 +23,9 @@
  * of the serverless bundle.
  */
 
-import { resolveLocalAppOrigin } from "./workspace-resolve.js";
 import type { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
+
+import { resolveLocalAppOrigin } from "./workspace-resolve.js";
 
 export interface RunMCPStdioOptions {
   /** App id to bridge to (workspace). Optional in a single-app project. */

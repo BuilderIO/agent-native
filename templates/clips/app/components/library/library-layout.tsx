@@ -1,5 +1,18 @@
-import { ReactNode, useEffect, useMemo, useState } from "react";
-import { NavLink, useLocation, useParams } from "react-router";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  DevDatabaseLink,
+  FeedbackButton,
+  appPath,
+  getBrowserTabId,
+  useT,
+} from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import {
+  InvitationBanner,
+  OrgSwitcher,
+  useOrg,
+} from "@agent-native/core/client/org";
 import {
   IconInbox,
   IconArchive,
@@ -15,22 +28,16 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconPlus,
+  IconSettings,
 } from "@tabler/icons-react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
+import { NavLink, useLocation, useParams } from "react-router";
+import { toast } from "sonner";
+
 import {
-  AgentSidebar,
-  AgentToggleButton,
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-  getBrowserTabId,
-} from "@agent-native/core/client";
-import {
-  InvitationBanner,
-  OrgSwitcher,
-  useOrg,
-} from "@agent-native/core/client/org";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+  CaptureInstallButton,
+  CaptureInstallInlineLink,
+} from "@/components/capture-install-options";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,30 +47,28 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  useFolders,
-  useSpaces,
-  useOrganizations,
-  useCreateFolder,
-} from "@/hooks/use-library";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { useDesktopPromo } from "@/hooks/use-desktop-promo";
-import { usePrefetchVideoStorageStatus } from "@/hooks/use-video-storage-status";
-import { FolderTree, type FolderNode } from "./folder-tree";
-import { SearchBar } from "./search-bar";
-import { PageHeaderSlotProvider } from "./page-header";
-import { CreateSpaceDialog } from "./create-space-dialog";
-import {
-  CaptureInstallButton,
-  CaptureInstallInlineLink,
-} from "@/components/capture-install-options";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useDesktopPromo } from "@/hooks/use-desktop-promo";
+import {
+  useFolders,
+  useSpaces,
+  useOrganizations,
+  useCreateFolder,
+  useRecordingsCount,
+} from "@/hooks/use-library";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { usePrefetchVideoStorageStatus } from "@/hooks/use-video-storage-status";
+import { cn } from "@/lib/utils";
+
+import { CreateSpaceDialog } from "./create-space-dialog";
+import { FolderTree, type FolderNode } from "./folder-tree";
+import { PageHeaderSlotProvider } from "./page-header";
+import { SearchBar } from "./search-bar";
 
 interface LibraryLayoutProps {
   children: ReactNode;
@@ -89,6 +94,7 @@ function ClipsAgentToggleButton() {
 
 export function LibraryLayout({ children }: LibraryLayoutProps) {
   const location = useLocation();
+  const t = useT();
   // Bind chat to the currently-open recording (`/r/:id`). Library, spaces,
   // meetings, dictate, and settings stay unscoped — those are list-y views
   // where deck-style "this recording" framing doesn't apply.
@@ -122,6 +128,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     },
     { enabled: hasActiveOrg && Boolean(currentOrganizationId) },
   );
+
+  // Clip count for the "Library" nav item — count-only, no row payload or
+  // title polling across the app shell.
+  const { data: libraryCount } = useRecordingsCount({ view: "library" });
 
   const libFolderList: FolderNode[] = useMemo(
     () =>
@@ -175,42 +185,50 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     label: string;
     icon: React.ComponentType<{ className?: string }>;
     match: (path: string) => boolean;
+    count?: number;
   }[] = [
     {
       to: "/library",
-      label: "Library",
+      label: t("navigation.library"),
       icon: IconInbox,
       match: (p) => p.startsWith("/library"),
+      count: libraryCount,
     },
     {
       to: "/spaces",
-      label: "Spaces",
+      label: t("navigation.spaces"),
       icon: IconUsersGroup,
       match: (p) => p.startsWith("/spaces"),
     },
     {
       to: "/meetings",
-      label: "Meetings",
+      label: t("navigation.meetings"),
       icon: IconCalendar,
       match: (p) => p.startsWith("/meetings"),
     },
     {
       to: "/dictate",
-      label: "Dictate",
+      label: t("navigation.dictate"),
       icon: IconMicrophone2,
       match: (p) => p.startsWith("/dictate"),
     },
     {
       to: "/archive",
-      label: "Archive",
+      label: t("navigation.archive"),
       icon: IconArchive,
       match: (p) => p.startsWith("/archive"),
     },
     {
       to: "/trash",
-      label: "Trash",
+      label: t("navigation.trash"),
       icon: IconTrash,
       match: (p) => p.startsWith("/trash"),
+    },
+    {
+      to: "/settings",
+      label: t("navigation.settings"),
+      icon: IconSettings,
+      match: (p) => p.startsWith("/settings"),
     },
   ];
 
@@ -219,11 +237,13 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       <AgentSidebar
         position="right"
         defaultOpen={!isMobile}
-        emptyStateText="How can I help with your recordings?"
+        animateMobile={false}
+        animateDesktop={false}
+        emptyStateText={t("navigation.agentEmptyState")}
         suggestions={[
-          "Summarize my last recording",
-          "Find where I mentioned pricing",
-          "Remove filler words from this clip",
+          t("navigation.agentSuggestionSummary"),
+          t("navigation.agentSuggestionPricing"),
+          t("navigation.agentSuggestionFiller"),
         ]}
         scope={recordingScope}
         browserTabId={getBrowserTabId()}
@@ -240,11 +260,11 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           {/* Left sidebar */}
           <aside
             className={cn(
-              "fixed inset-y-0 left-0 z-50 flex h-full w-[260px] flex-col overflow-hidden border-r border-border bg-sidebar transition-[width,transform] duration-200 ease-out md:static md:z-auto",
+              "fixed inset-y-0 start-0 z-50 flex h-full w-[260px] flex-col overflow-hidden border-e border-border bg-sidebar transition-[width,transform] duration-200 ease-out md:static md:z-auto",
               showCollapsedSidebar && "md:w-14",
               sidebarOpen
                 ? "translate-x-0"
-                : "-translate-x-full md:translate-x-0",
+                : "-translate-x-full rtl:translate-x-full md:translate-x-0",
             )}
           >
             <div
@@ -274,7 +294,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                       className="hidden h-4 w-auto shrink-0 dark:block"
                     />
                     <span className="truncate text-sm font-semibold text-foreground">
-                      Clips
+                      {t("navigation.brand")}
                     </span>
                   </>
                 )}
@@ -289,8 +309,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                     className="hidden h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground md:inline-flex"
                     aria-label={
                       showCollapsedSidebar
-                        ? "Expand sidebar"
-                        : "Collapse sidebar"
+                        ? t("navigation.expandSidebar")
+                        : t("navigation.collapseSidebar")
                     }
                     aria-expanded={!showCollapsedSidebar}
                     onClick={() => setSidebarCollapsed((value) => !value)}
@@ -303,7 +323,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="right">
-                  {showCollapsedSidebar ? "Expand sidebar" : "Collapse sidebar"}
+                  {showCollapsedSidebar
+                    ? t("navigation.expandSidebar")
+                    : t("navigation.collapseSidebar")}
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -315,14 +337,14 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                       <TooltipTrigger asChild>
                         <NavLink
                           to="/record"
-                          aria-label="New recording"
+                          aria-label={t("navigation.newRecording")}
                           className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
                         >
                           <IconPlayerRecord className="h-4 w-4" />
                         </NavLink>
                       </TooltipTrigger>
                       <TooltipContent side="right">
-                        New recording
+                        {t("navigation.newRecording")}
                       </TooltipContent>
                     </Tooltip>
                   </div>
@@ -361,13 +383,13 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                     >
                       <NavLink to="/record">
                         <IconPlayerRecord className="h-4 w-4" />
-                        New recording
+                        {t("navigation.newRecording")}
                       </NavLink>
                     </Button>
                   </div>
 
                   <nav className="mt-3 space-y-0.5 px-2">
-                    {navItems.map(({ to, label, icon: Icon, match }) => {
+                    {navItems.map(({ to, label, icon: Icon, match, count }) => {
                       const active = match(location.pathname);
                       return (
                         <NavLink
@@ -381,7 +403,19 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                           )}
                         >
                           <Icon className="h-4 w-4" />
-                          {label}
+                          <span className="flex-1 truncate">{label}</span>
+                          {count !== undefined && count > 0 && (
+                            <span
+                              className={cn(
+                                "shrink-0 tabular-nums text-[11px]",
+                                active
+                                  ? "text-primary/80"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {count}
+                            </span>
+                          )}
                         </NavLink>
                       );
                     })}
@@ -391,20 +425,22 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                     <div>
                       <div className="flex items-center justify-between px-2 pb-1">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          Folders
+                          {t("navigation.folders")}
                         </span>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <button
                               type="button"
-                              aria-label="New folder"
+                              aria-label={t("navigation.newFolder")}
                               className="rounded p-1 text-muted-foreground hover:bg-accent"
                               onClick={() => setNewFolderOpen(true)}
                             >
                               <IconFolderPlus className="h-3.5 w-3.5" />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent>New folder</TooltipContent>
+                          <TooltipContent>
+                            {t("navigation.newFolder")}
+                          </TooltipContent>
                         </Tooltip>
                       </div>
                       <FolderTree
@@ -419,20 +455,22 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                     <div>
                       <div className="flex items-center justify-between px-2 pb-1">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          Spaces
+                          {t("navigation.spaces")}
                         </span>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <button
                               type="button"
-                              aria-label="New space"
+                              aria-label={t("navigation.spaces")}
                               className="rounded p-1 text-muted-foreground hover:bg-accent"
                               onClick={() => setNewSpaceOpen(true)}
                             >
                               <IconPlus className="h-3.5 w-3.5" />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent>New space</TooltipContent>
+                          <TooltipContent>
+                            {t("navigation.spaces")}
+                          </TooltipContent>
                         </Tooltip>
                       </div>
                       <ul className="space-y-0.5">
@@ -467,7 +505,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                         })}
                         {(spaces?.spaces ?? []).length === 0 && (
                           <li className="px-2 py-1 text-[11px] text-muted-foreground/70">
-                            No spaces yet
+                            {t("navigation.noSpaces")}
                           </li>
                         )}
                       </ul>
@@ -483,7 +521,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   {shouldShowSidebarLink && (
                     <CaptureInstallInlineLink className="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent/60">
                       <IconAppWindow className="h-4 w-4" />
-                      Get desktop app
+                      {t("navigation.desktopCta")}
                     </CaptureInstallInlineLink>
                   )}
                   <SearchBar />
@@ -516,7 +554,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   ref={setHeaderSlot}
                   className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden"
                 />
-                <div className="ml-auto flex items-center gap-2">
+                <div className="ms-auto flex items-center gap-2">
                   <ClipsAgentToggleButton />
                 </div>
               </header>
@@ -527,10 +565,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 <IconAppWindow className="h-4 w-4 shrink-0 text-primary" />
                 <div className="min-w-0 flex-1">
                   <span className="font-medium">
-                    Get the Clips desktop app.
+                    {t("navigation.desktopTitle")}
                   </span>{" "}
                   <span className="text-muted-foreground">
-                    Record from the menu bar, global shortcut, auto-updates.
+                    {t("navigation.desktopBody")}
                   </span>
                 </div>
                 <CaptureInstallButton size="sm" className="shrink-0">
@@ -547,7 +585,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                       <IconX className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>I already have it</TooltipContent>
+                  <TooltipContent>
+                    {t("clipsFinalRaw.alreadyHaveIt")}
+                  </TooltipContent>
                 </Tooltip>
               </div>
             )}
@@ -564,17 +604,17 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       <AlertDialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>New folder</AlertDialogTitle>
+            <AlertDialogTitle>{t("navigation.newFolder")}</AlertDialogTitle>
           </AlertDialogHeader>
           <input
             autoFocus
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
-            placeholder="Folder name"
+            placeholder={t("navigation.folderNamePlaceholder")}
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
           />
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 const name = newFolderName.trim();
@@ -588,16 +628,19 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                     parentId: null,
                   },
                   {
-                    onSuccess: () => toast.success("Folder created"),
+                    onSuccess: () =>
+                      toast.success(t("navigation.folderCreated")),
                     onError: (err: any) =>
-                      toast.error(err?.message ?? "Create failed"),
+                      toast.error(
+                        err?.message ?? t("navigation.createFolderError"),
+                      ),
                   },
                 );
                 setNewFolderName("");
                 setNewFolderOpen(false);
               }}
             >
-              Create
+              {t("common.create")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

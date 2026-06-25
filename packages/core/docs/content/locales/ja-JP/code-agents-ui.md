@@ -1,0 +1,436 @@
+---
+title: "Agent-Native コード UI"
+description: "共有 UI パッケージ、デスクトップ ホスト ブリッジ、および CLI 実行ストアを使用して、Agent-Native コード サーフェスを構築およびカスタマイズします。"
+---
+
+# Agent-Native コード UI
+
+> **対象者:** コーディング ワークスペースを構築またはカスタマイズするホスト作成者
+> 共有コード UI パッケージ上のサーフェス (CLI、デスクトップ、またはブラウザ テンプレート)。
+
+## どのコーディング ドキュメントが必要ですか? {#which-doc}
+
+| あなたがしたいのは…                                                                             | 使用                                    |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Claude-Code/Codex スタイル **コーディング ワークスペース UI** をレンダリングします              | **Agent-Native コード UI** (このページ) |
+| 独自のループ + ツールを使用して、**エージェント**として Claude コード / Codex / Pi を実行します | [Harness Agents](/docs/harness-agents)  |
+| エージェントの **`run-code` ツール**を実行するバックエンドを交換します                          | [Adapters](/docs/sandbox-adapters)      |
+| エージェントが呼び出せるように CLI ツール (`gh`、`ffmpeg`) をラップします                       | [Adapters](/docs/sandbox-adapters)      |
+
+Agent-Native コードは、Agent-Native コーディング サーフェスです。コーディング セッション、スラッシュ コマンド、移行、監査、トランスクリプト、実行制御、フォローアップ用のローカル Claude コード/Codex スタイルのワークスペースです。そのままの `npx @agent-native/core@latest` コマンドでこのワークスペースを開きます。 `npx @agent-native/core@latest code` は、同じエクスペリエンスを実現するための明示的なサブコマンドです。
+
+3 つのレイヤーがあります:
+
+- **CLI**: `npx @agent-native/core@latest` および `npx @agent-native/core@latest code` は実行を開始、再開、検査、停止します。
+- **デスクトップ**: 左側のサイドバーの「コード」タブでは、同じ実行モデルを使用しながら、ネイティブ ターミナルの起動、アプリの Web ビュー、デスクトップのディープ リンクを追加します。
+- **共有 UI**: `@agent-native/code-agents-ui` は再利用可能な React サーフェスをレンダリングします。
+
+```an-diagram title="1 つの運営ストア上の 3 つのレイヤー" summary="CLI、Desktop、および共有 UI は、同じファイルベースの実行ストアおよびエグゼキューター上の異なるサーフェスです。ホストは CodeAgentsHost コントラクトを通じてそれを適応させます。"
+{
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-row\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">CLI</span><small class=\"diagram-muted\">開始 · 再開 · 状態 · 停止</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Desktop</span><small class=\"diagram-muted\">ネイティブ端末 · webviews · ディープリンク</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">共有d UI</span><small class=\"diagram-muted\">@agent-native/code-agents-ui</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill\">CodeAgentsHost</span><small class=\"diagram-muted\">host contract</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>ファイルベースのrun store + 実行器<br><small class=\"diagram-muted\">@agent-native/core/code-agents</small></div></div>",
+  "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px;align-items:center}.diagram-layers .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-layers .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.diagram-layers .diagram-arrow{font-size:22px;line-height:1}.diagram-layers .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+現在の分割は意図的に統合されています。標準のエージェント サイドバーとエージェント チームはコア `run-manager` ライフサイクルで実行されますが、Agent-Native コードはファイルベースのコード実行ストアと共有バックグラウンド実行コントローラー ボキャブラリに支えられたローカルの長時間実行セッションを使用します。
+
+共有 UI はホスト主導型です。 Electron で実行されているのか、ブラウザ テンプレートで実行されているのか、それとも将来ホストされるシェルで実行されているのかはわかりません。ホストは `CodeAgentsHost` 実装を提供します。
+
+```ts
+import { CodeAgentsApp, type CodeAgentsHost } from "@agent-native/code-agents-ui";
+import "@agent-native/code-agents-ui/styles.css";
+
+const host: CodeAgentsHost = {
+  listRuns: (goalId) => listRunsSomehow(goalId),
+  listCodePacks: () => listCodePacksSomehow(),
+  createRun: (request) => createRunSomehow(request),
+  subscribeTranscript: (request, callback) =>
+    subscribeToTranscriptSomehow(request, callback),
+  readTranscript: (request) => readTranscriptSomehow(request),
+  appendFollowUp: (request) => appendFollowUpSomehow(request),
+  updateRun: (request) => updateRunSomehow(request),
+  retryRun: (request) => retryRunSomehow(request),
+  rerunRun: (request) => rerunRunSomehow(request),
+  controlRun: (goalId, runId, command, permissionMode) =>
+    controlRunSomehow({ goalId, runId, command, permissionMode }),
+};
+
+export function CodeSurface() {
+  return <CodeAgentsApp apps={[]} host={host} />;
+}
+```
+
+ホストは同じリスト内で実行ソースを混在させることができます。ローカル Agent-Native コード セッション
+それぞれが存在する限り、エージェント チームまたはその他のバックグラウンド実行アダプターの隣に表示できます
+エントリは `CodeAgentRun` に正規化されます。ホストが `sourceLabel` を供給する場合、
+`source` または `kind`、ハブは「ローカル コード」などの小さなソース ラベルをレンダリングします
+または「エージェントチーム」。それらのフィールドを省略します
+単一ソース サーフェスの場合。空の状態と基本レイアウトは変更されません。
+
+## デスクトップホスト
+
+デスクトップは共有 UI を使用しますが、特権機能は Electron に保持されます:
+
+- ネイティブターミナルを開く
+- `AppWebview` を使用したオプションのアプリ支援サーフェスのレンダリング
+- `agentnative://open?...` リンクの処理
+- ローカル実行プロセスの追跡
+- アクティブな走行のステアリングとキューに入れられたフォローアップの記録
+- `/migrate` および `/audit` を含むネイティブ コード セッションの再試行と再実行
+- 開始したプロセスを停止します
+
+その分離は重要です。 UI はテンプレートで再利用できますが、ネイティブ プロセス コントロールはデスクトップまたは CLI に残す必要があります。
+
+## Codex CLI 認証 {#codex-cli-auth}
+
+Agent-Native コードでは、OpenAI API キーの代わりにローカル Codex CLI ログインを使用できます。
+`PATH` に Codex CLI をインストールし、一度サインインして、デスクトップまたはを再起動します。
+すでに開いている場合は、UI をコーディングします:
+
+```bash
+npm install -g @openai/codex@latest
+codex login
+codex login status
+```
+
+デスクトップと CLI は `codex login status` を読み取り、`codex exec` を実行します。
+インストールされている Codex CLI を認証する ChatGPT サブスクリプションまたは API キーを再利用します
+reports. This is separate from the `@ai-sdk/harness-codex` package used by
+[Harness Agents](/docs/harness-agents);ハーネス アダプターはローカルにコピーできます
+Codex CLI は、`codexCliAuth: true` が有効な場合にのみ信頼できるサンドボックスに認証されます
+明示的に有効化されています。
+
+## ブラウザホスト
+
+古い非表示の `code` テンプレートは削除されました。ブラウザーでホストされるコード サーフェスを構築するには、通常のアプリを作成し、ホスト実装を使用して共有 UI パッケージをマウントします。
+
+```bash
+npx @agent-native/core@latest create my-code-ui --template chat
+cd my-code-ui
+pnpm add @agent-native/code-agents-ui
+pnpm install
+pnpm dev
+```
+
+ホストは、通常の actions を通じてローカル実行ストアをラップできます。これらは
+ホスト所有の actions は自分で定義します。これらは出荷されたフレームワークではありません
+actions — 各 `CodeAgentsHost` メソッドを実行ストアにマッピングします。例:
+
+- `listRuns` を裏付ける「リスト実行」アクション
+- `listCodePacks` を支援する「コード パックのリスト」アクション
+- `createRun` をサポートする「実行の作成」アクション
+- `readTranscript` を裏付ける「トランスクリプトの読み取り」アクション
+- `appendFollowUp` を裏付ける「フォローアップを追加」アクション
+- `updateRun` をサポートする「更新実行」アクション
+- `controlRun` をサポートする「コントロール ラン」アクション
+
+それぞれが `@agent-native/core/code-agents` を呼び出し、同じものを公開します
+CLI によって使用されるファイルバックアップされた実行ストアおよびエグゼキュータ。
+
+## CLI 実行コントロール
+
+トップレベルの CLI は、Claude コードまたは Codex のように動作します。
+
+```bash
+npx @agent-native/core@latest
+npx @agent-native/core@latest "fix the failing auth tests"
+npx @agent-native/core@latest code
+```
+
+明示的な名前空間が必要な場合は、`npx @agent-native/core@latest code` を使用します。内蔵スラッシュ
+目標とプロジェクトのコマンドは、インタラクティブ ワークスペース内で実行することも、直接実行することもできます
+シェルから:
+
+```bash
+npx @agent-native/core@latest code /migrate ./legacy-app --emit ./migration-dossier
+npx @agent-native/core@latest code /audit --url https://example.com
+npx @agent-native/core@latest code /release-check
+```
+
+ここで、`/migrate` と `/audit` は組み込みの目標です (組み込みの目標は次のとおりです
+`task`、`migrate`、および `audit`)。 `/release-check` は
+プロジェクト コマンド — 組み込みの目標ではなく、`.agents/commands/` で定義されています。プロジェクト
+コマンドは `.agents/commands/*.md` からのものです。プロジェクト skills の出身
+`.agents/skills/*/SKILL.md`。制御コマンドは同じ実行で動作します
+デスクトップ コード タブと共有 UI に表示される記録:
+
+```bash
+npx @agent-native/core@latest code list
+npx @agent-native/core@latest code status --last
+npx @agent-native/core@latest code attach --last
+npx @agent-native/core@latest code logs --last
+npx @agent-native/core@latest code resume --last
+npx @agent-native/core@latest code stop --last
+npx @agent-native/core@latest code ui
+```
+
+`resume` はコンテキストを追加して実行を継続し、`status` は最新の実行を報告します
+状態、`stop` はアクティブ コントローラーに作業の停止を要求し、`ui` はローカル コントローラーを開きます
+コード表面。これらは実行コントロールであり、別個の実装パスではありません。もし
+リスクの高いコマンドは承認のために一時停止され、`approve --last` は保留中のコマンドを実行します
+コマンドを入力し、セッションを再開するよう指示します。
+
+実行モードにより、編集ポリシーがセッションごとに明示的になります:
+
+| モード         | CLI フラグ | 行動                                                                                                                                |
+| -------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **計画モード** | `--plan`   | ファイルの作成やミューテーションの実行を行わずに、検査、計画、説明を行います。                                                      |
+| **自動モード** | `--auto`   | ファイルの編集、チェックの実行、および一時停止は、本当に破壊的なファイル、git、パブリッシュ、またはデータ操作の場合にのみ行います。 |
+
+自動モードは、ローカル Agent-Native コード セッションのデフォルトです。プランモードを
+評価、アーキテクチャ、レビュー、または事前に提案が必要なタスク
+編集。
+
+クロスサーフェス リスト、ダッシュボード、または監視ペインの場合は、共有を優先します
+コードの読み取りによる `@agent-native/core/code-agents` からのバックグラウンド実行エクスポート
+ファイルを直接実行します。ローカルのコードセッションを同じ語彙に正規化します
+ホストされたバックグラウンド作業によって使用されます: 実行 ID、ステータス、CWD、ニーズ入力
+承認が必要、イベントのトランスクリプト、およびアーティファクトのルート。
+
+ホストされたエージェント チームは、ブラウザのエージェント チャット ルートからも公開されます
+サーバーを直接インポートせずにコード ハブ互換リストを必要とするホスト:
+`GET /_agent-native/agent-chat/runs/list?goalId=agent-team` が戻ります
+`{ status: "ok", goalId, runs }`、各実行には `kind` が含まれます
+`source`、`sourceLabel`、`status`、`title`、タイムスタンプ、およびタスクのメタデータ。
+`GET /_agent-native/agent-chat/runs/:id/background-events` は
+エージェント チーム実行の共有バックグラウンド トランスクリプト イベント。
+
+アダプターでサポートされるホストは、ソース メタデータを添付することもできます。
+
+```ts
+{
+  id: run.id,
+  goalId: "task",
+  title: run.title,
+  source: "agent-teams",
+  sourceLabel: "Agent Teams",
+  kind: "background-run",
+  status: run.status,
+  createdAt: run.createdAt,
+  updatedAt: run.updatedAt,
+}
+```
+
+## ストアを実行
+
+ローカルの Agent-Native コード実行は次の場所に保存されます:
+
+```text
+~/.agent-native/code-agents
+```
+
+テンプレートまたはテスト実行ストアを分離するには、`AGENT_NATIVE_CODE_AGENTS_HOME` を設定します。
+
+```bash
+AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
+```
+
+## ホスト契約
+
+`CodeAgentsHost` は意図的に小さいです:
+
+| メソッド                                              | 目的                                                                           |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `listRuns(goalId?)`                                   | 選択した目標のセッションをリストします                                         |
+| `listCodePacks?()`                                    | `.agents/commands` と `.agents/skills` をリストします                          |
+| `createRun(request)`                                  | 新しい実行を開始                                                               |
+| `subscribeTranscript?(request, callback)`             | トランスクリプトの更新を共有会話にプッシュする                                 |
+| `readTranscript(request)`                             | 互換性フォールバックとしてのトランスクリプト イベントのポーリング              |
+| `appendFollowUp(request)`                             | アクティブな作業をステアリングするかキューに入れて、フォローアップを追加します |
+| `updateRun(request)`                                  | 更新モードまたはメタデータの実行                                               |
+| `retryRun?(request)`                                  | 選択した実行をその場で再試行します                                             |
+| `rerunRun?(request)`                                  | 前のプロンプトから新しい実行を開始します                                       |
+| `controlRun(goalId, runId, command, permissionMode?)` | 再開、承認、更新、または停止                                                   |
+| `openTerminal?(request)`                              | オプションのネイティブ端末フック                                               |
+
+ブラウザ ホストは、ネイティブ端末の起動をエミュレートしようとするのではなく、適切な `openTerminal` エラーを返す必要があります。
+
+## 共有コンポーザー
+
+Agent-Native コードは同じ `AgentComposerFrame` + `PromptComposer` を使用します /
+`TiptapComposer` スタックは `@agent-native/core/client/composer` から
+フレームワーク エージェントのサイドバー。別個にフォークしないでください
+テキストエリア、コーディングツールピッカー、アップロードピッカー、音声ボタン、モデルピッカー、または入力して送信
+コードのようなサーフェスの実装。ホストが追加の制御を 1 つ必要とする場合は、
+共有コンポーザー拡張ポイントを介して、サイドバー、コード UI、および
+ブレイン チャットでは、同じ対話モデルと視覚フィールドが維持されます。
+
+Brain の Ask ルートは `AgentChatSurface` を使用します。これはすでにサポートされています
+standard sidebar composer. Code uses `PromptComposer` directly because the host
+実行の作成、トランスクリプト、およびフォローアップ配信を所有します。
+
+## 共有コーディング ツール
+
+サイドバー開発エージェントと Agent-Native コードは両方とも同じ最小値を使用します
+コーディング ツール プロファイル: `bash`、`read`、`edit`、および `write`。 `bash` がデフォルトです
+ファイルのリスト/検索、テストの実行、プロジェクト CLI の呼び出し用。 `read`
+は行番号付きのファイルスライスを示します。 `edit` は正確なテキスト置換を適用します。そして
+`write` は、新しいファイルまたは意図的な完全な書き換え用に予約されています。古いエイリアス
+`shell`、`read-file`、`write-file`、`list-files`、`search-files` など
+互換性のみであり、デフォルトのアドバタイズ サーフェスの一部ではありません。
+
+コード固有の UI は、フォークされたチャットフィールド内ではなく、コンポーザーの周囲に属します。
+共有コード UI は次のスロットを追加できます:
+
+- 自動 / プラン モードのコントロール。
+- 選択した cwd、プロジェクト ピッカー、および実行メタデータ。
+- ターミナルを開くなどのホストオンリーのアフォーダンス。
+
+添付ファイル、参照、スラッシュなど、その他すべては共有コンポーザー内に残ります。
+スキルの挿入、貼り付けられたテキストの処理、音声ディクテーション、下書き、キーボード
+ショートカットと送信セマンティクス。
+
+ユーザー向けのトランスクリプトは会話形式のままである必要があります。コードホストは raw を正規化します
+共有会話レンダラーへのトランスクリプト/ステータス/ツール イベント: アシスタント
+テキストは 1 つのターンに結合され、低信号のライフサイクル ノイズがメインから排除されます
+表面とツールのアクティビティは、詳細を含むコンパクトなインライン概要としてレンダリングされます
+必要なときに利用できます。
+
+## スラッシュコマンド
+
+Agent-Native コードは、移行を別個のアプリ カテゴリとしてではなく、機能として扱います。 `/migrate` は、同じホスト コントラクト上の組み込みゴール、プロジェクト コマンド、またはカスタム命令パックにすることができます。
+
+### `/migrate` を使用した Agent-Native への移行 {#migrate}
+
+`/migrate` は、既存のアプリ、URL、または説明されている製品を Agent-Native に移動するための組み込みの目標です。これはコード ワークスペースのスラッシュ ゴールであり、スキャフォールディングする個別のテンプレートや 1 回限りの製品ではありません。そのため、他のすべてのコード セッションと同じセッション ストア、トランスクリプト、実行コントロール、デスクトップ ハブを共有し、同じ方法で再開、接続、検査、停止できます。
+
+```bash
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+npx @agent-native/core@latest code /migrate https://example.com --describe "marketing site plus dashboard"
+npx @agent-native/core@latest code /migrate --describe "A Rails admin app with reports and CSV imports" --emit
+npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # shortcut into the same goal
+```
+
+ローカル ソース パスは読み取り専用です。生成された出力はソース ツリーの外部に存在する必要があります。 `--emit <dir>` を使用して、ポータブル移行ドシエ (`AGENTS.md`、`MIGRATION_PLAYBOOK.md`、評価、および利用可能な場合は `ir.json` インベントリ) を作成し、内部実行サーフェスを開く代わりに、それを別のコーディング エージェントに渡します。 `/migrate` はフレームワークの通常の認証情報システムを再利用します。移行固有のキー ストアはありません。 `@agent-native/migrate` パッケージは、カスタム ワークフロー用の再利用可能なエンジン (`createMigrationRun`、`discoverMigration`、`planMigration`、ソース/ターゲット アダプター) を公開します。
+
+プロジェクト固有のコマンドは次の場所にあります:
+
+```text
+.agents/commands/*.md
+```
+
+これらは、リリース チェック、移行バリアント、フレームワークのアップグレード、監査などのチーム ワークフローに使用します。
+
+プロジェクト skills が存在する場所:
+
+```text
+.agents/skills/*/SKILL.md
+```
+
+ホストが `listCodePacks` を実装すると、共有 UI はレールにプロジェクト コマンドと skills を表示します。コマンド行には `/<command>` が挿入され、スキル行には焦点を当てた「<skill> スキルを使用する…」プロンプトが挿入されるため、レールは実行可能なままになります。組み込みのスラッシュ ゴール `/migrate` および `/audit` は、グローバル Agent-Native コード コントロール用に予約されたままになります。また、`status` や `resume` などの実行コントロール名も同様です。これらはスラッシュなしで呼び出されるサブコマンド (`npx @agent-native/core@latest code status`、`npx @agent-native/core@latest code resume`) であり、スラッシュ ゴールではありません。
+
+新しいコード ホスト用に別のスラッシュ コマンド レジストリを作成しないでください。プロジェクト
+コマンドと skills は `.agents/commands/*.md` から検出され、
+`.agents/skills/*/SKILL.md`; UI はそれらのパックをレンダリングし、プロンプトを挿入する必要があります
+共有コンポーザーを介して。
+
+## バックグラウンド エージェント実行マネージャー
+
+バックグラウンドのコーディング エージェントの作業では、同じ実行マネージャーの基盤を再利用する必要があります。
+Agent-Native の残り:
+
+- ローカル コード セッションにはコード実行ストア/エグゼキュータを使用します。
+- サーフェスをリストする必要がある場合は、共有バックグラウンド実行アダプター/基盤を使用します。
+  他のバックグラウンド作業と並行して、ローカル コード セッションを検査またはブリッジします。
+- ホスト型エージェントの実行にはコア `run-manager` を使用して、ストリーム、中止、ハートビートを実行します。
+  再開可能性、ソフト タイムアウト、スタック実行クリーンアップは一貫して動作します。
+- UI が作業を委任している場合は、`agent-teams` / `spawnTask()` を使用します
+  通常のアプリ チャットからのバックグラウンド サブエージェント。
+
+新しいサーフェスに必要なだけの理由で、並列バックグラウンド エージェント ランナーを追加しないでください。
+レイアウトが異なります。共有
+代わりにマネージャー財団を実行してください。
+
+## フォローアップ
+
+アクティブな実行のフォローアップは、2 つの配信モードをサポートしています。
+
+- Enter キーを押すか、送信をクリックすると、即座にステアリング プロンプトが記録されます。
+  アクティブなランナーは、次の安全な継続ポイントに適用されます。
+- macOS で Cmd+Enter を押すか、他の場所で Ctrl+Enter を押すと、実行するプロンプトがキューに入れられます
+  現在のターン終了後
+
+非アクティブな実行では互換性のある動作が維持されます。フォローアップが追加され、実行がすぐに再開されます。
+
+これにより、Code はエージェント チームと同じユーザー向けの双方向メッセージング形式を実現します。
+ユーザーはアクティブな作業と対話し続けることができますが、実行により消費されるのはそれのみです
+安全な継続ポイントでのメッセージ。ランナーがすぐに操縦できない場合、
+フォローアップをドロップしたり競合させたりするのではなく、キューに入れられた作業として保持する必要があります。
+
+## リモート派遣
+
+デスクトップは、ローカルのコード エージェント ランナーをデプロイされたディスパッチ リレーに公開できるため、
+電話または Telegram チャットは、セッションを開始、監視、継続できます。
+コンピュータは起動しています。
+
+接続はデスクトップからの送信のみです:
+
+1. デスクトップは Dispatch とペアリングし、デバイス トークンをローカルに保存します。
+2. デスクトップのロングポーリング `/_agent-native/integrations/remote/poll`。
+3. モバイル セッションとテレグラム `/code` はコマンドをリレー データベースにキューに入れます。
+4. デスクトップはコマンドを要求し、ローカル実行ストアを駆動し、結果をポストします。
+   イベントを Dispatch に転写します。
+5. モバイルは Dispatch から `hosts`、`runs`、および `transcript` を読み取ります。決して話さない
+   デスクトップに直接。
+
+```an-diagram title="リモート Dispatch は送信専用です" summary="モバイルがデスクトップと直接通信することはありません。 Desktop は Dispatch をロングポーリングし、コマンドを要求し、ローカル実行ストアを駆動し、結果をミラーリングします。"
+{
+  "html": "<div class=\"diagram-remote\"><div class=\"diagram-node\" data-rough>モバイル / Telegram<br><small class=\"diagram-muted\">/code · セッション</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Dispatchリレー<br><small class=\"diagram-muted\">ホスト · 実行 · トランスクリプト</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-node\" data-rough>Desktop<br><small class=\"diagram-muted\">ロングポーリング · クレーム · run storeを駆動</small></div></div>",
+  "css": ".diagram-remote{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-remote .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+正規のリモート リレー エンドポイントは次のとおりです。
+
+```an-api title="デスクトップのクレームキューにある作業"
+{
+  "method": "POST",
+  "path": "/_agent-native/integrations/remote/poll",
+  "summary": "デスクトップはリレーをロングポーリングして、キューに入れられたコマンドを要求します",
+  "description": "Outbound-only from a paired Desktop host. Desktop authenticates with its device token and claims work that mobile or Telegram enqueued.",
+  "auth": "Desktop device token",
+  "responses": [
+    { "status": "200", "description": "Claimed commands for this host (may be empty after the long-poll window)." }
+  ]
+}
+```
+
+| メソッド   | ルート                                                   | 発信者                 | 目的                                                   |
+| ---------- | -------------------------------------------------------- | ---------------------- | ------------------------------------------------------ |
+| `POST`     | `/_agent-native/integrations/remote/register`            | デスクトップセッション | デスクトップ ホストをペアリングし、トークンを 1 回返す |
+| `GET`      | `/_agent-native/integrations/remote/hosts`               | モバイル/セッション    | ペアリングされたホストをリストする                     |
+| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | モバイル/セッション    | ペアリングされたホストを取り消す                       |
+| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | モバイル/セッション    | ペアリングされたホストを取り消す                       |
+| `POST/GET` | `/_agent-native/integrations/remote/poll`                | デスクトップトークン   | クレーム作業                                           |
+| `POST`     | `/_agent-native/integrations/remote/result`              | デスクトップトークン   | 作業を完了または失敗                                   |
+| `POST`     | `/_agent-native/integrations/remote/run-events`          | デスクトップトークン   | ミラートランスクリプトイベント                         |
+| `GET`      | `/_agent-native/integrations/remote/runs`                | モバイル/セッション    | セッションのリスト                                     |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | モバイル/セッション    | セッションの概要を読む                                 |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | モバイル/セッション    | ミラーリングされたトランスクリプトを読む               |
+| `POST`     | `/_agent-native/integrations/remote/push/register`       | モバイル/セッション    | Expo/モバイル プッシュ トークンを登録                  |
+
+Telegram は、Dispatch を通じて同じリレーを使用します。サポートされているコマンドは次のとおりです:
+
+```text
+/code <prompt>
+/code list
+/code status <run>
+/code continue <run> <text>
+/code approve <id>
+/code deny <id>
+/code stop <run>
+```
+
+## スタイリング
+
+パッケージのスタイルシートをインポートします:
+
+```ts
+import "@agent-native/code-agents-ui/styles.css";
+```
+
+スタイルシートは、テンプレートおよびデスクトップ シェルと同じ shadcn スタイルの HSL カスタム プロパティを使用します。共有 UI をフォークする前に、ホスト アプリでトークンを変更するか、小規模なクラス オーバーライドを行うことを推奨します。
+
+## 制限
+
+ブラウザ テンプレートはローカルファーストです。ローカル ノード サーバーが稼動している間、実行を開始および再開できます。ネイティブ プロセスのライフサイクル、ターミナルの起動、アプリの Web ビューには、デスクトップを使用します。

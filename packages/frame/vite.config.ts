@@ -1,11 +1,13 @@
-import { defineConfig, createLogger } from "vite";
-import type { Plugin } from "vite";
-import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
-import path from "path";
 import type { IncomingMessage, ServerResponse } from "http";
 import http from "http";
 import https from "https";
+import path from "path";
+
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig, createLogger } from "vite";
+import type { Plugin } from "vite";
+
 import { extractAppFromState } from "./src/oauth-state.js";
 
 // Custom logger that suppresses proxy ECONNREFUSED noise during startup.

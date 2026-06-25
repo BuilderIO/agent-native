@@ -1,0 +1,236 @@
+---
+title: "추적 및 분석"
+description: "플러그형 제공자를 통한 서버 측 분석 — PostHog, Mixpanel, Amplitude 또는 사용자 정의 웹훅"
+---
+
+# 분석 추적
+
+하나의 기능, 여러 대상. 서버 측 코드(actions, 플러그인, 서버 경로)에서 `track()`를 호출하면 이벤트가 등록된 모든 분석 제공자에게 전달됩니다. SDK 종속성, 클라이언트 측 스크립트, 차단이 없습니다. 동일한 `track()`는 [browser/app code](#client)에서도 사용할 수 있으며 동일한 제공업체로 라우팅됩니다.
+
+이것은 _제품_ 분석입니다. 즉, PostHog/Mixpanel/Amplitude로 흐르는 앱 이벤트입니다. 자체 데이터베이스에 저장된 _에이전트 품질_ 지표(추적, 비용, 평가, 피드백)에 대해서는 [Observability](/docs/observability)를 참조하세요.
+
+```ts
+import { track } from "@agent-native/core/tracking";
+
+track(
+  "order.completed",
+  { total: 49.99, items: 3 },
+  { userId: "steve@builder.io" },
+);
+```
+
+```an-diagram title="하나의 track() 호출, 모든 공급자" summary="서버 및 클라이언트 호출자는 동일한 레지스트리에 도달하여 모든 이벤트를 모든 활성 공급자에게 병렬로 전달합니다."
+{
+  "html": "<div class=\"trk\"><div class=\"diagram-col\"><div class=\"diagram-node\">서버 코드<br><small class=\"diagram-muted\">actions &middot; plugins &middot; routes</small></div><div class=\"diagram-node\">브라우저 코드<br><small class=\"diagram-muted\">POST /_agent-native/track</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Provider registry</span><small class=\"diagram-muted\">fan-out, 보내고 잊기</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">PostHog</div><div class=\"diagram-box\">Mixpanel</div><div class=\"diagram-box\">Amplitude</div><div class=\"diagram-box\">Webhook</div></div></div>",
+  "css": ".trk{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.trk .diagram-col{display:flex;flex-direction:column;gap:8px}.trk .diagram-arrow{font-size:22px;line-height:1}.trk .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## 내장 제공자 {#built-in}
+
+env var를 설정하면 공급자가 서버 시작 시 자동 등록됩니다. 코드 변경이 필요하지 않습니다.
+
+| 제공자     | 환경 변수                                                                              |
+| ---------- | -------------------------------------------------------------------------------------- |
+| 포스트호그 | `POSTHOG_API_KEY`(필수), `POSTHOG_HOST`(선택사항, 기본값은 `https://us.i.posthog.com`) |
+| 믹스패널   | `MIXPANEL_TOKEN`                                                                       |
+| 진폭       | `AMPLITUDE_API_KEY`                                                                    |
+| 웹훅       | `TRACKING_WEBHOOK_URL`(필수), `TRACKING_WEBHOOK_AUTH`(선택적 `Authorization` 헤더)     |
+
+여러 공급자가 동시에 활성화될 수 있습니다. 모든 이벤트는 그들 모두에게 전달됩니다.
+
+## API {#api}
+
+### `track(name, properties?, meta?)` {#track}
+
+분석 이벤트를 실행합니다. 등록된 모든 제공업체에 팬 아웃됩니다.
+
+```ts
+import { track } from "@agent-native/core/tracking";
+
+track(
+  "meal.logged",
+  { mealName: "Salad", calories: 350 },
+  { userId: "steve@builder.io" },
+);
+```
+
+### `identify(userId, traits?)` {#identify}
+
+특성으로 사용자를 식별합니다. 이를 지원하는 제공자(PostHog, Mixpanel, Amplitude, webhook)에게 전달됩니다.
+
+```ts
+import { identify } from "@agent-native/core/tracking";
+
+identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+```
+
+사용자 정의 백엔드, 공급자 레지스트리 API 또는 일괄 처리/싱글톤 내부가 필요합니까? 마지막에 있는 [Advanced: custom providers & internals](#advanced)를 참조하세요.
+
+## 템플릿에서 track() 사용 {#templates}
+
+작업 핸들러에서 `track()`를 호출하여 사용자 또는 에이전트 활동을 기록합니다.
+
+```ts
+// actions/create-project.ts
+import { defineAction } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Create a new project.",
+  schema: z.object({
+    name: z.string(),
+    template: z.string().optional(),
+  }),
+  run: async ({ name, template }, ctx) => {
+    const project = await db
+      .insert(projects)
+      .values({ name, template })
+      .returning();
+
+    track("project.created", { name, template }, { userId: ctx.userEmail });
+
+    return { ok: true, projectId: project[0].id };
+  },
+});
+```
+
+추적 호출은 즉시 실행되며 즉시 반환되며 작업 응답을 차단하지 않습니다.
+
+## 클라이언트측 추적 {#client}
+
+`track()`는 브라우저/앱 코드에서도 작동합니다. `@agent-native/core/client`에서 클라이언트 쌍을 가져오고 동일한 방식으로 호출합니다. 이벤트를 `POST /_agent-native/track`의 프레임워크 경로에 게시하고 **동일** 등록된 서버 측 공급자(PostHog, Mixpanel, Amplitude, webhook)에 전달합니다. 분석 SDK는 브라우저에 제공되지 않으며 공급자 키는 클라이언트 측에 노출되지 않습니다.
+
+```an-api title="클라이언트 추적 경로"
+{
+  "method": "POST",
+  "path": "/_agent-native/track",
+  "summary": "등록된 서버측 공급자에게 브라우저 이벤트 전달",
+  "auth": "Session required + same-origin/CSRF marker (set automatically by the client helper). Not an open analytics relay.",
+  "params": [
+    { "name": "name", "in": "body", "type": "string", "required": true, "description": "Event name. Capped at 200 characters." },
+    { "name": "properties", "in": "body", "type": "object", "description": "Event properties (~16KB cap). `source: \"client\"` and the active `org_id` are added server-side." }
+  ],
+  "description": "Identity is resolved **server-side** from the session — browser code never passes a `userId`. Fire-and-forget: never blocks the UI, never throws, swallows network errors. Oversized or malformed payloads are rejected."
+}
+```
+
+```ts
+import { track } from "@agent-native/core/client";
+
+// e.g. inside a click handler or effect
+track("checkout.completed", { total: 49.99, items: 3 });
+```
+
+[server `track()`](#track)와의 주요 차이점:
+
+- **ID 인수가 없습니다.** 이벤트는 서버측에서 로그인한 사용자(및 `properties`의 `org_id`와 같은 활성 조직)에 귀속됩니다. 브라우저 코드는 `userId`를 절대 전달하지 않습니다.
+- **`source: "client"`**는 모든 이벤트의 속성에 추가되므로 클라이언트에서 발생한 이벤트를 서버 이벤트와 구분할 수 있습니다.
+- **Fire-and-forget.** UI를 차단하지 않으며 네트워크 오류를 발생시키지 않으며 삼키지 않습니다.
+- **인증됨, 자사 전용.** 경로에는 세션과 동일 출처/CSRF 마커(도우미가 자동으로 설정)가 필요하므로 개방형 분석 릴레이로 사용할 수 없습니다. `name`는 200자로 제한되고 `properties`는 ~16KB로 제한됩니다. 크기가 너무 크거나 형식이 잘못된 페이로드는 거부됩니다.
+
+이는 Agent Native의 자체 제품 분석을 지원하는 프레임워크의 내부 브라우저 원격 측정(`trackEvent()` / 자동 페이지뷰 - 아래 [Browser defaults](#browser-defaults) 참조)과 다릅니다. 구성된 제공업체에 도달해야 하는 앱 자체 분석 이벤트에 `track()`를 사용하세요.
+
+## 고급: 맞춤형 공급자 및 내부 {#advanced}
+
+대부분의 앱에는 `track()` / `identify()` 및 내장 공급자만 필요합니다. 사용자 지정 공급자 등록, `TrackingProvider` 인터페이스, 내부 일괄 처리 및 프레임워크의 자체 브라우저 원격 측정 등 나머지 표면은 다음과 같습니다.
+
+<details>
+<summary><strong>Provider-registry API, 인터페이스, 내부 및 브라우저 기본값</strong></summary>
+
+### `registerTrackingProvider(provider)` {#register}
+
+모든 분석 백엔드에 대한 맞춤형 공급자를 등록하세요.
+
+```ts
+import { registerTrackingProvider } from "@agent-native/core/tracking";
+
+registerTrackingProvider({
+  name: "my-analytics",
+  track(event) {
+    // Send event to your backend
+    fetch("https://analytics.example.com/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(event),
+    }).catch(() => {});
+  },
+  identify(userId, traits) {
+    // Optional — link user identity to future events
+  },
+  flush() {
+    // Optional — called on graceful shutdown
+  },
+});
+```
+
+### `flushTracking()` {#flush}
+
+모든 공급자를 플러시합니다. 보류 중인 이벤트가 전송되는지 확인하려면 프로세스 종료 전에 호출하세요.
+
+```ts
+import { flushTracking } from "@agent-native/core/tracking";
+
+await flushTracking();
+```
+
+### `unregisterTrackingProvider(name)` {#unregister}
+
+이름으로 공급자를 제거합니다. 공급자를 찾아서 제거한 경우 `true`를 반환합니다.
+
+### `listTrackingProviders()` {#list}
+
+등록된 모든 공급자의 이름을 반환합니다.
+
+### TrackingProvider 인터페이스 {#provider-interface}
+
+```ts
+interface TrackingProvider {
+  name: string;
+  track(event: TrackingEvent): void | Promise<void>;
+  identify?(
+    userId: string,
+    traits?: Record<string, unknown>,
+  ): void | Promise<void>;
+  flush?(): void | Promise<void>;
+}
+
+interface TrackingEvent {
+  name: string;
+  properties?: Record<string, unknown>;
+  timestamp?: string;
+  userId?: string;
+}
+```
+
+`name` 및 `track`만 필요합니다. `identify` 및 `flush`는 선택 사항입니다. 백엔드가 사용자 ID 및 일괄 전송을 지원하는 경우 구현하세요.
+
+### 작동 방식 {#internals}
+
+- **일괄 HTTP** — 내장 공급자는 이벤트를 대기열에 추가하고 10초마다 또는 50개의 이벤트가 누적될 때(둘 중 먼저 도래하는 시점) 플러시합니다. 이렇게 하면 데이터 손실 없이 아웃바운드 요청이 최소화됩니다.
+- **SDK 종속성 없음** — 모든 내장 공급자는 원시 `fetch()`를 사용합니다. PostHog SDK 없음, Mixpanel SDK 없음, 진폭 SDK 없음. 프레임워크를 가볍게 유지합니다.
+- **최선을 다한 전달** — 공급자 오류가 포착되어 기록됩니다. 실패한 분석 통합은 호출자와 충돌하거나 요청 처리를 차단하지 않습니다.
+- **글로벌 싱글톤** — 레지스트리는 `globalThis`에서 `Symbol.for` 키를 사용하므로 여러 ESM 그래프 인스턴스(개발 모드 Vite + Nitro, 심볼릭 링크)가 하나의 공급자 세트를 공유합니다.
+
+### 브라우저 기본값 {#browser-defaults}
+
+여기에는 프레임워크 기여자 및 고급 템플릿 작성자와 주로 관련된 프레임워크 자체의 내부 원격 측정이 포함됩니다.
+
+템플릿 루트는 시작 시 `configureTracking()`를 한 번 호출합니다. `trackEvent()`와 함께 전송된 브라우저 이벤트에는 앱/템플릿 컨텍스트와 앱이 이를 해결할 수 있는 경우 현재 LLM 연결이 자동으로 포함됩니다.
+
+- `llm_connection` — `builder`, `anthropic`, `openai`, `google` 또는 `none`와 같은 정규화된 공급자 레이블
+- `llm_engine` — 엔진 ID(예: `builder` 또는 `ai-sdk:openai`)
+- `llm_model` — 알려진 경우 선택/기본 모델
+- `llm_connection_source` — `app_secrets`, `settings` 또는 `env`
+- `llm_connection_configured` — LLM 연결 사용 가능 여부
+
+프레임워크는 Connect Builder CTA에서 `builder connect clicked`도 추적하고, 서버측 Builder 연결 경로는 시작/성공/실패한 수명 주기 이벤트를 추적합니다. `configureTracking()`는 프레임워크에 의해 자동으로 호출됩니다. 자신의 템플릿 코드에서 호출할 필요가 없습니다.
+
+</details>
+
+## 다음 단계
+
+- [**Actions**](/docs/actions) — 대부분의 추적 통화가 발생하는 곳
+- [**Server Plugins**](/docs/server) — `registerBuiltinProviders()`는 시작 시 핵심 경로 플러그인에서 실행됩니다.
+- [**Secrets**](/docs/security) — 추적 제공자를 위한 API 키 관리

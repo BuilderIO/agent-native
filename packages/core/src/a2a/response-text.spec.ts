@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { collectFinalResponseTextFromAgentEvents } from "./response-text.js";
+
 import type { AgentChatEvent } from "../agent/types.js";
+import { collectFinalResponseTextFromAgentEvents } from "./response-text.js";
 
 describe("collectFinalResponseTextFromAgentEvents", () => {
   it("returns all text when no tools ran", () => {

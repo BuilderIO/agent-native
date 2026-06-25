@@ -1,3 +1,5 @@
+import type { AppConfig } from "@agent-native/shared-app-config";
+import { Feather } from "@expo/vector-icons";
 import { useState, useCallback } from "react";
 import {
   View,
@@ -8,10 +10,9 @@ import {
   StyleSheet,
   Alert,
 } from "react-native";
-import { Feather } from "@expo/vector-icons";
-import { useApps } from "@/lib/use-apps";
+
 import AppForm from "@/components/AppForm";
-import type { AppConfig } from "@agent-native/shared-app-config";
+import { useApps } from "@/lib/use-apps";
 
 export default function SettingsScreen() {
   const { apps, updateApp, addApp, removeApp, resetToDefaults } = useApps();

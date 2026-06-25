@@ -1,3 +1,4 @@
+// i18n-raw-literal-disable-file: SVG path data and HTML icon snippets are not UI copy.
 const ICON_PATHS = {
   arrowLeft: [
     '<path d="M5 12l14 0" />',

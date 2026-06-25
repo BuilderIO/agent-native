@@ -1,4 +1,11 @@
 import {
+  AgentSidebar,
+  isEmbedAuthActive,
+  getBrowserTabId,
+  useT,
+} from "@agent-native/core/client";
+import { IconMenu2 } from "@tabler/icons-react";
+import {
   createContext,
   useCallback,
   useContext,
@@ -7,17 +14,13 @@ import {
   useState,
 } from "react";
 import { useLocation } from "react-router";
-import { IconMenu2 } from "@tabler/icons-react";
-import { Sidebar } from "./Sidebar";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
-import {
-  AgentSidebar,
-  isEmbedAuthActive,
-  getBrowserTabId,
-} from "@agent-native/core/client";
+
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { cn } from "@/lib/utils";
+
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -43,6 +46,7 @@ const EDITOR_PREFIXES = ["/design/", "/extensions"];
 export function Layout({ children }: LayoutProps) {
   useNavigationState();
   const location = useLocation();
+  const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const openMobileSidebar = useCallback(() => setMobileSidebarOpen(true), []);
 
@@ -98,11 +102,11 @@ export function Layout({ children }: LayoutProps) {
       <MobileSidebarContext.Provider value={openMobileSidebar}>
         <AgentSidebar
           position="right"
-          emptyStateText="Describe a design to create"
+          emptyStateText={t("chat.emptyState")}
           suggestions={[
-            "Design a landing page for my startup",
-            "Make this match our brand",
-            "Add a mobile version of this",
+            t("chat.suggestionLandingPage"),
+            t("chat.suggestionBrandMatch"),
+            t("chat.suggestionMobile"),
           ]}
           scope={designScope}
           browserTabId={getBrowserTabId()}
@@ -116,10 +120,10 @@ export function Layout({ children }: LayoutProps) {
             )}
             <div
               className={cn(
-                "fixed inset-y-0 left-0 z-50 md:static md:z-auto",
+                "fixed inset-y-0 start-0 z-50 md:static md:z-auto",
                 mobileSidebarOpen
                   ? "translate-x-0"
-                  : "-translate-x-full md:translate-x-0",
+                  : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
               )}
             >
               <Sidebar />
@@ -130,13 +134,13 @@ export function Layout({ children }: LayoutProps) {
                 <div className="flex h-12 shrink-0 items-center border-b border-border bg-sidebar px-4 md:hidden">
                   <button
                     onClick={openMobileSidebar}
-                    className="-ml-1 mr-3 cursor-pointer rounded-md p-2.5 hover:bg-sidebar-accent/50"
-                    aria-label="Open navigation"
+                    className="-ms-1 me-3 cursor-pointer rounded-md p-2.5 hover:bg-sidebar-accent/50"
+                    aria-label={t("navigation.openNavigation")}
                   >
                     <IconMenu2 className="h-5 w-5 text-foreground" />
                   </button>
                   <span className="text-base font-bold tracking-tight">
-                    Design
+                    {t("navigation.brand")}
                   </span>
                 </div>
               )}

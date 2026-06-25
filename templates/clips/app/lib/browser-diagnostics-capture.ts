@@ -26,8 +26,12 @@ function redactString(value: string): string {
   return redactBrowserDiagnosticString(value);
 }
 
+function redactUrlString(value: string): string {
+  return redactBrowserDiagnosticString(value, { redactQueryValues: true });
+}
+
 function sanitizeUrl(raw: string): string {
-  const redacted = redactString(raw);
+  const redacted = redactUrlString(raw);
   try {
     const parsed = new URL(redacted, window.location.href);
     parsed.username = "";

@@ -1,6 +1,6 @@
-import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { IconChevronRight, IconDots } from "@tabler/icons-react";
+import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -83,7 +83,7 @@ const BreadcrumbSeparator = ({
     className={cn("[&>svg]:size-3.5", className)}
     {...props}
   >
-    {children ?? <IconChevronRight />}
+    {children ?? <IconChevronRight className="rtl:-scale-x-100" />}
   </li>
 );
 BreadcrumbSeparator.displayName = "BreadcrumbSeparator";

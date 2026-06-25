@@ -1,0 +1,79 @@
+---
+title: "라우팅"
+description: "React 라우터 v8을 사용한 에이전트 기반 앱을 위한 파일 기반 라우팅 — 페이지, 동적 매개변수 및 탐색."
+---
+
+# 라우팅
+
+에이전트 네이티브 앱은 `@react-router/fs-routes`에서 `flatRoutes()`를 통한 파일 기반 라우팅과 함께 **React 라우터 v8**을 사용합니다. `app/routes/`의 모든 파일은 URL가 됩니다. 템플릿은 점 표기법 규칙을 사용합니다. 점은 단일 파일 이름 내에서 URL 세그먼트를 구분합니다.
+
+## 파일 기반 라우팅 {#file-based-routing}
+
+### 파일 → URL 매핑
+
+| 파일                  | URL                 | 참고                                   |
+| --------------------- | ------------------- | -------------------------------------- |
+| `_index.tsx`          | `/`                 | 색인 경로                              |
+| `settings.tsx`        | `/settings`         | 간단한 페이지                          |
+| `inbox.$threadId.tsx` | `/inbox/:threadId`  | 점 = `/`, `$` = 동적 매개변수          |
+| `_app.tsx`            | (URL 세그먼트 없음) | 경로 없는 레이아웃 — 접두사 `_`        |
+| `inbox/route.tsx`     | `/inbox`            | 폴더 형식 - `route.tsx`가 인덱스입니다 |
+
+동적 매개변수의 경우 세그먼트 앞에 `$`를 붙입니다. 경로 없는 레이아웃 경로(URL 세그먼트 없음)로 만들려면 접두사 `_`를 붙입니다. 템플릿은 `flatRoutes()`를 사용합니다. 위의 점 표기법 파일이 기본입니다. 중첩 폴더 형식 `inbox/route.tsx`도 작동합니다.
+
+```an-diagram title="경로 없는 레이아웃이 페이지를 래핑합니다." summary="_app.tsx 레이아웃(URL 세그먼트 없음)은 공유 쉘을 한 번 렌더링합니다. 일치하는 페이지는 <Outlet/> 내부에서 렌더링되므로 탐색 시 에이전트 사이드바가 다시 탑재되지 않습니다."
+{
+"html": "<div class=\"diagram-layout\" data-rough><div class=\"diagram-shell\"><span class=\"diagram-pill accent\">_app.tsx</span><small class=\"diagram-muted\">경로 없는 레이아웃 · 지속 셸 + 에이전트 사이드바</small><div class=\"diagram-outlet\" data-rough><small class=\"diagram-muted\">&lt;Outlet/&gt; — the matched page</small><div class=\"diagram-row\"><span class=\"diagram-pill\">_index.tsx &rarr; /</span><span class=\"diagram-pill\">settings.tsx &rarr; /settings</span><span class=\"diagram-pill\">inbox.$threadId.tsx &rarr; /inbox/:threadId</span></div></div></div></div>",
+"css": ".diagram-layout .diagram-shell{display:flex;flex-direction:column;gap:8px;padding:16px}.diagram-layout .diagram-outlet{display:flex;flex-direction:column;gap:8px;padding:14px;margin-top:6px}.diagram-layout .diagram-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}"
+}
+
+```
+
+## 새 페이지 추가 {#adding-a-page}
+
+파일 생성 및 기본 구성 요소 내보내기:
+
+```tsx
+// app/routes/settings.tsx
+export function meta() {
+  return [{ title: "Settings" }];
+}
+
+export default function SettingsPage() {
+  return <div>Settings</div>;
+}
+```
+
+그렇습니다. React 라우터가 자동으로 선택하므로 등록이 필요하지 않습니다.
+
+## 동적 매개변수 {#dynamic-params}
+
+```tsx
+// app/routes/inbox/$threadId.tsx
+import { useParams } from "react-router";
+
+export default function ThreadPage() {
+  const { threadId } = useParams();
+  return <div>Thread: {threadId}</div>;
+}
+```
+
+## 탐색 {#navigation}
+
+클라이언트 측 탐색에는 `<Link>`를 사용하고 프로그래밍 방식 탐색에는 `useNavigate()`를 사용하세요.
+
+```tsx
+import { Link, useNavigate } from "react-router";
+
+// In JSX
+<Link to="/settings">Settings</Link>;
+
+// Programmatic
+const navigate = useNavigate();
+navigate(`/inbox/${threadId}`);
+```
+
+## 다음 단계
+
+- [**Client**](/docs/client) — 에이전트 기반 브라우저 후크 및 유틸리티
+- [**Server**](/docs/server) — 파일 기반 서버 경로 및 `/_agent-native/` 네임스페이스

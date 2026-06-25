@@ -1,5 +1,8 @@
-import { useState } from "react";
+import { useActionMutation, useT } from "@agent-native/core/client";
+import type { SlideGenerateResponse } from "@shared/api";
 import { IconLoader2, IconPhoto } from "@tabler/icons-react";
+import { useState } from "react";
+
 import {
   Dialog,
   DialogContent,
@@ -14,8 +17,6 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-import { useActionMutation } from "@agent-native/core/client";
-import type { SlideGenerateResponse } from "@shared/api";
 
 interface GenerateSlidesDialogProps {
   open: boolean;
@@ -32,6 +33,7 @@ export default function GenerateSlidesDialog({
   onOpenChange,
   onGenerated,
 }: GenerateSlidesDialogProps) {
+  const t = useT();
   const [topic, setTopic] = useState("");
   const [slideCount, setSlideCount] = useState(8);
   const [style, setStyle] = useState("");
@@ -85,11 +87,10 @@ export default function GenerateSlidesDialog({
       <DialogContent className="bg-card border-border max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-foreground flex items-center gap-2">
-            Generate Slides with AI
+            {t("generateSlides.title")}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Describe your presentation topic and AI will generate slides for
-            you.
+            {t("generateSlides.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -97,12 +98,12 @@ export default function GenerateSlidesDialog({
           {/* Topic */}
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1.5">
-              Topic
+              {t("generateSlides.topic")}
             </label>
             <textarea
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              placeholder="e.g. Introduction to React Hooks, Q4 Sales Report, Product Roadmap 2025..."
+              placeholder={t("generateSlides.topicPlaceholder")}
               className="w-full h-20 bg-accent/50 border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[#609FF8]/50 resize-none"
             />
           </div>
@@ -111,7 +112,7 @@ export default function GenerateSlidesDialog({
           <div className="flex gap-3">
             <div className="flex-1">
               <label className="text-xs font-medium text-muted-foreground block mb-1.5">
-                Slides
+                {t("generateSlides.slides")}
               </label>
               <Select
                 value={String(slideCount)}
@@ -123,7 +124,7 @@ export default function GenerateSlidesDialog({
                 <SelectContent>
                   {[4, 6, 8, 10].map((n) => (
                     <SelectItem key={n} value={String(n)}>
-                      {n} slides
+                      {t("generateSlides.slideCount", { count: n })}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -131,12 +132,12 @@ export default function GenerateSlidesDialog({
             </div>
             <div className="flex-1">
               <label className="text-xs font-medium text-muted-foreground block mb-1.5">
-                Style (optional)
+                {t("generateSlides.styleOptional")}
               </label>
               <input
                 value={style}
                 onChange={(e) => setStyle(e.target.value)}
-                placeholder="e.g. minimal, corporate..."
+                placeholder={t("generateSlides.stylePlaceholder")}
                 className="w-full bg-accent/50 border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[#609FF8]/50"
               />
             </div>
@@ -159,10 +160,10 @@ export default function GenerateSlidesDialog({
             </button>
             <div>
               <span className="text-sm text-foreground/90">
-                Generate images
+                {t("generateSlides.generateImages")}
               </span>
               <p className="text-xs text-muted-foreground">
-                AI will generate images for visual slides using Gemini
+                {t("generateSlides.generateImagesDescription")}
               </p>
             </div>
           </div>
@@ -172,7 +173,7 @@ export default function GenerateSlidesDialog({
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1.5">
                 <IconPhoto className="w-3 h-3 inline mr-1" />
-                Reference Images (optional, for brand consistency)
+                {t("generateSlides.referenceImages")}
               </label>
               <div className="flex flex-wrap gap-2 mb-2">
                 {referenceImages.map((img, i) => (
@@ -209,7 +210,7 @@ export default function GenerateSlidesDialog({
                 </label>
               </div>
               <p className="text-[11px] text-muted-foreground/70">
-                Upload images to match their visual style in generated images
+                {t("generateSlides.referenceImagesDescription")}
               </p>
             </div>
           )}
@@ -229,10 +230,10 @@ export default function GenerateSlidesDialog({
             {loading ? (
               <>
                 <IconLoader2 className="w-4 h-4 animate-spin" />
-                Generating slides...
+                {t("generateSlides.generating")}
               </>
             ) : (
-              <>Generate Slides</>
+              <>{t("generateSlides.generate")}</>
             )}
           </button>
         </div>

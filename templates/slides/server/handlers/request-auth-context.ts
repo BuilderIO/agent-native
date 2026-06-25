@@ -1,6 +1,6 @@
-import type { H3Event } from "h3";
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { getOrgContext } from "@agent-native/core/org";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import type { H3Event } from "h3";
 
 export interface SlidesRequestAuthContext {
   email?: string;

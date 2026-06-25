@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { appApiPath } from "@agent-native/core/client";
+import type { ComposeAttachment } from "@shared/types";
 import {
   IconAlertCircle,
   IconPaperclip,
   IconPhoto,
   IconX,
 } from "@tabler/icons-react";
-import type { ComposeAttachment } from "@shared/types";
-import { appApiPath } from "@agent-native/core/client";
-import { cn } from "@/lib/utils";
+import { useState } from "react";
+
 import { formatFileSize } from "@/lib/upload";
+import { cn } from "@/lib/utils";
 
 function attachmentUrl(att: ComposeAttachment): string {
   return att.url.startsWith("/api/") ? appApiPath(att.url) : att.url;
@@ -40,7 +41,7 @@ export function AttachmentStrip({
         return (
           <div
             key={att.id}
-            className="group flex min-w-0 max-w-full items-center gap-2 rounded-md border border-border bg-muted/45 p-1.5 pr-2 text-xs"
+            className="group flex min-w-0 max-w-full items-center gap-2 rounded-md border border-border bg-muted/45 p-1.5 pe-2 text-xs"
           >
             <div
               className={cn(
@@ -88,7 +89,7 @@ export function AttachmentStrip({
               type="button"
               onClick={() => onRemove(att.id)}
               aria-label={`Remove ${att.originalName}`}
-              className="ml-0.5 rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+              className="ms-0.5 rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
             >
               <IconX className="h-3.5 w-3.5" />
             </button>

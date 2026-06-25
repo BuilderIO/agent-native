@@ -13,6 +13,11 @@ export const EDITABLE_DOCUMENT_PROPERTY_TYPES = [
   "email",
   "phone",
   "relation",
+  // Capacities-style rich-text body field. Each Blocks field is its OWN
+  // independent content (NOT an alias of the page body). The default "Content"
+  // field is backed by `documents.content`; additional Blocks fields each get
+  // their own row in `document_block_field_contents`.
+  "blocks",
 ] as const;
 
 export const COMPUTED_DOCUMENT_PROPERTY_TYPES = [
@@ -44,6 +49,7 @@ export const CREATABLE_DOCUMENT_PROPERTY_TYPES = [
   "url",
   "email",
   "phone",
+  "blocks",
   "id",
   "created_time",
   "created_by",
@@ -91,6 +97,13 @@ export interface DocumentPropertyOptions {
   relation?: {
     databaseId?: string | null;
   };
+  // Set on the default/primary "Content" Blocks field. The primary field is the
+  // one whose content is backed by `documents.content` (the page body editor).
+  // Exactly one Blocks field per database should be primary; additional Blocks
+  // fields store their content independently in `document_block_field_contents`.
+  blocks?: {
+    primary?: boolean;
+  };
   rollup?: {
     relationPropertyId?: string | null;
     targetPropertyId?: string | null;
@@ -137,6 +150,7 @@ export const DOCUMENT_PROPERTY_TYPE_LABELS: Record<
   email: "Email",
   phone: "Phone",
   relation: "Relation",
+  blocks: "Blocks",
   formula: "Formula",
   rollup: "Rollup",
   id: "ID",
@@ -159,6 +173,88 @@ export function isComputedPropertyType(
   type: DocumentPropertyType,
 ): type is ComputedDocumentPropertyType {
   return (COMPUTED_DOCUMENT_PROPERTY_TYPES as readonly string[]).includes(type);
+}
+
+// The default name a database's seeded Blocks field gets.
+export const DEFAULT_BLOCKS_FIELD_NAME = "Content";
+
+export function isBlocksPropertyType(type: DocumentPropertyType): boolean {
+  return type === "blocks";
+}
+
+// The primary Blocks field is the one backed by `documents.content`. There is
+// at most one per database; it is the field seeded by default and is what the
+// page-body editor reads/writes.
+export function isPrimaryBlocksField(
+  options: DocumentPropertyOptions,
+): boolean {
+  return options.blocks?.primary === true;
+}
+
+// Word count for a Blocks field's markdown content. Strips the lightest layer
+// of markdown punctuation so a "412 words" table cell reflects prose, not
+// syntax. Kept dependency-free because `shared/properties` is bundled into the
+// browser.
+export function countWords(content: string | null | undefined): number {
+  const text = (content ?? "")
+    // Drop fenced code blocks wholesale — they're not prose.
+    .replace(/```[\s\S]*?```/g, " ")
+    // Strip inline/other markdown punctuation that would split or pad tokens.
+    .replace(/[#>*_`~\-+=|[\]()!]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return 0;
+  return text.split(" ").filter(Boolean).length;
+}
+
+// "412 words" / "1 word" / "Empty" for table cells.
+export function formatWordCount(content: string | null | undefined): string {
+  const count = countWords(content);
+  if (count === 0) return "Empty";
+  return `${count.toLocaleString()} ${count === 1 ? "word" : "words"}`;
+}
+
+// Render decision for a set of Blocks-field types on one row:
+// - 0 or 1 Blocks field → "solo" (chromeless: no header, just the body).
+// - 2+                  → "multi" (each field gets a header + is collapsible).
+export function blocksRenderMode(blocksFieldCount: number): "solo" | "multi" {
+  return blocksFieldCount >= 2 ? "multi" : "solo";
+}
+
+// Whether deleting a property triggers the "only Blocks field" warning — i.e.
+// it is a Blocks field and it is the last one in the type, so removing it drops
+// the body for every object of this type.
+export function isOnlyBlocksFieldDeletion(args: {
+  type: DocumentPropertyType;
+  blocksFieldCount: number;
+}): boolean {
+  return isBlocksPropertyType(args.type) && args.blocksFieldCount <= 1;
+}
+
+// Where a Blocks field's content is stored. The primary "Content" field lives
+// on `documents.content` (the body); every other Blocks field has its own row
+// in the block-field content store. This single decision keeps reads and writes
+// in lockstep and guarantees no two fields ever share a backing location.
+export type BlocksStorageTarget = "document_body" | "block_field_store";
+
+export function blocksStorageTarget(
+  options: DocumentPropertyOptions,
+): BlocksStorageTarget {
+  return isPrimaryBlocksField(options) ? "document_body" : "block_field_store";
+}
+
+// Resolve a Blocks field's value for one row given the document body and the
+// (additional) block-field content store. Each field reads from exactly one
+// place — the primary from the body, others from their own keyed entry — so two
+// Blocks fields can never resolve to the same content.
+export function resolveBlocksFieldValue(args: {
+  options: DocumentPropertyOptions;
+  documentBody: string | null | undefined;
+  blockFieldContent: string | null | undefined;
+}): string {
+  return blocksStorageTarget(args.options) === "document_body"
+    ? (args.documentBody ?? "")
+    : (args.blockFieldContent ?? "");
 }
 
 export function defaultPropertyOptions(
@@ -198,6 +294,12 @@ export function defaultPropertyOptions(
     };
   }
 
+  // A manually-added Blocks field is independent (non-primary). The seeded
+  // default "Content" field is marked primary explicitly at seed time.
+  if (type === "blocks") {
+    return { blocks: { primary: false } };
+  }
+
   return {};
 }
 
@@ -220,6 +322,10 @@ export function parsePropertyOptions(
                   ? parsed.relation.databaseId
                   : null,
             }
+          : undefined,
+      blocks:
+        parsed.blocks && typeof parsed.blocks === "object"
+          ? { primary: parsed.blocks.primary === true }
           : undefined,
       rollup:
         parsed.rollup && typeof parsed.rollup === "object"
@@ -436,6 +542,9 @@ export function normalizePropertyValue(
     case "url":
     case "email":
     case "phone":
+    // A Blocks field's value is its markdown content — a plain string, same
+    // shape as `documents.content`.
+    case "blocks":
       return String(value);
     case "date":
       return normalizeDatePropertyValue(value);

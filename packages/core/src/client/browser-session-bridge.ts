@@ -1,3 +1,8 @@
+import type {
+  AgentNativeBrowserSession,
+  AgentNativeBrowserSessionRecord,
+  AgentNativeBrowserSessionRequest,
+} from "../browser-sessions/types.js";
 import { agentNativePath } from "./api-path.js";
 import {
   announceAgentNativeFrameReady,
@@ -15,11 +20,6 @@ import {
   type AgentNativeHostContextGetter,
   type AgentNativeHostSession,
 } from "./host-bridge.js";
-import type {
-  AgentNativeBrowserSession,
-  AgentNativeBrowserSessionRecord,
-  AgentNativeBrowserSessionRequest,
-} from "../browser-sessions/types.js";
 
 export interface AgentNativeBrowserSessionBridgeOptions extends AgentNativeHostRequestOptions {
   /** Framework browser-session endpoint. Defaults to /_agent-native/browser-sessions. */

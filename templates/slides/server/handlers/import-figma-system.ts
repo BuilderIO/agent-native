@@ -1,10 +1,11 @@
+import { getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getRequestHeader,
   readMultipartFormData,
   setResponseStatus,
 } from "h3";
-import { getSession } from "@agent-native/core/server";
+
 import {
   MAX_FIG_BYTES,
   parseSlidesFigDesignSystem,

@@ -2,15 +2,16 @@ import { defineAction } from "@agent-native/core";
 import { accessFilter } from "@agent-native/core/sharing";
 import { asc } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import {
-  buildContentSourceBundle,
-  type ContentSourceDocument,
-} from "../shared/content-source.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import {
+  buildContentSourceBundle,
+  type ContentSourceDocument,
+} from "../shared/content-source.js";
 
 export default defineAction({
   description:

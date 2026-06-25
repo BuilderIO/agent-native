@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import * as googleCalendar from "../server/lib/google-calendar.js";
+
 import {
   normalizeGuestNotificationMessage,
   sendEventGuestNotificationNote,
 } from "../server/lib/event-guest-notifications.js";
+import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
   cliBoolean,
   normalizeGoogleEventId,

@@ -13,13 +13,15 @@
  */
 
 import { randomUUID } from "node:crypto";
+
 import { getDbExec, isPostgres } from "../db/client.js";
-import { APP_SECRETS_CREATE_SQL } from "./schema.js";
-import type { SecretScope } from "./register.js";
+import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   encryptSecretValue as encryptValue,
   decryptSecretValue as decryptValue,
 } from "./crypto.js";
+import type { SecretScope } from "./register.js";
+import { APP_SECRETS_CREATE_SQL } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // Table bootstrap
@@ -33,10 +35,39 @@ async function ensureTable(): Promise<void> {
       const client = getDbExec();
       // Postgres version of the CREATE TABLE — the generic `INTEGER` maps to
       // BIGINT on Postgres, which we need for millisecond timestamps.
-      const sql = isPostgres()
+      const createSql = isPostgres()
         ? APP_SECRETS_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT")
         : APP_SECRETS_CREATE_SQL;
-      await client.execute(sql);
+
+      if (isPostgres()) {
+        // Hot path: in production the table and both additive columns are
+        // virtually always already present. Issuing `CREATE`/`ALTER` would
+        // still take an ACCESS EXCLUSIVE lock — which, in a fresh background
+        // worker process behind a concurrent connection on the shared Neon DB,
+        // can block ~indefinitely. `ensureTableExists` / `ensureColumnExists`
+        // check `information_schema` first (a plain read, no lock) and run DDL
+        // ONLY for what is actually missing, wrapping any DDL that must run in a
+        // transaction-scoped `lock_timeout` so a contended lock fails fast. They
+        // also re-probe after a swallowed lock-timeout and THROW if the schema
+        // is still missing, so a timed-out DDL never poisons this init memo.
+        await ensureTableExists("app_secrets", createSql);
+        await ensureColumnExists(
+          "app_secrets",
+          "description",
+          `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS description TEXT`,
+        );
+        await ensureColumnExists(
+          "app_secrets",
+          "url_allowlist",
+          `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS url_allowlist TEXT`,
+        );
+        return;
+      }
+
+      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem, keep the original
+      // create-then-additive-alter behaviour. SQLite has no
+      // `ADD COLUMN IF NOT EXISTS`, so the ALTERs stay wrapped in try/catch.
+      await client.execute(createSql);
 
       // Additive migration: description column (for ad-hoc keys)
       try {

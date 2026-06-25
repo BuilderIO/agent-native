@@ -1,6 +1,7 @@
-import * as schema from "./schema.js";
 import { createGetDb } from "@agent-native/core/db";
 import { registerShareableResource } from "@agent-native/core/sharing";
+
+import * as schema from "./schema.js";
 
 export const getDb = createGetDb(schema);
 export { schema };
@@ -11,7 +12,7 @@ registerShareableResource({
   sharesTable: schema.dashboardShares,
   displayName: "Dashboard",
   titleColumn: "title",
-  getResourcePath: (dashboard) => `/adhoc/${dashboard.id}`,
+  getResourcePath: (dashboard) => `/dashboards/${dashboard.id}`,
   getDb,
 });
 

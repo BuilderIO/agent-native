@@ -1,0 +1,175 @@
+---
+title: "작업 공간 거버넌스"
+description: "브랜칭, CODEOWNERS, PR 검토 및 Dispatch가 Git 수준 거버넌스와 함께 런타임 거버넌스를 처리하는 방법"
+---
+
+# 작업 공간 거버넌스
+
+> **어떤 작업공간 문서인가요?** 이 페이지에서는 하나의 저장소에 있는 여러 앱의 내용을 검토, 승인 및 소유하는 **거버넌스**에 대해 다룹니다. 작업공간(사용자 정의 레이어)이 무엇인지에 대해서는 [Workspace](/docs/workspace)를 참조하세요. 배포 형태(하나의 단일 저장소, 많은 앱)는 [Multi-App Workspaces](/docs/multi-app-workspace)를 참조하세요.
+
+이 가이드에서는 분기 방법, 누가 무엇을 검토하는지, 코드 소유권을 설정하는 방법, Dispatch 제어 플레인이 거버넌스 모델에 어떻게 적합한지 등 에이전트 기반 작업 영역 실행의 운영 측면을 다룹니다.
+
+```an-diagram title="두 개의 거버넌스 평면" summary="Git은 코드를 관리합니다. Dispatch은 런타임을 관리합니다. 그것들은 보완적입니다. 하나를 다른 것 안에 복제하지 마십시오."
+{
+  "html": "<div class=\"gov\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Git 및 GitHub</span><strong>코드 거버넌스</strong><div class=\"gov-list\"><span class=\"diagram-pill\">CODEOWNERS</span><span class=\"diagram-pill\">branch protection</span><span class=\"diagram-pill\">PR 검토</span><span class=\"diagram-pill\">git log / blame</span></div></div><div class=\"diagram-pill diagram-muted\">+</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Dispatch</span><strong>Runtime governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">vault secrets &amp; grants</span><span class=\"diagram-pill\">workspace resources</span><span class=\"diagram-pill\">agent profiles</span><span class=\"diagram-pill\">approvals &amp; audit</span></div></div></div>",
+  "css": ".gov{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.gov .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:240px}.gov .gov-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}"
+}
+```
+
+## 분기
+
+### 기능 분기
+
+모든 작업에 단기 기능 분기 사용:
+
+```
+main                         ← production
+├── feat/mail-filters        ← single-app change
+├── feat/core-oauth-refresh  ← framework change
+├── fix/analytics-chart      ← targeted bug fix
+└── feat/vault-encryption    ← dispatch/infra change
+```
+
+**명명 규칙:**
+
+- **단일 앱 변경:** `feat/<app>-<description>` 또는 `fix/<app>-<description>` — 예: `feat/mail-thread-search`, `fix/calendar-recurrence-parse`
+- **프레임워크 변경:** `feat/core-<description>` 또는 `fix/core-<description>` — 예: `feat/core-polling-v2`
+- **디스패치 변경 사항:** `feat/dispatch-<description>` — 예: `feat/dispatch-vault-policies`
+- **교차 앱 변경:** 프레임워크 변경에 템플릿 업데이트가 필요한 경우 하나의 분기에서 두 작업을 모두 수행하여 원자적으로 배송되도록 합니다.
+
+가지의 수명을 짧게 유지하세요. 수명이 긴 브랜치는 메인에서 분기되어 고통스러운 병합을 생성합니다. 특히 여러 팀이 매일 푸시하는 단일 저장소에서는 더욱 그렇습니다.
+
+### 비개발자 분기
+
+변경이 필요한 모든 사람이 git에 익숙하지는 않습니다. [Builder.io](https://www.builder.io)는 내부적으로 git 분기에 매핑되는 시각적 분기 모델을 지원합니다. 이는 개발 환경 없이 콘텐츠 및 복사 변경, 레이아웃 조정, 디자인 반복 및 A/B 테스트에 유용합니다.
+
+## 코드 소유권
+
+코드 거버넌스는 저장소 루트에 있는 소수의 파일로 구성됩니다.
+
+```an-file-tree title="repo의 거버넌스 설정"
+{
+  "entries": [
+    { "path": ".github/CODEOWNERS", "note": "변경된 경로별로 reviewers를 자동 지정" },
+    { "path": ".github/labeler.yml", "note": "app별로 PR에 labels 자동 적용" },
+    { "path": "pnpm-workspace.yaml", "note": "Workspace 수준: 폭넓은 review" },
+    { "path": "package.json", "note": "Workspace 수준: platform team 소유" }
+  ]
+}
+```
+
+GitHub의 CODEOWNERS 파일은 변경된 파일을 기반으로 검토자를 PR에 자동 할당합니다. 저장소 루트에 `.github/CODEOWNERS`를 생성합니다.
+
+```
+# Framework core — affects every app; platform team reviews all changes
+packages/core/                     @your-org/platform-team
+
+# 디스패치 제어 플레인 — 비밀, 통합, 작업 공간 리소스
+templates/dispatch/                @your-org/platform-team
+
+# 앱별 소유권 - 각 팀이 자신의 앱을 검토합니다.
+templates/mail/                    @your-org/mail-team
+templates/analytics/               @your-org/analytics-team
+templates/calendar/                @your-org/calendar-team
+# ... add an entry per app
+
+# 작업 공간 수준 구성 — 모든 사람에게 영향을 미치므로 광범위한 검토
+.github/                           @your-org/platform-team
+package.json                       @your-org/platform-team
+pnpm-workspace.yaml                @your-org/platform-team
+```
+
+주요 팁: 개인이 아닌 GitHub 팀(`@org/team`)을 사용하세요. 프레임워크 및 디스패치 변경에는 항상 플랫폼 검토가 필요합니다. glob 구문과 다중 소유자 패턴은 [GitHub CODEOWNERS docs](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners)를 참조하세요.
+
+필수 검토를 활성화하려면: 설정 → 지점 → `main`에 대한 지점 보호 → **병합 전 끌어오기 요청 필요** → **코드 소유자의 검토 필요**.
+
+## 홍보 라벨링
+
+`.github/labeler.yml`를 사용하여 앱별로 PR 자동 라벨 지정(발췌):
+
+```yaml
+app:mail:
+  - changed-files:
+      - any-glob-to-any-file: templates/mail/**
+app:analytics:
+  - changed-files:
+      - any-glob-to-any-file: templates/analytics/**
+core:
+  - changed-files:
+      - any-glob-to-any-file: packages/core/**
+```
+
+그런 다음 [actions/labeler](https://github.com/actions/labeler) 작업을 추가합니다. 전체 워크플로 YAML는 해당 저장소의 README를 참조하세요. PR을 열거나 업데이트하면 라벨이 자동으로 적용됩니다.
+
+## 홍보심사지침
+
+| 변경 유형                         | 리뷰하는 사람                     | 주의할 점                                                                       |
+| --------------------------------- | --------------------------------- | ------------------------------------------------------------------------------- |
+| **앱 전용** (`templates/<app>/`)  | 앱팀 소유                         | 도메인 정확성, 작업 스키마                                                      |
+| **프레임워크** (`packages/core/`) | 플랫폼 팀 + 영향을 받는 앱 팀 1개 | 급격한 변화, 성능, 이전 버전과의 호환성                                         |
+| **스키마 마이그레이션**           | 플랫폼 팀 + 수석 엔지니어         | 데이터 안전, 방언 불가지론(SQLite + Postgres)                                   |
+| **Actions**                       | 소유팀                            | Actions는 둘 다 에이전트 도구 AND HTTP 엔드포인트입니다. 두 각도에서 검토하세요 |
+| **크로스 앱 A2A**                 | 두 앱 팀                          | A2A 인터페이스를 변경하는 경우 호출자가 알아야 할 사항                          |
+| **금고/자원 파견**                | 플랫폼 팀                         | 비밀 액세스, 부여 범위, 누가 무엇을 얻습니까                                    |
+
+### 동시 에이전트 작업
+
+에이전트 기반 작업 공간에는 동일한 지점에서 동시에 작업하는 여러 AI 에이전트가 있는 경우가 많습니다. 이는 의도적으로 설계된 것입니다. 에이전트는 분기를 공유하고 독립적으로 푸시합니다.
+
+```an-callout
+{ "tone": "warning", "body": "**The later commit wins.** Two agents touching the same file won't conflict at commit time — the conflict surfaces at review. Run `pnpm run prep` (typecheck + test + format) before pushing, and don't revert changes you didn't make unless they're clearly broken." }
+```
+
+이 환경에서 PR을 검토할 때:
+
+- **변경하지 않은 변경 사항을 되돌리지 마세요** 명확하게 깨진 경우가 아니면
+- **파일은 동일한 PR에서 여러 에이전트에 의해 수정될 수 있습니다** — 이는 정상입니다.
+- **에이전트 변경 사항 간의 통합 문제를 파악하기 위해 푸시하기 전에 `pnpm run prep`**(유형 확인 + 테스트 + 형식)를 실행하세요.
+- **두 에이전트가 동일한 파일을 터치하는 경우** 나중에 커밋이 적용됩니다. 커밋 시점이 아닌 검토 시점에 충돌이 나타납니다.
+- **어떤 에이전트가 작성했는지에 관계없이 PR의 모든 코드에서 버그를 수정합니다.** PR은 전체적으로 검토됩니다.
+
+## 거버넌스로 파견
+
+[Dispatch](/docs/dispatch) 앱은 작업공간의 런타임 제어 평면입니다. 런타임 거버넌스를 통해 Git 수준 거버넌스를 보완합니다.
+
+| 우려                         | 힘내 / GitHub           | 파견                                          |
+| ---------------------------- | ----------------------- | --------------------------------------------- |
+| 코드를 변경할 수 있는 사람   | CODEOWNERS, 분기 보호   | —                                             |
+| 비밀에 액세스할 수 있는 사람 | —                       | Vault 정책, 권한 부여, 요청 워크플로          |
+| 상담원이 따라야 할 지침      | —                       | 전역 작업공간 리소스(AGENTS.md, 지침, skills) |
+| 공유되는 에이전트            | —                       | Workspace 에이전트 프로필                     |
+| 통합 인벤토리                | —                       | 작업 공간 연결 및 통합 카탈로그               |
+| 런타임 변경 승인             | —                       | 파견 승인 흐름                                |
+| 감사 추적                    | `git log` / `git blame` | Vault 감사 + 발송 감사 로그                   |
+| 메시징 및 라우팅             | —                       | Slack / 텔레그램 통합                         |
+
+**Git이 코드 거버넌스를 처리합니다. Dispatch는 런타임 거버넌스를 처리합니다.** Dispatch 내에서 git 워크플로를 복제하려고 시도하거나 그 반대의 경우도 마찬가지입니다.
+
+디스패치는 저장소 비밀, 재사용 가능한 작업 공간 연결, 작업 공간 리소스(skills, 지침, 에이전트 프로필, MCP 서버), 승인 및 감사 로그를 관리합니다. 공용 앱 경로 구성(`workspaceApp.audience` / `publicPaths` / `protectedPaths`)은 [Multi-App Workspaces — Public app routes](/docs/multi-app-workspace#deployment)를 참조하세요.
+
+리소스 모델 및 표준 경로는 [Workspace — Global resources](/docs/workspace#global-resources)를 참조하세요.
+
+## 설정 체크리스트
+
+새 작업 공간의 경우 `npx @agent-native/core@latest create`를 실행한 후:
+
+**깃 & GitHub:**
+
+- [ ] 앱별 팀 소유권으로 `.github/CODEOWNERS` 생성
+- [ ] 필수 코드 소유자 검토를 통해 `main`에서 분기 보호 활성화
+- [ ] 앱별 PR 자동 라벨 지정을 위해 `.github/labeler.yml` 추가
+- [ ] 각 앱 및 플랫폼 팀을 위한 GitHub 팀 만들기
+
+**배달:**
+
+- [ ] 저장소에 공유 비밀 추가(API 키, OAuth 자격 증명 등)
+- [ ] 기본 모든 앱 저장소 정책을 유지하거나 수동 앱별 부여로 전환
+- [ ] 저장소 비밀을 동기화하여 앱에 푸시
+- [ ] 공유 공급자 계정에 대해 재사용 가능한 작업 공간 연결을 등록한 다음
+      Brain, Analytics, Mail, Dispatch 등의 앱이 필요할 때만 부여
+      해당 계정
+- [ ] 리소스 페이지를 통해 작업 공간 전체 skills, 가드레일 지침 및 브랜드/회사 참조 리소스를 추가합니다. 전체 리소스 모델 표와 권장 스타터 팩은 [Workspace](/docs/workspace#global-resources)를 참조하세요.
+- [ ] 승인 정책 및 승인자 이메일 구성
+- [ ] 관리자 알림을 위한 SendGrid(`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) 설정
+- [ ] 작업 공간 메시징을 위해 Slack 또는 Telegram을 연결하세요
+- [ ] 공유 MCP 서버 구성 - 모든 앱 또는 선택된 앱 부여를 위해 Dispatch에 `mcp-servers/<name>.json` 작업 공간 리소스를 추가합니다. 낮은 수준의 배포에는 `mcp.config.json` 또는 [MCP hub mode](/docs/mcp-clients#hub)를 사용하세요.

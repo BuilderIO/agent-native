@@ -1,3 +1,7 @@
+import { captureExtensionError, initExtensionSentry } from "./sentry";
+
+initExtensionSentry("popup");
+
 type CaptureSurface = "browser" | "window" | "monitor" | "camera";
 type RecordingModeChoice = "screen-camera" | "screen" | "camera";
 
@@ -7,6 +11,13 @@ type ExtensionSettings = {
   includeCamera: boolean;
   includeMicrophone: boolean;
   includeDeveloperLogs: boolean;
+  videoDeviceId: string;
+  audioDeviceId: string;
+};
+
+type InputDevice = {
+  deviceId: string;
+  label: string;
 };
 
 type PopupStartResponse = {
@@ -67,6 +78,8 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
   includeCamera: true,
   includeMicrophone: true,
   includeDeveloperLogs: true,
+  videoDeviceId: "",
+  audioDeviceId: "",
 };
 
 const SOURCE_LABELS: Record<Exclude<CaptureSurface, "camera">, string> = {
@@ -167,6 +180,37 @@ async function loadFeedbackSchema(
   return pending;
 }
 
+// Enumerate the user's input devices for the camera/mic pickers. Labels only
+// populate after camera/mic permission is granted (the extension's permission
+// onboarding page handles that), so fall back to a generic label otherwise.
+async function enumerateInputDevices(): Promise<{
+  cameras: InputDevice[];
+  microphones: InputDevice[];
+}> {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cameras: InputDevice[] = [];
+    const microphones: InputDevice[] = [];
+    for (const device of devices) {
+      if (!device.deviceId) continue;
+      if (device.kind === "videoinput") {
+        cameras.push({
+          deviceId: device.deviceId,
+          label: device.label.trim() || `Camera ${cameras.length + 1}`,
+        });
+      } else if (device.kind === "audioinput") {
+        microphones.push({
+          deviceId: device.deviceId,
+          label: device.label.trim() || `Microphone ${microphones.length + 1}`,
+        });
+      }
+    }
+    return { cameras, microphones };
+  } catch {
+    return { cameras: [], microphones: [] };
+  }
+}
+
 function readSettings(): Promise<ExtensionSettings> {
   return new Promise((resolve) => {
     chrome.storage.sync.get(DEFAULT_SETTINGS, (value) => {
@@ -188,6 +232,14 @@ function readSettings(): Promise<ExtensionSettings> {
           typeof value.includeDeveloperLogs === "boolean"
             ? value.includeDeveloperLogs
             : DEFAULT_SETTINGS.includeDeveloperLogs,
+        videoDeviceId:
+          typeof value.videoDeviceId === "string"
+            ? value.videoDeviceId
+            : DEFAULT_SETTINGS.videoDeviceId,
+        audioDeviceId:
+          typeof value.audioDeviceId === "string"
+            ? value.audioDeviceId
+            : DEFAULT_SETTINGS.audioDeviceId,
       });
     });
   });
@@ -203,7 +255,7 @@ function readStoredAuth(
   settings: ExtensionSettings,
 ): Promise<StoredAuth | null> {
   return new Promise((resolve) => {
-    chrome.storage.session.get("clipsAuth", (value) => {
+    chrome.storage.local.get("clipsAuth", (value) => {
       const auth = value.clipsAuth as Partial<StoredAuth> | undefined;
       if (
         auth &&
@@ -228,7 +280,7 @@ function readStoredAuth(
 
 function clearStoredAuth(): Promise<void> {
   return new Promise((resolve) => {
-    chrome.storage.session.remove("clipsAuth", () => resolve());
+    chrome.storage.local.remove("clipsAuth", () => resolve());
   });
 }
 
@@ -288,6 +340,33 @@ function createTab(url: string): Promise<void> {
   return new Promise((resolve) => {
     chrome.tabs.create({ url }, () => resolve());
   });
+}
+
+async function permissionGranted(
+  name: "camera" | "microphone",
+): Promise<boolean> {
+  try {
+    const status = await navigator.permissions.query({
+      name: name as PermissionName,
+    });
+    return status.state === "granted";
+  } catch {
+    // Older Chrome can't query these names — don't block; getUserMedia will ask.
+    return true;
+  }
+}
+
+// True when every device the chosen mode needs is already granted to the
+// extension. If not, the caller routes the user to the permission page.
+async function ensureMediaPermission(
+  settings: ExtensionSettings,
+): Promise<boolean> {
+  const needsCamera =
+    settings.captureSurface === "camera" || settings.includeCamera;
+  const needsMic = settings.includeMicrophone;
+  if (needsCamera && !(await permissionGranted("camera"))) return false;
+  if (needsMic && !(await permissionGranted("microphone"))) return false;
+  return true;
 }
 
 async function readAuthStatus(
@@ -374,6 +453,28 @@ function comparableLabel(value: string): string {
     .replace(/[^a-z0-9]+/g, "");
 }
 
+// Pages where Chrome forbids content-script / overlay injection, so the on-page
+// countdown + controls can't render. Recording the screen still works; we just
+// warn the user in the popup instead of letting it fail silently.
+function isUnsupportedPage(url: string | undefined | null): boolean {
+  if (!url) return true;
+  const u = url.toLowerCase();
+  return (
+    u.startsWith("chrome://") ||
+    u.startsWith("chrome-extension://") ||
+    u.startsWith("edge://") ||
+    u.startsWith("brave://") ||
+    u.startsWith("arc://") ||
+    u.startsWith("about:") ||
+    u.startsWith("view-source:") ||
+    u.startsWith("devtools://") ||
+    u.startsWith("chrome-search://") ||
+    u.startsWith("chrome-untrusted://") ||
+    u.startsWith("https://chromewebstore.google.com") ||
+    u.startsWith("https://chrome.google.com/webstore")
+  );
+}
+
 function targetCopy(tab: chrome.tabs.Tab | null): {
   title: string;
   subtitle: string;
@@ -437,9 +538,111 @@ function renderSource(settings: ExtensionSettings): void {
   }
 }
 
+// Holds the most recent device enumeration so the menus and labels can render
+// without re-querying on every paint. Refreshed by refreshDevices().
+let inputDevices: { cameras: InputDevice[]; microphones: InputDevice[] } = {
+  cameras: [],
+  microphones: [],
+};
+
+function deviceLabel(
+  devices: InputDevice[],
+  deviceId: string,
+  fallback: string,
+): string {
+  if (!deviceId) return fallback;
+  const match = devices.find((device) => device.deviceId === deviceId);
+  return match ? match.label : fallback;
+}
+
+function renderDeviceMenu(
+  menu: HTMLDivElement,
+  devices: InputDevice[],
+  selectedId: string,
+  defaultLabel: string,
+): void {
+  menu.replaceChildren();
+  const options: InputDevice[] = [
+    { deviceId: "", label: defaultLabel },
+    ...devices,
+  ];
+  for (const option of options) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "row-menu-item";
+    item.dataset.deviceId = option.deviceId;
+    const selected = option.deviceId === selectedId;
+    if (selected) {
+      item.classList.add("selected");
+      item.setAttribute("aria-checked", "true");
+    } else {
+      item.setAttribute("aria-checked", "false");
+    }
+
+    const check = document.createElement("span");
+    check.className = "row-menu-check";
+    check.setAttribute("aria-hidden", "true");
+    check.textContent = selected ? "✓" : "";
+
+    const label = document.createElement("span");
+    label.className = "row-menu-label";
+    label.textContent = option.label;
+
+    item.append(check, label);
+    menu.append(item);
+  }
+}
+
+function renderDevicePickers(settings: ExtensionSettings): void {
+  const cameraButton = byId<HTMLButtonElement>("camera-device-button");
+  const cameraLabel = byId<HTMLSpanElement>("camera-device-label");
+  const cameraMenu = byId<HTMLDivElement>("camera-device-menu");
+  const showCamera =
+    settings.captureSurface === "camera" || settings.includeCamera;
+  cameraButton.hidden = !showCamera;
+  if (showCamera) {
+    cameraLabel.textContent = deviceLabel(
+      inputDevices.cameras,
+      settings.videoDeviceId,
+      "Default camera",
+    );
+    renderDeviceMenu(
+      cameraMenu,
+      inputDevices.cameras,
+      settings.videoDeviceId,
+      "Default camera",
+    );
+  } else {
+    cameraMenu.hidden = true;
+  }
+
+  const micRow = byId<HTMLDivElement>("microphone-row");
+  const micButton = byId<HTMLButtonElement>("microphone-device-button");
+  const micLabel = byId<HTMLSpanElement>("microphone-device-label");
+  const micMenu = byId<HTMLDivElement>("microphone-device-menu");
+  micButton.hidden = !settings.includeMicrophone;
+  if (settings.includeMicrophone) {
+    micLabel.textContent = deviceLabel(
+      inputDevices.microphones,
+      settings.audioDeviceId,
+      "Default mic",
+    );
+    renderDeviceMenu(
+      micMenu,
+      inputDevices.microphones,
+      settings.audioDeviceId,
+      "Default mic",
+    );
+  } else {
+    micMenu.hidden = true;
+  }
+  micRow.hidden = false;
+}
+
 function render(settings: ExtensionSettings): void {
   renderMode(settings);
   renderSource(settings);
+  renderDevicePickers(settings);
   const includeCamera = byId<HTMLButtonElement>("include-camera");
   const includeMicrophone = byId<HTMLButtonElement>("include-microphone");
   const cameraRow = byId<HTMLDivElement>("camera-row");
@@ -511,8 +714,24 @@ function renderActiveRecording(recording: NativeRecording | null): void {
 
 async function init(): Promise<void> {
   const settings = await readSettings();
+  // Warm the offscreen recorder so the native screen picker opens promptly when
+  // the user presses Record (keeps getDisplayMedia close to the click).
+  try {
+    chrome.runtime.sendMessage(
+      { type: "CLIPS_PREWARM" },
+      () => void chrome.runtime.lastError,
+    );
+  } catch {
+    /* ignore */
+  }
   const sourceButton = byId<HTMLButtonElement>("source-button");
   const sourceMenu = byId<HTMLDivElement>("source-menu");
+  const cameraDeviceButton = byId<HTMLButtonElement>("camera-device-button");
+  const cameraDeviceMenu = byId<HTMLDivElement>("camera-device-menu");
+  const microphoneDeviceButton = byId<HTMLButtonElement>(
+    "microphone-device-button",
+  );
+  const microphoneDeviceMenu = byId<HTMLDivElement>("microphone-device-menu");
   const includeCamera = byId<HTMLButtonElement>("include-camera");
   const includeMicrophone = byId<HTMLButtonElement>("include-microphone");
   const start = byId<HTMLButtonElement>("start");
@@ -587,8 +806,30 @@ async function init(): Promise<void> {
     window.setTimeout(() => feedbackTextarea.focus(), 30);
   };
 
-  await queryActiveTab();
+  // Re-enumerate devices and repaint the pickers. Labels only appear once the
+  // user has granted camera/mic access (via the permission onboarding page), so
+  // this is also re-run when the device list changes.
+  const refreshDevices = async (): Promise<void> => {
+    inputDevices = await enumerateInputDevices();
+    renderDevicePickers(settings);
+  };
+
+  const closeDeviceMenus = (): void => {
+    cameraDeviceMenu.hidden = true;
+    microphoneDeviceMenu.hidden = true;
+  };
+
+  const activeTab = await queryActiveTab();
+  byId<HTMLDivElement>("unsupported-notice").hidden = !isUnsupportedPage(
+    activeTab?.url,
+  );
   render(settings);
+  void refreshDevices();
+  if (navigator.mediaDevices) {
+    navigator.mediaDevices.addEventListener("devicechange", () => {
+      void refreshDevices();
+    });
+  }
   const status =
     await sendSimpleMessage<PopupStatusResponse>("CLIPS_POPUP_STATUS");
   activeRecording = status.activeRecording ?? null;
@@ -597,17 +838,26 @@ async function init(): Promise<void> {
     window.setInterval(() => renderActiveRecording(activeRecording), 1000);
   }
 
+  // No on-page pre-record preview. A Chrome action popup closes the instant you
+  // click the page, so an interactive on-page bubble before recording isn't
+  // possible — the face bubble appears only once recording starts. syncPreview
+  // is kept as a no-op so the settings handlers below stay unchanged.
+  const syncPreview = (): void => {};
+
   for (const button of document.querySelectorAll<HTMLButtonElement>(
     ".mode-option",
   )) {
     button.addEventListener("click", () => {
       applyMode(settings, button.dataset.mode as RecordingModeChoice);
+      closeDeviceMenus();
       render(settings);
       void saveSettings(settings);
+      syncPreview();
     });
   }
 
   sourceButton.addEventListener("click", () => {
+    closeDeviceMenus();
     sourceMenu.hidden = !sourceMenu.hidden;
   });
 
@@ -619,8 +869,69 @@ async function init(): Promise<void> {
       sourceMenu.hidden = true;
       render(settings);
       void saveSettings(settings);
+      syncPreview();
     });
   }
+
+  cameraDeviceButton.addEventListener("click", () => {
+    sourceMenu.hidden = true;
+    microphoneDeviceMenu.hidden = true;
+    cameraDeviceMenu.hidden = !cameraDeviceMenu.hidden;
+  });
+
+  cameraDeviceMenu.addEventListener("click", (event) => {
+    const item = (event.target as HTMLElement).closest<HTMLButtonElement>(
+      ".row-menu-item",
+    );
+    if (!item) return;
+    settings.videoDeviceId = item.dataset.deviceId ?? "";
+    cameraDeviceMenu.hidden = true;
+    renderDevicePickers(settings);
+    void saveSettings(settings);
+  });
+
+  microphoneDeviceButton.addEventListener("click", () => {
+    sourceMenu.hidden = true;
+    cameraDeviceMenu.hidden = true;
+    microphoneDeviceMenu.hidden = !microphoneDeviceMenu.hidden;
+  });
+
+  microphoneDeviceMenu.addEventListener("click", (event) => {
+    const item = (event.target as HTMLElement).closest<HTMLButtonElement>(
+      ".row-menu-item",
+    );
+    if (!item) return;
+    settings.audioDeviceId = item.dataset.deviceId ?? "";
+    microphoneDeviceMenu.hidden = true;
+    renderDevicePickers(settings);
+    void saveSettings(settings);
+  });
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (
+      !sourceMenu.hidden &&
+      !sourceMenu.contains(target) &&
+      !sourceButton.contains(target)
+    ) {
+      sourceMenu.hidden = true;
+    }
+    if (
+      !cameraDeviceMenu.hidden &&
+      !cameraDeviceMenu.contains(target) &&
+      !cameraDeviceButton.contains(target)
+    ) {
+      cameraDeviceMenu.hidden = true;
+    }
+    if (
+      !microphoneDeviceMenu.hidden &&
+      !microphoneDeviceMenu.contains(target) &&
+      !microphoneDeviceButton.contains(target)
+    ) {
+      microphoneDeviceMenu.hidden = true;
+    }
+  });
 
   includeCamera.addEventListener("click", () => {
     settings.includeCamera = !settings.includeCamera;
@@ -630,12 +941,15 @@ async function init(): Promise<void> {
     if (!settings.includeCamera && settings.captureSurface === "camera") {
       settings.captureSurface = "browser";
     }
+    closeDeviceMenus();
     render(settings);
     void saveSettings(settings);
+    syncPreview();
   });
 
   includeMicrophone.addEventListener("click", () => {
     settings.includeMicrophone = !settings.includeMicrophone;
+    closeDeviceMenus();
     render(settings);
     void saveSettings(settings);
   });
@@ -722,6 +1036,9 @@ async function init(): Promise<void> {
         1400,
       );
     } catch (err) {
+      captureExtensionError(err, {
+        tags: { surface: "popup", action: "submit-feedback" },
+      });
       feedbackSubmit.disabled = !feedbackTextarea.value.trim();
       feedbackSubmit.textContent = FEEDBACK_SUBMIT_TEXT;
       feedbackHint.textContent =
@@ -754,43 +1071,68 @@ async function init(): Promise<void> {
   start.addEventListener("click", async () => {
     start.disabled = true;
     signIn.hidden = true;
-    setStatus("Checking sign in...");
-    authStatus = await readAuthStatus(settings);
-    if (authStatus === "signed-out") {
+    setStatus(""); // no chatty "Checking…/Starting…" text — the disabled button is enough
+    try {
+      authStatus = await readAuthStatus(settings);
+      if (authStatus === "signed-out") {
+        start.disabled = false;
+        start.hidden = true;
+        signIn.hidden = false;
+        setStatus("");
+        return;
+      }
+      const storageConfigured = await readVideoStorageConfigured(settings);
+      if (!storageConfigured) {
+        start.disabled = false;
+        setStatus(
+          "Connect Builder.io or S3 storage in Clips, then start recording.",
+          "error",
+        );
+        await createTab(`${settings.clipsBaseUrl.replace(/\/+$/, "")}/record`);
+        window.close();
+        return;
+      }
+      // Gate at record time: if the user wants camera/mic but hasn't granted the
+      // extension access yet, send them to the onboarding page first. Requesting
+      // there (a real extension page) is the only place Chrome reliably shows the
+      // permission dialog and persists the grant for the offscreen recorder + bubble.
+      if (!(await ensureMediaPermission(settings))) {
+        start.disabled = false;
+        setStatus("Allow camera & microphone, then start recording.", "error");
+        await createTab(chrome.runtime.getURL("src/permission.html"));
+        window.close();
+        return;
+      }
+      await saveSettings(settings);
+      const response = await sendStartMessage(settings);
+      if (response.ok) {
+        window.close();
+        return;
+      }
       start.disabled = false;
-      start.hidden = true;
-      signIn.hidden = false;
-      setStatus("");
-      return;
-    }
-    setStatus("Checking video storage...");
-    const storageConfigured = await readVideoStorageConfigured(settings);
-    if (!storageConfigured) {
+      const message = response.error || "Could not start Clips.";
+      if (isSignInError(message)) {
+        start.hidden = true;
+        signIn.hidden = false;
+        setStatus("");
+        return;
+      }
+      setStatus(message, "error");
+    } catch (err) {
+      captureExtensionError(err, {
+        tags: { surface: "popup", action: "start-recording" },
+        extra: {
+          captureSurface: settings.captureSurface,
+          includeCamera: settings.includeCamera,
+          includeMicrophone: settings.includeMicrophone,
+        },
+      });
       start.disabled = false;
       setStatus(
-        "Connect Builder.io or S3 storage in Clips, then start recording.",
+        err instanceof Error ? err.message : "Could not start Clips.",
         "error",
       );
-      await createTab(`${settings.clipsBaseUrl.replace(/\/+$/, "")}/record`);
-      window.close();
-      return;
     }
-    setStatus("Starting recording...");
-    await saveSettings(settings);
-    const response = await sendStartMessage(settings);
-    if (response.ok) {
-      window.close();
-      return;
-    }
-    start.disabled = false;
-    const message = response.error || "Could not start Clips.";
-    if (isSignInError(message)) {
-      start.hidden = true;
-      signIn.hidden = false;
-      setStatus("");
-      return;
-    }
-    setStatus(message, "error");
   });
 
   signIn.addEventListener("click", async () => {
@@ -854,6 +1196,9 @@ async function init(): Promise<void> {
 }
 
 void init().catch((err) => {
+  captureExtensionError(err, {
+    tags: { surface: "popup", action: "init" },
+  });
   setStatus(
     err instanceof Error ? err.message : "Could not load popup.",
     "error",

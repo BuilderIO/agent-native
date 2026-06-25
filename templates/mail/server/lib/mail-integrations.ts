@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
+
+import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import type {
   IncomingMessage,
   PlatformAdapter,
 } from "@agent-native/core/server";
-import { resolveOrgIdForEmail } from "@agent-native/core/org";
 
 type SlackSenderProfile = {
   email: string | null;

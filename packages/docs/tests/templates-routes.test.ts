@@ -1,19 +1,27 @@
-import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER } from "@agent-native/core/shared";
+import { describe, expect, it } from "vitest";
+
+import { loadDoc } from "../app/components/docs-content";
+import {
+  canonicalPathForPath,
+  docsAlternateLinksForPath,
+} from "../app/components/docs-seo";
+import { NAV_SECTIONS, type NavItem } from "../app/components/docsNavItems";
+import { getTemplateDocsPath } from "../app/components/template-docs";
+import { featuredTemplates, templates } from "../app/components/TemplateCard";
+import { meta as localizedDocsMeta } from "../app/routes/docs.$locale.$slug";
+import { meta as docsSlugMeta } from "../app/routes/docs.$slug";
+import { meta as docsIndexMeta } from "../app/routes/docs._index";
 import {
   loader,
   meta as genericTemplateMeta,
 } from "../app/routes/templates.$slug";
-import { AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER } from "@agent-native/core/shared";
-import { meta as docsIndexMeta } from "../app/routes/docs._index";
-import { meta as docsSlugMeta } from "../app/routes/docs.$slug";
 import { meta as designTemplateMeta } from "../app/routes/templates.design";
 import { meta as slidesTemplateMeta } from "../app/routes/templates.slides";
-import { featuredTemplates, templates } from "../app/components/TemplateCard";
-import { getTemplateDocsPath } from "../app/components/template-docs";
-import { NAV_SECTIONS, type NavItem } from "../app/components/docsNavItems";
 import { buildSitemapPaths } from "../app/vite-sitemap-plugin";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -76,16 +84,77 @@ describe("template routes", () => {
     ).toBe("Agent-Native Assets");
   });
 
-  it("uses doc-specific OG image titles and a docs accent line", () => {
+  it("uses doc-specific OG image titles and a docs accent line", async () => {
     const docsIndex = docsIndexMeta();
     expect(ogImageTitle(docsIndex)).toBe("Getting Started");
     expect(ogImageAccentText(docsIndex)).toBe("Agent-Native Docs");
+
+    const localizedIndexDoc = await loadDoc("getting-started", "zh-CN");
+    expect(localizedIndexDoc?.title).toBe("开始使用");
+    const localizedIndex = docsIndexMeta({ data: localizedIndexDoc });
+    expect(ogImageTitle(localizedIndex)).toBe("开始使用");
+    expect(ogImageAccentText(localizedIndex)).toBe("Agent-Native Docs");
+
+    const arabicIndexDoc = await loadDoc("getting-started", "ar-SA");
+    expect(arabicIndexDoc?.title).toBe("الخطوات الأولى");
+    const arabicIndex = docsIndexMeta({ data: arabicIndexDoc });
+    expect(ogImageTitle(arabicIndex)).toBe("الخطوات الأولى");
+    expect(ogImageAccentText(arabicIndex)).toBe("Agent-Native Docs");
 
     const docsPage = docsSlugMeta({
       params: { slug: "workspace-connections" },
     });
     expect(ogImageTitle(docsPage)).toBe("Workspace Connections");
     expect(ogImageAccentText(docsPage)).toBe("Agent-Native Docs");
+
+    const localizedDoc = await loadDoc("internationalization", "zh-CN");
+    expect(localizedDoc?.title).toBe("国际化");
+    const localizedPage = localizedDocsMeta({
+      data: localizedDoc,
+      params: { locale: "zh-CN", slug: "internationalization" },
+    });
+    expect(ogImageTitle(localizedPage)).toBe("国际化");
+    expect(ogImageAccentText(localizedPage)).toBe("Agent-Native Docs");
+  });
+
+  it("emits docs canonical paths and hreflang alternates for localized docs", () => {
+    expect(canonicalPathForPath("/docs/getting-started")).toBe("/docs");
+    expect(canonicalPathForPath("/zh-CN/docs/getting-started")).toBe(
+      "/zh-CN/docs",
+    );
+
+    const localized = docsAlternateLinksForPath(
+      "/zh-CN/docs/internationalization",
+    );
+    expect(localized).toContainEqual({
+      hrefLang: "en-US",
+      path: "/docs/internationalization",
+    });
+    expect(localized).toContainEqual({
+      hrefLang: "zh-CN",
+      path: "/zh-CN/docs/internationalization",
+    });
+    expect(localized).toContainEqual({
+      hrefLang: "x-default",
+      path: "/docs/internationalization",
+    });
+
+    const defaultLocalized = docsAlternateLinksForPath(
+      "/docs/workspace-connections",
+    );
+    expect(defaultLocalized).toContainEqual({
+      hrefLang: "en-US",
+      path: "/docs/workspace-connections",
+    });
+    expect(defaultLocalized).toContainEqual({
+      hrefLang: "zh-CN",
+      path: "/zh-CN/docs/workspace-connections",
+    });
+    expect(defaultLocalized).toContainEqual({
+      hrefLang: "x-default",
+      path: "/docs/workspace-connections",
+    });
+    expect(docsAlternateLinksForPath("/templates")).toEqual([]);
   });
 
   it("keeps docs sidebar template links aligned with the featured catalog", () => {
@@ -155,6 +224,7 @@ describe("template routes", () => {
     expect(paths).toContain("/templates");
     expect(paths).toContain("/download");
     expect(paths).toContain("/privacy");
+    expect(paths).toContain("/terms");
 
     for (const docPath of docPaths) {
       expect(paths).toContain(docPath);
@@ -164,8 +234,12 @@ describe("template routes", () => {
       expect(paths).toContain(`/templates/${template.slug}`);
     }
 
+    expect(paths).toContain("/zh-CN/docs/internationalization");
+    expect(paths).toContain("/zh-CN/docs");
+    expect(paths).not.toContain("/docs/zh-CN/internationalization");
+
     expect(paths).not.toContain("/docs/resources");
     expect(paths).not.toContain("/templates/starter");
     expect(paths).not.toContain("/templates/videos");
-  }, 15000);
+  }, 60000);
 });

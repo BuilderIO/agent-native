@@ -4,6 +4,10 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  executeDenyCodeAgentApproval,
+  executePendingCodeAgentApproval,
+} from "./code-agent-executor.js";
+import {
   appendCodeAgentTranscriptEvent,
   codeAgentRunTranscriptPath,
   codeAgentStoreRoot,
@@ -17,10 +21,6 @@ import {
   type CodeAgentRunRecord,
   type CodeAgentTranscriptEvent,
 } from "./code-agent-runs.js";
-import {
-  executeDenyCodeAgentApproval,
-  executePendingCodeAgentApproval,
-} from "./code-agent-executor.js";
 
 export interface RemoteCodeAgentDeviceConfig {
   token: string;

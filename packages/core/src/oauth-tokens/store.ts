@@ -1,4 +1,6 @@
 import { getDbExec, isPostgres, intType } from "../db/client.js";
+import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   encryptSecretValue,
   decryptSecretValue,
@@ -53,7 +55,7 @@ async function ensureTable(): Promise<void> {
     _initPromise = (async () => {
       const client = getDbExec();
       const table = oauthTokensTable();
-      await client.execute(`
+      const createSql = `
         CREATE TABLE IF NOT EXISTS ${table} (
           provider TEXT NOT NULL,
           account_id TEXT NOT NULL,
@@ -62,7 +64,49 @@ async function ensureTable(): Promise<void> {
           updated_at ${intType()} NOT NULL,
           PRIMARY KEY (provider, account_id)
         )
-      `);
+      `;
+
+      if (isPostgres()) {
+        // Hot path: the `oauth_tokens` table and its additive columns are
+        // virtually always already present in production. Issuing `CREATE
+        // TABLE`/`ALTER TABLE` still takes an ACCESS EXCLUSIVE lock that, in a
+        // fresh background-worker process behind a concurrent connection on the
+        // shared Neon DB, can block ~indefinitely. The ensure* wrappers probe
+        // `information_schema` first (plain reads, no lock) and run DDL ONLY for
+        // what is actually missing, bounded by a transaction-scoped
+        // `lock_timeout`. If a swallowed lock-timeout leaves the schema still
+        // missing they RE-PROBE and THROW rather than letting init memoize
+        // success against absent schema. `oauthTokensTable()` is
+        // `public.oauth_tokens` on Postgres; the wrappers take the unqualified
+        // table name.
+        await ensureTableExists("oauth_tokens", createSql);
+        // Migration: add owner column to existing tables — guarded so the hot
+        // path (column already present) skips the ACCESS EXCLUSIVE ALTER.
+        await ensureColumnExists(
+          "oauth_tokens",
+          "owner",
+          `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS owner TEXT`,
+        );
+        // Migration: add display_name column
+        await ensureColumnExists(
+          "oauth_tokens",
+          "display_name",
+          `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS display_name TEXT`,
+        );
+        // Backfill: set owner = account_id for existing rows without an owner
+        await client.execute(
+          `UPDATE ${table} SET owner = account_id WHERE owner IS NULL`,
+        );
+        // Older deployments have a 32-bit `updated_at`; on Postgres the
+        // `Date.now()` written on every token save overflows int4. Widen in place
+        // (no-op once done / on fresh DBs). Unqualified name — the helper scopes
+        // to the `public` schema.
+        await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"]);
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      await client.execute(createSql);
       // Migration: add owner column to existing tables
       try {
         await client.execute(`ALTER TABLE ${table} ADD COLUMN owner TEXT`);
@@ -81,6 +125,11 @@ async function ensureTable(): Promise<void> {
       await client.execute(
         `UPDATE ${table} SET owner = account_id WHERE owner IS NULL`,
       );
+      // Older deployments have a 32-bit `updated_at`; on Postgres the
+      // `Date.now()` written on every token save overflows int4. Widen in place
+      // (no-op once done / on fresh DBs). Unqualified name — the helper scopes
+      // to the `public` schema.
+      await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"]);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;

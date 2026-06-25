@@ -1,11 +1,13 @@
 import crypto from "node:crypto";
-import { eq } from "drizzle-orm";
+
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
-import { getDb, schema } from "../db/index.js";
+import { eq } from "drizzle-orm";
+
 import {
   clipsShareDescription,
   displayRecordingTitle,
 } from "../../shared/share-meta.js";
+import { getDb, schema } from "../db/index.js";
 
 const SLACK_API_URL = "https://slack.com/api/chat.unfurl";
 const MAX_UNFURL_LINKS = 5;

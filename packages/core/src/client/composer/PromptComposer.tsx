@@ -1,14 +1,4 @@
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type Ref,
-  type ReactNode,
-} from "react";
-import {
   AssistantRuntimeProvider,
   ThreadPrimitive,
   useAui,
@@ -27,8 +17,31 @@ import {
   SimpleImageAttachmentAdapter,
 } from "@assistant-ui/react";
 import { IconX } from "@tabler/icons-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Ref,
+  type ReactNode,
+} from "react";
+
+import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
+import { TooltipProvider } from "../components/ui/tooltip.js";
+import { useChatModels, type EngineModelGroup } from "../use-chat-models.js";
 import { cn } from "../utils.js";
 import { AgentComposerFrame } from "./AgentComposerFrame.js";
+import { IMAGE_ATTACHMENT_ACCEPT } from "./attachment-accept.js";
+import {
+  PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
+  TextAttachmentAdapter,
+} from "./attachment-accept.js";
+import { isPastedTextAttachmentName } from "./pasted-text.js";
+import { PastedTextChip } from "./PastedTextChip.js";
+import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
 import {
   DEFAULT_VOICE_DICTATION_ENABLED,
   TiptapComposer,
@@ -36,24 +49,12 @@ import {
   type TiptapComposerHandle,
   type TiptapComposerSubmitOptions,
 } from "./TiptapComposer.js";
-import { IMAGE_ATTACHMENT_ACCEPT } from "./attachment-accept.js";
 import type {
   AgentComposerLayoutVariant,
   Reference,
   SkillResult,
   SlashCommand,
 } from "./types.js";
-import { useChatModels, type EngineModelGroup } from "../use-chat-models.js";
-import { TooltipProvider } from "../components/ui/tooltip.js";
-import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
-import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
-import { isPastedTextAttachmentName } from "./pasted-text.js";
-import { PastedTextChip } from "./PastedTextChip.js";
-import {
-  PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
-  TextAttachmentAdapter,
-} from "./attachment-accept.js";
-import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
 
 const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
 
@@ -314,7 +315,7 @@ function ImagePreviewLightbox({
         type="button"
         onClick={onClose}
         aria-label="Close preview"
-        className="absolute right-4 top-4 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-white/30 bg-black/40 text-white hover:bg-black/60"
+        className="absolute end-4 top-4 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-white/30 bg-black/40 text-white hover:bg-black/60"
       >
         <IconX className="h-4 w-4" />
       </button>
@@ -371,7 +372,7 @@ function AttachmentChip({
               }
             }}
             aria-label={`Remove ${attachment.name}`}
-            className="absolute right-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground hover:text-foreground"
+            className="absolute end-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground hover:text-foreground"
           >
             <IconX className="h-3 w-3" />
           </span>
@@ -539,7 +540,7 @@ function PromptComposerInner({
 
   return (
     <AgentComposerFrame
-      className={cn("text-left", className)}
+      className={cn("text-start", className)}
       rootClassName={rootClassName}
       style={style}
       rootStyle={rootStyle}

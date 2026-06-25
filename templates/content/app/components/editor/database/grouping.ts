@@ -1,3 +1,4 @@
+// i18n-raw-literal-disable-file -- unused pure helper copy; live database editor owns localized UI.
 // Board grouping logic: group definitions, item assignment, board-specific helpers.
 // Pure logic — no React, no icons.
 import type {
@@ -7,6 +8,7 @@ import type {
   DocumentPropertyType,
   DocumentPropertyValue,
 } from "@shared/api";
+
 import { type DatabaseBoardGroup, BOARD_UNGROUPED_VALUE } from "./types";
 import { createDatabaseView } from "./view-config";
 import { isDatabasePropertyVisibleInView } from "./view-state";

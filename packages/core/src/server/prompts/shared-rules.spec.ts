@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { sharedRule8 } from "./shared-rules.js";
 
 describe("shared framework prompt rules", () => {

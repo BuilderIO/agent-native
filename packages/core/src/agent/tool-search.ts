@@ -1,6 +1,6 @@
-import type { ActionEntry } from "./production-agent.js";
 import { parseMcpToolName } from "../mcp-client/manager.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import type { ActionEntry } from "./production-agent.js";
 
 export const TOOL_SEARCH_ACTION_NAME = "tool-search";
 

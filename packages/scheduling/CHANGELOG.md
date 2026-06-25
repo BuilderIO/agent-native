@@ -1,5 +1,23 @@
 # @agent-native/scheduling
 
+## 0.1.14
+
+### Patch Changes
+
+- 2a03c35: Adopt the native TypeScript and oxfmt package build baselines.
+
+## 0.1.13
+
+### Patch Changes
+
+- fd78baa: Localize Dispatch workspace pages and scheduling booking-link controls.
+
+## 0.1.12
+
+### Patch Changes
+
+- c294aaa: Expand localized UI coverage across core client surfaces, Dispatch chrome, scheduling controls, templates, and the docs site.
+
 ## 0.1.11
 
 ### Patch Changes

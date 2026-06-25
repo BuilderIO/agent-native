@@ -1,0 +1,71 @@
+---
+title: "Mit Ihrem Agenten"
+description: "Die tägliche Arbeit mit dem Agenten: Er sieht, was Sie sehen, Sie steuern es, betten es ein, gehen auf UI-arm und bearbeiten es gemeinsam."
+---
+
+# Mit Ihrem Agenten
+
+Die entscheidende Idee hinter agent-native ist, dass der Agent und der UI **gleichberechtigte Partner** sind – siehe [What Is Agent-Native?](/docs/what-is-agent-native) für das Warum. In diesem Abschnitt geht es um die andere Hälfte dieses Versprechens: Wie es sich anfühlt, tatsächlich mit dem Agenten zu arbeiten, sobald er neben Ihrer App angedockt ist.
+
+Es gibt eine einfache Durchgangslinie. Der Agent **sieht**, was Sie gerade sehen, Sie **lenken** es auf das, was Sie möchten, Sie können es überall **einbetten**, Sie können vollständig **UI-arm** verwenden, wenn das besser passt, und Sie können dieselben Dokumente gleichzeitig **mitbearbeiten**. Jede davon ist eine Seite in diesem Abschnitt.
+
+```an-diagram title="Die alltägliche Schleife" summary="Fünf Möglichkeiten, mit einem angedockten Agenten zu arbeiten – jede davon ist eine Seite in diesem Abschnitt."
+{
+  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>UI-arm</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">Gemeinsam bearbeiten</span><small class=\"diagram-muted\">live, nebeneinander</small></div></div>",
+  "css": ".diagram-loop{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-loop .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px;flex:1}.diagram-loop .diagram-arrow{align-self:center;font-size:22px;line-height:1}"
+}
+```
+
+## Es sieht, was Sie sehen {#it-sees}
+
+Der Agent ist für Ihren Bildschirm nicht blind. Öffnen Sie eine E-Mail und es weiß, um welchen Thread es sich handelt. Wählen Sie ein Diagramm aus und es weiß, welches Diagramm. Markieren Sie einen Absatz und die Aktion kann genau auf diesen Bereich angewendet werden. Dieses gemeinsame Bewusstsein ermöglicht es Ihnen, „Antworten“ oder „Auswahl zusammenfassen“ zu sagen, ohne jedes Mal den Kontext buchstabieren zu müssen.
+
+Dies funktioniert, weil die aktuelle Navigation und Auswahl in `application_state` SQL gespeichert ist, die der Agent als Teil seines Kontexts liest. Der Agent kann denselben Status auch zurücksetzen – Öffnen einer Ansicht, Auswählen einer Zeile – sodass Sie sehen können, wie es im echten UI und nicht in einem Transkript funktioniert.
+
+```an-callout
+{
+  "tone": "info",
+  "body": "**Shared awareness is two-way.** You and the agent both read and write `application_state`, so \"reply to this\" or \"summarize the selection\" just works — and when the agent navigates, the real UI moves with it."
+}
+```
+
+→ [**Context Awareness**](/docs/context-awareness) – Navigationsstatus, Bildschirmansicht, Navigationsbefehle und wie der Agent mit Ihrem Bildschirm synchron bleibt.
+
+## Du leitest es {#you-direct-it}
+
+Meistens steuern Sie den Agenten durch Eingaben in den Chat. Zwei Dinge machen das schneller.
+
+**Erwähnungen.** Markieren Sie einen benutzerdefinierten Agenten, einen verbundenen Agenten oder eine Datei mit `@`, um sie in die Konversation einzubeziehen – „Lassen Sie `@analytics` die Zahlen der letzten Woche abrufen und erstellen Sie dann die Zusammenfassung.“ Durch Erwähnungen erreichen Sie den richtigen Spezialisten oder fügen den richtigen Kontext hinzu, ohne den Komponisten zu verlassen.
+
+**Stimme.** Der Komponist hat ein Mikrofon. Diktieren Sie eine Anfrage, anstatt sie einzugeben. Die Anbieteroptionen reichen von der gehosteten Transkription von Builder über Bring-Your-Own-Key bis hin zu einem Browser-Fallback.
+
+→ [**Agent Mentions**](/docs/agent-mentions) – `@` – benutzerdefinierte Agenten, verbundene Agenten und Dateien im Chat erwähnen.
+→ [**Voice Input**](/docs/voice-input) – Diktat im Chat Verfassenr und wie die Transkription weitergeleitet wird.
+
+## Sie betten es ein {#you-embed-it}
+
+Der Agent ist keine separate App, zu der Sie wechseln. Es wird als eine Handvoll React-Komponenten geliefert – eine Seitenleiste, ein Rohpanel und ein `sendToAgentChat()`-Aufruf – die Sie in jede App einfügen können. Rendern Sie `<AgentSidebar>`, um jedem Bildschirm einen umschaltbaren Agenten zu geben, oder verbinden Sie eine Schaltfläche, um eine bestimmte Aufgabe an den Chat zu übergeben, anstatt einen einmaligen LLM-Anruf auszuführen.
+
+→ [**Drop-in Agent**](/docs/drop-in-agent) – Mounten Sie `<AgentPanel>`, `<AgentSidebar>` und `sendToAgentChat()` in jede React-App.
+→ [**Agent Surfaces**](/docs/agent-surfaces) – Wählen Sie, ob der Workflow Headless, Chat-First, eingebettet oder eine vollständige App sein soll.
+
+## Sie können UI-arm wählen {#ui-light}
+
+Nicht jede App benötigt ein vollständiges Dashboard. Wenn der Agent das Produkt ist, können Sie die meisten benutzerdefinierten UI überspringen: Öffnen Sie die App, fragen Sie nach, was Sie möchten, und lassen Sie den Agenten den Rest erledigen. Der Agent verfügt immer noch über seine Verwaltungsoberfläche – Verlauf, Arbeitsbereich, Einstellungen –, aber die primäre Interaktion besteht aus Gesprächen und nicht aus Klicks.
+
+→ [**Pure-Agent Apps**](/docs/pure-agent-apps) – Apps, bei denen der Agent das gesamte Produkt ist.
+
+## Sie sind Mitherausgeber {#you-co-edit}
+
+Wenn Sie und der Agent an demselben Dokument arbeiten, wechseln Sie sich nicht ab. Bei der Zusammenarbeit in Echtzeit werden die Bearbeitungen des Agenten parallel zu Ihren eingeblendet – Live-Cursor, kein Überschreiben – genau wie die Bearbeitungen eines Teamkollegen. Sie können weiter tippen, während es funktioniert, und Ihre Änderungen werden sofort angezeigt.
+
+→ [**Real-Time Collaboration**](/docs/real-time-collaboration) – gemeinsame Bearbeitung durch mehrere Benutzer mit Live-Cursor und Agentenbearbeitungen im selben Dokument.
+
+## Was kommt als nächstes? {#whats-next}
+
+- [**Context Awareness**](/docs/context-awareness) – der Agent weiß, was Sie sehen
+- [**Agent Mentions**](/docs/agent-mentions) – leiten Sie es mit `@`-Erwähnungen
+- [**Voice Input**](/docs/voice-input) – steuern Sie es durch Sprechen
+- [**Drop-in Agent**](/docs/drop-in-agent) – in jede React-App einbetten
+- [**Pure-Agent Apps**](/docs/pure-agent-apps) – gehen Sie zu UI-arm, wenn der Agent das Produkt ist
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) – gemeinsam dasselbe Dokument bearbeiten

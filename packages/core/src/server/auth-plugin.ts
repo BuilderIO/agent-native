@@ -1,10 +1,10 @@
+import { autoMountAuth } from "./auth.js";
+import type { AuthOptions } from "./auth.js";
 import {
   getH3App,
   awaitBootstrap,
   markDefaultPluginProvided,
 } from "./framework-request-handler.js";
-import { autoMountAuth } from "./auth.js";
-import type { AuthOptions } from "./auth.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 

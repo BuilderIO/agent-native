@@ -134,13 +134,15 @@ if (!skipDocs) {
   console.log(`\x1b[36m[dev-eager]\x1b[0m Docs: http://localhost:${DOCS_PORT}`);
 }
 
-// Prebuild core once before templates boot. Templates import from
-// @agent-native/core/server; if tsc --watch is mid-rewrite of dist/ when a
-// template SSR-imports it, named exports come back undefined (e.g.
-// "createAgentChatPlugin is not a function"). Building first guarantees a
-// complete dist; tsc --watch then takes over for incremental rebuilds.
-console.log(`\x1b[36m[dev-eager]\x1b[0m Prebuilding @agent-native/core...`);
-execSync("pnpm --filter @agent-native/core build", { stdio: "inherit" });
+// Prebuild workspace packages once before templates boot. Templates import
+// package dist entrypoints directly; if a dist folder was deleted while
+// incremental build metadata remained, Vite can fail with ERR_LOAD_URL for a
+// missing file. The prebuild helper clears stale metadata only when expected
+// output files are absent, then runs normal builds.
+console.log(`\x1b[36m[dev-eager]\x1b[0m Prebuilding workspace packages...`);
+execSync("node scripts/prebuild-workspace-packages.ts dev", {
+  stdio: "inherit",
+});
 
 const names: string[] = [];
 const commands: string[] = [];
@@ -178,7 +180,7 @@ templatePorts.forEach(({ name, port }, i) => {
 // Core TypeScript watch
 names.push("core");
 commands.push(
-  "pnpm --filter @agent-native/core exec tsc --watch --preserveWatchOutput",
+  "pnpm --filter @agent-native/core exec tsgo --watch --preserveWatchOutput",
 );
 
 // Local Dev Frame

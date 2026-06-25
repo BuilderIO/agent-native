@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { ShareButton, useT } from "@agent-native/core/client";
 import {
   IconArrowLeft,
   IconAdjustments,
@@ -13,23 +13,25 @@ import {
   IconPin,
   IconWand,
 } from "@tabler/icons-react";
+import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
-import { ShareButton } from "@agent-native/core/client";
-import type { ViewportTab } from "./types";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+import type { ViewportTab } from "./types";
 
 export type EditorMode = "comment" | "edit" | "draw";
 
@@ -62,25 +64,29 @@ interface DesignToolbarProps {
 const MODE_ITEMS: {
   mode: EditorMode;
   icon: typeof IconMessage;
-  label: string;
+  labelKey: string;
 }[] = [
-  { mode: "comment", icon: IconMessage, label: "Comment" },
-  { mode: "edit", icon: IconPointer, label: "Edit" },
-  { mode: "draw", icon: IconPencil, label: "Draw" },
+  {
+    mode: "comment",
+    icon: IconMessage,
+    labelKey: "designEditor.modes.comment",
+  },
+  { mode: "edit", icon: IconPointer, labelKey: "designEditor.modes.edit" },
+  { mode: "draw", icon: IconPencil, labelKey: "designEditor.modes.draw" },
 ];
 
 const EXPORT_FORMATS = [
-  { value: "zip", label: "Download ZIP" },
-  { value: "svg", label: "Download SVG" },
-  { value: "pdf", label: "Export PDF" },
-  { value: "html", label: "Export HTML" },
-  { value: "coding-handoff", label: "Copy coding handoff" },
+  { value: "zip", labelKey: "designEditor.downloadZip" },
+  { value: "svg", labelKey: "designEditor.downloadSvg" },
+  { value: "pdf", labelKey: "designEditor.exportPdf" },
+  { value: "html", labelKey: "designEditor.exportHtml" },
+  { value: "coding-handoff", labelKey: "designEditor.copyCodingHandoff" },
 ];
 
 const PRESENT_MODES = [
-  { value: "tab", label: "In this tab" },
-  { value: "fullscreen", label: "Fullscreen" },
-  { value: "new-tab", label: "New tab" },
+  { value: "tab", labelKey: "designEditor.presentInThisTab" },
+  { value: "fullscreen", labelKey: "designEditor.presentFullscreen" },
+  { value: "new-tab", labelKey: "designEditor.presentNewTab" },
 ];
 
 export function DesignToolbar({
@@ -104,6 +110,7 @@ export function DesignToolbar({
   pinMode,
   onTogglePinMode,
 }: DesignToolbarProps) {
+  const t = useT();
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(title);
   const zoomLabel = `${Math.round(zoom)}%`;
@@ -196,7 +203,7 @@ export function DesignToolbar({
                       "relative h-8 w-8",
                       anyToolActive && "bg-muted text-foreground",
                     )}
-                    aria-label="Design tools"
+                    aria-label={t("designEditor.designTools")}
                   >
                     <IconWand className="h-4 w-4" />
                     {anyToolActive && (
@@ -205,7 +212,7 @@ export function DesignToolbar({
                   </Button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent>Design tools</TooltipContent>
+              <TooltipContent>{t("designEditor.designTools")}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuItem
@@ -213,7 +220,7 @@ export function DesignToolbar({
                 className={cn(tweaksVisible && "bg-accent/50")}
               >
                 <IconAdjustments className="h-4 w-4 mr-2" />
-                Tweaks
+                {t("designEditor.tweaks")}
               </DropdownMenuItem>
               {onToggleDrawMode && (
                 <DropdownMenuItem
@@ -222,7 +229,7 @@ export function DesignToolbar({
                   className={cn(drawMode && "bg-accent/50")}
                 >
                   <IconPencilPlus className="h-4 w-4 mr-2" />
-                  Draw on canvas
+                  {t("designEditor.drawOnCanvas")}
                 </DropdownMenuItem>
               )}
               {onTogglePinMode && (
@@ -232,7 +239,7 @@ export function DesignToolbar({
                   className={cn(pinMode && "bg-accent/50")}
                 >
                   <IconPin className="h-4 w-4 mr-2" />
-                  Drop comment pin
+                  {t("designEditor.dropCommentPin")}
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
@@ -242,7 +249,7 @@ export function DesignToolbar({
 
       {/* Mode switcher */}
       <div className="flex overflow-hidden rounded-md border border-border">
-        {MODE_ITEMS.map(({ mode: m, icon: Icon, label }) => (
+        {MODE_ITEMS.map(({ mode: m, icon: Icon, labelKey }) => (
           <Tooltip key={m}>
             <TooltipTrigger asChild>
               <button
@@ -257,7 +264,7 @@ export function DesignToolbar({
                 <Icon className="h-3.5 w-3.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>{label}</TooltipContent>
+            <TooltipContent>{t(labelKey)}</TooltipContent>
           </Tooltip>
         ))}
       </div>
@@ -300,7 +307,7 @@ export function DesignToolbar({
               key={pm.value}
               onClick={() => onPresent(pm.value)}
             >
-              {pm.label}
+              {t(pm.labelKey)}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
@@ -322,7 +329,7 @@ export function DesignToolbar({
               key={fmt.value}
               onClick={() => onExport(fmt.value)}
             >
-              {fmt.label}
+              {t(fmt.labelKey)}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>

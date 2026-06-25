@@ -1,4 +1,15 @@
 import {
+  AgentSidebar,
+  AgentToggleButton,
+  NotificationsBell,
+  useAppearanceSync,
+  useT,
+} from "@agent-native/core/client";
+import { InvitationBanner } from "@agent-native/core/client/org";
+import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
+import { IconMenu } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
   createContext,
   useContext,
   useState,
@@ -6,26 +17,18 @@ import {
   type ReactNode,
 } from "react";
 import { useLocation } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import { IconMenu } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import {
-  AgentSidebar,
-  AgentToggleButton,
-  NotificationsBell,
-  useAppearanceSync,
-} from "@agent-native/core/client";
-import { InvitationBanner } from "@agent-native/core/client/org";
-import { Sidebar } from "./Sidebar";
+
 import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
+import { Button } from "@/components/ui/button";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import { useNavigationState } from "@/hooks/use-navigation-state";
 import { useHiddenCalendars } from "@/hooks/use-hidden-calendars";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import { prefetchPeopleContacts } from "@/hooks/use-people";
-import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
+
+import { Sidebar } from "./Sidebar";
 
 const EVENT_DETAIL_MODE_KEY = "calendar-event-detail-mode";
 
@@ -132,6 +135,7 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ children }: AppLayoutProps) {
+  const t = useT();
   const isMobile = useIsMobile();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -259,11 +263,11 @@ export function AppLayout({ children }: AppLayoutProps) {
         <AgentSidebar
           position="right"
           defaultOpen
-          emptyStateText="Ask me anything about your calendar"
+          emptyStateText={t("agentSidebar.emptyState")}
           suggestions={[
-            "What's on my calendar today?",
-            "Find a 30-min slot with Alice next week",
-            "Schedule a Zoom with the team Friday",
+            t("agentSidebar.suggestions.today"),
+            t("agentSidebar.suggestions.findSlot"),
+            t("agentSidebar.suggestions.scheduleZoom"),
           ]}
         >
           <div className="flex flex-1 flex-col overflow-hidden">
@@ -275,20 +279,24 @@ export function AppLayout({ children }: AppLayoutProps) {
                     size="icon"
                     className="h-10 w-10 shrink-0 lg:hidden"
                     onClick={() => setSidebarOpen(true)}
-                    aria-label="Open navigation"
+                    aria-label={t("calendarView.openNavigation")}
                   >
                     <IconMenu className="h-5 w-5" />
                   </Button>
                   {headerControls?.left ?? (
                     <span className="text-sm font-semibold lg:hidden">
-                      Calendar
+                      {t("navigation.calendar")}
                     </span>
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {headerControls?.right}
                   {!isMobile && (
-                    <NotificationsBell emptyDescription="Calendar can pop browser alerts while this app is open. Clips desktop handles fuller meeting prompts with one-click notes." />
+                    <NotificationsBell
+                      emptyDescription={t(
+                        "calendarView.notificationEmptyDescription",
+                      )}
+                    />
                   )}
                   <AgentToggleButton />
                 </div>

@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
+
+import { streamFile, getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
@@ -7,10 +11,8 @@ import {
   setResponseHeader,
   type H3Event,
 } from "h3";
-import { streamFile, getSession } from "@agent-native/core/server";
-import fs from "node:fs";
-import path from "node:path";
 import { nanoid } from "nanoid";
+
 import { getStoredUpload, putStoredUpload } from "../lib/upload-store.js";
 
 const UPLOADS_DIR = path.resolve("data/uploads");

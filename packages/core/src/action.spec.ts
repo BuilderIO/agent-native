@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
+
 import {
   defineAction,
   AgentActionStopError,
@@ -546,5 +547,75 @@ describe("AgentActionStopError", () => {
     expect(isAgentActionStopError({ agentNativeStop: false })).toBe(false);
     expect(isAgentActionStopError(null)).toBe(false);
     expect(isAgentActionStopError("agentNativeStop")).toBe(false);
+  });
+});
+
+describe("gateway-stringified tool-arg coercion", () => {
+  // Some model gateways (Builder's Gemini-backed one) hand back structured
+  // tool-call args as JSON strings — arrays as "[...]", booleans as "true".
+  // Zod validate doesn't coerce, so the agent thrashed. We coerce against the
+  // schema's declared types before validation.
+  function makeAction() {
+    let received: any = null;
+    const action = defineAction({
+      description: "dashboard-like action",
+      schema: z.object({
+        dashboardId: z.string(),
+        forceNew: z.boolean().optional(),
+        limit: z.number().optional(),
+        ops: z
+          .array(z.object({ op: z.string(), value: z.unknown().optional() }))
+          .optional(),
+      }),
+      http: false,
+      run: async (args: any) => {
+        received = args;
+        return "ok";
+      },
+    });
+    return { action, get: () => received };
+  }
+
+  it("coerces a stringified array, boolean, and number to native types", async () => {
+    const { action, get } = makeAction();
+    await action.run({
+      dashboardId: "d1",
+      forceNew: "true",
+      limit: "20",
+      ops: '[{"op":"insert","value":{"id":"p1"}}]',
+    } as any);
+    expect(get()).toEqual({
+      dashboardId: "d1",
+      forceNew: true,
+      limit: 20,
+      ops: [{ op: "insert", value: { id: "p1" } }],
+    });
+  });
+
+  it("leaves genuine string fields untouched even when they look like JSON", async () => {
+    const { action, get } = makeAction();
+    await action.run({ dashboardId: "[1,2,3]" } as any);
+    expect(get().dashboardId).toBe("[1,2,3]");
+  });
+
+  it("does not swallow a truly invalid stringified array — validation still errors", async () => {
+    const { action } = makeAction();
+    await expect(
+      action.run({ dashboardId: "d1", ops: "[not json" } as any),
+    ).rejects.toThrow(/Invalid action parameters/);
+  });
+
+  it("passes native (already-typed) args through unchanged", async () => {
+    const { action, get } = makeAction();
+    await action.run({
+      dashboardId: "d1",
+      forceNew: false,
+      ops: [{ op: "remove" }],
+    } as any);
+    expect(get()).toEqual({
+      dashboardId: "d1",
+      forceNew: false,
+      ops: [{ op: "remove" }],
+    });
   });
 });

@@ -1,8 +1,10 @@
+import { useSendToAgentChat, useT } from "@agent-native/core/client";
+import type { CalendarEvent } from "@shared/api";
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
+
 import { useApolloStatus, useApolloConnect } from "@/hooks/use-apollo";
-import type { CalendarEvent } from "@shared/api";
-import { useSendToAgentChat } from "@agent-native/core/client";
+
 import { IntegrationsSidebar } from "./IntegrationsSidebar";
 
 // ─── Apollo logo SVG ────────────────────────────────────────────────────────
@@ -38,6 +40,7 @@ function ApolloLogo({ className }: { className?: string }) {
 // ─── Apollo Setup Prompt ─────────────────────────────────────────────────────
 
 export function ApolloSetupPrompt({ onDone }: { onDone?: () => void }) {
+  const t = useT();
   const [apiKey, setApiKey] = useState("");
   const connect = useApolloConnect();
 
@@ -54,12 +57,11 @@ export function ApolloSetupPrompt({ onDone }: { onDone?: () => void }) {
           <ApolloLogo className="h-full w-full" />
         </div>
         <span className="text-[12px] font-medium text-foreground">
-          Connect Apollo
+          {t("apollo.connectApollo")}
         </span>
       </div>
       <p className="text-[11px] text-muted-foreground leading-relaxed">
-        Add your Apollo API key to enrich attendee profiles with company, title,
-        and contact data.
+        {t("apollo.description")}
       </p>
       <div className="space-y-1.5">
         <input
@@ -67,7 +69,7 @@ export function ApolloSetupPrompt({ onDone }: { onDone?: () => void }) {
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSave()}
-          placeholder="Paste Apollo API key..."
+          placeholder={t("apollo.apiKeyPlaceholder")}
           className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
         />
         <button
@@ -75,17 +77,17 @@ export function ApolloSetupPrompt({ onDone }: { onDone?: () => void }) {
           disabled={!apiKey.trim() || connect.isPending}
           className="w-full rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
-          {connect.isPending ? "Connecting…" : "Connect"}
+          {connect.isPending ? t("common.connecting") : t("common.connect")}
         </button>
       </div>
       <div className="rounded-md bg-muted/50 px-2.5 py-2 space-y-1">
         <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">
-          How to get your key
+          {t("apollo.howToGetKey")}
         </p>
         <ol className="text-[11px] text-muted-foreground/50 space-y-0.5 list-decimal pl-3">
-          <li>Log in to Apollo.io</li>
-          <li>Go to Settings → Integrations → API</li>
-          <li>Click "Connect" to generate a key</li>
+          <li>{t("apollo.steps.login")}</li>
+          <li>{t("apollo.steps.api")}</li>
+          <li>{t("apollo.steps.connect")}</li>
         </ol>
         <a
           href="https://app.apollo.io/#/settings/integrations/api"
@@ -93,7 +95,7 @@ export function ApolloSetupPrompt({ onDone }: { onDone?: () => void }) {
           rel="noopener noreferrer"
           className="text-[11px] text-primary/70 hover:text-primary hover:underline transition-colors block"
         >
-          Open Apollo Settings →
+          {t("apollo.openSettings")}
         </a>
       </div>
     </div>
@@ -192,6 +194,7 @@ export function AttendeeApolloPopover({
 // ─── Research Meeting Button ─────────────────────────────────────────────────
 
 export function ResearchMeetingButton({ event }: { event: CalendarEvent }) {
+  const t = useT();
   const { connected } = useApolloStatus();
   const [showSetup, setShowSetup] = useState(false);
   const { send, codeRequiredDialog } = useSendToAgentChat();
@@ -237,9 +240,9 @@ Use the Apollo API (/api/apollo/person?email=...) to look up each attendee and c
         <div className="h-4 w-4 rounded bg-black p-0.5 shrink-0">
           <ApolloLogo className="h-full w-full" />
         </div>
-        Research meeting
+        {t("apollo.researchMeeting")}
         <span className="ml-auto text-[10px] text-muted-foreground/40">
-          {attendees.length} {attendees.length === 1 ? "person" : "people"}
+          {t("apollo.attendeeCount", { count: attendees.length })}
         </span>
       </button>
     </>

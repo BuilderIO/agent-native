@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
-import { getQuery, type H3Event } from "h3";
+
+import { writeAppSecret } from "@agent-native/core/secrets";
 import {
   getSession,
   oauthCallbackResponse,
@@ -8,10 +8,16 @@ import {
   type OAuthStatePayload,
 } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
-import { writeAppSecret } from "@agent-native/core/secrets";
+import { and, eq } from "drizzle-orm";
+import { getQuery, type H3Event } from "h3";
+
 import { getDb, schema } from "../db/index.js";
-import { getActiveOrganizationId } from "./recordings.js";
 import { exchangeCode, getUserInfo } from "./google-calendar-client.js";
+import {
+  getActiveOrganizationId,
+  normalizeOwnerEmail,
+  ownerEmailMatches,
+} from "./recordings.js";
 
 export const CLIPS_GOOGLE_OAUTH_APP_ID = process.env.APP_NAME || "clips";
 
@@ -52,6 +58,7 @@ export async function handleGoogleCalendarCallback(
       "Your session expired during the OAuth flow. Sign in again and retry.",
     );
   }
+  const ownerEmail = normalizeOwnerEmail(userEmail);
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -61,7 +68,7 @@ export async function handleGoogleCalendarCallback(
     );
   }
 
-  return runWithRequestContext({ userEmail }, async () => {
+  return runWithRequestContext({ userEmail: ownerEmail }, async () => {
     const { redirectUri, returnUrl } = state;
 
     // 1. Exchange code -> tokens.
@@ -80,8 +87,29 @@ export async function handleGoogleCalendarCallback(
     const externalAccountId = profile.id;
     const accountEmail = profile.email;
 
-    // 3. Persist tokens in app_secrets (encrypted at rest). NEVER write
-    //    tokens onto the calendar_accounts row.
+    // 3. Find an existing account case-insensitively so email-casing changes
+    //    don't create duplicate calendar connections.
+    const db = getDb();
+    const orgId = await getActiveOrganizationId().catch(() => undefined);
+    const now = new Date().toISOString();
+    const [existing] = await db
+      .select({
+        id: schema.calendarAccounts.id,
+        ownerEmail: schema.calendarAccounts.ownerEmail,
+      })
+      .from(schema.calendarAccounts)
+      .where(
+        and(
+          eq(schema.calendarAccounts.provider, "google"),
+          eq(schema.calendarAccounts.externalAccountId, externalAccountId),
+          ownerEmailMatches(schema.calendarAccounts.ownerEmail, ownerEmail),
+        ),
+      );
+
+    // 4. Persist tokens in app_secrets (encrypted at rest). NEVER write
+    //    tokens onto the calendar_accounts row. Existing rows may have stored
+    //    mixed-case owner emails, so keep their secret scope stable.
+    const secretScopeEmail = existing?.ownerEmail ?? ownerEmail;
     const accessKey = calendarSecretKey("google", externalAccountId, "access");
     const refreshKey = calendarSecretKey(
       "google",
@@ -99,7 +127,7 @@ export async function handleGoogleCalendarCallback(
         scope: tokens.scope,
       }),
       scope: "user",
-      scopeId: userEmail,
+      scopeId: secretScopeEmail,
       description: `Google Calendar access token for ${accountEmail}`,
     });
     if (tokens.refresh_token) {
@@ -107,26 +135,12 @@ export async function handleGoogleCalendarCallback(
         key: refreshKey,
         value: tokens.refresh_token,
         scope: "user",
-        scopeId: userEmail,
+        scopeId: secretScopeEmail,
         description: `Google Calendar refresh token for ${accountEmail}`,
       });
     }
 
-    // 4. Upsert the calendar_accounts row.
-    const db = getDb();
-    const orgId = await getActiveOrganizationId().catch(() => undefined);
-    const now = new Date().toISOString();
-    const [existing] = await db
-      .select({ id: schema.calendarAccounts.id })
-      .from(schema.calendarAccounts)
-      .where(
-        and(
-          eq(schema.calendarAccounts.provider, "google"),
-          eq(schema.calendarAccounts.externalAccountId, externalAccountId),
-          eq(schema.calendarAccounts.ownerEmail, userEmail),
-        ),
-      );
-
+    // 5. Upsert the calendar_accounts row.
     if (existing) {
       await db
         .update(schema.calendarAccounts)
@@ -158,13 +172,13 @@ export async function handleGoogleCalendarCallback(
         lastSyncError: null,
         createdAt: now,
         updatedAt: now,
-        ownerEmail: userEmail,
+        ownerEmail,
         orgId: orgId ?? null,
         visibility: "private",
       } as any);
     }
 
-    return oauthCallbackResponse(event, accountEmail || userEmail, {
+    return oauthCallbackResponse(event, accountEmail || ownerEmail, {
       desktop,
       addAccount: true, // close-tab page; never switch the active session
       returnUrl,

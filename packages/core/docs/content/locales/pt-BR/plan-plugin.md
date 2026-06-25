@@ -1,0 +1,200 @@
+---
+title: "Planejar plug-in e mercado"
+description: "Instale o Plano Agent-Native skills (/visual-plan, /visual-recap) mais o conector do Plano MCP hospedado como um código Claude ou plug-in Codex, ou com o CLI universal. Como funcionam as atualizações e se você precisa enviar algo."
+---
+
+# Planejar plug-in e mercado
+
+O aplicativo Agent-Native **Plan** é enviado como um pacote instalável. Uma única instalação adiciona o comando de barra do Plano skills **e** conecta o conector do Plano MCP hospedado, para que o agente possa gerar planos e o skills possa publicá-los diretamente no aplicativo do Plano.
+
+## O que você ganha {#what-you-get}
+
+Uma instalação oferece:
+
+- **Dois skills** — `/visual-plan` (o ponto de entrada canônico) e `/visual-recap`.
+- **O conector do Plano MCP** — registrado no aplicativo hospedado em `https://plan.agent-native.com` (endpoint MCP `https://plan.agent-native.com/_agent-native/mcp`, nome do servidor `plan`).
+
+```an-diagram title="Três rotas, um pacote" summary="Os plug-ins universais CLI, Claude Code e Codex instalam as mesmas duas habilidades mais o conector do Plano hospedado."
+{
+  "html": "<div class=\"diagram-routes\"><div class=\"diagram-col\"><div class=\"diagram-node\">Universal CLI<br><small class=\"diagram-muted\">skills add visual-plan</small></div><div class=\"diagram-node\">Plugin Claude Code<br><small class=\"diagram-muted\">/plugin install</small></div><div class=\"diagram-node\">Plugin Codex<br><small class=\"diagram-muted\">codex plugin add</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">/visual-plan</span><span class=\"diagram-pill accent\">/visual-recap</span><small class=\"diagram-muted\">two skills</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com/_agent-native/mcp</small></div></div>",
+  "css": ".diagram-routes{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-routes .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-routes .diagram-arrow{font-size:22px;line-height:1}.diagram-routes .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-routes .center .diagram-pill{margin:2px}"
+}
+```
+
+Por padrão, ambos skills publicam no aplicativo Plan hospedado — eles criam um plano via
+o conector MCP e entregarei a você um link ou plano in-line para revisão. Eles nunca descartam
+um plano Markdown/ASCII embutido no chat como entrega. Se uma ferramenta de planejamento
+retorna `needs auth`, `Unauthorized` ou `Session terminated`, autenticar novamente
+o conector em vez de voltar para a saída inline. Os tokens de acesso são
+de longa duração (padrão de 30 dias, atualização deslizante de 365 dias), então isso deve ser raro;
+quando isso acontece, a solução leve é:
+
+```bash
+npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
+```
+
+`reconnect` encontra e atualiza o conector por URL para o local selecionado
+cliente — não é necessária reinstalação. Inicie um novo thread Codex após reconectar para que o
+o registro da ferramenta é recarregado. No código Claude, o equivalente é `/mcp` →
+**Autenticar/Reconectar** ou o mesmo comando com `--client claude-code`.
+
+A exceção é o **modo de privacidade de arquivos locais** explícito. Quando você não pede banco de dados
+grava ou configura `AGENT_NATIVE_PLANS_MODE=local-files`, o skills não deve chamar
+o conector Plano MCP. Eles escrevem `plans/<slug>/plan.mdx` mais opcional
+`canvas.mdx`, `prototype.mdx` e `.plan-state.json` e visualize localmente com:
+
+```bash
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
+```
+
+Isso inicia uma pequena ponte localhost e abre o Plano UI no local
+pasta. (`plan local preview` executa uma rota local do servidor de desenvolvimento do Plan e
+`plan local preview --out preview.html` é uma saída de emergência legada que escreve um
+arquivo HTML estático independente. `plan serve` é aceito como um apelido curto para
+`plan local serve`.)
+
+Algumas dicas sobre o modo de arquivos locais que vale a pena conhecer:
+
+- **Use um navegador Chromium.** O Safari bloqueia a página hospedada do plano HTTPS de
+  lendo a ponte localhost `http://127.0.0.1` (conteúdo misto/privado
+  rede), então a página fica pendurada em "Plano de carregamento". Já no macOS `--open`
+  prefere Chrome/Chromium/Edge/Brave; se o Safari abrir mesmo assim, reabra o impresso
+  URL em um navegador Chromium.
+- **O URL servido é gravado em `plans/<slug>/.plan-url`** (substituir por
+  `--url-file`). Um agente em segundo plano ou sem comando pode ler esse arquivo em vez de
+  raspando o stdout `serve` de longa duração. Trate-o como um arquivo de token local e
+  não o cometa.
+- **Verifique sem cabeça** quando nenhum navegador estiver disponível:
+  `npx @agent-native/core@latest plan local verify --dir plans/<slug>` inicia o
+  bridge, verifica o comprovante da rede privada e a carga útil JSON, imprime
+  diagnósticos e saídas diferentes de zero em caso de falha — não são necessários olhos humanos.
+- **Execute `plan local check` primeiro.** Ele valida o MDX em relação ao Plano
+  esquema de bloco do renderizador (incluindo campos obrigatórios como item `checklist`
+  `id`/`label` e `question-form` questionam `id`/`title`/`mode`), então autoria
+  erros surgem antes da transferência do navegador, e não como um carregador travado.
+
+Para pastas no repositório atual, a rota local direta inclui `?path=...`, portanto
+o aplicativo Plan local pode manter as edições do navegador salvas na pasta repo. O Plano
+o aplicativo usa `apps.plan.roots[0].path` em `agent-native.json` como local padrão
+para salvar planos locais promovidos, voltando para `plans/`.
+
+Isso mantém o conteúdo do plano fora do banco de dados do plano Agent-Native. Compartilhamento hospedado,
+comentários, capturas de tela e histórico do plano ficam indisponíveis até que você explicitamente
+publicar mais tarde.
+
+```an-diagram title="Modo hospedado vs. modo de arquivos locais" summary="Por padrão, as habilidades são publicadas por meio do conector; O modo local-files grava MDX no disco e visualiza por meio de uma ponte localhost."
+{
+  "html": "<div class=\"diagram-modes\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Padrão · hospedado</span><strong>Publicar no app Plan</strong><small class=\"diagram-muted\">MCP connector &rarr; hosted DB &rarr; share links, comments, history, screenshots</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Privacidade de arquivos locais</span><strong>Gravar MDX no disco</strong><small class=\"diagram-muted\">plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost bridge &rarr; hosted Plan UI reads local source. No Escrita no DBs until <code>publish-visual-plan</code>.</small></div></div>",
+  "css": ".diagram-modes{display:flex;gap:14px;flex-wrap:wrap}.diagram-modes .diagram-card{flex:1 1 260px;display:flex;flex-direction:column;gap:6px;padding:16px 18px}"
+}
+```
+
+O Agent Native Desktop tem um caminho de sincronização de arquivo local separado para planos hospedados: o
+O aplicativo para desktop pode espelhar um plano hospedado em arquivos MDX locais e importar as edições de volta
+sem clonar o aplicativo Plan ou executar um CLI. Esse fluxo de trabalho mantém o hospedado
+Planejar o banco de dados como fonte da verdade; use o modo de privacidade de arquivos locais quando o objetivo
+não há gravações do plano de banco de dados.
+
+> O plugin (`agent-native-visual-plans`) carrega o ID do aplicativo `visual-plans`, e é por isso que o nome do plugin Claude Code e o nome do plugin Codex são ambos `agent-native-visual-plans`. O nome de exibição do aplicativo Plan é "Agent-Native Plan".
+
+## Instalar rotas {#install}
+
+Existem três maneiras de entrar. A **rota universal CLI** é a que recomendamos por padrão, porque ela instala o skills **e** permite escolher o modo hospedado, de arquivos locais ou auto-hospedado em um fluxo. As rotas de plugin são para hosts com um sistema de plugin/marketplace de primeira classe e usam planos hospedados por padrão.
+
+### Rota de habilidade universal (qualquer host MCP) {#universal}
+
+Funciona para qualquer host - Código Claude, Codex, Cursor, Cline, Goose, aplicativos ChatGPT personalizados MCP, Claude Cowork e qualquer outra coisa compatível com MCP. O Agent-Native CLI instala ambos os skills, registra o conector do Plano MCP hospedado, **e executa a autenticação para o(s) cliente(s) local(is) selecionado(s) na mesma etapa**, para que sua primeira chamada de ferramenta não atinja uma parede OAuth:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+Isso instala `visual-plan` mais a habilidade complementar `visual-recap`, registra o conector `plan` e executa a autenticação (prompt OAuth para compartilhamento hospedado/apoiado por conta). Sinalizadores úteis:
+
+- `--client codex|claude-code|claude-code-cli|cowork|all` — para quais agentes locais gravar a configuração MCP (padrão `all`).
+- `--no-connect` — registre o conector sem autenticar; execute `npx @agent-native/core@latest connect https://plan.agent-native.com --client all` mais tarde ou escolha um `--client` mais estreito.
+- `--mode hosted|local-files|self-hosted` — escolha compartilhamento hospedado, arquivos MDX totalmente locais ou seu próprio aplicativo Plan.
+- `--mcp-url <url>` — aponte o conector para uma origem personalizada (um túnel ngrok, um servidor de desenvolvimento local ou uma implantação auto-hospedada) em vez do padrão hospedado.
+- `--with-github-action` — escreva também a ação PR Visual Recap GitHub (consulte [PR Visual Recap](/docs/pr-visual-recap)).
+
+As instalações interativas também oferecem a ação PR Visual Recap quando não há fluxo de trabalho
+presente. Diga sim para adicioná-lo durante a configuração da habilidade ou execute o comando acima mais tarde
+com `--with-github-action`. Depois que o fluxo de trabalho for escrito, execute:
+
+```bash
+npx @agent-native/core@latest recap setup
+npx @agent-native/core@latest recap doctor
+```
+
+`recap setup` configura os segredos e variáveis da ação GitHub sempre que possível,
+e `recap doctor` verifica o fluxo de trabalho, token de publicação local, repositório GitHub
+acesso e configuração Actions necessária. Após o término da instalação, reinicie ou
+recarregue o cliente do agente para que o novo skills e as ferramentas sejam carregados e depois execute
+`/visual-plan`.
+
+> Nota: o `npx skills@latest add BuilderIO/agent-native --skill visual-plan` simples (Vercel/open Skills CLI) instala **apenas instruções** — ele não registra o conector MCP. Use o Agent-Native CLI acima quando quiser que o conector também seja conectado.
+
+### Código Claude (plug-in) {#claude-code}
+
+O repositório público `BuilderIO/agent-native` é em si um mercado de plug-ins de código Claude, então você o adiciona diretamente - sem etapa de construção. Código interno Claude:
+
+```text
+/plugin marketplace add BuilderIO/agent-native
+/plugin install agent-native-visual-plans@agent-native-apps
+/reload-plugins
+/mcp        # authenticate the Plan connector (one OAuth approval)
+```
+
+`/plugin install` adiciona o Plano skills e uma configuração MCP **somente URL** (sem segredos no pacote); `/mcp` → **Autenticar** conclui o handshake OAuth. Use a rota universal CLI quando quiser arquivos locais ou modo auto-hospedado.
+
+> O catálogo do marketplace é denominado `agent-native-apps` e o plugin Plan é `agent-native-visual-plans`, portanto o destino da instalação é sempre `agent-native-visual-plans@agent-native-apps`.
+
+### Codex (plug-in) {#codex}
+
+O mesmo repositório é um mercado de plugins Codex. Adicione-o, instale o plugin e autentique o conector:
+
+```bash
+codex plugin marketplace add BuilderIO/agent-native
+codex plugin add agent-native-visual-plans@agent-native-apps
+codex mcp login plan   # OAuth no navegador
+```
+
+Após a instalação, **inicie um novo thread Codex** para que as ferramentas skills e MCP sejam carregadas na sessão. O plugin vem com um conector somente URL (`[mcp_servers.plan]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login plan` executa o fluxo OAuth. A rota universal CLI acima também funciona para Codex (`npx @agent-native/core@latest skills add visual-plan --client codex`) se você preferir um comando que instale e autentique juntos ou quando desejar arquivos locais ou modo auto-hospedado.
+
+> **Instalações mais antigas:** se sua configuração ainda tiver uma entrada `agent-native-plans` apontando para o mesmo URL, executando `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex` para Codex ou o mesmo comando com seu `--client` de destino, consolida-o no nome canônico `plan`.
+
+## Atualizações {#updates}
+
+O plug-in direciona a atualização automática – você não reembala ou adiciona novamente o mercado para alterações rotineiras de habilidades:
+
+- **Código Claude** — a entrada do mercado define `autoUpdate: true` e o plugin usa controle de versão commit-SHA, então o Código Claude extrai novas versões do repositório na inicialização; execute `/reload-plugins` para ativar. Cada push para o branch padrão do repositório alcança os usuários instalados automaticamente.
+- **Codex** — o plug-in `version` incorpora um hash de conteúdo do endpoint skills e MCP incluído (por exemplo, `1.0.0+codex.<hash>`), portanto, qualquer alteração de habilidade ou endpoint gera uma nova versão. A atualização automática de inicialização do Codex reinstala os mercados git configurados por conta própria; basta **iniciar um novo tópico** para pegar a mudança. Nenhum `codex plugin marketplace upgrade` manual é necessário para atualizações de rotina.
+- **Rota CLI universal** — execute `npx @agent-native/core@latest skills status visual-plan` para verificar as pastas de habilidades copiadas ou `npx @agent-native/core@latest skills update visual-plan` para atualizá-las no lugar. A nova execução do `skills add visual-plan` ainda funciona quando você também deseja registrar/autenticar novamente o conector. `@latest` sempre extrai o skills atual do pacote `@agent-native/core` publicado.
+
+O conector aponta para um aplicativo **hospedado**, portanto, o actions do aplicativo Plan e a superfície da ferramenta ativa sempre refletem a versão implantada, independentemente de quando você instalou; apenas as instruções de habilidade incluídas seguem os mecanismos de atualização acima.
+
+> **Mantenedores:** o pacote de mercado (`.claude-plugin/`, `.agents/plugins/`) é gerado a partir do plano canônico skills por `pnpm sync:plan-marketplace` e verificado no CI por `pnpm guard:plan-marketplace`, portanto, o mercado publicado sempre corresponde ao skills canônico. Edite a habilidade, execute `pnpm sync:plan-marketplace` e confirme.
+
+## Você precisa enviar alguma coisa? {#submission}
+
+**Nenhum envio ou revisão é necessário para distribuir ou instalar isso.** `BuilderIO/agent-native` é um mercado git público auto-hospedado, então os usuários o adicionam diretamente com os comandos acima em **Código Claude e Codex** — sem aplicação ou aprovação. A rota universal CLI não precisa de nenhum mercado.
+
+Capacidade de descoberta opcional, se você quiser uma listagem pública:
+
+- **Código Claude** tem um mercado comunitário ao qual você pode _opcionalmente_ enviar para listagem (envio mais uma revisão automática). O mercado oficial com curadoria da Anthropic é listado a critério da Anthropic – não há aplicativo de autoatendimento aberto. Nenhum dos dois é necessário para usar os comandos de instalação acima.
+- **Codex** tem um catálogo de plug-ins com curadoria de OpenAI (uma lista de permissões fechada, fornecida como uma parceria em vez de um envio de autoatendimento). Os mercados git auto-hospedados e a rota CLI não precisam de envio para funcionar.
+
+Resumindo: envie-o como um mercado git auto-hospedado/público e os usuários instalam diretamente; envie para um catálogo selecionado apenas se quiser listá-lo para descoberta.
+
+## Plugin vs. habilidade {#plugin-vs-skill}
+
+Uma **habilidade** é um único arquivo de instrução `SKILL.md` que o agente lê quando uma tarefa corresponde. Um **plug-in** (plug-in de mercado de código Claude ou plug-in Codex) é um pacote que agrupa um ou mais skills **mais** um conector MCP e metadados, para que um host possa instalar tudo em uma única etapa.
+
+Nos bastidores, todas as três rotas são produzidas a partir da mesma fonte pelo `npx @agent-native/core@latest app-skill` CLI: `app-skill pack` cria os adaptadores de mercado/plug-in e `skills add` é o instalador amigável de uma etapa que também registra e autentica o conector MCP. Consulte [Skills Guide](/docs/skills-guide) para obter o formato do manifesto de habilidade do aplicativo e [External Agents](/docs/external-agents) para conectar qualquer host MCP e o fluxo `npx @agent-native/core@latest connect`.
+
+## O que vem a seguir {#whats-next}
+
+- [**Visual Plans**](/docs/template-plan) — o que os skills fazem e como usá-los
+- [**PR Visual Recap**](/docs/pr-visual-recap) — execute `/visual-recap` automaticamente em cada solicitação pull
+- [**Skills Guide**](/docs/skills-guide) — skills baseado em aplicativo e formato de manifesto
+- [**External Agents**](/docs/external-agents) — conecte qualquer host MCP e artefatos de ida e volta

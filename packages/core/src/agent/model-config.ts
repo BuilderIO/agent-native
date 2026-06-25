@@ -39,7 +39,6 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "gpt-5-5": 1_050_000,
   "gpt-5-4": 1_050_000,
   "gpt-5-4-mini": 400_000,
-  "gpt-5-1-codex-mini": 128_000,
 
   // ── Gemini (Builder gateway IDs) ─────────────────────────────────────────
   "gemini-3-1-pro": 1_048_576,
@@ -145,7 +144,6 @@ export const AGENT_MODEL_CONFIG = {
       FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL,
       "gpt-5-4",
       "gpt-5-4-mini",
-      "gpt-5-1-codex-mini",
       "gemini-3-1-pro",
       "gemini-3-5-flash",
       "gemini-3-1-flash-lite",

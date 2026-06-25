@@ -1,0 +1,368 @@
+---
+title: "المكون API"
+description: "العناصر الأساسية العامة React للوكيل المخصص UI، وحقول الدردشة، وعرض المحادثة، والتواجد في الوقت الفعلي، والمشاركة، والتقدم، والمحررين الغنيين."
+---
+
+# المكون API
+
+يشحن Agent-Native شريطًا جانبيًا كاملاً، لكن الشريط الجانبي ليس العقد.
+العقد هو وقت التشغيل: تدفق الدردشة، وحالة سلسلة المحادثات، actions، والسياق،
+المرفقات واختيار النموذج وعمليات التشغيل والمزامنة المدعومة بـ SQL. استخدم المخزون
+المكونات عندما تستطيع ذلك، وقم بإسقاط الطبقة عندما تحتاج إلى منتج مخصص UI.
+
+استيراد المتصفح UI من مسارات العميل الفرعية المركزة:
+
+```tsx
+import { AgentSidebar } from "@agent-native/core/client";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { AgentConversation } from "@agent-native/core/client/conversation";
+import { usePresence } from "@agent-native/core/client/collab";
+import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { ResourcesPanel } from "@agent-native/core/client/resources";
+```
+
+تجنب استيراد مكونات UI من حزمة `@agent-native/core` العارية. استخدم
+`@agent-native/core/client` أو مسار فرعي `@agent-native/core/client/*` مركّز
+لذلك يختار القائمون على التجميع الإدخال الآمن للمتصفح.
+
+```an-diagram title="المنسدلة طبقة، وليس خارج الإطار" summary="تحتفظ كل طبقة بنفس وقت التشغيل — الإجراءات، وحالة مؤشر الترابط، ومزامنة SQL-backed — بينما تمنحك مزيدًا من التحكم في Chrome."
+{
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">الشريط الجانبي بأكمله حول تطبيقك. حالة 80%.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">اللوحة أو صفحة الدردشة في التخطيط الخاص بك.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + وقت التشغيل</span><small class=\"diagram-muted\">امتلك الكروم؛ قم بتمرير BYO AgentChatRuntime بشكل اختياري.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;محادثة الوكيل&gt;</span><small class=\"diagram-muted\">الملحن والنسخة الأولية فقط.</small></div><div class=\"diagram-rail\" data-rough>نفس وقت التشغيل: الإجراءات &middot; حالة الخيط &middot; BYO-backed مزامنة</div></div>",
+  "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
+}
+```
+
+## الوكيل والدردشة UI {#agent-chat-ui}
+
+| API                                  | مسار الاستيراد                                | استخدم عندما                                                                             |
+| ------------------------------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/core/client` أو `/client/chat` | تريد الشريط الجانبي الكامل حول تطبيقك.                                                   |
+| `<AgentToggleButton>`                | `@agent-native/core/client` أو `/client/chat` | يمكنك عرض زر الرأس الخاص بك للشريط الجانبي.                                              |
+| `<AgentPanel>`                       | `@agent-native/core/client` أو `/client/chat` | تريد اللوحة الكاملة في التخطيط أو المسار أو مربع الحوار أو العمود الجانبي الخاص بك.      |
+| `<AgentChatSurface>`                 | `@agent-native/core/client` أو `/client/chat` | تريد الدردشة في وضع اللوحة أو الصفحة بدون غلاف الشريط الجانبي.                           |
+| `<AssistantChat>`                    | `@agent-native/core/client` أو `/client/chat` | تريد امتلاك Chrome المحيط مع الاحتفاظ بالمحادثة القياسية ووقت تشغيل الملحن.              |
+| `<MultiTabAssistantChat>`            | `@agent-native/core/client` أو `/client/chat` | تريد علامات تبويب مؤشر ترابط إطار العمل بدون `AgentPanel` chrome.                        |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` أو `/client/chat` | لديك نقطة نهاية وكيل BYO تعمل على بث أحداث الدردشة الطبيعية.                             |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` أو `/client/chat` | لديك ساحة بث OpenAI Agents SDK وتريد الدردشة القياسية UI حوله.                           |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` أو `/client/chat` | لديك تدفق أحداث ردود OpenAI وتريد تطبيعه في الدردشة UI.                                  |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client` أو `/client/chat` | لديك تدفق أحداث AG-UI وتريد تطبيعه في الدردشة UI.                                        |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` أو `/client/chat` | لديك بث Claude Agent SDK وتريد تطبيعه في الدردشة UI.                                     |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client` أو `/client/chat` | لديك بث Vercel AI SDK وتريد تطبيعه في الدردشة UI.                                        |
+| `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` أو `/client/chat` | تحتاج إلى تكييف `AgentChatRuntime` مع واجهة المستخدم المساعدة بنفسك.                     |
+| `createAgentChatAdapter()`           | `@agent-native/core/client` أو `/client/chat` | تحتاج إلى وسيلة نقل Agent-Native SSE المدمجة كمحول مساعد لواجهة المستخدم منخفضة المستوى. |
+| `useChatThreads()`                   | `@agent-native/core/client` أو `/client/chat` | تحتاج إلى قائمة سلاسل محادثات مخصصة، أو منتقي السجل، أو دردشة محددة النطاق UI.           |
+| `sendToAgentChat()`                  | `@agent-native/core/client` أو `/client/chat` | يجب أن يؤدي إجراء المنتج إلى تسليم العمل إلى دردشة الوكيل.                               |
+
+`AgentChatRuntime` هو عقد وكيل BYO لقشرة الدردشة القياسية. تمرير
+من `runtime` إلى `<AssistantChat>` عندما يتعين على وكيل خارجي تشغيل
+المحادثة بينما يحتفظ Agent-Native بالملحن والنص وبطاقات الأدوات و
+عرض القطعة الأصلية. الموصلات أعلاه هي سطح API؛ وقت التشغيل
+يتم تدريس أشكال العقود والأحداث في
+[Native واجهة الدردشة — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+إذا كنت تختار بين الوكلاء مقطوعي الرأس، والدردشة الغنية، والعربة الجانبية المضمنة، و
+أشكال التطبيق الكاملة، راجع [Agent Surfaces](/docs/agent-surfaces).
+
+لا يزال أقصر مسار مخصص سطحًا مزودًا بأسلاك مسبقًا:
+
+```tsx
+import { AgentChatSurface } from "@agent-native/core/client/chat";
+
+export default function ChatRoute() {
+  return <AgentChatSurface mode="page" className="h-screen" />;
+}
+```
+
+بالنسبة إلى Chrome المخصص في وقت التشغيل القياسي:
+
+```tsx
+import { AssistantChat, useChatThreads } from "@agent-native/core/client/chat";
+
+function CustomChat({ projectSlug }: { projectSlug: string }) {
+  const threads = useChatThreads(undefined, projectSlug);
+  const threadId = threads.activeThreadId ?? undefined;
+
+  return (
+    <section className="grid h-full grid-cols-[260px_1fr]">
+      <ThreadList
+        threads={threads.threads}
+        activeThreadId={threadId}
+        onSelect={threads.switchThread}
+      />
+      <AssistantChat threadId={threadId} />
+    </section>
+  );
+}
+```
+
+للحصول على نقطة نهاية إحضار الوكيل الخاص بك، أنشئ `AgentChatRuntime` باستخدام أحد
+الموصلات أعلاه وتمريرها إلى `<AssistantChat runtime={...} />`. انظر
+[Native واجهة الدردشة — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+لاستخدام الموصل، ودفق الأحداث الذي تمت تسويته، ومتى يجب الوصول إليه
+`createHttpAgentChatRuntime()` مقابل موصل خاص بالبروتوكول.
+
+## حقل الدردشة والملحن {#composer}
+
+استخدم `@agent-native/core/client/composer` عندما تحتاج إلى إجراء نفس الدردشة
+الحقل الذي يستخدمه الشريط الجانبي داخل UI المخصص.
+
+| API                               | استخدم عندما                                                                                                                                                     |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<PromptComposer>`                | تحتاج إلى حقل دردشة جاهز للإرسال يحتوي على المرفقات، وأوامر الشرطة المائلة، والمراجع، ومعالجة النص الملصق، واستمرارية المسودة، والإدخال الصوتي، ودلالات الإرسال. |
+| `<AgentComposerFrame>`            | تريد الغلاف المرئي القياسي حول نص الملحن المخصص.                                                                                                                 |
+| `<TiptapComposer>`                | أنت بحاجة إلى حقل الدردشة الغنية ذي المستوى الأدنى. ويجب أن يتم عرضه داخل واجهة المستخدم المساعدة `ThreadPrimitive.Root` / وقت تشغيل الملحن.                     |
+| `buildPromptComposerSubmission()` | تحتاج إلى نفس المرفقات وتسوية النص الملصق قبل استدعاء معالج الإرسال الخاص بك.                                                                                    |
+| `formatPromptWithAttachments()`   | تحتاج إلى عرض بيانات تعريف المرفقات المخفية في سلسلة مطالبة.                                                                                                     |
+
+يجب أن تبدأ معظم UI المخصصة بـ `PromptComposer`:
+
+```tsx
+import { PromptComposer } from "@agent-native/core/client/composer";
+
+<PromptComposer
+  placeholder="Ask the agent..."
+  onSubmit={async (text, files, references, options) => {
+    await sendMessageToYourRuntime({ text, files, references, options });
+  }}
+/>;
+```
+
+استخدم `TiptapComposer` فقط إذا كنت تقوم بالفعل بتوصيل عناصر واجهة المستخدم المساعدة
+نفسك. إنه الحقل، وليس وقت تشغيل الدردشة بالكامل.
+
+## عرض المحادثة {#conversation}
+
+استخدم `@agent-native/core/client/conversation` لعرض نمط النص
+خارج وقت تشغيل الوكيل الكامل.
+
+| API                                             | استخدم عندما                                             |
+| ----------------------------------------------- | -------------------------------------------------------- |
+| `<AgentConversation>`                           | عرض قائمة برسائل الوكيل التي تمت تسويتها.                |
+| `<AgentConversationMessageView>`                | عرض رسالة واحدة تمت تسويتها.                             |
+| `normalizeCodeAgentTranscriptForConversation()` | تحويل أحداث نص وكيل التعليمات البرمجية إلى رسائل محادثة. |
+| `useNearBottomAutoscroll()`                     | احتفظ بنص مخصص مثبتًا في الأسفل أثناء البث.              |
+
+تعتمد هذه الطبقة على البيانات أولاً عمدًا: فأنت تملك المكان الذي تأتي منه الرسائل، و
+يمتلك العارض تخفيضًا ثابتًا، ومرفقات، وإشعارات، وعناصر، و
+عرض استدعاء الأداة.
+
+## أدوات الأدوات الأصلية {#native-tool-widgets}
+
+استخدم عناصر واجهة المستخدم للأداة الأصلية عندما يجب عرض نتيجة الإجراء بجودة التطبيق UI
+داخل الدردشة بدلاً من JSON العادي. تتضمن المخرجات المدمجة القابلة لإعادة الاستخدام
+`DataTableWidget`، و`DataChartWidget`، و`DataWidgetResult`؛ يتم تصديرها
+من `@agent-native/core/client/chat` وإدخال العميل الجذر. انظر
+[Native واجهة الدردشة](/docs/native-chat-ui) لعقد نتيجة الإجراء.
+
+| API                              | استخدم عندما                                                                     |
+| -------------------------------- | -------------------------------------------------------------------------------- |
+| `DataTableWidget`                | تريد نتيجة إجراء لعرض الصفوف والأعمدة في الدردشة الأصلية.                        |
+| `DataChartWidget`                | تريد إخراج مخطط شريطي مضغوط أو خطي أو مخطط مساحي في الدردشة الأصلية.             |
+| `DataWidgetResult`               | تريد شكل نتيجة مكتوبًا لـ `"data-table"` أو `"data-chart"` أو `"data-insights"`. |
+| `registerActionChatRenderer()`   | تحتاج إلى عارض معلن عن الإجراء محدد بواسطة `chatUI.renderer` بالضبط.             |
+| `registerToolRenderer()`         | أنت بحاجة إلى عارض أصلي خاص بالمنتج للحصول على نتيجة أداة غير أساسية.            |
+| `registerReservedToolRenderer()` | يحتاج كود إطار العمل إلى عارض محجوز يفوز قبل عارضي القوالب.                      |
+
+## التعاون والتواجد في الوقت الفعلي {#collab-presence}
+
+استخدم `@agent-native/core/client/collab` للتواجد بنمط Liveblocks و
+ربط المستندات التعاونية.
+
+| API                                                 | استخدم عندما                                                               |
+| --------------------------------------------------- | -------------------------------------------------------------------------- |
+| `useCollaborativeDoc()`                             | اربط محرر نص منسق أو سطح Yjs مخصص بـ `/_agent-native/collab`.              |
+| `usePresence()`                                     | نشر وعرض حقول الوعي العشوائية: المؤشرات، التحديدات، إطار العرض، الوضع.     |
+| `<PresenceBar>`                                     | إظهار المتعاونين البشريين والوكلاء النشطين.                                |
+| `<LiveCursorOverlay>`                               | عرض تسميات المؤشر عن بعد فوق حاوية موضوعة.                                 |
+| `<RemoteSelectionRings>`                            | عرض الخطوط العريضة للاختيار عن بعد عبر عناصر DOM.                          |
+| `useFollowUser()`                                   | اتبع إطار العرض أو التحديد لمشارك آخر.                                     |
+| `useCollaborativeMap()` / `useCollaborativeArray()` | جرّب حالة Y.Map/Y.Array المنظمة عندما يكون تعاون نص النص المنسق غير مناسب. |
+| `dedupeCollabUsersByEmail()`                        | إنشاء مجموعة صور رمزية مخصصة بدون علامات تبويب مكررة لنفس المستخدم.        |
+
+```an-diagram title="الحضور: يتشارك البشر والوكيل في طبقة وعي واحدة" summary="useCollaborativeDoc يمتلك مثيل الوعي؛ تقوم خطافات العميل بنشر المؤشرات والتحديدات؛ يسمح مساعدو الخادم بإجراء الوكيل بالظهور كمشارك مباشر."
+{
+  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">البشر<br><small class=\"diagram-muted\">usePresence &middot; المؤشرات، الاختيار</small></div><div class=\"diagram-node diagram-accent\">عمل الوكيل<br><small class=\"diagram-muted\">وكيلUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">طبقة الوعي</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;شريط الوجود&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">تقديم الجميع، بما في ذلك الوكيل</small></div></div>",
+  "css": ".diagram-presence{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-presence .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-presence .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-presence .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+يستخدم الوكيل من جانب الخادم actions الذي يريد الظهور كمشارك مباشر
+مساعدو حضور الوكيل `@agent-native/core/collab` ذو المستوى الأدنى:
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+```
+
+## محرر منسق {#rich-editor}
+
+استخدم `@agent-native/core/client/editor` عندما تحتاج إلى محرر Markdown المشترك
+السطح الذي تستخدمه الخطط والمحتوى والموارد والمستندات التعاونية
+التجارب.
+
+| API                              | استخدم عندما                                                                                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `<SharedRichEditor>`             | أنت بحاجة إلى المحرر الحالي القابل للتكوين مع تسلسل Markdown، وYjs الاختيارية، وإضافات التطبيق. |
+| `<RichMarkdownEditor>`           | أنت بحاجة إلى الاسم المستعار المتوافق مع الإصدارات السابقة للمحرر الغني المشترك.                |
+| `createSharedEditorExtensions()` | أنت تقوم بإنشاء محرر Tiptap الخاص بك ولكنك تريد مخطط إطار العمل ولهجات Markdown.                |
+| `<SlashCommandMenu>`             | تحتاج إلى أمر الشرطة المائلة المشترك UI لسطح Tiptap مخصص.                                       |
+| `<BubbleToolbar>`                | تحتاج إلى شريط أدوات التحديد المشترك للعلامات والروابط وactions المضمنة المخصصة.                |
+| `createRegistryBlockNode()`      | تحتاج إلى عقد كتلة مدعومة بالتسجيل داخل محرر غني.                                               |
+| `uploadEditorImage()`            | تريد إجراء تحميل صورة إطار العمل خلف كتلة الصور المشتركة للمحرر.                                |
+| `useCollabReconcile()`           | أنت تقوم بربط سطح محرر مخصص بمستند Yjs مع الحفاظ على Markdown كحالة محفوظة.                     |
+
+المحرر الأساسي الذي يتم التحكم فيه هو مجرد تخفيض للداخل وتخفيض للخارج:
+
+```tsx
+import { SharedRichEditor } from "@agent-native/core/client/editor";
+
+<SharedRichEditor
+  value={markdown}
+  onChange={setMarkdown}
+  placeholder="Write notes..."
+  features={{ tables: true, tasks: true, link: true }}
+/>;
+```
+
+للتحرير في الوقت الفعلي، قم بإقرانه بمسار التعاون الفرعي:
+
+```tsx
+import {
+  emailToColor,
+  useCollaborativeDoc,
+} from "@agent-native/core/client/collab";
+import { SharedRichEditor } from "@agent-native/core/client/editor";
+
+const editorUser = {
+  name: user.name,
+  email: user.email,
+  color: emailToColor(user.email),
+};
+const collab = useCollaborativeDoc({
+  docId,
+  user: editorUser,
+});
+
+<SharedRichEditor
+  value={markdown}
+  onChange={setMarkdown}
+  ydoc={collab.ydoc}
+  awareness={collab.awareness}
+  user={editorUser}
+/>;
+```
+
+## موارد مساحة العمل {#resources}
+
+استخدم `@agent-native/core/client/resources` عندما تريد الكشف عن نفسه
+نموذج مورد مساحة العمل الذي يعمل على تشغيل علامة تبويب مساحة العمل في لوحة الوكيل.
+
+| API                                                                   | استخدم عندما                                                            |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `<ResourcesPanel>`                                                    | تريد علامة تبويب مساحة العمل الكاملة كصفحة أو درج أو لوحة مخصصة.        |
+| `<ResourceTree>`                                                      | تريد عرض متصفح الموارد الخاص بك حول بيانات إطار العمل.                  |
+| `<ResourceEditor>`                                                    | تريد محرر إطار العمل لمورد محدد.                                        |
+| `useResourceTree()`                                                   | تحتاج إلى شجرة محددة النطاق للموارد الشخصية أو المشتركة أو مساحة العمل. |
+| `useResource()`                                                       | أنت بحاجة إلى المحتوى والبيانات الوصفية لمورد واحد محدد.                |
+| `useCreateResource()` / `useUpdateResource()` / `useDeleteResource()` | تحتاج إلى عناصر تحكم مخصصة حول دورة حياة المورد.                        |
+| `useUploadResource()`                                                 | تحتاج إلى تحميل الملف إلى مخزن موارد إطار العمل.                        |
+
+لا تحتاج اللوحة الكاملة إلى أي دعائم:
+
+```tsx
+import { ResourcesPanel } from "@agent-native/core/client/resources";
+
+<ResourcesPanel />;
+```
+
+بالنسبة لمورد Chrome المخصص، احتفظ بالخطافات والعناصر الأولية معًا:
+
+```tsx
+import { useState } from "react";
+import {
+  ResourceEditor,
+  ResourceTree,
+  useResource,
+  useResourceTree,
+  useUpdateResource,
+} from "@agent-native/core/client/resources";
+
+function WorkspaceResources() {
+  const tree = useResourceTree("workspace");
+  const updateResource = useUpdateResource();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const resource = useResource(selectedId);
+
+  return (
+    <div className="grid h-full grid-cols-[260px_1fr]">
+      <ResourceTree
+        tree={tree.data ?? []}
+        selectedId={selectedId}
+        onSelect={(item) => setSelectedId(item.id)}
+        onCreateFile={() => {}}
+        onCreateFolder={() => {}}
+        onDelete={() => {}}
+        onRename={() => {}}
+        onDrop={() => {}}
+      />
+      {resource.data ? (
+        <ResourceEditor
+          resource={resource.data}
+          onSave={(content) =>
+            updateResource.mutate({ id: resource.data.id, content })
+          }
+        />
+      ) : null}
+    </div>
+  );
+}
+```
+
+## UI عامة أخرى {#other-ui}
+
+| المساحة         | APIs                                                       | مسار الاستيراد                            |
+| --------------- | ---------------------------------------------------------- | ----------------------------------------- |
+| المشاركة        | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`      | `@agent-native/core/client/sharing`       |
+| الإشعارات       | `<NotificationsBell>`                                      | `@agent-native/core/client/notifications` |
+| التقدم          | `<RunsTray>`، خطافات التقدم وأنواعها                       | `@agent-native/core/client/progress`      |
+| التأهيل         | `useOnboarding()`، خطافات لوحة التثبيت                     | `@agent-native/core/client/onboarding`    |
+| قابلية الملاحظة | `<ObservabilityDashboard>`, `<ThumbsFeedback>`             | `@agent-native/core/client/observability` |
+| الموارد         | `<ResourcesPanel>`، `<ResourceTree>`، ربط الموارد          | `@agent-native/core/client/resources`     |
+| محرر غني        | `<SharedRichEditor>`، أوامر الشرطة المائلة، ربط عقدة الحظر | `@agent-native/core/client/editor`        |
+
+## إكمال النص لمرة واحدة {#one-off-text-completion}
+
+إذا كنت تحتاج حقًا إلى نص خام/نص خارج، فاحتفظ به من جانب الخادم واستخدمه
+`completeText()` من `@agent-native/core/server`. لف الاستخدام الذي يواجه المستخدم في
+إجراء بحيث يتشارك UI والوكيل في نفس الإمكانية.
+
+```an-callout
+{
+  "tone": "warning",
+  "body": "`completeText()` is the escape hatch, not the default. Reach for it only for true text-in/text-out (a label, a one-line rewrite). Anything needing tools, state, auditability, or steering belongs in an action plus `sendToAgentChat({ background: true })`."
+}
+```
+
+```ts
+import { defineAction } from "@agent-native/core/action";
+import { completeText } from "@agent-native/core/server";
+
+export default defineAction({
+  description: "Classify a short message",
+  run: async ({ body }: { body: string }) => {
+    const result = await completeText({
+      systemPrompt: "Return exactly one label.",
+      input: body,
+      maxOutputTokens: 12,
+      temperature: 0,
+    });
+    return { label: result.text.trim() };
+  },
+});
+```
+
+استخدم `sendToAgentChat({ background: true, openSidebar: false })` بدلاً من ذلك عندما
+يحتاج العمل إلى أدوات، أو حالة، أو إمكانية التدقيق، أو توجيه المستخدم، أو الخطوات المتعددة
+الاستدلال.

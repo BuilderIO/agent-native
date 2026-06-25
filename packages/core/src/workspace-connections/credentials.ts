@@ -3,12 +3,12 @@ import {
   type CredentialContext,
   type CredentialStorageScope,
 } from "../credentials/index.js";
+import { readAppSecret, type SecretRef } from "../secrets/storage.js";
 import {
   getCredentialContext,
   getRequestContext,
   runWithRequestContext,
 } from "../server/request-context.js";
-import { readAppSecret, type SecretRef } from "../secrets/storage.js";
 import {
   listWorkspaceConnectionsForApp,
   markWorkspaceConnectionUsed,

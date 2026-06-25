@@ -1,18 +1,21 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { H3Event } from "h3";
-import {
-  resolveBuilderOwnerContextForRequest,
-  resolveBuilderWaitlistFormTargetForRequest,
-  resolveFrameworkSseRoutes,
-  resolveLegacyToolsRedirect,
-  AVATAR_RASTER_MIME,
-} from "./core-routes-plugin.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import {
   BUILDER_CONNECT_PARAM,
   BUILDER_STATE_PARAM,
   signBuilderCallbackState,
   signBuilderConnectToken,
 } from "./builder-browser.js";
+import {
+  resolveBuilderOwnerContextForRequest,
+  resolveBuilderWaitlistFormTargetForRequest,
+  resolveFrameworkSseRoutes,
+  resolveLegacyToolsRedirect,
+  runDbHealthProbe,
+  AVATAR_RASTER_MIME,
+  getFrameworkRouteRequestUrl,
+} from "./core-routes-plugin.js";
 
 function createMockEvent(url: string): H3Event {
   const parsed = new URL(url);
@@ -137,6 +140,35 @@ describe("resolveLegacyToolsRedirect", () => {
     expect(resolveLegacyToolsRedirect("/mail/tools/abc", "")).toBe(
       "/mail/extensions/abc",
     );
+  });
+});
+
+describe("getFrameworkRouteRequestUrl", () => {
+  it("preserves the raw query when a mounted event URL was normalized", () => {
+    const event = createMockEvent(
+      `https://www.agent-native.com/_agent-native/builder/callback?${BUILDER_STATE_PARAM}=signed-state&api-key=public-key`,
+    );
+    event.url = new URL(
+      "https://www.agent-native.com/_agent-native/builder/callback",
+    );
+
+    const requestUrl = getFrameworkRouteRequestUrl(event);
+
+    expect(requestUrl.searchParams.get(BUILDER_STATE_PARAM)).toBe(
+      "signed-state",
+    );
+    expect(requestUrl.searchParams.get("api-key")).toBe("public-key");
+  });
+
+  it("keeps the canonical event URL when it already has a query", () => {
+    const event = createMockEvent(
+      `https://www.agent-native.com/_agent-native/builder/callback?${BUILDER_STATE_PARAM}=from-event`,
+    );
+    event.node.req.url = "/_agent-native/builder/callback?_an_state=from-raw";
+
+    const requestUrl = getFrameworkRouteRequestUrl(event);
+
+    expect(requestUrl.searchParams.get(BUILDER_STATE_PARAM)).toBe("from-event");
   });
 });
 
@@ -321,5 +353,31 @@ describe("AVATAR_RASTER_MIME", () => {
 
   it("rejects a plain data:image/ prefix with no subtype", () => {
     expect(AVATAR_RASTER_MIME.test("data:image/")).toBe(false);
+  });
+});
+
+describe("runDbHealthProbe", () => {
+  it("reports db:true when SELECT 1 succeeds", async () => {
+    let ran: string | undefined;
+    const result = await runDbHealthProbe(() => ({
+      execute: async (sql: string) => {
+        ran = sql;
+        return { rows: [], rowsAffected: 0 };
+      },
+    }));
+    expect(ran).toBe("SELECT 1");
+    expect(result.ok).toBe(true);
+    expect(result.db).toBe(true);
+    expect(result.ms).toBeGreaterThanOrEqual(0);
+  });
+
+  it("stays live with db:false when the query throws (no DB / unreachable)", async () => {
+    const result = await runDbHealthProbe(() => ({
+      execute: async () => {
+        throw new Error("connection refused");
+      },
+    }));
+    expect(result.ok).toBe(true);
+    expect(result.db).toBe(false);
   });
 });

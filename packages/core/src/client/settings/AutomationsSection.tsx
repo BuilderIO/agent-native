@@ -1,5 +1,3 @@
-import { agentNativePath } from "../api-path.js";
-import { useEffect, useState, useCallback } from "react";
 import {
   IconBolt,
   IconClock,
@@ -8,18 +6,21 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
+import { useEffect, useState, useCallback } from "react";
+
 import { sendToAgentChat } from "../agent-chat.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
+import { PromptComposer } from "../composer/PromptComposer.js";
 
 interface TreeNode {
   name: string;
@@ -354,12 +355,12 @@ export function AutomationsSection() {
                   </span>
                 </div>
                 {item.scheduleDescription && (
-                  <p className="text-[10px] text-muted-foreground mt-0.5 ml-[17px]">
+                  <p className="text-[10px] text-muted-foreground mt-0.5 ms-[17px]">
                     {item.scheduleDescription}
                   </p>
                 )}
                 {item.schedule && !item.scheduleDescription && (
-                  <p className="text-[10px] text-muted-foreground mt-0.5 ml-[17px] font-mono">
+                  <p className="text-[10px] text-muted-foreground mt-0.5 ms-[17px] font-mono">
                     {item.schedule}
                   </p>
                 )}
@@ -430,7 +431,7 @@ export function AutomationsSection() {
               </div>
             </div>
             {item.lastRun && (
-              <p className="text-[10px] text-muted-foreground mt-1 ml-[17px]">
+              <p className="text-[10px] text-muted-foreground mt-1 ms-[17px]">
                 Last run:{" "}
                 {new Date(item.lastRun).toLocaleString(undefined, {
                   month: "short",

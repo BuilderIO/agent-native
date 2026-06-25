@@ -1,8 +1,10 @@
-import { format, parseISO } from "date-fns";
-import { IconCircleCheck, IconVideo } from "@tabler/icons-react";
-import { Link } from "react-router";
-import { Button } from "@/components/ui/button";
+import { useT } from "@agent-native/core/client";
 import type { Booking, CustomField } from "@shared/api";
+import { IconCircleCheck, IconVideo } from "@tabler/icons-react";
+import { format, parseISO } from "date-fns";
+import { Link } from "react-router";
+
+import { Button } from "@/components/ui/button";
 
 interface BookingConfirmationProps {
   booking: Booking;
@@ -17,6 +19,7 @@ export function BookingConfirmation({
   customFields = [],
   onReset,
 }: BookingConfirmationProps) {
+  const t = useT();
   const responses = booking.fieldResponses;
   const fieldsWithResponses = customFields.filter(
     (f) =>
@@ -30,37 +33,49 @@ export function BookingConfirmation({
       <IconCircleCheck className="h-16 w-16 text-emerald-600 dark:text-emerald-400" />
 
       <div className="space-y-2">
-        <h2 className="text-2xl font-semibold">Booking Confirmed</h2>
+        <h2 className="text-2xl font-semibold">
+          {t("bookingLinks.bookingConfirmed")}
+        </h2>
         <p className="text-muted-foreground">
-          You're all set! A confirmation has been sent to your email.
+          {t("bookingLinks.confirmationSent")}
         </p>
       </div>
 
       <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4 text-left space-y-2">
         <div>
-          <span className="text-xs text-muted-foreground">Event</span>
+          <span className="text-xs text-muted-foreground">
+            {t("eventForm.event")}
+          </span>
           <p className="font-medium">{booking.eventTitle}</p>
         </div>
         <div>
-          <span className="text-xs text-muted-foreground">Date</span>
+          <span className="text-xs text-muted-foreground">
+            {t("bookingLinks.date")}
+          </span>
           <p className="font-medium">
             {format(parseISO(booking.start), "EEEE, MMMM d, yyyy")}
           </p>
         </div>
         <div>
-          <span className="text-xs text-muted-foreground">Time</span>
+          <span className="text-xs text-muted-foreground">
+            {t("bookingLinks.time")}
+          </span>
           <p className="font-medium">
             {format(parseISO(booking.start), "h:mm a")} -{" "}
             {format(parseISO(booking.end), "h:mm a")}
           </p>
         </div>
         <div>
-          <span className="text-xs text-muted-foreground">Name</span>
+          <span className="text-xs text-muted-foreground">
+            {t("bookingLinks.name")}
+          </span>
           <p className="font-medium">{booking.name}</p>
         </div>
         {booking.meetingLink && (
           <div>
-            <span className="text-xs text-muted-foreground">Meeting Link</span>
+            <span className="text-xs text-muted-foreground">
+              {t("bookingLinks.meetingLink")}
+            </span>
             <a
               href={booking.meetingLink}
               target="_blank"
@@ -68,7 +83,7 @@ export function BookingConfirmation({
               className={`flex items-center gap-1.5 hover:underline ${BRAND_LINK_CLASS}`}
             >
               <IconVideo className="h-4 w-4" />
-              Join Meeting
+              {t("eventForm.joinMeeting")}
             </a>
           </div>
         )}
@@ -78,8 +93,8 @@ export function BookingConfirmation({
             <p className="font-medium">
               {typeof responses![field.id] === "boolean"
                 ? responses![field.id]
-                  ? "Yes"
-                  : "No"
+                  ? t("bookingLinks.yes")
+                  : t("bookingLinks.no")
                 : String(responses![field.id])}
             </p>
           </div>
@@ -88,18 +103,18 @@ export function BookingConfirmation({
 
       {booking.cancelToken && (
         <p className="text-xs text-muted-foreground">
-          Need to make changes?{" "}
+          {t("bookingLinks.needToMakeChanges")}{" "}
           <Link
             to={`/booking/manage/${booking.cancelToken}`}
             className={`hover:underline ${BRAND_LINK_CLASS}`}
           >
-            Cancel or reschedule
+            {t("bookingLinks.cancelOrReschedule")}
           </Link>
         </p>
       )}
 
       <Button variant="outline" onClick={onReset}>
-        Book Another
+        {t("bookingLinks.bookAnother")}
       </Button>
     </div>
   );

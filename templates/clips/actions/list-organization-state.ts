@@ -9,16 +9,18 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { and, asc, desc, eq, isNotNull, or } from "drizzle-orm";
 import {
   organizations,
   orgInvitations,
   orgMembers,
 } from "@agent-native/core/org";
+import { and, asc, desc, eq, isNotNull, or } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
+  ownerEmailMatches,
   requireOrganizationAccess,
 } from "../server/lib/recordings.js";
 
@@ -127,7 +129,7 @@ export default defineAction({
             eq(schema.folders.organizationId, organizationId),
             or(
               isNotNull(schema.folders.spaceId),
-              eq(schema.folders.ownerEmail, ownerEmail),
+              ownerEmailMatches(schema.folders.ownerEmail, ownerEmail),
             ),
           ),
         )

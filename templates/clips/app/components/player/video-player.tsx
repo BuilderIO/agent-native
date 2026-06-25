@@ -1,4 +1,15 @@
 import {
+  appBasePath,
+  captureClientException,
+  useT,
+} from "@agent-native/core/client";
+import {
+  isLoomEmbedUrl,
+  LOOM_START_MS_QUERY_PARAM,
+  loomEmbedUrlWithTimestamp,
+} from "@shared/loom";
+import { IconBolt, IconPlayerPlay } from "@tabler/icons-react";
+import {
   forwardRef,
   useCallback,
   useEffect,
@@ -7,10 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { appBasePath, captureClientException } from "@agent-native/core/client";
-import { IconBolt, IconPlayerPlay } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { Spinner } from "@/components/ui/spinner";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,29 +27,27 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { PlayerControls, SPEED_OPTIONS } from "./player-controls";
-import { CaptionsOverlay } from "./captions-overlay";
-import { CtaButton } from "./cta-button";
-import {
-  getExcludedRanges,
-  parseEdits,
-  type TrimRange,
-} from "@/lib/timestamp-mapping";
-import {
-  captureVideoThumbnailBlob,
-  thumbnailUrlHasVisibleContent,
-  uploadRecordingThumbnail,
-} from "@/lib/thumbnail-capture";
+import { Spinner } from "@/components/ui/spinner";
 import {
   parsePlaybackSpeed,
   readPlaybackSpeedPreference,
   savePlaybackSpeedPreference,
 } from "@/lib/playback-speed";
 import {
-  isLoomEmbedUrl,
-  LOOM_START_MS_QUERY_PARAM,
-  loomEmbedUrlWithTimestamp,
-} from "@shared/loom";
+  captureVideoThumbnailBlob,
+  thumbnailUrlHasVisibleContent,
+  uploadRecordingThumbnail,
+} from "@/lib/thumbnail-capture";
+import {
+  getExcludedRanges,
+  parseEdits,
+  type TrimRange,
+} from "@/lib/timestamp-mapping";
+import { cn } from "@/lib/utils";
+
+import { CaptionsOverlay } from "./captions-overlay";
+import { CtaButton } from "./cta-button";
+import { PlayerControls, SPEED_OPTIONS } from "./player-controls";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -186,6 +192,7 @@ export interface VideoPlayerProps {
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(props, ref) {
+    const t = useT();
     const {
       videoUrl,
       embedProvider,
@@ -232,7 +239,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [currentMs, setCurrentMs] = useState(startMs ?? 0);
     const [loomStartMs, setLoomStartMs] = useState<number | null>(null);
     const [volume, setVolume] = useState(1);
-    const [muted, setMuted] = useState(false);
+    // Autoplaying players (e.g. the Slack unfurl embed, `?autoplay=1`) must
+    // start muted or the browser blocks autoplay with a NotAllowedError. The
+    // share page (no autoplay) keeps full sound.
+    const [muted, setMuted] = useState(() => !!autoPlay);
     const [speed, setSpeed] = useState(() =>
       readPlaybackSpeedPreference(defaultSpeed),
     );
@@ -354,18 +364,30 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setIsPreparing(false);
     }, []);
 
-    const rejectPlayAttempt = useCallback((attemptId: number, err: unknown) => {
-      if (attemptId !== playAttemptIdRef.current) return;
-      playAttemptPendingRef.current = false;
-      setIsPlayPending(false);
-      setIsBuffering(false);
+    const rejectPlayAttempt = useCallback(
+      (attemptId: number, err: unknown) => {
+        if (attemptId !== playAttemptIdRef.current) return;
+        playAttemptPendingRef.current = false;
+        setIsPlayPending(false);
+        setIsBuffering(false);
 
-      const name = err instanceof DOMException ? err.name : "";
-      if (name === "AbortError") return;
+        const name = err instanceof DOMException ? err.name : "";
+        // AbortError: a newer load/seek superseded this play() — not a failure.
+        // NotAllowedError: the browser blocked autoplay because there was no
+        // user gesture (this is what happens inside Slack's cross-origin unfurl
+        // iframe). Both are expected — fall back to the click-to-play overlay
+        // instead of showing a scary "Could not start playback" message.
+        if (name === "AbortError" || name === "NotAllowedError") return;
 
-      console.warn("[clips] playback start failed", err);
-      setPlayError("Could not start playback. Try again.");
-    }, []);
+        console.warn("[clips] playback start failed", err);
+        reportPlaybackIssue("play-start-failed", err, videoRef.current, {
+          recordingId,
+          autoPlay: !!autoPlay,
+        });
+        setPlayError("Could not start playback. Try again.");
+      },
+      [autoPlay, recordingId],
+    );
 
     const attachPlayPromise = useCallback(
       (playPromise: Promise<void> | undefined, attemptId: number) => {
@@ -882,7 +904,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       <div
         ref={containerRef}
         className={cn(
-          "relative bg-black overflow-hidden select-none group",
+          // `@container` lets the center play button scale with the player
+          // width (see CenterPlaybackOverlay) so it isn't oversized inside
+          // small embeds like the Slack unfurl iframe.
+          "relative @container bg-black overflow-hidden select-none group",
           theaterMode ? "fixed inset-0 z-40" : "rounded-xl",
           className,
         )}
@@ -899,7 +924,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {isLoomEmbed && loomIframeSrc ? (
           <iframe
             src={loomIframeSrc}
-            title="Loom video"
+            title={t("videoPlayer.loomVideo")}
             className="h-full w-full border-0"
             allow="autoplay; fullscreen; picture-in-picture; clipboard-write"
             allowFullScreen
@@ -910,12 +935,19 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             ref={videoRef}
             src={activeVideoSrc}
             poster={resolveLocalUrl(thumbnailUrl)}
-            crossOrigin="anonymous"
+            // `crossOrigin` is only needed so the owner's canvas thumbnail
+            // capture isn't tainted. For everyone else (viewers, and the Slack
+            // unfurl embed) it adds nothing — but if the player is ever framed
+            // into a sandboxed/opaque-origin context (Slack double-iframes the
+            // embed), the resulting CORS check on the media bytes fails and the
+            // video won't load. Scope it to owners so embeds load cleanly.
+            crossOrigin={role === "owner" ? "anonymous" : undefined}
             className={cn(
               "w-full h-full",
               cover ? "object-cover" : "object-contain",
             )}
             autoPlay={autoPlay}
+            muted={muted}
             playsInline
             onLoadStart={() => {
               setCanPlay(false);
@@ -1014,12 +1046,26 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               setIsBuffering(false);
               onEnded?.();
             }}
-            onError={() => {
+            onError={(e) => {
               playAttemptPendingRef.current = false;
               setIsPlayPending(false);
               setIsBuffering(false);
               setIsPreparing(false);
-              setPlayError("Video could not be loaded.");
+              const desc = describeMediaError(e.currentTarget.error);
+              reportPlaybackIssue(
+                "media-load-failed",
+                e.currentTarget.error,
+                e.currentTarget,
+                {
+                  recordingId,
+                  videoSrc: activeVideoSrc,
+                },
+              );
+              setPlayError(
+                desc
+                  ? `Video could not be loaded (${desc.label}).`
+                  : "Video could not be loaded.",
+              );
             }}
             onVolumeChange={(e) => {
               setVolume(e.currentTarget.volume);
@@ -1028,7 +1074,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           />
         ) : (
           <div className="flex items-center justify-center w-full h-full text-white/50 text-sm">
-            No video available
+            {t("videoPlayer.noVideo")}
           </div>
         )}
 
@@ -1039,7 +1085,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             durationMs={resolvedDurationMs}
             speed={speed}
             playError={playError}
-            onPlay={requestPlay}
+            onPlay={() => {
+              // An explicit click means the user wants to watch with sound, so
+              // undo the muted-autoplay default (see `muted` state) before we
+              // start playback.
+              const v = videoRef.current;
+              if (v && v.muted) {
+                v.muted = false;
+                setMuted(false);
+              }
+              requestPlay();
+            }}
             onSpeedChange={applySpeed}
             menuPortalContainer={fullscreenMenuContainer}
           />
@@ -1072,7 +1128,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm"
           >
             <div className="flex flex-col items-center gap-4 text-white">
-              <p className="text-lg font-medium">Thanks for watching</p>
+              <p className="text-lg font-medium">{t("videoPlayer.thanks")}</p>
               <CtaButton
                 cta={cta!}
                 onClick={() => onCtaClick?.(cta!.id)}
@@ -1164,6 +1220,7 @@ function CenterPlaybackOverlay({
   onSpeedChange: (rate: number) => void;
   menuPortalContainer?: HTMLElement | null;
 }) {
+  const t = useT();
   const showLoading = mode === "loading" && !playError;
   const adjustedDurationMs = speed > 0 ? durationMs / speed : durationMs;
   const showAdjustedDuration =
@@ -1188,14 +1245,14 @@ function CenterPlaybackOverlay({
             <button
               data-player-ui
               type="button"
-              aria-label="Play clip"
+              aria-label={t("videoPlayer.playClip")}
               onClick={(e) => {
                 e.stopPropagation();
                 onPlay();
               }}
-              className="pointer-events-auto flex h-24 w-24 items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+              className="pointer-events-auto flex h-[clamp(3rem,13cqw,6rem)] w-[clamp(3rem,13cqw,6rem)] items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
             >
-              <IconPlayerPlay className="ml-1 h-12 w-12 fill-current" />
+              <IconPlayerPlay className="ml-[6%] h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
             </button>
 
             <div
@@ -1300,6 +1357,87 @@ function skipExcludedRange(
 
 function formatSpeedLabel(rate: number): string {
   return `${Number.isInteger(rate) ? rate : rate.toFixed(1)}x`;
+}
+
+/** Human-readable label for an HTMLMediaElement `error` (MediaError). */
+function describeMediaError(
+  err: MediaError | null,
+): { code: number; label: string } | null {
+  if (!err) return null;
+  const labels: Record<number, string> = {
+    1: "load aborted",
+    2: "network error",
+    3: "decode error",
+    4: "format not supported",
+  };
+  return { code: err.code, label: labels[err.code] ?? "unknown error" };
+}
+
+/**
+ * Surface a playback failure to the console and Sentry with enough context to
+ * debug it remotely — e.g. when a clip "could not be loaded" inside a Slack
+ * unfurl where there's no visible console. Best-effort; never throws. Expected,
+ * benign cases (AbortError / autoplay-blocked NotAllowedError) are filtered out
+ * by the callers and never reach here.
+ */
+function reportPlaybackIssue(
+  reason: string,
+  err: unknown,
+  video: HTMLVideoElement | null,
+  extra: Record<string, unknown>,
+) {
+  const mediaError =
+    err && typeof err === "object" && "code" in err
+      ? (err as MediaError)
+      : (video?.error ?? null);
+  const name =
+    err instanceof DOMException || err instanceof Error ? err.name : undefined;
+  const message = err instanceof Error ? err.message : undefined;
+
+  let videoHost: string | undefined;
+  try {
+    if (video?.currentSrc) videoHost = new URL(video.currentSrc).host;
+  } catch {
+    // ignore unparseable src
+  }
+  let inIframe = false;
+  try {
+    inIframe = typeof window !== "undefined" && window.self !== window.top;
+  } catch {
+    inIframe = true;
+  }
+
+  const detail = {
+    ...extra,
+    errorName: name,
+    errorMessage: message,
+    mediaErrorCode: mediaError?.code,
+    mediaErrorLabel: describeMediaError(mediaError)?.label,
+    videoHost,
+    inIframe,
+    readyState: video?.readyState,
+    networkState: video?.networkState,
+  };
+  console.warn(`[clips] playback issue: ${reason}`, detail);
+
+  try {
+    const reportable =
+      err instanceof Error
+        ? err
+        : new Error(
+            `clips playback ${reason}: ${message ?? name ?? describeMediaError(mediaError)?.label ?? "unknown"}`,
+          );
+    captureClientException(reportable, {
+      tags: {
+        area: "clips-player",
+        playbackIssue: reason,
+        inIframe: String(inIframe),
+      },
+      extra: detail,
+    });
+  } catch {
+    // Diagnostics must never break playback UI.
+  }
 }
 
 function formatWatchDuration(ms: number): string {

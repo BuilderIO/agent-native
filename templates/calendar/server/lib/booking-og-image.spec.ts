@@ -1,7 +1,9 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
 import { describe, expect, it } from "vitest";
+
 import {
   BOOKING_OG_FONT_ASSETS,
   loadBundledOgFontFiles,
@@ -50,6 +52,8 @@ describe("booking OG image", () => {
       'font-family="Liberation Sans, Arial, system-ui, sans-serif"',
     );
     expect(svg).toContain('fill="#000000"');
+    expect(svg).not.toContain('x="64" y="64" width="1072" height="502"');
+    expect(svg).not.toContain('d="M80 154 H1120"');
     expect(svg).not.toContain("Pick a time");
   });
 

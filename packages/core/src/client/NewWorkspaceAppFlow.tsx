@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState } from "react";
 import {
   IconArrowUpRight,
   IconBook,
@@ -7,12 +6,14 @@ import {
   IconFileText,
   IconKey,
 } from "@tabler/icons-react";
-import { agentNativePath, appBasePath } from "./api-path.js";
-import { sendToAgentChat } from "./agent-chat.js";
-import { isInBuilderFrame } from "./builder-frame.js";
-import { useDevMode } from "./use-dev-mode.js";
+import { useEffect, useMemo, useState } from "react";
+
 import { getWorkspaceAppIdValidationError } from "../shared/workspace-app-id.js";
+import { sendToAgentChat } from "./agent-chat.js";
+import { agentNativePath, appBasePath } from "./api-path.js";
+import { isInBuilderFrame } from "./builder-frame.js";
 import { PromptComposer } from "./composer/PromptComposer.js";
+import { useDevMode } from "./use-dev-mode.js";
 
 export interface VaultSecretOption {
   id: string;
@@ -294,7 +295,7 @@ export function NewWorkspaceAppFlow({
         } else {
           setStatusMessage(
             result?.message ||
-              "Builder app creation is coming soon here. Open this workspace in Builder to create an app from this prompt.",
+              "This requires a code change. Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
           );
         }
       }
@@ -344,7 +345,7 @@ export function NewWorkspaceAppFlow({
                   href={branchUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="ml-2 inline-flex items-center gap-1 font-medium text-foreground underline"
+                  className="ms-2 inline-flex items-center gap-1 font-medium text-foreground underline"
                 >
                   Open branch <IconArrowUpRight className="h-3 w-3" />
                 </a>
@@ -394,7 +395,7 @@ export function NewWorkspaceAppFlow({
                       type="button"
                       aria-pressed={selected}
                       onClick={() => toggleSecret(secret.id)}
-                      className="flex w-full cursor-pointer items-start gap-3 rounded-md px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                      className="flex w-full cursor-pointer items-start gap-3 rounded-md px-3 py-2 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                     >
                       <span
                         className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition ${
@@ -421,7 +422,7 @@ export function NewWorkspaceAppFlow({
                         <IconChevronDown className="h-3 w-3 transition-transform group-open/details:rotate-180" />
                         Details
                       </summary>
-                      <div className="mt-1.5 space-y-1 pb-0.5 pl-4">
+                      <div className="mt-1.5 space-y-1 pb-0.5 ps-4">
                         <div className="truncate">
                           Provider: {secret.provider || "Not specified"}
                         </div>
@@ -470,7 +471,7 @@ export function NewWorkspaceAppFlow({
                       type="button"
                       aria-pressed={selected}
                       onClick={() => toggleResource(resource.id)}
-                      className="flex w-full cursor-pointer items-start gap-3 rounded-md px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                      className="flex w-full cursor-pointer items-start gap-3 rounded-md px-3 py-2 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                     >
                       <span
                         className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition ${
@@ -498,7 +499,7 @@ export function NewWorkspaceAppFlow({
                         <IconChevronDown className="h-3 w-3 transition-transform group-open/details:rotate-180" />
                         Details
                       </summary>
-                      <div className="mt-1.5 space-y-1 pb-0.5 pl-4">
+                      <div className="mt-1.5 space-y-1 pb-0.5 ps-4">
                         <div className="truncate">
                           Scope:{" "}
                           {resource.scope === "all"

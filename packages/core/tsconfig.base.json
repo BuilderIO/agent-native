@@ -23,8 +23,8 @@
     "noFallthroughCasesInSwitch": false,
 
     "rootDirs": [".", "./.react-router/types"],
-    "baseUrl": ".",
     "paths": {
+      "*": ["./*"],
       "@/*": ["./app/*"],
       "@shared/*": ["./shared/*"]
     },

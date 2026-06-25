@@ -1,23 +1,24 @@
 [build]
-  ignore = "node ./scripts/netlify-ignore-build.mjs clips"
-  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter clips build"
-  publish = "templates/clips/dist"
-  functions = "templates/clips/.netlify/functions-internal"
+ignore = "node ./scripts/netlify-ignore-build.mjs clips"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter clips build"
+publish = "templates/clips/dist"
+functions = "templates/clips/.netlify/functions-internal"
 
 [build.environment]
-  NITRO_PRESET = "netlify"
-  NPM_CONFIG_PRODUCTION = "false"
-  AUTO_CREATE_DEFAULT_ORG = "1"
-  # Netlify Functions run on linux/x64 (AWS Lambda). This tells the deploy build
-  # to bundle the matching ffmpeg-static binary into the server bundle so the
-  # server-side audio-only transcription fallback (analyzeAudioSignal / audio
-  # extraction) can spawn ffmpeg. Without it ffmpeg-static is skipped at build
-  # time and request-transcript fails at runtime with FFMPEG_UNAVAILABLE.
-  AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH = "x64"
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+NITRO_PRESET = "netlify"
+NPM_CONFIG_PRODUCTION = "false"
+AUTO_CREATE_DEFAULT_ORG = "1"
+# Netlify Functions run on linux/x64 (AWS Lambda). This tells the deploy build
+# to bundle the matching ffmpeg-static binary into the server bundle so the
+# server-side audio-only transcription fallback (analyzeAudioSignal / audio
+# extraction) can spawn ffmpeg. Without it ffmpeg-static is skipped at build
+# time and request-transcript fails at runtime with FFMPEG_UNAVAILABLE.
+AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH = "x64"
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
 # The framework does not impose a default agent-run timeout; if a template sets
 # AGENT_RUN_SOFT_TIMEOUT_MS, keep it below this function timeout so the hidden
 # auto-continuation path can hand off before Netlify kills the function.
 [functions."*"]
-  timeout = 75
+timeout = 75

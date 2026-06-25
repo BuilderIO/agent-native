@@ -1,16 +1,17 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { nanoid } from "nanoid";
-import { and, eq } from "drizzle-orm";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import type { BookingLink } from "../shared/api.js";
+import { and, eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";
 import { rowToBookingLink } from "../server/lib/booking-link-utils.js";
+import type { BookingLink } from "../shared/api.js";
 
 const durationSchema = z.coerce
   .number()

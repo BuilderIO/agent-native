@@ -1,0 +1,239 @@
+---
+title: "Courrier"
+description: "Un client de messagerie alimenté par un agent. Connectez votre Gmail et l'agent pourra lire, rédiger, envoyer et organiser des e-mails pour vous."
+---
+
+# Courrier
+
+Un client de messagerie alimenté par un agent. Connectez votre compte Gmail et l'agent pourra lire, rédiger, envoyer et organiser vos e-mails pour vous, ainsi qu'une boîte de réception rapide, dotée d'un clavier, que vous pouvez gérer vous-même. Pensez surhumain, mais l'agent est un citoyen de premier ordre et la base de code vous appartient.
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Boîte de réception 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='Rechercher'></span><span data-icon='edit' aria-label='Composer'></span><span data-icon='bell' aria-label='Notifier'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Pria Martin</strong><span><strong>Lancement T3</strong> — ressources finales prêtes pour révision</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Facturation Acme</strong><span>Votre facture mensuelle est prête</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Marc Tang</span><span>Parcours d’intégration research findings</span><span>Hier</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR prête pour revue</span><span>Hier</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Issue ENG-1287 assignée à vous</span><span>2 mai</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>Résumé hebdomadaire des paiements</span><span>29 avr.</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>Nouvelle réservation confirmée</span><span>28 avr.</span></div></div></div>"
+}
+```
+
+Lorsque vous ouvrez l'application, la boîte de réception et l'affichage du fil de discussion restent concentrés sur le courrier lui-même. L'agent sait toujours dans quelle vue vous vous trouvez et quel fil de discussion vous avez ouvert, vous pouvez donc dire « archiver ceci » ou « rédiger un refus amical » sans expliquer ce que « ceci » signifie.
+
+```an-diagram title="Comment se déroule une demande de courrier" summary="Les raccourcis clavier et les invites des agents exécutent les mêmes actions. L'e-mail réside dans Gmail ; les brouillons, les automatisations et le suivi en direct dans SQL et application_state."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Vous pilotez<br><small class=\"diagram-muted\">raccourcis J/K/E/R</small></div><div class=\"diagram-node\">Vous demandez à l’agent<br><small class=\"diagram-muted\">\"rédige un refus amical\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-emails · get-thread · manage-draft · send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Gmail<br><small class=\"diagram-muted\">multi-compte, via OAuth</small></div><div class=\"diagram-box\">SQL + application_state<br><small class=\"diagram-muted\">brouillons · automatisations · suivi</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">La boîte de réception s’actualise en direct</div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## Ce que vous pouvez en faire
+
+- **Lire et trier les e-mails** avec des raccourcis clavier (`J`/`K` pour déplacer, `E` pour archiver, `R` pour répondre, `C` pour composer).
+- **Connectez plusieurs comptes Gmail** : personnel et travail dans une seule boîte de réception.
+- **Demandez à l'agent de faire tout ce que vous pouvez faire.** "Résumer mes e-mails non lus." "Rédigez une réponse qui refuse poliment." "Archiver tous les e-mails des robots Netlify datant de plus d'une semaine."
+- **Mettez les brouillons en file d'attente pour révision.** Les coéquipiers et les utilisateurs de Slack peuvent demander à l'agent de préparer un e-mail pour un membre de l'organisation ; le propriétaire le révise, le modifie et l'envoie depuis Mail.
+- **Triage automatique avec règles.** Configurez des règles d'automatisation en anglais simple ("à partir d'une newsletter") avec actions (étiquette, archive, marque de lecture, étoile, corbeille).
+- **Suivez les ouvertures et les clics** sur les e-mails que vous envoyez.
+- **Recherchez dans chaque boîte de réception connectée** avec une seule requête.
+- **Archive, exportation et étiquette en masse** – utiles pour le nettoyage de la boîte de réception.
+
+## Démarrer
+
+Démo en direct : [mail.agent-native.com](https://mail.agent-native.com).
+
+> **Google peut afficher un avertissement :** La démo hébergée utilise l'application Google partagée de Agent-Native pour l'accès à Gmail. Google peut donc vous demander de confirmer avant de continuer. Exécutez localement pour utiliser votre propre client Google OAuth.
+
+Lorsque vous ouvrez l'application pour la première fois :
+
+1. Cliquez sur **Paramètres** dans la barre latérale.
+2. Cliquez sur **Connecter le compte Google**, connectez-vous à Gmail et approuvez.
+3. (Facultatif) Connectez un deuxième compte Google pour le travail et le personnel.
+4. Retournez à la boîte de réception : votre véritable Gmail sera synchronisé.
+
+Sans compte Google connecté, l'application s'exécute sur une boîte aux lettres locale vide (utile pour les captures d'écran et les démos, pas grand-chose d'autre).
+
+## Parler à l'agent
+
+L'agent lit `application_state.navigation` à chaque tour, il sait donc déjà dans quelle vue vous vous trouvez, quel fil de discussion est ouvert et quel message est ciblé — vous n'avez pas besoin de le lui dire. Vous pouvez simplement dire des choses comme :
+
+- "Résumer mes e-mails non lus."
+- "Trouvez le dernier fil de discussion d'Alice sur le budget."
+- "Rédigez une réponse qui refuse poliment."
+- "Archiver tous les e-mails des robots Netlify datant de plus d'une semaine."
+- "Ouvrez mes e-mails favoris."
+- "Rendre ce brouillon plus formel."
+- "Est-ce qu'ils ont ouvert mon courrier électronique ?"
+
+Si vous sélectionnez du texte et appuyez sur Cmd+I, cette sélection accompagne votre prochain message ; donc "rendre cela plus percutant" agit exactement sur ce que vous avez mis en surbrillance.
+
+## Raccourcis clavier
+
+| Clé       | Actions                                          |
+| --------- | ------------------------------------------------ |
+| `J`       | E-mail suivant                                   |
+| `K`       | E-mail précédent                                 |
+| `Up/Down` | Identique à J/K                                  |
+| `Enter`   | Ouvrir un e-mail ciblé                           |
+| `E`       | Archiver l'e-mail ou le fil de discussion        |
+| `D`       | Corbeille d'un e-mail ou d'un fil de discussion  |
+| `S`       | Étiqueter ou supprimer une étoile                |
+| `R`       | Répondre                                         |
+| `U`       | Basculer lecture/non lecture                     |
+| `C`       | Rédiger un nouvel e-mail                         |
+| `/`       | Barre de recherche de focus                      |
+| `Cmd+K`   | Ouvrir la palette de commandes                   |
+| `G I`     | Accéder à la boîte de réception                  |
+| `G S`     | Aller dans Favoris                               |
+| `G T`     | Aller à Envoyés                                  |
+| `G D`     | Accéder aux brouillons                           |
+| `G A`     | Aller aux archives                               |
+| `Esc`     | Fermer le fil de discussion/effacer la recherche |
+
+## Pour les développeurs
+
+Le reste de ce document s'adresse à toute personne qui crée le modèle Mail ou l'étend.
+
+### Démarrage rapide
+
+Créez un nouvel espace de travail avec le modèle Mail :
+
+```bash
+npx @agent-native/core@latest create my-mail --standalone --template mail
+cd my-mail
+pnpm install
+pnpm dev
+```
+
+Ou ajoutez Mail à un espace de travail natif d'agent existant :
+
+```bash
+npx @agent-native/core@latest add-app
+```
+
+Pour connecter Gmail en développement, vous avez besoin d'un client Google OAuth :
+
+1. Ouvrez [Google Cloud Console](https://console.cloud.google.com/) et créez un projet.
+2. Activez **Gmail API** sous APIs & Services → Bibliothèque.
+3. Créez les identifiants OAuth 2.0 (type : application Web). Ajoutez `http://localhost:8085/_agent-native/google/callback` comme redirection autorisée URI.
+4. Copiez l'ID client et la clé secrète client dans la page Paramètres de l'application en cours d'exécution, puis cliquez sur **Connecter le compte Google**.
+
+Les jetons sont stockés dans la table `oauth_tokens` SQL et s'actualisent automatiquement. Vous pouvez connecter plusieurs comptes Gmail une fois le premier configuré.
+
+### Fonctionnalités clés
+
+**Gmail multi-comptes.** Connectez un ou plusieurs comptes Google, puis répertoriez, recherchez, rédigez, envoyez, étiquetez, archivez, ajoutez des étoiles ou supprimez les boîtes de réception connectées.
+
+**Flux de travail de brouillon.** Plusieurs brouillons de rédaction sont synchronisés via l'état de l'application, et les brouillons SQL en file d'attente permettent aux coéquipiers ou aux utilisateurs de Slack de demander du courrier au propriétaire pour qu'il le révise et l'envoie.
+
+**Automatisations et suivi.** Les règles de tri en langage naturel peuvent étiqueter, archiver, marquer comme lu, mettre en vedette, supprimer ou déclencher manuellement ; les messages envoyés peuvent suivre les ouvertures et les clics.
+
+**Recherche, actions en masse et aperçus.** Recherche avancée dans la boîte de réception actions partagée, archivage/exportation en masse et aperçus de fils de discussion en ligne que l'agent peut intégrer dans le chat.
+
+### Comment l'agent voit votre contexte
+
+- **Vue et fil de discussion actuels** — le UI écrit `navigation` (vue, threadId, focusEmailId, recherche, étiquette) chaque fois que vous naviguez. L'agent le lit via `readAppState("navigation")` ou `pnpm action view-screen`.
+- **Ouvrir le brouillon** : si vous rédigez une réponse et demandez "Aidez-moi à rédiger ceci", l'agent lit l'entrée `compose-{id}` correspondante pour voir votre sujet et votre corps actuels, puis rédige un brouillon mis à jour. Le UI reprend le montage en direct.
+- **Historique du fil de discussion** : pour le contexte à mi-réponse, l'agent récupère le fil de discussion complet avec `pnpm action get-thread --id=<threadId>`.
+
+### Comment l'agent agit
+
+- **Opérations de messagerie** : archiver, corbeille, étoile, marquer comme lu, envoyer, brouillon - toutes s'exécutent en tant que scripts `pnpm action <name>` sous `templates/mail/actions/`.
+- **Navigation** — pour ouvrir un fil de discussion ou changer de vue pour vous, l'agent écrit `application_state.navigate`, que le UI consomme et supprime. Le script `pnpm action navigate` enveloppe cela.
+- **Actualiser** : après toute modification, l'agent exécute `pnpm action refresh-list` afin que le UI soit récupéré.
+
+### Modèle de données
+
+Lorsqu'un compte Google est connecté, la messagerie électronique se trouve dans Gmail : l'application est une vue au-dessus. Lorsqu'aucun compte n'est connecté, les e-mails sont stockés dans le magasin de paramètres SQL sous `getSetting("local-emails")` (vide par défaut).
+
+| Magasin / Table               | Ce qu'il contient                                                                   |
+| ----------------------------- | ----------------------------------------------------------------------------------- |
+| `getSetting("local-emails")`  | E-mail local de secours lorsqu'aucun compte Google n'est connecté                   |
+| `getSetting("labels")`        | Étiquettes système et utilisateur, avec nombres non lus                             |
+| `getSetting("mail-settings")` | Profil utilisateur, préférences de suivi, signature, alias                          |
+| `getSetting("aliases")`       | Alias de messagerie                                                                 |
+| Tableau `queued_email_drafts` | Brouillons demandés par un coéquipier en attente d'examen/envoi par le propriétaire |
+| Tableau `email_tracking`      | Événements à pixel ouvert pour les messages envoyés                                 |
+| Tableau `email_link_tracking` | Événements de clic sur un lien pour les messages envoyés                            |
+| Tableau `application_state`   | Entrées `navigation`, `navigate`, `compose-{id}` (éphémères)                        |
+| Tableau `oauth_tokens`        | Jetons Google OAuth (fournisseur `"google"`, une ligne par compte)                  |
+
+Les e-mails circulant via le API ont la forme `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`.
+
+```an-schema title="Tableaux Mail SQL" summary="L'e-mail lui-même réside dans Gmail. Les tables SQL contiennent ce que Gmail ne contient pas : les brouillons en file d'attente, les événements de suivi d'envoi et les jetons OAuth. Les paramètres et l’état éphémère se trouvent dans les magasins settings et application_state."
+{
+  "entities": [
+    {
+      "id": "queued_email_drafts",
+      "name": "queued_email_drafts",
+      "note": "Brouillons de coéquipier/Slack en attente d'examen par le propriétaire",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "assignedTo", "type": "string", "note": "org member who reviews/sends" },
+        { "name": "subject", "type": "string" },
+        { "name": "body", "type": "markdown" },
+        { "name": "status", "type": "enum", "note": "review at /draft-queue/<id>" }
+      ]
+    },
+    {
+      "id": "email_tracking",
+      "name": "email_tracking",
+      "note": "Événements à pixel ouvert pour les messages envoyés",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "messageId", "type": "string" },
+        { "name": "openedAt", "type": "datetime" }
+      ]
+    },
+    {
+      "id": "email_link_tracking",
+      "name": "email_link_tracking",
+      "note": "Événements de clic sur un lien pour les messages envoyés",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "messageId", "type": "string", "fk": "email_tracking.messageId" },
+        { "name": "url", "type": "string" },
+        { "name": "clickedAt", "type": "datetime" }
+      ]
+    },
+    {
+      "id": "oauth_tokens",
+      "name": "oauth_tokens",
+      "note": "Tableau-cadre — une ligne par compte Google connecté",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "provider", "type": "string", "note": "\"google\"" },
+        { "name": "accountEmail", "type": "string" },
+        { "name": "accessToken", "type": "string" },
+        { "name": "refreshToken", "type": "string" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "email_tracking", "to": "email_link_tracking", "kind": "1-n", "label": "click events" }
+  ]
+}
+```
+
+Itinéraires dans le UI :
+
+- `/_index.tsx` : redirige vers la vue de la boîte de réception par défaut.
+- `/$view.tsx` — une vue de liste (`inbox`, `starred`, `sent`, `drafts`, `archive`, `trash`, etc.).
+- `/$view.$threadId.tsx` — une vue de liste avec un fil de discussion spécifique ouvert.
+- `/email` : l'aperçu du fil de discussion intégré utilisé dans le chat des agents.
+- `/settings` – connexions de compte, suivi, automatisations.
+- `/team` – membres de l'équipe et ressources partagées.
+
+### Le personnaliser
+
+C'est à vous de modifier le courrier. Tout ce qui est important se trouve dans une poignée d'endroits : commencez par là.
+
+**Ajout d'une fonctionnalité d'agent.** Ajoutez un nouveau fichier sous `templates/mail/actions/` à l'aide de `defineAction`. Votre action devient un outil d'agent, une commande CLI (`pnpm action <name>`) et une surface de hook frontal typée via `useActionQuery` / `useActionMutation`. Regardez `templates/mail/actions/star-email.ts` pour un court exemple ou `templates/mail/actions/manage-automations.ts` pour un exemple avec plusieurs sous-actions. Consultez la documentation [actions](/docs/actions) pour le modèle complet.
+
+**Modification du UI.** Les itinéraires sont dans `templates/mail/app/routes/` et les composants dans `templates/mail/app/components/email/` et `templates/mail/app/components/layout/`. L'application utilise les primitives shadcn/ui de `app/components/ui/` et les icônes Tabler – respectez-les.
+
+**Modifier le comportement de l'agent.** Le guidage de l'agent se trouve dans `templates/mail/AGENTS.md` et le skills dans `templates/mail/.agents/skills/` (`email-drafts`, `real-time-sync`, `security`, `self-modifying-code` et autres). Le comportement de l'agent est modifié en modifiant le démarque, et non le code.
+
+**Modification des données ou des paramètres.** Les schémas des tables de suivi et des structures associées se trouvent dans `templates/mail/server/db/`. Les lectures et écritures des paramètres passent par `readSetting` / `writeSetting` depuis `@agent-native/core/settings`. L'état de l'application (navigation, brouillons, commandes ponctuelles) utilise `readAppState` / `writeAppState` de `@agent-native/core/application-state`.
+
+**Ajout d'un nouveau type d'action d'automatisation.** Étendre le schéma d'action dans `templates/mail/actions/manage-automations.ts` et l'exécuteur dans `templates/mail/actions/trigger-automations.ts`.
+
+**Modification des raccourcis clavier.** Les gestionnaires de raccourcis clavier se trouvent dans `templates/mail/app/components/email/` : recherchez `useHotkeys` ou `addEventListener("keydown"` pour trouver où chaque touche est câblée.
+
+Demandez à l'agent d'effectuer l'une de ces modifications pour vous. L'agent peut modifier sa propre source — voir [Self-Modifying Code](/docs/key-concepts#agent-modifies-code).

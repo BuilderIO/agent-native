@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from "react";
 import { IconCode, IconPlus, IconTrash } from "@tabler/icons-react";
+import { useMemo, useRef, useState } from "react";
+
 import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
@@ -8,14 +9,10 @@ import type {
   AnnotatedCodeData,
 } from "./annotated-code.config.js";
 import {
-  highlightCode,
-  inferLanguageFromFilename,
-  normalizeCodeLanguage,
-} from "./code-highlight.js";
-import {
   AnnotationHiddenStack,
   AnnotationHoverCard,
   AnnotationInlineOverlayStack,
+  AnnotationGutterMarker,
   anchorFromElements,
   buildLineMarkerMap,
   hasRailAnnotations,
@@ -24,7 +21,13 @@ import {
   useAnnotationHover,
   type ResolvedAnnotation,
 } from "./annotation-rail.js";
+import { useBlockCopy } from "./block-copy.js";
 import { CodeFilenameLabel } from "./code-filename-label.js";
+import {
+  highlightCode,
+  inferLanguageFromFilename,
+  normalizeCodeLanguage,
+} from "./code-highlight.js";
 import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 
 /**
@@ -42,9 +45,9 @@ import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
  * pairs, so it reads correctly in BOTH light and dark mode. Code lines render as
  * `<span>`s (never one `<pre>` per line) so they don't pick up document
  * code/pre chrome. Lives in core so any app can register the dev-doc block.
- * Each annotated range also gets a small sticky glowing indicator at the top
- * right of its first line, making the hover affordance visible without a note
- * column.
+ * Each annotated range also gets a numbered marker in the left gutter on the
+ * first line, matching the diff block's annotation affordance without adding a
+ * persistent note column.
  *
  * Editing is panel-driven (config-style, like the diff/HTML blocks): a monospace
  * code Textarea, filename/language Inputs, and add/remove-able annotation rows.
@@ -157,6 +160,7 @@ function AnnotatedCodeRead({
   summary,
   ctx,
 }: BlockReadProps<AnnotatedCodeData>) {
+  const copy = useBlockCopy();
   // On-hover popover (anchored to the right of the code) replaces the old
   // persistent rail: nothing is visible when idle. `codeRef` measures the code
   // block's right edge; `hover` carries the active index + captured geometry.
@@ -283,6 +287,7 @@ function AnnotatedCodeRead({
     );
     const rangeStartMarkers =
       markers?.filter((item) => item.range?.start === lineNo) ?? [];
+    const showMarkerColumn = hasAnnotations;
 
     const buildAnchorForItem = (
       item: ResolvedAnnotation<AnnotatedCodeAnnotation>,
@@ -310,7 +315,11 @@ function AnnotatedCodeRead({
         tabIndex={isAnnotated ? 0 : undefined}
         role={isAnnotated ? "button" : undefined}
         aria-expanded={isAnnotated ? isActive : undefined}
-        aria-label={isAnnotated ? `Line ${lineNo} annotation` : undefined}
+        aria-label={
+          isAnnotated
+            ? copy.lineAnnotation.replace("{{line}}", String(lineNo))
+            : undefined
+        }
         className={cn(
           "relative flex w-full",
           isAnnotated && "cursor-pointer",
@@ -373,14 +382,13 @@ function AnnotatedCodeRead({
         <span className="w-11 shrink-0 select-none px-3 text-right text-[11px] tabular-nums text-plan-muted/60">
           {lineNo}
         </span>
-        <span className="flex-1 whitespace-pre pr-4 text-plan-code-text">
-          {highlightedLines[lineNo - 1]}
-        </span>
-        {rangeStartMarkers.length > 0 && (
+        {showMarkerColumn && (
           <span
             aria-hidden
-            className="sticky right-0.5 z-10 ml-2 flex h-[22px] shrink-0 items-center gap-1 self-start pr-0.5"
-            data-annotated-code-marker-stack
+            className="flex w-6 shrink-0 select-none items-center justify-center gap-1 py-0"
+            data-annotated-code-marker-stack={
+              rangeStartMarkers.length > 0 ? "" : undefined
+            }
           >
             {rangeStartMarkers.map((item) => (
               <span
@@ -394,24 +402,35 @@ function AnnotatedCodeRead({
                     ) ?? event.currentTarget;
                   openAnnotation(item, row);
                 }}
-                className="group inline-flex size-3 cursor-pointer items-center justify-center rounded-full outline-none transition-transform hover:scale-110"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  const row =
+                    event.currentTarget.closest<HTMLElement>(
+                      "[data-code-line]",
+                    ) ?? event.currentTarget;
+                  openAnnotation(item, row);
+                }}
+                className="inline-flex cursor-pointer outline-none transition-transform hover:scale-110"
               >
-                <span
-                  className={cn(
-                    "block rounded-full ring-1 transition-all duration-150",
-                    activeIndex === item.index
-                      ? "size-[6px] bg-yellow-300 ring-yellow-200 shadow-[0_0_0_3px_rgba(250,204,21,0.30),0_0_16px_rgba(250,204,21,0.92)] dark:bg-yellow-200 dark:ring-yellow-100/70 dark:shadow-[0_0_0_3px_rgba(253,224,71,0.26),0_0_16px_rgba(253,224,71,0.76)]"
-                      : "size-1 bg-yellow-300/95 ring-yellow-200/65 shadow-[0_0_0_2px_rgba(250,204,21,0.18),0_0_11px_rgba(250,204,21,0.56)] group-hover:size-[6px] group-hover:bg-yellow-300 group-hover:ring-yellow-200 group-hover:shadow-[0_0_0_3px_rgba(250,204,21,0.30),0_0_16px_rgba(250,204,21,0.90)] dark:bg-yellow-200/78 dark:ring-yellow-100/38 dark:shadow-[0_0_0_2px_rgba(253,224,71,0.16),0_0_11px_rgba(253,224,71,0.46)] dark:group-hover:bg-yellow-200 dark:group-hover:ring-yellow-100/68 dark:group-hover:shadow-[0_0_0_3px_rgba(253,224,71,0.26),0_0_16px_rgba(253,224,71,0.74)]",
-                  )}
+                <AnnotationGutterMarker
+                  marker={item.marker}
+                  active={
+                    activeIndex === item.index ||
+                    persistentAnnotationIndexes.has(item.index)
+                  }
                 />
               </span>
             ))}
           </span>
         )}
+        <span className="flex-1 whitespace-pre pr-4 text-plan-code-text">
+          {highlightedLines[lineNo - 1]}
+        </span>
         {overlayItems.length > 0 && (
           <AnnotationInlineOverlayStack
             items={overlayItems}
             ctx={ctx}
+            showMarker
             containerRef={codeRef}
             mode={showAnnotationOverlays ? "capture" : "margin"}
             side={showAnnotationOverlays ? "right" : annotationMarginSide}
@@ -482,7 +501,10 @@ function AnnotatedCodeRead({
                   ···
                 </span>
                 <span className="flex-1 text-[11px] text-plan-muted/70">
-                  {hiddenCount} lines — click to expand
+                  {copy.hiddenLinesExpand.replace(
+                    "{{count}}",
+                    String(hiddenCount),
+                  )}
                 </span>
               </button>
             );
@@ -503,7 +525,9 @@ function AnnotatedCodeRead({
           live in a visually-hidden stack (a11y + tests) and surface ONE at a
           time as an on-hover popover anchored to the right of the code. */}
       {codeSurface}
-      {hasAnnotations && <AnnotationHiddenStack items={resolved} ctx={ctx} />}
+      {hasAnnotations && (
+        <AnnotationHiddenStack items={resolved} ctx={ctx} showMarker />
+      )}
       {hasAnnotations &&
         !showAnnotationOverlays &&
         !activeItemIsPersistentlyVisible &&
@@ -513,6 +537,7 @@ function AnnotatedCodeRead({
             item={activeItem}
             anchor={hover.anchor}
             ctx={ctx}
+            showMarker
             preferredSide={annotationHoverSide}
             hoverFallbackSide={annotationHoverFallbackSide}
             onMouseEnter={hover.cancelClose}

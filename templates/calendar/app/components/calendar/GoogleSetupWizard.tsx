@@ -1,4 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  agentNativePath,
+  oauthRedirectUri,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconExternalLink,
   IconCheck,
@@ -6,10 +10,11 @@ import {
   IconLoader2,
   IconUpload,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
 
 interface EnvKeyStatus {
   key: string;
@@ -20,36 +25,33 @@ interface EnvKeyStatus {
 
 const STEPS = [
   {
-    title: "Enable the Google Calendar API",
-    description:
-      "Open Google Cloud Console and click 'Enable' on the Calendar API.",
+    titleKey: "googleConnect.steps.enableApi.title",
+    descriptionKey: "googleConnect.steps.enableApi.description",
     url: "https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com",
-    linkText: "Enable Calendar API",
+    linkTextKey: "googleConnect.steps.enableApi.linkText",
   },
   {
-    title: "Configure OAuth consent screen",
-    description:
-      'Set the app name to anything (e.g. "My Calendar"), choose "External" user type, and add your email as a test user. If you see an overview page, consent is already configured — skip to the next step.',
+    titleKey: "googleConnect.steps.consent.title",
+    descriptionKey: "googleConnect.steps.consent.description",
     url: "https://console.cloud.google.com/apis/credentials/consent",
-    linkText: "Configure consent screen",
+    linkTextKey: "googleConnect.steps.consent.linkText",
   },
   {
-    title: "Create OAuth credentials",
-    description:
-      '1) Click "+ Create Credentials" → "OAuth client ID"\n2) Choose "Web application"\n3) Add this redirect URI:',
+    titleKey: "googleConnect.steps.credentials.title",
+    descriptionKey: "googleConnect.steps.credentials.description",
     url: "https://console.cloud.google.com/apis/credentials",
-    linkText: "Create credentials",
+    linkTextKey: "googleConnect.steps.credentials.linkText",
     showRedirectUri: true,
   },
   {
-    title: "Upload credentials JSON",
-    description:
-      'Click "Download JSON" on the credentials page, then upload it here. Or paste the Client ID and Client Secret manually.',
+    titleKey: "googleConnect.steps.upload.title",
+    descriptionKey: "googleConnect.steps.upload.description",
     showUpload: true,
   },
 ];
 
 export function GoogleSetupWizard() {
+  const t = useT();
   const [currentStep, setCurrentStep] = useState(0);
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
@@ -104,7 +106,7 @@ export function GoogleSetupWizard() {
       const secret = creds.client_secret;
 
       if (!id || !secret) {
-        throw new Error("Could not find client_id and client_secret in JSON");
+        throw new Error(t("googleConnect.missingClientCredentials"));
       }
 
       const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
@@ -120,7 +122,7 @@ export function GoogleSetupWizard() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save credentials");
+        throw new Error(data.error || t("googleConnect.failedSaveCredentials"));
       }
 
       setSaved(true);
@@ -128,7 +130,9 @@ export function GoogleSetupWizard() {
       // Reload after a short delay to let Vite restart with new env vars
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to parse JSON");
+      setError(
+        err instanceof Error ? err.message : t("googleConnect.failedParseJson"),
+      );
     } finally {
       setSaving(false);
     }
@@ -154,7 +158,7 @@ export function GoogleSetupWizard() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save credentials");
+        throw new Error(data.error || t("googleConnect.failedSaveCredentials"));
       }
 
       setSaved(true);
@@ -164,7 +168,9 @@ export function GoogleSetupWizard() {
       // Reload after a short delay to let Vite restart with new env vars
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+      setError(
+        err instanceof Error ? err.message : t("googleConnect.failedSave"),
+      );
     } finally {
       setSaving(false);
     }
@@ -188,7 +194,7 @@ export function GoogleSetupWizard() {
             key={i}
             role="button"
             tabIndex={0}
-            className={`w-full text-left rounded-lg border p-4 transition-colors cursor-pointer ${
+            className={`w-full text-start rounded-lg border p-4 transition-colors cursor-pointer ${
               isActive
                 ? "border-primary/40 bg-primary/5"
                 : isCompleted
@@ -215,14 +221,14 @@ export function GoogleSetupWizard() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium">
-                  <span className="text-muted-foreground mr-1.5">{i + 1}.</span>
-                  {step.title}
+                  <span className="text-muted-foreground me-1.5">{i + 1}.</span>
+                  {t(step.titleKey)}
                 </p>
 
                 {isActive && (
                   <div className="mt-2 space-y-3">
                     <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
-                      {step.description}
+                      {t(step.descriptionKey)}
                     </p>
 
                     {step.showRedirectUri && (
@@ -242,10 +248,10 @@ export function GoogleSetupWizard() {
                           {copiedKey === "redirect" ? (
                             <>
                               <IconCheck className="h-3 w-3" />
-                              Copied
+                              {t("googleConnect.copied")}
                             </>
                           ) : (
-                            "Copy"
+                            t("googleConnect.copy")
                           )}
                         </Button>
                       </div>
@@ -270,7 +276,7 @@ export function GoogleSetupWizard() {
                           }}
                         >
                           <IconExternalLink className="h-3 w-3" />
-                          {step.linkText}
+                          {step.linkTextKey ? t(step.linkTextKey) : null}
                         </a>
                       </Button>
                     )}
@@ -308,7 +314,9 @@ export function GoogleSetupWizard() {
                             ) : (
                               <IconUpload className="h-3 w-3" />
                             )}
-                            {saving ? "Saving..." : "Upload JSON"}
+                            {saving
+                              ? t("common.saving")
+                              : t("googleConnect.uploadJson")}
                           </Button>
                           <button
                             className="text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -318,8 +326,8 @@ export function GoogleSetupWizard() {
                             }}
                           >
                             {showManualFields
-                              ? "Hide manual entry"
-                              : "Or paste manually"}
+                              ? t("googleConnect.hideManualEntry")
+                              : t("googleConnect.orPasteManually")}
                           </button>
                         </div>
 
@@ -330,7 +338,7 @@ export function GoogleSetupWizard() {
                                 htmlFor="client-id"
                                 className="text-xs text-muted-foreground"
                               >
-                                Client ID
+                                {t("googleConnect.clientId")}
                               </Label>
                               <Input
                                 id="client-id"
@@ -345,7 +353,7 @@ export function GoogleSetupWizard() {
                                 htmlFor="client-secret"
                                 className="text-xs text-muted-foreground"
                               >
-                                Client Secret
+                                {t("googleConnect.clientSecret")}
                               </Label>
                               <Input
                                 id="client-secret"
@@ -372,9 +380,11 @@ export function GoogleSetupWizard() {
                               }
                             >
                               {saving && (
-                                <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                                <IconLoader2 className="me-1.5 h-3 w-3 animate-spin" />
                               )}
-                              {saving ? "Saving..." : "Save credentials"}
+                              {saving
+                                ? t("common.saving")
+                                : t("googleConnect.saveCredentials")}
                             </Button>
                           </div>
                         )}
@@ -384,8 +394,7 @@ export function GoogleSetupWizard() {
                     {step.showUpload && allConfigured && (
                       <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">
                         <IconCheck className="h-3.5 w-3.5" />
-                        Credentials configured. You can now connect your Google
-                        Calendar above.
+                        {t("googleConnect.credentialsConfiguredAbove")}
                       </div>
                     )}
                   </div>

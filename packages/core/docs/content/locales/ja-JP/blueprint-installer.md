@@ -1,0 +1,83 @@
+---
+title: "ブループリント インストーラー"
+description: "agent-native add は、厳選された Markdown 統合レシピを stdout に出力します。これをコーディング エージェントにパイプし、ライブ リポジトリに対して変更を適用します。"
+---
+
+# ブループリント インストーラー
+
+> **対象者:** プロバイダー、チャネルを追加するホスト作成者およびインテグレーター
+> サンドボックス バックエンド、またはレシピをコーディング エージェントにパイプすることによるリポジトリへのアクション。
+
+`agent-native add` は、ファイルを書き込む愚かなスキャフォールダーではありません\*\*。厳選された Markdown _統合ブループリント_ を標準出力に出力します。そのブループリントを独自のコーディング エージェント (Claude コード、Codex など) にパイプし、フル コンテキストでライブ リポジトリに対して変更を適用します。
+
+これは、エージェントが変更を適用し、ファイルシステムを優先するハウス スタイルに適合します。フレームワークがレシピ (参照する正規ファイル、遵守するルール、検証ステップ) を提供し、コーディング エージェントが編集を行います。
+
+```bash
+agent-native add provider stripe | claude
+agent-native add channel discord  | codex
+```
+
+```an-diagram title="add はレシピを印刷します。コーディングエージェントがそれを適用します" summary="agent-native は、Markdown ブループリントを stdout に出力します (診断は stderr に出力されます)。それを Claude Code または Codex にパイプすると、フルコンテキストでライブ リポジトリが編集されます。"
+{
+  "html": "<div class=\"diagram-bp\"><div class=\"diagram-node\" data-rough>agent-native add<br><small class=\"diagram-muted\">&lt;kind&gt; &lt;name|URL&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Markdownブループリント<br><small class=\"diagram-muted\">stdout · 触るファイル · ルール · 検証</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>コーディングエージェント<br><small class=\"diagram-muted\">claude · codex</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">edits your live repo</div></div>",
+  "css": ".diagram-bp{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bp .diagram-arrow{font-size:22px;line-height:1}.diagram-bp .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## 使用法 {#usage}
+
+```bash
+agent-native add <kind> <name>            # print a curated blueprint
+agent-native add <kind> <https://docs…>   # URL からの調査と統合
+agent-native add --list                   # list available kinds and blueprints
+```
+
+- 裸の **名前** は、`blueprints/<kind>/<name>.md` から厳選されたブループリントを解決します。
+- 名前の代わりに **URL** を使用すると、その種類の一般的な _research-and-integrate_ ブループリントが生成され、URL が研究の開始点として埋め込まれます (URL は研究のシードであり、既知のレシピではありません)。
+- ブループリントは **stdout** に保存されます。診断は標準エラー出力に送られるため、`… | claude` はブループリントのみを受け取ります。
+
+## シードされたブループリント {#seeded}
+
+`agent-native add --list` には同梱品が表示されます:
+
+| 種類       | 名前      | 設定内容                                                                                            |
+| ---------- | --------- | --------------------------------------------------------------------------------------------------- |
+| `provider` | `stripe`  | プロバイダーを `provider-api` 基板 (カタログ/ドキュメント/リクエスト トリオ) に配線します。         |
+| `channel`  | `discord` | `PlatformAdapter` 受信 Webhook チャネルを実装し、登録します。                                       |
+| `sandbox`  | `docker`  | `SandboxAdapter` シームを実装して、Docker コンテナで `run-code` を実行します。                      |
+| `action`   | `crud`    | Zod スキーマを使用して単一のマルチサーフェス `defineAction` を追加します (N 上に 1 つの `update`)。 |
+
+各ブループリントは自己完結型です。ブループリントを読み取るコーディング エージェントは、アクセスするファイルを取得し、遵守するフレームワーク ルール (actions は唯一の真実のソース、シークレットは決してハードコードしない、所有可能なデータの範囲を設定する、`packages/*` ソースの変更セットを追加する)、および具体的な **Verify** セクションを取得します。
+
+## URL → 研究設計図 {#url}
+
+その種類に厳選されたレシピがない (または新たな統合が必要な) URL を渡すと、`add` は URL をシードとして汎用の「調査と統合」ブループリントを出力します。
+
+```bash
+agent-native add provider https://docs.example.com/api | claude
+```
+
+生成されたブループリントは、コーディング エージェントに、実際のエンドポイント、認証モデル、ペイロード形状、署名/検証要件の URL (およびそのリンク先のページ) を取得するように指示します (トレーニング データから推測するのではなく)。その後、実装して検証します。また、種類固有のガイダンスも含まれます (例: `provider` URL は `provider-api` 基板に向けて誘導され、`channel` URL は `PlatformAdapter` に向けて誘導されます)。
+
+## 独自のブループリントを追加する {#authoring}
+
+Markdown ファイルを `packages/core/blueprints/<kind>/<name>.md` にドロップします。種類はサブディレクトリです。名前は`.md`を除いたファイル名です。これは自動的に取得されます。`--list`、名前解決、カタログはすべて実行時にディレクトリを読み取ります。登録するためにコードを変更する必要はありません。
+
+ブループリント `.md` ファイルは、`package.json` `files` の `blueprints` エントリを介して公開パッケージに同梱されるため、エンド ユーザーにとっては `node_modules/@agent-native/core/blueprints/**` で解決されます。
+
+各ブループリントを、他のコンテキストを持たないコーディング エージェントの命令セットとして作成します。優れた青写真には次のような特徴があります。
+
+1. **1 行の目標** と「あなたはエージェント ネイティブ アプリのコーディング エージェントであり、これらを実際のソース変更として適用します」というフレームワーク。
+2. **最初にお読みください** — 契約書である正確なファイル。
+3. **操作するファイル** — 具体的なパスと各変更の内容。
+4. **遵守するフレームワーク ルール** — actions ファースト、ハードコーディングされたシークレットなし、所有可能なデータのスコープ、公開可能なパッケージ ソースの変更セットの追加。
+5. **検証** — タイプチェック、焦点を絞った `*.spec.ts`、およびエンドツーエンド チェック。
+
+> [!TIP]
+> 既存の種類の下で新しくキュレートされたブループリントにはコードは必要ありません。ただし、新しい種類のディレクトリを作成すると、その種類は `--list` にも自動的に表示されます。
+
+## 次は何ですか
+
+- [**Sandbox Adapters**](/docs/sandbox-adapters) — `add sandbox docker` ブループリントのターゲットとなる継ぎ目
+- [**Actions**](/docs/actions) — すべてのブループリントが構築される唯一の信頼できる情報源
+- [**External Agents**](/docs/external-agents) — ブループリントをパイプするコーディング エージェントの接続

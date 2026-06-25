@@ -1,25 +1,26 @@
+import { AgentSidebar, useT } from "@agent-native/core/client";
+import { InvitationBanner } from "@agent-native/core/client/org";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, Navigate } from "react-router";
-import { AgentSidebar } from "@agent-native/core/client";
-import { InvitationBanner } from "@agent-native/core/client/org";
-import { compositions } from "@/remotion/registry";
-import { Spinner } from "@/components/ui/spinner";
+
+import { QuestionFlow } from "@/components/QuestionFlow";
 import { Sidebar } from "@/components/Sidebar";
 import { StudioHeader } from "@/components/StudioHeader";
-import { QuestionFlow } from "@/components/QuestionFlow";
-import CompositionView from "@/pages/CompositionView";
-import NewComposition from "@/pages/NewComposition";
-import { CurrentElementProvider } from "@/contexts/CurrentElementContext";
+import { Spinner } from "@/components/ui/spinner";
 import {
   CompositionProvider,
   useComposition,
 } from "@/contexts/CompositionContext";
-import { TimelineProvider } from "@/contexts/TimelineContext";
+import { CurrentElementProvider } from "@/contexts/CurrentElementContext";
 import { PlaybackProvider } from "@/contexts/PlaybackContext";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { useQuestionFlow } from "@/hooks/use-question-flow";
+import { TimelineProvider } from "@/contexts/TimelineContext";
 import { useCompositionCollab } from "@/hooks/use-composition-collab";
 import { useDatabaseCompositions } from "@/hooks/use-database-compositions";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useQuestionFlow } from "@/hooks/use-question-flow";
+import CompositionView from "@/pages/CompositionView";
+import NewComposition from "@/pages/NewComposition";
+import { compositions } from "@/remotion/registry";
 
 function StudioContent({
   collab,
@@ -27,6 +28,7 @@ function StudioContent({
   collab: ReturnType<typeof useCompositionCollab>;
 }) {
   const isMobile = useIsMobile();
+  const t = useT();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const initialSidebarSet = useRef(false);
   const {
@@ -72,11 +74,11 @@ function StudioContent({
       <AgentSidebar
         position="right"
         defaultOpen
-        emptyStateText="Ask me anything about your videos"
+        emptyStateText={t("agent.emptyState")}
         suggestions={[
-          "Make a logo reveal for Acme",
-          "Add a camera zoom on this scene",
-          "Slow down the intro animation",
+          t("agent.suggestionLogo"),
+          t("agent.suggestionZoom"),
+          t("agent.suggestionSlow"),
         ]}
       >
         <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
@@ -136,6 +138,7 @@ function StudioContent({
 
 export default function Studio() {
   const { compositionId } = useParams<{ compositionId: string }>();
+  const t = useT();
   const dbCompositions = useDatabaseCompositions();
   const collab = useCompositionCollab(
     compositionId && compositionId !== "new" ? compositionId : null,
@@ -197,11 +200,11 @@ export default function Studio() {
                 <AgentSidebar
                   position="right"
                   defaultOpen
-                  emptyStateText="Ask me anything about your videos"
+                  emptyStateText={t("agent.emptyState")}
                   suggestions={[
-                    "Make a logo reveal for Acme",
-                    "Add a camera zoom on this scene",
-                    "Slow down the intro animation",
+                    t("agent.suggestionLogo"),
+                    t("agent.suggestionZoom"),
+                    t("agent.suggestionSlow"),
                   ]}
                 >
                   <div className="flex flex-1 min-h-0 flex-col overflow-hidden">

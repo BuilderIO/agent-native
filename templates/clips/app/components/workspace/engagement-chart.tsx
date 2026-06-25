@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   CartesianGrid,
   Line,
@@ -36,10 +37,11 @@ export function EngagementChart({
   data,
   brandColor = "hsl(var(--primary))",
 }: EngagementChartProps) {
+  const t = useT();
   if (!data || data.length === 0) {
     return (
       <div className="h-64 flex items-center justify-center text-sm text-muted-foreground">
-        No engagement data yet.
+        {t("clipsFinalRaw.noEngagementData")}
       </div>
     );
   }
@@ -87,7 +89,7 @@ export function EngagementChart({
             stroke={brandColor}
             strokeWidth={2}
             dot={false}
-            name="Views"
+            name={t("insightsHub.views")}
           />
           <Line
             type="monotone"
@@ -95,7 +97,7 @@ export function EngagementChart({
             stroke="#22c55e"
             strokeWidth={2}
             dot={false}
-            name="Reactions"
+            name={t("insightsHub.reactions")}
           />
           <Line
             type="monotone"
@@ -103,7 +105,7 @@ export function EngagementChart({
             stroke="#f97316"
             strokeWidth={2}
             dot={false}
-            name="Comments"
+            name={t("insightsHub.comments")}
           />
         </LineChart>
       </ResponsiveContainer>

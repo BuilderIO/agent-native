@@ -1,17 +1,19 @@
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../../server/db";
-import { useEffect, useState } from "react";
-import { IconLock, IconMessageCircle } from "@tabler/icons-react";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, useT } from "@agent-native/core/client";
 import {
   getConfiguredAppBasePath,
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { VisualEditor } from "@/components/editor/VisualEditor";
 import { buildPublicDocumentDescription } from "@shared/og-description";
+import { IconLock, IconMessageCircle } from "@tabler/icons-react";
+import { eq } from "drizzle-orm";
+import { useEffect, useState } from "react";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { redirect, useLoaderData } from "react-router";
+
+import { VisualEditor } from "@/components/editor/VisualEditor";
+
+import { getDb, schema } from "../../server/db";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const id = params.id;
@@ -60,11 +62,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
   };
 }
 
-export const meta: MetaFunction<typeof loader> = ({ data }) => {
-  const title = data?.document?.title ?? "Public document";
+export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
+  const title = loaderData?.document?.title ?? "Public document";
   const description = buildPublicDocumentDescription({
     title,
-    content: data?.document?.content,
+    content: loaderData?.document?.content,
   });
   return [
     { title },
@@ -183,6 +185,7 @@ function PrivateDocumentNotice({
   id?: string;
   basePath?: string;
 }) {
+  const t = useT();
   useEffect(() => {
     if (!id) return;
     // The SSR loader can't see the viewer's session (SSR is impersonal so the
@@ -201,11 +204,10 @@ function PrivateDocumentNotice({
           <IconLock size={22} />
         </div>
         <h1 className="text-2xl font-semibold tracking-normal">
-          This document is private
+          {t("publicDocument.privateTitle")}
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          Ask the owner to share it with your account or workspace before
-          opening this link.
+          {t("publicDocument.privateDescription")}
         </p>
       </section>
     </main>
@@ -213,6 +215,7 @@ function PrivateDocumentNotice({
 }
 
 export default function PublicDocumentPage() {
+  const t = useT();
   const data = useLoaderData<typeof loader>();
   const document = data.document;
 
@@ -235,12 +238,14 @@ export default function PublicDocumentPage() {
           className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground shadow-sm hover:bg-accent"
         >
           <IconMessageCircle size={16} />
-          Chat
+          {t("publicDocument.chat")}
         </button>
       </div>
       <article className="mx-auto max-w-3xl px-6 pb-16 pt-8 sm:px-8 lg:pb-24">
         <p className="text-sm text-muted-foreground">
-          Updated {formatUpdatedAt(document.updatedAt)}
+          {t("publicDocument.updated", {
+            date: formatUpdatedAt(document.updatedAt),
+          })}
         </p>
         <h1 className="mt-3 break-words text-4xl font-semibold tracking-normal text-foreground sm:text-5xl">
           {document.title}

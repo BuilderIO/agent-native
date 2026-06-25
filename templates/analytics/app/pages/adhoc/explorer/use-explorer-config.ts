@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { callAction, useT } from "@agent-native/core/client";
 import { useQuery } from "@tanstack/react-query";
+import { useState, useCallback, useEffect, useRef } from "react";
+
 import type { ExplorerConfig } from "./types";
 import { createDefaultConfig } from "./types";
-import { callAction } from "@agent-native/core/client";
 
 const AUTOSAVE_ID = "_autosave";
 const AUTOSAVE_DELAY = 800; // ms debounce
@@ -49,7 +50,11 @@ function persistConfig(id: string, config: ExplorerConfig) {
 }
 
 export function useExplorerConfig() {
-  const [config, setConfig] = useState<ExplorerConfig>(createDefaultConfig());
+  const t = useT();
+  const defaultConfigName = t("explorer.untitled");
+  const [config, setConfig] = useState<ExplorerConfig>(() =>
+    createDefaultConfig(defaultConfigName),
+  );
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -117,18 +122,18 @@ export function useExplorerConfig() {
     async (id: string) => {
       await callAction("delete-explorer-config", { id });
       if (currentId === id) {
-        setConfig(createDefaultConfig());
+        setConfig(createDefaultConfig(defaultConfigName));
         setCurrentId(null);
       }
       refetchList();
     },
-    [currentId, refetchList],
+    [currentId, defaultConfigName, refetchList],
   );
 
   const newConfig = useCallback(() => {
-    setConfig(createDefaultConfig());
+    setConfig(createDefaultConfig(defaultConfigName));
     setCurrentId(null);
-  }, []);
+  }, [defaultConfigName]);
 
   return {
     config,

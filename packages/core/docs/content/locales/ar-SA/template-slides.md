@@ -1,0 +1,293 @@
+---
+title: "الشرائح"
+description: "قم بإنشاء تشكيلات من الموجه، وتحريرها بشكل مرئي، وتقديمها بملء الشاشة. بديل مفتوح المصدر لـ Google Slides وPitch وPowerPoint."
+---
+
+# الشرائح
+
+قم بإنشاء مجموعات عروض تقديمية كاملة من خلال المطالبة، وقم بتحرير الشرائح بشكل مرئي، وتقديم العرض بملء الشاشة. اطلب من الوكيل "عرضًا تقديميًا مكونًا من 10 شرائح لخدمة الاشتراك في القهوة" وشاهده يتدفق شريحة تلو الأخرى إلى المحرر في ثوانٍ. بديل مفتوح المصدر لـ Google Slides وPitch وPowerPoint.
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>تحديث مجلس الإدارة للربع الثالث</h1><span class='wf-pill accent'>شريحة العنوان</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>مشاركة</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>تحديث مجلس الإدارة للربع الثالث</strong><br/><small>مايا تشين · CEO</small><div style='height:46px'></div><span class='wf-pill'>زخم المنتج</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>مخطط الشريحة</strong><div class='wf-box'>1 العنوان</div><div class='wf-box'>2 جدول الأعمال</div><div class='wf-box'>3 مقاييس</div><div class='wf-box'>4 تم شحنه</div></div><div class='wf-card' style='flex:1'><strong>ملاحظات المتحدث</strong><p class='wf-muted' style='margin:8px 0 0'>افتح بتقدم الإطلاق وقصة الاحتفاظ.</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 العنوان</div><div class='wf-box'>2 جدول الأعمال</div><div class='wf-box'>3 مقاييس</div><div class='wf-box'>4 تم شحنه</div><div class='wf-box'>5 مخاطر</div></div></div>"
+}
+```
+
+عند فتح مجموعة، تظل لوحة الشرائح والمخطط التفصيلي والملاحظات وشريط الأفلام في سطح محرر واحد بينما يظل بإمكان الوكيل إنشاء الشرائح ومراجعتها والتنقل فيها من خلال actions.
+
+```an-diagram title="موجه إلى سطح السفينة" summary="اطلب مجموعة وسيقوم الوكيل بتدفق الشرائح واحدة تلو الأخرى من خلال نفس الإجراءات التي يمكنك استدعاؤها من CLI."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">موجه<br><small class=\"diagram-muted\">\"10-slide pitch deck\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">يختار التخطيطات</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">create-deck</div><div class=\"diagram-pill\">add-slide &#215; n</div><small class=\"diagram-muted\">متوازي، متدفق</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>decks (SQL)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">المحرر يعرض مباشرة</div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## ما يمكنك فعله به
+
+- **إنشاء مجموعات من الموجهات.** "إنشاء مجموعة عروض تقديمية مكونة من 10 شرائح لخدمة الاشتراك في القهوة، الجمهور هو المستثمرون."
+- **تحرير الشرائح بشكل مرئي** — انقر نقرًا مزدوجًا على النص لتحريره، وانقر على كتلة لقائمة الفقاعة، واستخدم `/` لقائمة الشرطة المائلة لإدراج الكتل.
+- **إنشاء صور باستخدام الذكاء الاصطناعي.** الصور الرئيسية، ونماذج المنتجات، والرسوم التوضيحية - يفضل تفويضها إلى الأصول، مع إنشاء الصور المُدارة بواسطة Builder الجاهزة للتمكين بمجرد نشرها وتوجيه مفاتيح الموفر كبديل اليوم.
+- **البحث في الصور المخزنة وشعارات الشركة.** "ابحث عن شعار stripe.com وأضفه إلى الشريحة 2."
+- **عرض ملء الشاشة** مع التنقل عبر لوحة المفاتيح، وعناصر التحكم في الإخفاء التلقائي، وملاحظات المتحدث.
+- **التعليق والتعاون والمشاركة.** يمكن لعدة أشخاص تعديل نفس المجموعة في الوقت الفعلي. أنشئ ملف URL عام للقراءة فقط أو شاركه مع أعضاء محددين في الفريق.
+- **استيراد من PDF.** تحويل PDF إلى مجموعة بداية — يقوم الوكيل بتحليلها وتحديد المحتوى.
+- **الاستيراد من تنسيقات أخرى.** استيراد PPTX أو DOCX أو Google Docs أو GitHub repos أو أي URL كنقطة بداية. قم بالتصدير إلى PPTX، أو Google Slides، أو HTML.
+- **تطبيق أنظمة التصميم.** يتم حفظ الرموز المميزة للعلامة التجارية والتعليمات المخصصة واللوحات الافتراضية كأنظمة تصميم وتطبيقها على مجموعات جديدة.
+- **استعادة الإصدارات السابقة.** يتم أخذ لقطة لكل تغيير في المجموعة؛ قائمة أو استعادة أي إصدار سابق.
+
+## البدء
+
+عرض توضيحي مباشر: [slides.agent-native.com](https://slides.agent-native.com).
+
+عند فتح التطبيق:
+
+1. انقر على **مجموعة جديدة**.
+2. اسأل الوكيل: "أنشئ عرضًا تقديميًا مكونًا من 10 شرائح لخدمة الاشتراك في القهوة، الجمهور هو المستثمرون."
+3. شاهد تدفق الشرائح. انقر على أي شريحة لتحريرها، أو استمر في مطالبة الوكيل بتحسينها.
+
+### مطالبات مفيدة
+
+- "أنشئ عرضًا تقديميًا مكونًا من 10 شرائح لخدمة الاشتراك في القهوة، والجمهور هو المستثمرون."
+- "أضف شريحة التسعير بعد الشريحة 3."
+- "قم بتكبير العنوان في هذه الشريحة وتغيير لون التمييز إلى اللون الأخضر."
+- "قم بإنشاء صورة رئيسية للشريحة الحالية - داكنة وبسيطة وسينمائية."
+- "ابحث عن شعار stripe.com وأضفه إلى الشريحة 2."
+- "استبدل كلمة "العملاء" بكلمة "الأعضاء" في كل مكان في هذه المجموعة."
+- "تلخيص PDF كمجموعة مكونة من 6 شرائح." (أرفق PDF)
+
+حدد نصًا على الشريحة واضغط على Cmd+I لتركيز الوكيل على هذا التحديد - سيعمل فقط على ما حددته.
+
+## للمطورين
+
+باقي هذا المستند مخصص لأي شخص يقوم بتعديل قالب الشرائح أو توسيعه.
+
+### بداية سريعة
+
+إنشاء تطبيق شرائح جديد من CLI:
+
+```bash
+npx @agent-native/core@latest create my-slides --standalone --template slides
+cd my-slides
+pnpm install
+pnpm dev
+```
+
+### الميزات الرئيسية {#key-features}
+
+**إنشاء المطالبة بالتجميع.** اطلب مجموعة وسيقوم الوكيل بتدفق الشرائح إلى المحرر باستخدام نفس عملية الإنشاء والتحرير actions التي يمكنك تشغيلها بنفسك.
+
+**لوحة الشرائح القابلة للتحرير.** تحرير النص المضمن، وإدراج الشرطة المائلة، وتحرير التعليمات البرمجية، وترتيب السحب والإفلات، والتراجع/الإعادة، والتعليقات، ووضع العرض التقديمي، كلها موجودة في سطح المجموعة.
+
+**الاستيراد والتصدير.** إحضار PPTX وDOCX وGoogle Docs وملفات PDF وURLs وGitHub. قم بالتصدير إلى PPTX، أو Google Slides، أو HTML، أو رابط المشاركة.
+
+**أنظمة التصميم والوسائط.** تعمل أنظمة العلامات التجارية المحفوظة، وإنشاء الصور، والبحث عن المخزون، والبحث عن الشعار، على إبقاء المجموعات أقرب إلى الاتجاه المرئي المقصود.
+
+**التعاون والتاريخ.** تم تضمين تحرير Yjs في الوقت الفعلي، والتعليقات المتسلسلة، ومشاركة الأدوار، ولقطات إصدار المجموعة.
+
+### العمل مع الوكيل
+
+محادثة الوكيل موجودة في الشريط الجانبي. يمكنه إنشاء مجموعات، وتحرير شرائح فردية، وإنشاء صور، والبحث في الشعارات، والتنقل في UI - كل ذلك باستخدام نفس actions الذي قمت بتشغيله من CLI.
+
+#### ما يراه الوكيل
+
+عندما تكون المجموعة مفتوحة، يرى الوكيل تلقائيًا:
+
+- `deckId` و`slideIndex` الحاليين.
+- القائمة الكاملة للشرائح في المجموعة المفتوحة.
+- محتوى HTML للشريحة المحددة حاليًا.
+
+يتم إدخال هذا في كل رسالة ككتلة `current-screen`، لذلك لا يتعين على الوكيل أبدًا تخمين ما تعنيه "هذه الشريحة". تأتي البيانات من مفتاح حالة التطبيق `navigation`، والذي يكتبه UI في كل تنقل. انظر `templates/slides/actions/view-screen.ts`.
+
+#### تحديد النص للتعديلات المركزة
+
+حدد نصًا على الشريحة واضغط على Cmd+I لتركيز الوكيل مع هذا التحديد الذي تم تحميله مسبقًا. سيتصرف الوكيل فقط بناءً على ما حددته.
+
+#### معاينات الشرائح المضمنة في الدردشة
+
+يمكن للوكيل تضمين معاينة الشريحة المباشرة مباشرة في رد الدردشة باستخدام سياج التضمين الخاص بإطار العمل. فهو يعرض إطار iframe بدون كروم عبر `app/routes/slide.tsx` حتى تتمكن من رؤية النتيجة دون مغادرة المحادثة.
+
+### نموذج البيانات
+
+تعيش جميع بيانات سطح السفينة في SQL عبر Drizzle ORM. المخطط: `templates/slides/server/db/schema.ts`.
+
+```an-schema title="نموذج بيانات الشرائح" summary="A deck owns its slides as JSON in decks.data; comments, versions, shares, and design systems hang off it."
+{
+  "entities": [
+    {
+      "id": "decks",
+      "name": "decks",
+      "note": "Slides live as JSON in data; carries ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true, "note": "e.g. deck-1712345-abc" },
+        { "name": "title", "type": "text" },
+        { "name": "data", "type": "text", "note": "JSON: { title, slides: [{ id, content, layout }] }" },
+        { "name": "created_at", "type": "text" },
+        { "name": "updated_at", "type": "text" }
+      ]
+    },
+    {
+      "id": "slide_comments",
+      "name": "slide_comments",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "deck_id", "type": "text", "fk": "decks.id" },
+        { "name": "slide_id", "type": "text", "note": "قم بتمرير التعليق مباشرة" },
+        { "name": "thread_id", "type": "text", "note": "خيوط" },
+        { "name": "parent_id", "type": "text", "nullable": true },
+        { "name": "content", "type": "text" },
+        { "name": "quoted_text", "type": "text", "nullable": true },
+        { "name": "author_email", "type": "text" },
+        { "name": "author_name", "type": "text" },
+        { "name": "resolved", "type": "boolean" }
+      ]
+    },
+    {
+      "id": "deck_versions",
+      "name": "deck_versions",
+      "note": "لقطات في وقت محدد للاستعادة",
+      "fields": [
+        { "name": "deck_id", "type": "text", "fk": "decks.id" },
+        { "name": "title", "type": "text" },
+        { "name": "data", "type": "text", "note": "المجموعة الكاملة JSON" },
+        { "name": "change_label", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "id": "design_systems",
+      "name": "design_systems",
+      "note": "Reusable brand tokens; ownableColumns",
+      "fields": [
+        { "name": "data", "type": "text", "note": "colors / typography / spacing" },
+        { "name": "assets", "type": "text", "nullable": true },
+        { "name": "custom_instructions", "type": "text", "nullable": true },
+        { "name": "is_default", "type": "boolean" }
+      ]
+    },
+    {
+      "id": "deck_share_links",
+      "name": "deck_share_links",
+      "note": "لقطات ارتباط المشاركة العامة المستمرة",
+      "fields": [
+        { "name": "token", "type": "text", "pk": true },
+        { "name": "title", "type": "text" },
+        { "name": "slides", "type": "text", "note": "JSON لقطة سريعة للشرائح" },
+        { "name": "aspect_ratio", "type": "text", "nullable": true },
+        { "name": "created_at", "type": "text" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "decks", "to": "slide_comments", "kind": "1-n", "label": "comments" },
+    { "from": "decks", "to": "deck_versions", "kind": "1-n", "label": "snapshots" }
+  ]
+}
+```
+
+تقوم جداول مشاركات الإطار (`deck_shares`، `design_system_shares`) بتعيين المبادئ الأساسية لأدوار المشاهد/المحرر/المشرف لكل مورد.
+
+#### التشكيلات
+
+| العمود       | اكتب | ملاحظات                                                                    |
+| ------------ | ---- | -------------------------------------------------------------------------- |
+| `id`         | النص | المفتاح الأساسي، على سبيل المثال. `deck-1712345-abc`                       |
+| `title`      | نص   | عنوان المجموعة                                                             |
+| `data`       | نص   | JSON كائن ثنائي كبير الحجم: `{ title, slides: [{ id, content, layout }] }` |
+| `created_at` | نص   | الطابع الزمني                                                              |
+| `updated_at` | نص   | الطابع الزمني                                                              |
+
+يحمل كل مجموعة أيضًا `ownableColumns` القياسي (المالك، والرؤية، ورمز المشاركة) بحيث يتم إدراجه في نموذج مشاركة إطار العمل.
+
+#### تعليقات الشريحة
+
+| عمود                          | ملاحظات                      |
+| ----------------------------- | ---------------------------- |
+| `id`                          | المفتاح الأساسي              |
+| `deck_id`                     | المجموعة الأصلية             |
+| `slide_id`                    | قم بتمرير التعليق إلى مكانه  |
+| `thread_id`, `parent_id`      | الترابط                      |
+| `content`, `quoted_text`      | نص التعليق ومقتطف نص اختياري |
+| `author_email`, `author_name` | المؤلف                       |
+| `resolved`                    | علامة منطقية                 |
+
+#### مشاركات سطح السفينة
+
+جدول المشاركات المقدم من إطار العمل (الذي تم إنشاؤه عبر `createSharesTable`) والذي يقوم بتعيين الأساسيات (المستخدمين أو المؤسسات) للأدوار (العارض، المحرر، المسؤول) لكل مجموعة.
+
+#### إصدارات سطح السفينة
+
+لقطات لحظية لمجموعة — `deck_id`، `title`، `data` (مجموعة كاملة JSON)، و`change_label` اختياري. يستخدم بواسطة `list-deck-versions` / `restore-deck-version`.
+
+#### أنظمة_التصميم
+
+رموز العلامة التجارية القابلة لإعادة الاستخدام — `data` (الألوان/الطباعة/التباعد)، `assets`، `custom_instructions`، وعلم `is_default`. يستخدم `ownableColumns` بحيث يمكن مشاركة أنظمة التصميم لكل مستخدم أو لكل مؤسسة.
+
+#### design_system_shares
+
+جدول مشاركات إطار العمل لأنظمة التصميم، وتعيين المبادئ الأساسية للأدوار (العارض، المحرر، المسؤول).
+
+#### deck_share_links
+
+لقطات ارتباط المشاركة العامة المستمرة بمفتاح `token`. يخزن كل صف `title` ولقطات مصفوفة JSON `slides` و`aspect_ratio` اختيارية و`created_at`. تعني روابط المشاركة المستمرة هنا أنها تظل قادرة على البقاء بعد إعادة تشغيل الخادم وتعمل عبر المثيلات التي لا تحتوي على خادم.
+
+#### بنية الشريحة
+
+كل شريحة داخل `decks.data` هي:
+
+```json
+{
+  "id": "slide-1",
+  "layout": "title",
+  "content": "<div class=\"fmd-slide\" style=\"...\">...</div>"
+}
+```
+
+`content` هو HTML خام - يوفر العارض (`app/components/deck/SlideRenderer.tsx`) الخلفية السوداء ونسبة العرض إلى الارتفاع الثابتة، ويوفر HTML كل شيء بالداخل. يتم دعم التضمين الغني أيضًا: مخططات Excalidraw عبر `ExcalidrawSlide.tsx` ومخططات Mermaid عبر `MermaidRenderer.tsx`.
+
+### تخصيصه {#customizing}
+
+قالب الشرائح قابل للتعديل بالكامل. الأماكن الرئيسية التي يجب البحث فيها عند توسيعها:
+
+#### Actions — `templates/slides/actions/`
+
+توجد هنا كل عملية قابلة للاستدعاء للوكيل كملف TypeScript. بعض الأشياء التي ستلمسها كثيرًا:
+
+- `create-deck.ts` — تشكيلة جديدة من البداية أو استبدال مجمّع.
+- `add-slide.ts` - إلحاق شريحة واحدة؛ تفضل هذا لتوليد البث.
+- `update-slide.ts` — البحث/الاستبدال الجراحي أو تبديل المحتوى بالكامل.
+- `view-screen.ts` — لقطة لما يراه المستخدم.
+- `generate-image.ts`، `edit-image.ts`، `image-search.ts`، `logo-lookup.ts` — أدوات الصور.
+- `extract-pdf.ts` — استيعاب PDF.
+
+يتم تثبيت كل إجراء تلقائيًا في `POST /_agent-native/actions/:name` ويمكن استدعاؤه من CLI كـ `pnpm action <name>`. أضف ملفًا جديدًا هنا لمنح الوكيل إمكانية جديدة.
+
+#### المسارات — `templates/slides/app/routes/`
+
+- `_index.tsx` — قائمة المجموعة.
+- `deck.$id.tsx` — المحرر.
+- `deck.$id_.present.tsx` — وضع العرض التقديمي.
+- `share.$token.tsx` — صفحة المشاركة العامة للقراءة فقط.
+- `slide.tsx` — تضمين شريحة واحدة يُستخدم في معاينات الدردشة.
+- `settings.tsx` — إعدادات القالب.
+- `team.tsx` — إدارة المؤسسة والفريق.
+
+#### مكونات المحرر — `templates/slides/app/components/editor/`
+
+تتم معظم عمليات تخصيص UI هنا: `SlideEditor.tsx`، و`EditorToolbar.tsx`، و`EditorSidebar.tsx`، والقوائم الفقاعية، وقائمة الشرطة المائلة، ولوحات إنشاء الصور، والبحث، والسجل.
+
+#### Skills — `templates/slides/.agents/skills/`
+
+الوكيل skills الذي يشرح الأنماط عندما يحتاج الوكيل إلى تعديل التعليمات البرمجية:
+
+- `create-deck/` — كيفية إنشاء مجموعة جديدة تحتوي على شرائح.
+- `slide-editing/` — كيفية تحرير الشرائح الفردية.
+- `deck-management/` — كيفية تخزين المجموعات والوصول إليها.
+- `slide-images/` — إنشاء الصور وسير عمل البحث.
+
+#### AGENTS.md
+
+`templates/slides/AGENTS.md` هو جهاز التوجيه القصير الذي يقرأه الوكيل في كل محادثة. ويشير إلى skills ضمن `.agents/skills/` ويضع القواعد الأساسية وعقد حالة التطبيق ومؤشر المهارات. توجد قوالب HTML للشرائح المحددة لكل تخطيط في `.agents/skills/create-deck/SKILL.md` - قم بتحديث هذه المهارة كلما قمت بإضافة نمط تخطيط شريحة أو تغييره.
+
+#### طرق API
+
+بالنسبة للحالات التي لا يكون فيها actions مناسبًا (تحميل الملفات، البث)، يعرض القالب مجموعة صغيرة من نقاط النهاية REST: `GET/POST /api/decks`، `GET/PUT/DELETE /api/decks/:id`. انظر `templates/slides/server/routes/api/`.

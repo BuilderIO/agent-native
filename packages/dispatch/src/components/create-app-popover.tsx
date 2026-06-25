@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   PromptComposer,
   agentNativePath,
@@ -19,12 +18,14 @@ import {
   IconLoader2,
   IconPlus,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
 
 interface VaultSecretOption {
   id: string;
@@ -322,7 +323,7 @@ export function CreateAppFlow({
         } else {
           setStatusMessage(
             result?.message ||
-              "Builder app creation is coming soon. Open this workspace in Builder to create an app from this prompt.",
+              "This requires a code change. Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
           );
         }
       }

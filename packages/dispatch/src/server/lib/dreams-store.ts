@@ -1,5 +1,13 @@
 import crypto from "node:crypto";
-import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
+
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  or,
+} from "@agent-native/core/db/schema";
 import {
   resourceGetByPath,
   resourceList,
@@ -12,6 +20,7 @@ import {
   putOrgSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
+
 import { getDb, schema } from "../../db/index.js";
 import {
   createApprovalRequest,

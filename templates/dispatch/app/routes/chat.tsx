@@ -1,9 +1,11 @@
 export { default } from "@agent-native/dispatch/routes/pages/chat";
-import type { LoaderFunctionArgs } from "react-router";
 import {
   buildThreadLinkPreviewMeta,
   type ThreadLinkPreview,
 } from "@agent-native/dispatch/lib/thread-link-preview";
+import type { LoaderFunctionArgs } from "react-router";
+
+import { messagesByLocale } from "@/i18n-data";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const threadId = new URL(request.url).searchParams.get("thread");
@@ -21,5 +23,5 @@ export function meta({
 }) {
   return data?.threadPreview
     ? buildThreadLinkPreviewMeta(data.threadPreview)
-    : [{ title: "Chat — Dispatch" }];
+    : [{ title: messagesByLocale["en-US"].routeTitles.chat }];
 }

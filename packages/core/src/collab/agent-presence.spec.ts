@@ -8,7 +8,6 @@ vi.mock("./ydoc-manager.js", () => ({
   applyPatchOps: (...args: unknown[]) => mockApplyPatchOps(...args),
 }));
 
-import { getDocAwareness } from "./awareness.js";
 import { AGENT_CLIENT_ID, DEFAULT_AGENT_IDENTITY } from "./agent-identity.js";
 import {
   agentEnterDocument,
@@ -17,6 +16,7 @@ import {
   agentApplyEditsIncrementally,
   agentApplyPatchesIncrementally,
 } from "./agent-presence.js";
+import { getDocAwareness } from "./awareness.js";
 
 function agentState(docId: string): Record<string, any> | undefined {
   const entry = getDocAwareness(docId).get(AGENT_CLIENT_ID);

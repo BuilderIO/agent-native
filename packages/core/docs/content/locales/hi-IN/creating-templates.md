@@ -1,0 +1,411 @@
+---
+title: "टेम्प्लेट बनाना"
+description: "अपने स्वयं के एजेंट-नेटिव ऐप टेम्प्लेट कैसे बनाएं और प्रकाशित करें।"
+---
+
+# टेम्प्लेट बनाना
+
+टेम्प्लेट पूर्ण, फोर्केबल एजेंट-नेटिव ऐप्स हैं जो वास्तविक वर्कफ़्लो को हल करते हैं। प्रथम-पक्ष टेम्पलेट आपके द्वारा उपयोग की जाने वाली समान फ़्रेमवर्क सतह के साथ बनाए गए हैं: UI के लिए React रूट, डेटा के लिए Drizzle SQL, संचालन के लिए actions, एजेंट व्यवहार के लिए कार्यक्षेत्र संसाधन, और पोलिंग सिंक ताकि एजेंट और UI संरेखित रहें।
+
+एक अच्छा टेम्पलेट:
+
+- उपयोगी बीज डेटा या खाली-अवस्था प्रवाह के साथ एक वर्कफ़्लो को शुरू से अंत तक हल करता है।
+- टिकाऊ स्थिति को SQL में संग्रहीत करता है, JSON फ़ाइलों में नहीं।
+- ऐप संचालन को `defineAction()` actions के रूप में परिभाषित करता है।
+- एप्लिकेशन स्थिति के माध्यम से नेविगेशन और चयन को उजागर करता है।
+- गैर-स्पष्ट वर्कफ़्लो के लिए एक स्पष्ट `AGENTS.md` प्लस केंद्रित skills शिप करता है।
+- आवश्यक प्रदाताओं और रहस्यों के लिए ऑनबोर्डिंग चरणों को पंजीकृत करता है।
+- एक स्टैंडअलोन ऐप और मल्टी-ऐप वर्कस्पेस के हिस्से के रूप में काम करता है।
+
+## चैट से प्रारंभ करें {#start-from-chat}
+
+जब आप पहले से मौजूद फ्रेमवर्क वायरिंग के साथ एक न्यूनतम ऐप चाहते हैं तो चैट टेम्पलेट का उपयोग करें:
+
+```bash
+npx @agent-native/core@latest create my-template --template chat --standalone
+```
+
+एकाधिक ऐप्स वाले कार्यक्षेत्र के लिए, पिकर चलाएँ और अपने इच्छित किसी भी डोमेन टेम्पलेट के साथ चैट शामिल करें:
+
+```bash
+npx @agent-native/core@latest create my-platform
+```
+
+चैट आपको प्रामाणिक, टिकाऊ चैट थ्रेड, SQL-समर्थित संसाधन, उपकरण, एप्लिकेशन स्थिति, actions और पोलिंग सिंक प्रदान करता है। आप डोमेन मॉडल और उत्पाद UI जोड़ें।
+
+यदि आप अभी तक पुन: प्रयोज्य UI टेम्पलेट नहीं बना रहे हैं, तो [Getting Started](/docs/getting-started#1-create-your-app) में हेडलेस ऑन-रैंप का उपयोग करें: एक क्रिया को परिभाषित करें, इसे `pnpm agent` के साथ चलाएं, और बाद में जब वर्कफ़्लो को एक टिकाऊ सतह की आवश्यकता हो तो UI जोड़ें।
+
+## परियोजना संरचना {#project-structure}
+
+प्रत्येक टेम्प्लेट समान व्यापक लेआउट का अनुसरण करता है:
+
+```an-file-tree title="Template project की संरचना"
+{
+  "title": "my-template/",
+  "entries": [
+    { "path": "app/", "note": "React फ्रंट एंड सतह" },
+    { "path": "app/root.tsx", "note": "HTML shell और providers" },
+    { "path": "app/routes/", "note": "React Router की file routes" },
+    { "path": "app/components/", "note": "Template की UI" },
+    { "path": "app/hooks/", "note": "UI state और data hooks" },
+    { "path": "actions/", "note": "defineAction operations: single source of truth" },
+    { "path": "server/db/schema.ts", "note": "Drizzle स्कीमा परिभाषा" },
+    { "path": "server/plugins/db.ts", "note": "additive migrations केवल जोड़ने वाली" },
+    { "path": "server/plugins/", "note": "startup integrations setup" },
+    { "path": "server/routes/api/", "note": "custom routes केवल तब जब actions पर्याप्त न हों" },
+    { "path": "shared/types.ts", "note": "shared client/server type definitions" },
+    { "path": ".agents/skills/", "note": "<skill>/SKILL.md: जटिल workflows के लिए agent guidance" },
+    { "path": "AGENTS.md", "note": "template-specific agent निर्देश" },
+    { "path": "package.json" },
+    { "path": "react-router.config.ts" },
+    { "path": "vite.config.ts" }
+  ]
+}
+```
+
+एप्लिकेशन स्थिति के लिए `data/` निर्देशिका न जोड़ें। टिकाऊ ऐप डेटा SQL में है, और UI इसे actions या टाइप किए गए सर्वर हैंडलर के माध्यम से पढ़ता है।
+
+प्रत्येक टेम्प्लेट के चार क्षेत्र एक साझा क्रिया सतह और एक SQL डेटाबेस के माध्यम से एक साथ जुड़ते हैं - एजेंट और UI समान संचालन में समान भागीदार हैं:
+
+```an-diagram title="किसी टेम्प्लेट के चार क्षेत्र कैसे जुड़ते हैं" summary="यूआई और एजेंट दोनों समान क्रियाओं के माध्यम से SQL तक पहुंचते हैं; एप्लिकेशन स्थिति और पोलिंग सिंक उन्हें संरेखित रखते हैं।"
+{
+  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React इंटरफेस<br><small class=\"diagram-muted\">app/routes · कंपोनेंट्स</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">क्रियाएँ</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Drizzle के ज़रिए SQL<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">पोलing sync</div></div>",
+  "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## SQL में मॉडल डेटा {#data-models}
+
+फ़्रेमवर्क Drizzle सहायकों के साथ डोमेन तालिकाओं को परिभाषित करें ताकि स्कीमा SQLite, Postgres, D1, Turso, Supabase, Neon और अन्य समर्थित बैकएंड पर पोर्टेबल रहें:
+
+```ts
+// server/db/schema.ts
+import {
+  table,
+  text,
+  integer,
+  now,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+
+export const projects = table("projects", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  status: text("status", {
+    enum: ["draft", "active", "archived"],
+  })
+    .notNull()
+    .default("draft"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  ...ownableColumns(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const projectShares = createSharesTable("project_shares");
+```
+
+स्कीमा परिवर्तन योगात्मक होने चाहिए। `server/plugins/db.ts` में `runMigrations()` के माध्यम से तालिकाएँ और कॉलम जोड़ें; कभी भी विनाशकारी SQL, `drizzle-kit push`, तालिका का नाम बदलने या कॉलम ड्रॉप का उपयोग न करें।
+
+ऐप पढ़ने और लिखने के लिए, Drizzle के क्वेरी बिल्डर और `drizzle-orm` के पोर्टेबल ऑपरेटरों का उपयोग करें। जब Drizzle क्वेरी को व्यक्त कर सकता है, तो कच्चे SQL के साथ उत्पाद कोड न लिखें, और टेम्पलेट्स में `drizzle-orm/sqlite-core` या `drizzle-orm/pg-core` से आयात न करें।
+
+```ts
+// server/plugins/db.ts
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+उपयोगकर्ता या संगठन डेटा रखने वाले स्कीमा जोड़ने से पहले [Database](/docs/database) और [Security](/docs/security) दस्तावेज़ों का उपयोग करें।
+
+## संचालन को क्रियाएँ के रूप में परिभाषित करें {#actions}
+
+क्रियाएँ ऐप व्यवहार के लिए सत्य का एकमात्र स्रोत है। एजेंट उन्हें टूल के रूप में कॉल करता है, फ्रंटएंड उन्हें हुक के माध्यम से कॉल करता है, और अन्य ऐप्स MCP/A2A के माध्यम से उन तक पहुंच सकते हैं।
+
+```an-annotated-code title="actions/create-project.ts"
+{
+  "filename": "actions/create-project.ts",
+  "language": "ts",
+  "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});",
+  "annotations": [
+    { "lines": "2", "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`." },
+    { "lines": "8", "label": "उपकरण सतह", "note": "`description` वह है जिसे एजेंट यह तय करने के लिए पढ़ता है कि इस क्रिया को टूल के रूप में कब कॉल करना है।" },
+    { "lines": "9-11", "label": "टाइप किया हुआ अनुबंध", "note": "एक zod `schema` agent, UI, HTTP, MCP और A2A से आने वाले input को validate करता है।" },
+    { "lines": "18-19", "label": "दायरा लिखें", "note": "`ctx` से `ownerEmail` / `orgId` स्टांप करें ताकि पंक्ति साझा करने और पहुंच जांच के लिए सही ढंग से दायरा हो।" }
+  ]
+}
+```
+
+केवल पढ़ने के लिए actions के लिए `http: { method: "GET" }` या `readOnly: true` का उपयोग करें। `parallelSafe: true` का उपयोग केवल actions को म्यूट करने के लिए करें जो समान-टर्न टूल कॉल के साथ-साथ चलने के लिए सुरक्षित हैं। उच्च-विस्फोट-त्रिज्या actions के लिए `toolCallable: false` का उपयोग करें जिसे सैंडबॉक्स वाले टूल से नहीं चलना चाहिए।
+
+## UI बनाएं {#ui}
+
+रूट `app/routes/` में रहते हैं और React राउटर v8 फ़ाइल रूटिंग का उपयोग करते हैं। actions या API हैंडलर के माध्यम से डेटा क्वेरी करें, और म्यूटेशन को डिफ़ॉल्ट रूप से आशावादी बनाएं।
+
+```tsx
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+
+export default function ProjectsPage() {
+  const { data: projects = [] } = useActionQuery("list-projects", {});
+  const create = useActionMutation("create-project");
+
+  return (
+    <button onClick={() => create.mutate({ title: "Launch plan" })}>
+      New project ({projects.length})
+    </button>
+  );
+}
+```
+
+ऐप शेल के पास एक बार वायर लाइव सिंक करें ताकि जब एजेंट, कोई अन्य टैब, या कोई एक्शन डेटा बदलता है तो React क्वेरी कैश रीफ्रेश हो जाता है:
+
+```tsx
+import { useDbSync } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
+
+export function AppSync() {
+  const queryClient = useQueryClient();
+  useDbSync({ queryClient });
+  return null;
+}
+```
+
+**एजेंट-नेटिव वादा: एजेंट लिखता है UI में बिना मैन्युअल रिफ्रेश के दिखाई देता है।** `useActionQuery` आसान रास्ता है - जब कोई परिवर्तनशील क्रिया `source: "action"` उत्सर्जित करती है तो प्रत्येक हुक रीफ़ेच हो जाता है। यदि आप एक कस्टम कुंजी (उदाहरण के लिए, एक निम्न-स्तरीय क्लाइंट सहायक जो एकीकरण स्थिति पढ़ता है) के साथ कच्चे `useQuery` तक पहुंचते हैं, तो लक्षित ताज़ा करने के लिए प्रति-स्रोत काउंटर को queryKey में मोड़ें:
+
+```tsx
+import { useChangeVersions } from "@agent-native/core/client";
+
+const v = useChangeVersions(["dashboards", "action"]);
+useQuery({
+  queryKey: ["dashboard", id, v],
+  queryFn: () => fetchDashboard(id),
+  placeholderData: (prev) => prev, // no flicker on refetch
+});
+```
+
+सामान्य स्रोत: `"action"` (प्रत्येक सफल एजेंट कार्रवाई - विश्वसनीय फ़ॉलबैक), `"app-state"`, `"settings"`, साथ ही कोई भी कस्टम संसाधन स्रोत जो आपका स्टोर `recordChange` के माध्यम से उत्सर्जित करता है। पूर्ण पैटर्न के लिए `real-time-sync` कौशल देखें।
+
+## एप्लिकेशन स्थिति जोड़ें {#application-state}
+
+एप्लिकेशन स्थिति यह है कि एजेंट कैसे जानता है कि उपयोगकर्ता क्या देख रहा है। कम से कम, जोड़ें:
+
+- एक UI हुक जो रूट, चयनित रिकॉर्ड, सक्रिय टैब या संपादक चयन बदलने पर सिमेंटिक `navigation` स्थिति लिखता है।
+- एक `view-screen` क्रिया जो उस स्थिति को पढ़ती है और वर्तमान स्क्रीन स्नैपशॉट लौटाती है।
+- एक `navigate` क्रिया जो UI के उपभोग के लिए एक-शॉट `navigate` कमांड लिखती है।
+
+UI हुक के लिए `useAgentRouteState` का उपयोग करें ताकि एप्लिकेशन-स्टेट लिखें, टैब-स्कोप्ड कमांड पढ़ें, डिलीट-आफ्टर-रीड, और डुप्लिकेट-कमांड सुरक्षा सुसंगत रहें:
+
+```tsx
+import { useAgentRouteState } from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
+
+export function useNavigationState() {
+  useAgentRouteState({
+    browserTabId: TAB_ID,
+    requestSource: TAB_ID,
+    getNavigationState: ({ pathname, searchParams }) => ({
+      view: pathname === "/" ? "home" : pathname.slice(1),
+      selectedId: searchParams.get("id"),
+    }),
+    getCommandPath: (command: any) => command.path ?? "/",
+    navigateOptions: { replace: true, flushSync: true },
+  });
+}
+```
+
+URL क्वेरी पैरामीटर्स में साझा करने योग्य फ़िल्टर रखें। फ्रेमवर्क उन्हें `<current-url>` के रूप में एजेंट के सामने उजागर करता है और अंतर्निहित एजेंट उन्हें `set-search-params` के साथ बदल सकता है; `navigation` में सिमेंटिक आईडी और उपनाम होने चाहिए, न कि पूरी क्वेरी स्ट्रिंग की दूसरी प्रति।
+
+ऐप नेविगेशन के लिए, एक `navigate` कमांड को प्राथमिकता दें जिसमें समान-मूल शामिल हो
+`path` जब URL ज्ञात हो। उसी चाल के लिए `__set_url__` भी न लिखें;
+वह कुंजी फ़्रेमवर्क URL टूल और URL-केवल फ़िल्टर परिवर्तनों के लिए आरक्षित है।
+
+```ts
+// actions/navigate.ts
+import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Navigate the UI.",
+  schema: z.object({
+    view: z.enum(["home", "project"]),
+    projectId: z.string().optional(),
+    path: z.string().optional(),
+  }),
+  run: async (args) => {
+    await writeAppState("navigate", args);
+    return { ok: true };
+  },
+});
+```
+
+पूर्ण पैटर्न के लिए [Context Awareness](/docs/context-awareness) देखें।
+
+## API मार्गों का संयम से उपयोग करें {#api-routes}
+
+ऐप संचालन के लिए actions को प्राथमिकता दें। केवल उन सतहों के लिए कस्टम Nitro रूट बनाएं जो साफ़-साफ़ actions नहीं हो सकते:
+
+- फ़ाइल अपलोड या बाइनरी स्ट्रीमिंग।
+- सार्वजनिक अनाम पृष्ठ और webhooks.
+- OAuth कॉलबैक और प्रदाता-विशिष्ट प्रोटोकॉल हैंडलर।
+- सर्वर-प्रदत्त सार्वजनिक सामग्री।
+
+कस्टम रूट जो स्वामित्व योग्य डेटा को छूते हैं, उन्हें एक्सेस हेल्पर्स का उपयोग करने से पहले `getSession(event)` को कॉल करना होगा और डेटाबेस कार्य को `runWithRequestContext({ userEmail, orgId }, fn)` में लपेटना होगा।
+
+## एजेंट निर्देश लिखें {#write-agents-md}
+
+`AGENTS.md` आपके ऐप का एजेंट का नक्शा है - एक छोटी, स्किम करने योग्य फ़ाइल
+उद्देश्य रेखा, मुख्य नियम, एप्लिकेशन-स्टेट कुंजियाँ, एक क्रिया तालिका, और एक skills
+सूचकांक:
+
+```markdown
+# मेरा टेम्पलेट
+
+One workspace for projects, tasks, and notes.
+
+## मूल नियम
+
+- Data lives in Drizzle के ज़रिए SQL. Use actions for all writes; schema is additive.
+- Use `view-screen` before acting on "this project" if the screen is unclear.
+
+## आवेदन स्थिति
+
+- `navigation.view`: `home` | `project`
+- `navigation.projectId`: selected project on a project page
+
+## क्रियाएँ
+
+| Action           | Purpose                  |
+| ---------------- | ------------------------ |
+| `list-projects`  | List accessible projects |
+| `create-project` | Create a project         |
+```
+
+जब भी आप कोई नई क्रिया, मार्ग, राज्य कुंजी, या आवर्ती जोड़ते हैं तो `AGENTS.md` को अपडेट करें
+कार्यप्रवाह. [Writing Agent Instructions](/docs/writing-agent-instructions) है
+पूर्ण गाइड - `AGENTS.md` को स्किमेबल कैसे रखें, चारों में से प्रत्येक में क्या है
+मार्गदर्शन सतह, और एजेंट को कौशल और उपकरण विवरण कैसे लिखें
+उन्हें विश्वसनीय रूप से ट्रिगर करता है।
+
+## Skills जोड़ें {#skills}
+
+विस्तृत पैटर्न के लिए skills का उपयोग करें जो `AGENTS.md` को फूला देगा: प्रदाता-विशिष्ट APIs, आयात/निर्यात प्रारूप, जटिल संपादन प्रवाह, या डोमेन शब्दावली।
+
+```markdown
+---
+name: project-imports
+description: How to import projects from the legacy CSV export.
+---
+
+# परियोजना आयात
+
+Use this skill when the user uploads a legacy project CSV.
+
+## नियम
+
+- Validate required columns before creating rows.
+- Use `create-project` for each project so ownership and sync are correct.
+- Save rejected rows as a note attached to the import summary.
+```
+
+`.agents/skills/<name>/SKILL.md` में स्टोर टेम्पलेट skills। यदि उपयोगकर्ताओं को रनटाइम पर मार्गदर्शन संपादित करने में सक्षम होना चाहिए, तो इसे कार्यस्थान संसाधनों के माध्यम से भी प्रदर्शित करें।
+
+## सेटअप चरण पंजीकृत करें {#onboarding}
+
+यदि किसी टेम्पलेट को API कुंजी, OAuth कनेक्शन, या प्रदाता खाते की आवश्यकता है, तो आवश्यकता को README में दफनाने के बजाय एक ऑनबोर्डिंग चरण पंजीकृत करें।
+
+```ts
+// server/plugins/onboarding.ts
+import { defineNitroPlugin } from "@agent-native/core/server";
+import { registerOnboardingStep } from "@agent-native/core/onboarding";
+
+export default defineNitroPlugin(() => {
+  registerOnboardingStep({
+    id: "github",
+    title: "Connect GitHub",
+    description: "Needed to import repositories and pull requests.",
+    order: 100,
+    methods: [
+      {
+        id: "token",
+        kind: "form",
+        primary: true,
+        label: "Save token",
+        payload: {
+          fields: [
+            { key: "GITHUB_TOKEN", label: "GitHub token", secret: true },
+          ],
+        },
+      },
+    ],
+    isComplete: () => !!process.env.GITHUB_TOKEN,
+  });
+});
+```
+
+[Onboarding & API Keys](/docs/onboarding) देखें।
+
+## इसे कार्यस्थल के लिए तैयार बनाएं {#workspace-ready}
+
+टेम्प्लेट स्वाभाविक रूप से [Multi-App Workspaces](/docs/multi-app-workspace) में फिट होने चाहिए, आमतौर पर [Dispatch](/docs/dispatch) द्वारा समन्वित होते हैं।
+
+चेकलिस्ट:
+
+- फ़्रेमवर्क एजेंट चैट प्लगइन या `mountA2A()` के माध्यम से A2A को माउंट करें ताकि भाई-बहन के ऐप्स आपके एजेंट को कॉल कर सकें।
+- डिस्पैच के लिए एजेंट कार्ड विवरण को सटीक रूप से रूट करने के लिए पर्याप्त विशिष्ट रखें।
+- आवश्यक रहस्य/ऑनबोर्डिंग पंजीकृत करें ताकि सेटअप साइडबार में दिखाई दे और डिस्पैच साझा क्रेडेंशियल प्रबंधित कर सके।
+- कार्यस्थान `AGENTS.md` या कार्यक्षेत्र संसाधनों में क्रॉस-कटिंग निर्देश रखें, हर ऐप में कॉपी नहीं किया जाए।
+- सभी स्वामित्व वाले संसाधनों के लिए साझाकरण/एक्सेस सहायकों का उपयोग करें ताकि संगठन के दायरे वाले कार्यस्थान अलग-थलग रहें।
+
+## एक टेम्पलेट प्रकाशित करें {#publishing}
+
+साझा करने से पहले:
+
+1. `pnpm install`, `pnpm typecheck` और टेम्पलेट के परीक्षण चलाएँ।
+2. सत्यापित करें कि यह बिना किसी वैकल्पिक प्रदाता कुंजी कॉन्फ़िगर किए काम करता है।
+3. प्रमाणीकरण, साझाकरण और दो-उपयोगकर्ता डेटा अलगाव की जाँच करें।
+4. दस्तावेज़ आवश्यक एनवी संस्करण और ऑनबोर्डिंग चरण।
+5. एडिटिव माइग्रेशन के माध्यम से उदाहरण या बीज पंक्तियाँ शामिल करें, ट्रैक किए गए रनटाइम डेटा फ़ाइलों के माध्यम से नहीं।
+
+सामुदायिक टेम्पलेट GitHub रेपो से बनाए जा सकते हैं:
+
+```bash
+npx @agent-native/core@latest create my-app --template github:user/repo
+```
+
+## फ्रेमवर्क मोनोरेपो में योगदान देना {#contributing}
+
+### अप्रकाशित रूपरेखा परिवर्तनों का परीक्षण करें {#test-unpublished-framework-changes}
+
+जब आप फ्रेमवर्क मोनोरेपो के अंदर काम कर रहे हों और जेनरेट की जरूरत हो
+अप्रकाशित पैकेज या टेम्पलेट परिवर्तनों का उपयोग करने के लिए कार्यस्थान, के साथ बनाएं चलाएँ
+स्थानीय-पैकेज ध्वज:
+
+```bash
+AGENT_NATIVE_CREATE_USE_LOCAL_CORE=1 pnpm --filter @agent-native/core create my-platform
+```
+
+जेनरेट किया गया कार्यक्षेत्र स्थानीय `@agent-native/core` और
+`@agent-native/dispatch` पैकेज, इसलिए कोर APIs, डिस्पैच वर्कस्पेस में परिवर्तन
+प्रकाशन से पहले व्यवहार, या प्रथम-पक्ष टेम्पलेट का परीक्षण किया जा सकता है। पैकेज
+`prepack` स्क्रिप्ट लिंक करने से पहले `dist` का निर्माण करती है, जो जेनरेट होती रहती है
+कार्यस्थान वर्तमान बिल्ड आउटपुट पर इंगित करता है।

@@ -1,8 +1,5 @@
-import { useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
-import type { RefObject } from "react";
-import { toast } from "sonner";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-import type { PlanMdxFolder } from "@/lib/desktop-plan-files";
+import type { PlanContent, PlanContentPatch } from "@shared/plan-content";
 import type {
   PlanAuthor,
   PlanBundle,
@@ -19,7 +16,11 @@ import type {
   PlanVersionDetail,
   PlanVersionListResponse,
 } from "@shared/types";
-import type { PlanContent, PlanContentPatch } from "@shared/plan-content";
+import { useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
+import type { RefObject } from "react";
+import { toast } from "sonner";
+
+import type { PlanMdxFolder } from "@/lib/desktop-plan-files";
 
 export type PlanSectionInput = {
   id?: string;

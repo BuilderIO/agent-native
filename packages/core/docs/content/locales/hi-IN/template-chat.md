@@ -1,0 +1,129 @@
+---
+title: "चैट टेम्प्लेट"
+description: "एक न्यूनतम चैट-फर्स्ट एजेंट-नेटिव ऐप: टिकाऊ चैट थ्रेड, actions, एप्लिकेशन स्थिति, लाइव सिंक, ऑथ, और अपना खुद का UI जोड़ने के लिए जगह।"
+---
+
+# चैट टेम्प्लेट
+
+चैट मूल एजेंट-नेटिव ऐप शुरुआती बिंदु है। यह आपको केंद्र में चैट के साथ एक साफ ChatGPT-शैली शेल, बाईं ओर एक थ्रेड सूची, मानक ऐप नेविगेशन, ऑथ, लाइव सिंक, actions और एक उदाहरण कार्रवाई देता है। जब आप एक वास्तविक ब्राउज़र ऐप चाहते हैं तो यहां से प्रारंभ करें जिसे आप डोमेन टेम्पलेट से जुड़े बिना बना सकते हैं।
+
+यदि आप बिना ब्राउज़र UI के सबसे छोटा एक्शन-ओनली रनटाइम चाहते हैं, तो [Pure-Agent Apps](/docs/pure-agent-apps) से शुरू करें। यदि आप एक तैयार डोमेन उत्पाद आकार चाहते हैं, तो [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics), या किसी अन्य डोमेन टेम्पलेट से प्रारंभ करें।
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>मैं कैसे मदद कर सकता हूं?</h1><p class='wf-muted' style='margin:10px 0 0'>किसी भी चीज़ पर चैट करें। actions, components, pages, jobs, या अपना backend जोड़ें।</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>एजेंट को संदेश भेजें...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+}
+```
+
+## इसमें क्या है {#whats-in-it}
+
+- **फ़्रेमवर्क चैट सरफेस और टिकाऊ चैट थ्रेड्स का उपयोग करके `/` पर पूर्ण-पृष्ठ चैट**।
+- **ऐप साइडबार में थ्रेड सूची** ताकि उपयोगकर्ता चैट बना सकें, फिर से खोल सकें, नाम बदल सकें, पिन कर सकें और संग्रहीत कर सकें।
+- **एजेंट चैट प्लगइन** पहले से कॉन्फ़िगर किया गया है ताकि आपके एजेंट क्रेडेंशियल सेट होने के बाद चैट बिल्ट-इन ऐप-एजेंट लूप से बात करे।
+- **प्रामाणिक** बेहतर प्रामाणिक के माध्यम से - लॉगिन, साइनअप, सत्र, संगठन। वही प्रवाह स्थानीय स्तर पर और उत्पादन में चलता है; विकास में ईमेल सत्यापन छोड़ दिया गया है।
+- **Actions निर्देशिका** एक उदाहरण (`actions/hello.ts`) प्लस मानक `view-screen` और `navigate` actions के साथ।
+- **एप्लिकेशन स्थिति, सेटिंग्स, सत्र, संसाधन, चैट थ्रेड, रन इतिहास और अन्य रनटाइम स्थिति के लिए फ्रेमवर्क की मुख्य तालिकाएँ**।
+- **लाइव सिंक** (`useDbSync`) पहले से ही वायर्ड है इसलिए जब एजेंट SQL को लिखता है तो UI ऑटो-रीफ्रेश हो जाता है।
+- **AGENTS.md** actions, रूट, skills और एप्लिकेशन स्थिति को जोड़ने के लिए चैट-फर्स्ट मार्गदर्शन के साथ।
+
+## इसमें क्या नहीं है {#not-in-it}
+
+- कोई डोमेन तालिका या बीज डेटा नहीं।
+- कोई डैशबोर्ड, सूचियाँ, चार्ट, फ़ॉर्म या प्रदाता एकीकरण नहीं।
+- उदाहरण स्टब से परे कोई डोमेन-विशिष्ट actions नहीं।
+
+यही बात है. चैट आपके अपने एजेंट के लिए एक पतला, उपयोगी डिफ़ॉल्ट शेल है, सामान्य होने का दिखावा करने वाला कोई डोमेन उत्पाद नहीं।
+
+```an-diagram title="चैट शेल में क्या जहाज़ हैं" summary="फ्रेमवर्क के मानक रनटाइम पर एक पतली चैट सतह - क्रियाएं, टिकाऊ थ्रेड, लाइव सिंक और ऑथ - जिसमें अपना यूआई जोड़ने के लिए जगह है।"
+{
+  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">थ्रेड सूची<br><small class=\"diagram-muted\">बनाएँ · फिर खोलें · पिन करें · आर्काइव करें</small></div><div class=\"diagram-node\">पूर्ण-पृष्ठ चैट<br><small class=\"diagram-muted\">/ पर framework chat surface</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">मुख्य SQL तालिकाएँ<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">लाइव सिंक &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">लॉगिन · संगठन · सेशन</small></div></div></div>",
+  "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## इसे कब चुनें {#when-to-pick}
+
+- **आप एक बुनियादी ऐप चाहते हैं जिससे उपयोगकर्ता तुरंत बात कर सकें** और फिर actions और UI के साथ विस्तार कर सकें।
+- **आपके पास एक हेडलेस ऐप है जिसे पहले ब्राउज़र सतह के रूप में चैट** की आवश्यकता है।
+- **आप Agent-Native के actions, राज्य, प्राधिकरण और परिनियोजन आकार को बनाए रखते हुए अपने स्वयं के एजेंट बैकएंड को एक परिचित चैट UI** में प्लग करना चाहते हैं।
+- **आप एक कस्टम आंतरिक टूल का प्रोटोटाइप बना रहे हैं** जो डोमेन टेम्पलेट से मेल नहीं खाता।
+
+## मचान {#scaffolding}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --template chat
+cd my-chat-app
+pnpm install
+pnpm dev
+```
+
+या बिना UI से प्रारंभ करें और बाद में एक चैट सतह जोड़ें:
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+वहां से, चैट टेम्पलेट के `/` रूट और साइडबार थ्रेड सूची को अपने ऐप में कॉपी करें, या चैट ऐप को स्कैफोल्ड करें और अपने हेडलेस एजेंट से actions को उसकी `actions/` डायरेक्टरी में ले जाएं। मुख्य अपरिवर्तनीय वही रहता है: actions चैट के लिए साझा सतह हैं, UI, HTTP, MCP, A2A, और CLI।
+
+## निरीक्षण करने वाला पहला कोड {#first-code}
+
+- `actions/hello.ts` वह स्टार्टर व्यवहार है जिसे एजेंट कॉल कर सकता है। इसे बदलें या
+  इसके आगे actions जोड़ें।
+- `app/routes/_index.tsx` पूर्ण-पृष्ठ चैट सतह प्रस्तुत करता है।
+  सुझाव, खाली स्थिति, संगीतकार, या आसपास का लेआउट यहां।
+- `AGENTS.md` बिल्ट-इन एजेंट को बताता है कि इस ऐप के अंदर कैसे काम करना है।
+
+```an-file-tree title="Chat template की layout"
+{
+  "entries": [
+    { "path": "actions/hello.ts", "note": "एक example action; इसे replace करें या इसके साथ actions जोड़ें" },
+    { "path": "actions/view-screen.ts", "note": "standard context action जिसे agent पढ़ता है" },
+    { "path": "actions/navigate.ts", "note": "standard navigation action जिसे agent उपयोग करता है" },
+    { "path": "app/routes/_index.tsx", "note": "full-page chat surface render करता है; suggestions, empty state, composer edit करें" },
+    { "path": "AGENTS.md", "note": "built-in agent द्वारा पढ़ी जाने वाली chat-first guidance" }
+  ]
+}
+```
+
+चैट पेज जानबूझकर पतला है:
+
+```tsx
+// app/routes/_index.tsx
+import { AgentChatSurface } from "@agent-native/core/client";
+
+export default function ChatRoute() {
+  return (
+    <AgentChatSurface
+      mode="page"
+      suggestions={[
+        "What can you do?",
+        "Help me customize this chat app",
+        "Show me the actions and pages I can add",
+      ]}
+    />
+  );
+}
+```
+
+## अपने स्वयं के एजेंट बैकएंड का उपयोग करें {#own-agent-backend}
+
+टेम्पलेट डिफ़ॉल्ट रूप से अंतर्निहित ऐप-एजेंट लूप का उपयोग करता है। कस्टम बैकएंड कनेक्ट करने के लिए, UI को फिर से लिखने के बजाय एजेंट चैट प्लगइन के पीछे चैट रनटाइम को स्वैप करें। चैट रूट को साझा चैट सतह के चारों ओर एक पतला रेंडरर रहना चाहिए; बैकएंड विकल्प सर्वर प्लगइन/रनटाइम एडॉप्टर में होता है।
+
+इसका उपयोग तब करें जब आपका मॉडल ऑर्केस्ट्रेशन पहले से ही कहीं और रहता है, लेकिन आप अभी भी ऑथ, थ्रेड्स, actions, UI स्थिति और तैनाती योग्य पृष्ठों वाला एक ऐप चाहते हैं।
+
+## पहला संपादन {#first-edits}
+
+मचान बनाने के बाद, एजेंट से पूछें:
+
+> `notes` के लिए एक डेटा मॉडल जोड़ें। नोट में एक आईडी, शीर्षक, मुख्य भाग और स्वामी होता है। `/notes` पर एक नोट्स पेज रेंडर करें, actions बनाएं/सूची बनाएं और नोट्स बनाने के लिए चैट को सक्षम रखें।
+
+एजेंट को एक Drizzle स्कीमा, actions, रूट, नेविगेशन और निर्देश जोड़ना चाहिए। फिर आप UI या चैट से नोट्स सुविधा का उपयोग कर सकते हैं।
+
+## आगे क्या है
+
+- [**Getting Started**](/docs) - हेडलेस, चैट और डोमेन टेम्प्लेट के बीच चयन करें
+- [**Agent Surfaces**](/docs/agent-surfaces) - हेडलेस, चैट, एंबेडेड और फुल-ऐप पैटर्न
+- [**Actions**](/docs/actions) - एक्शन सिस्टम चैट और UI दोनों कॉल
+- [**Native चैट UI**](/docs/native-chat-ui) - चैट सतह आदिम और रनटाइम विकल्प
+- [**Pure-Agent Apps**](/docs/pure-agent-apps) - केवल एक्शन ऐप्स जो बाद में चैट में विकसित हो सकते हैं

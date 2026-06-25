@@ -1,0 +1,106 @@
+---
+title: "Procesadores en bucle"
+description: "Ganchos de barandilla/observador interno de bucle que observan la salida transmitida del modelo y las llamadas a herramientas en mitad de la ejecución y pueden abortarlo: la unión para barandillas en tiempo real y puertas de prueba de finalización."
+---
+
+# Procesadores en bucle
+
+Un `Processor` es un **observador/guarda** interno de bucle para la ejecución del agente. Observa la salida transmitida del modelo y la herramienta llama a sus solicitudes _a medida que avanza la ejecución_, mantiene su propio estado inicial y puede **abortar** la ejecución antes de que se reclame un "terminado". Este es el prerrequisito estructural para las barreras de seguridad en tiempo real (bloquear la salida no permitida a mitad de camino) y una puerta de cobertura/prueba de finalización (inspeccionar lo que el modelo está a punto de hacer y detenerlo).
+
+```an-diagram title="Donde los tres ganchos disparan en la carrera" summary="processOutputStream observa cada fragmento, processOutputStep controla las llamadas a la herramienta por respuesta, processOutputResult registra un veredicto al final. Cualquier gancho puede abortar con un TripWire."
+{
+  "html": "<div class=\"diagram-proc\"><div class=\"diagram-node\" data-rough>stream chunks<br><small class=\"diagram-muted\">processOutputStream</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>per model response<br><small class=\"diagram-muted\">processOutputStep — controla llamadas a herramientas</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>run end<br><small class=\"diagram-muted\">processOutputResult — veredicto</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-pill warn\">abort() &rarr; TripWire &rarr; tripwire event</div></div>",
+  "css": ".diagram-proc{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-proc .diagram-arrow{font-size:22px;line-height:1}.diagram-proc .diagram-pill{flex-basis:100%}"
+}
+```
+
+> [!WARNING]
+> Un procesador es **configuración**, no una herramienta, no una acción y no una creación DSL. Los procesadores solo observan, mutan su propio estado de alcance de flujo y `abort()`. Nunca definen el comportamiento de la aplicación, reemplazan a actions ni aparecen en el modelo. Las operaciones de la aplicación pertenecen a [actions](/docs/actions).
+
+## Los ganchos {#hooks}
+
+Un procesador implementa cualquier subconjunto de tres ganchos de ciclo de vida opcionales (la forma se toma prestada de los procesadores de salida de Mastra):
+
+| Gancho                | Incendios…                                                                        | Úselo para…                                                                                     |
+| --------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `processOutputStream` | por fragmento transmitido (texto/deltas de pensamiento) mientras el modelo genera | reaccionar a la salida antes de que aterrice el turno completo                                  |
+| `processOutputStep`   | una vez por respuesta del modelo, alrededor de la ejecución de la herramienta     | inspeccionar las llamadas a la herramienta que el modelo está a punto de ejecutar; puerta ellos |
+| `processOutputResult` | una vez al final de la ejecución, con el texto asistente final                    | registre un veredicto/prueba de cumplimiento sobre la respuesta completa                        |
+
+Cada procesador obtiene su propio objeto `state` mutable y con alcance de ejecución que persiste en cada una de sus invocaciones de enlace dentro de una sola ejecución y está **aislado** del estado de otros procesadores.
+
+```ts
+import type { Processor } from "@agent-native/core";
+
+const noSecretsInOutput: Processor = {
+  name: "no-secrets",
+  processOutputStream({ part, abort }) {
+    if (part.type === "text" && /sk-live_/.test(part.text)) {
+      abort("Model attempted to emit a live secret token.", {
+        kind: "secret-leak",
+      });
+    }
+  },
+};
+
+const coverageGate: Processor = {
+  name: "proof-of-done",
+  processOutputStep({ toolCalls, state }) {
+    // Track what the model has actually done this run...
+    for (const call of toolCalls) {
+      (state.ran ??= new Set<string>()).add(call.name);
+    }
+  },
+  processOutputResult({ text, state }) {
+    // ...and record a verdict over the final answer.
+    const ran = state.ran as Set<string> | undefined;
+    state.verdict = ran?.has("run-tests") ? "verified" : "unverified";
+  },
+};
+```
+
+## Abortando con `TripWire` {#tripwire}
+
+Un gancho detiene la ejecución llamando a `abort(reason, meta?)`, lo que genera un **`TripWire`**. El bucle lo detecta, emite un único **evento `tripwire`**, se detiene limpiamente y muestra el motivo como el mensaje final del asistente.
+
+```ts
+import { TripWire } from "@agent-native/core";
+```
+
+El evento `tripwire` incluye:
+
+| Campo       | Tipo     | Notas                                                      |
+| ----------- | -------- | ---------------------------------------------------------- |
+| `reason`    | `string` | El motivo legible por humanos pasó a `abort`.              |
+| `processor` | `string` | Nombre del procesador que abortó cuando declaró un `name`. |
+
+`TripWire` también incluye `meta` estructurado opcional y el nombre `processor` de origen para los consumidores programáticos que lo verifican `instanceof`. Debido a que una detención es elegante, `processOutputResult` aún se activa en el texto final (detenido) para que un procesador de prueba de finalización pueda registrar su veredicto incluso cuando se canceló la ejecución.
+
+## Procesadores de cableado {#wiring}
+
+Los procesadores se configuran en código a través de la matriz `processors` en `runAgentLoop`:
+
+```ts
+await runAgentLoop({
+  engine,
+  model,
+  systemPrompt,
+  tools,
+  messages,
+  actions,
+  send,
+  signal,
+  processors: [noSecretsInOutput, coverageGate],
+});
+```
+
+**Gasto general cero cuando no se utiliza.** El bucle crea la cadena de procesadores solo cuando se suministra al menos un procesador; cuando `processors` se omite o está vacío, no se ejecuta ningún código de costura y el bucle no se modifica byte por byte. Los enlaces se ejecutan en orden de registro y pueden ser sincronizados o asíncronos.
+
+> [!NOTE]
+> La costura a nivel de bucle es el entregable hoy y los subagentes, A2A, MCP y las pruebas pueden llamarla directamente. Pasar `processors` a través del controlador de chat HTTP (para que un solucionador por solicitud pueda configurarlos sin llamar directamente a `runAgentLoop`) es una práctica práctica que aún no está cableada: configure los procesadores en el sitio de llamadas de `runAgentLoop` por ahora.
+
+## Relacionado
+
+- [**Durable Resume**](/docs/durable-resume): cómo el bucle sobrevive a las interrupciones sin volver a ejecutar los efectos secundarios completados.
+- [**Custom Agents & Teams**](/docs/agent-teams): los subagentes ejecutan el mismo bucle y pueden llevar sus propios procesadores.
+- [**Observability**](/docs/observability): registra los veredictos del procesador junto con los seguimientos de ejecución.

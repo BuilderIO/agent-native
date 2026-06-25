@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   useState,
   useEffect,
@@ -9,17 +10,19 @@ import {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
-import type { Slide } from "@/context/DeckContext";
+
 import { Skeleton } from "@/components/ui/skeleton";
-import { MermaidRenderer } from "./MermaidRenderer";
-import { ExcalidrawThumbnail, parseExcalidrawData } from "./ExcalidrawSlide";
-import type { DesignSystemData } from "../../../shared/api";
+import type { Slide } from "@/context/DeckContext";
 import { type AspectRatio, getAspectRatioDims } from "@/lib/aspect-ratios";
 import {
   sanitizeCssValue,
   sanitizeSlideHtml,
   sanitizeSlideUrl,
 } from "@/lib/sanitize-slide-html";
+
+import type { DesignSystemData } from "../../../shared/api";
+import { ExcalidrawThumbnail, parseExcalidrawData } from "./ExcalidrawSlide";
+import { MermaidRenderer } from "./MermaidRenderer";
 
 interface SlideRendererProps {
   slide: Slide;
@@ -535,6 +538,7 @@ export function SlideInner({
   aspectRatio?: AspectRatio;
   onOverflowChange?: (info: SlideOverflowInfo) => void;
 }) {
+  const t = useT();
   const dims = getAspectRatioDims(aspectRatio);
   const sizeStyle: React.CSSProperties = {
     width: dims.width,
@@ -584,7 +588,7 @@ export function SlideInner({
           <Skeleton className="w-full h-full bg-white/[0.06]" />
         </div>
         <span className="text-xs text-white/40 animate-pulse">
-          Generating image...
+          {t("raw.generatingImage")}
         </span>
       </div>
     </div>

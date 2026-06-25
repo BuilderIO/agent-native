@@ -1,7 +1,9 @@
 import fs from "fs/promises";
 import path from "path";
+
 import fg from "fast-glob";
 import { Project } from "ts-morph";
+
 import type {
   BehaviorGraph,
   ComponentGraph,

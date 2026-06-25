@@ -1,34 +1,18 @@
+import { useT } from "@agent-native/core/client";
 import type { ReactNode } from "react";
+
 import { withDefaultSocialImage } from "../seo";
 
 const UPDATED_AT = "June 23, 2026";
 
-const DATA_CATEGORIES = [
-  {
-    title: "Account and workspace information",
-    body: "Name, email address, organization membership, authentication identifiers, and app settings used to sign you in and keep hosted workspaces separated.",
-  },
-  {
-    title: "Hosted application content",
-    body: "Content you create or upload in hosted Agent-Native templates, such as recordings, transcripts, documents, comments, tasks, prompts, agent responses, files, and configuration.",
-  },
-  {
-    title: "Connected integration data",
-    body: "Data from services you choose to connect, such as calendar, Slack, email, storage, or developer tools, limited to the scopes and workflows shown in the hosted app.",
-  },
-  {
-    title: "Usage and technical data",
-    body: "Device, browser, IP address, diagnostic logs, page and feature usage, errors, and security events used to operate, secure, and improve hosted services.",
-  },
-];
+const DATA_CATEGORY_KEYS = [
+  "account",
+  "hostedContent",
+  "integrations",
+  "usage",
+] as const;
 
-const USES = [
-  "Provide, sync, and operate hosted Agent-Native applications and their agent workflows.",
-  "Record, transcribe, summarize, search, share, or transform content when you ask the hosted app to do so.",
-  "Authenticate users, manage organizations, enforce access controls, and prevent abuse.",
-  "Debug incidents, provide support, measure reliability, and improve the hosted product experience.",
-  "Comply with legal, security, and platform obligations.",
-];
+const USE_KEYS = ["provide", "transform", "auth", "support", "comply"] as const;
 
 export const meta = () =>
   withDefaultSocialImage([
@@ -87,73 +71,67 @@ function ScopeCard({ title, body }: { title: string; body: string }) {
 }
 
 export default function PrivacyPage() {
+  const t = useT();
+
   return (
     <main className="mx-auto w-full max-w-[980px] px-6 py-14 sm:py-20">
       <header className="mb-10">
         <p className="mb-3 text-sm font-semibold uppercase tracking-[0.14em] text-[var(--fg-secondary)]">
-          Privacy Policy
+          {t("legal.privacy.eyebrow")}
         </p>
         <h1 className="mb-5 max-w-3xl text-4xl font-bold leading-tight tracking-tight text-[var(--fg)] sm:text-5xl">
-          Agent-Native hosted applications
+          {t("legal.privacy.title")}
         </h1>
         <p className="max-w-3xl text-lg leading-8 text-[var(--fg-secondary)]">
-          This policy explains how Builder.io collects, uses, shares, and
-          retains data when it operates Agent-Native hosted applications, hosted
-          templates, demos, and official browser extensions.
+          {t("legal.privacy.intro")}
         </p>
         <p className="mt-4 text-sm text-[var(--fg-secondary)]">
-          Last updated: {UPDATED_AT}
+          {t("legal.lastUpdated", { date: UPDATED_AT })}
         </p>
       </header>
 
       <div className="mb-10 grid gap-4 md:grid-cols-3">
         <ScopeCard
-          title="Hosted apps"
-          body="Covered when Builder.io operates the Agent-Native service or hosted template for you."
+          title={t("legal.privacy.scopeCards.hosted.title")}
+          body={t("legal.privacy.scopeCards.hosted.body")}
         />
         <ScopeCard
-          title="Open source"
-          body="Not covered for your use of the MIT-licensed source code itself."
+          title={t("legal.privacy.scopeCards.openSource.title")}
+          body={t("legal.privacy.scopeCards.openSource.body")}
         />
         <ScopeCard
-          title="Self-hosted"
-          body="Not covered for forks, customizations, or deployments operated by someone else."
+          title={t("legal.privacy.scopeCards.selfHosted.title")}
+          body={t("legal.privacy.scopeCards.selfHosted.body")}
         />
       </div>
 
-      <Section title="Scope">
+      <Section title={t("legal.privacy.sections.scope")}>
+        <p>{t("legal.privacy.paragraphs.scope1")}</p>
         <p>
-          Agent-Native is open source, and the source code is available under
-          the MIT license. This policy applies only to hosted applications and
-          services operated by Builder.io for Agent-Native users. It does not
-          apply to someone else&apos;s use of the code, including forks,
-          customized templates, private deployments, or self-hosted versions. If
-          you operate your own deployment, you are responsible for your own data
-          practices and privacy policy.
-        </p>
-        <p>
-          This policy is intended to supplement Builder.io&apos;s broader{" "}
+          {t("legal.privacy.paragraphs.scope2Prefix")}{" "}
           <a
             href="https://www.builder.io/legal/privacy"
             className="font-medium text-[var(--fg)] underline decoration-[var(--docs-border)] underline-offset-4 transition hover:text-[var(--docs-accent)]"
           >
-            Privacy Policy
+            {t("legal.privacy.links.builderPrivacy")}
           </a>{" "}
-          for Agent-Native hosted application behavior.
+          {t("legal.privacy.paragraphs.scope2Suffix")}
         </p>
       </Section>
 
-      <Section title="Information we collect">
+      <Section title={t("legal.privacy.sections.information")}>
         <div className="grid gap-4 md:grid-cols-2">
-          {DATA_CATEGORIES.map((category) => (
+          {DATA_CATEGORY_KEYS.map((categoryKey) => (
             <article
-              key={category.title}
+              key={categoryKey}
               className="rounded-lg border border-[var(--docs-border)] p-5"
             >
               <h3 className="mb-2 text-base font-semibold text-[var(--fg)]">
-                {category.title}
+                {t(`legal.privacy.dataCategories.${categoryKey}.title`)}
               </h3>
-              <p className="m-0 text-sm leading-6">{category.body}</p>
+              <p className="m-0 text-sm leading-6">
+                {t(`legal.privacy.dataCategories.${categoryKey}.body`)}
+              </p>
             </article>
           ))}
         </div>
@@ -161,26 +139,12 @@ export default function PrivacyPage() {
 
       <Section
         id="clips-chrome-extension"
-        title="Agent-Native Clips Chrome extension"
+        title={t("legal.privacy.sections.clipsExtension")}
       >
+        <p>{t("legal.privacy.paragraphs.clips1")}</p>
+        <p>{t("legal.privacy.paragraphs.clips2")}</p>
         <p>
-          The Agent-Native Clips Chrome extension helps you start browser-based
-          recordings and, when enabled, attach browser diagnostics to a clip. It
-          may collect the selected capture source, camera and microphone media
-          you choose to include, the active tab title and URL, and
-          authentication state needed to connect the extension to hosted Clips.
-        </p>
-        <p>
-          Developer logs are optional. When enabled, the extension may collect
-          redacted console messages, JavaScript exceptions, and fetch/XHR
-          metadata such as method, URL, status, timing, and failure details from
-          the selected tab while a recording is active. The extension is not
-          designed to collect request bodies, response bodies, cookies, or
-          authorization headers.
-        </p>
-        <p>
-          For Chrome Web Store disclosures, use this section as the extension
-          privacy-policy anchor:{" "}
+          {t("legal.privacy.paragraphs.clipsAnchor")}{" "}
           <code className="rounded border border-[var(--code-border)] bg-[var(--code-bg)] px-1.5 py-0.5 text-sm text-[var(--fg)]">
             https://www.agent-native.com/privacy#clips-chrome-extension
           </code>
@@ -188,83 +152,41 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      <Section title="How we use information">
+      <Section title={t("legal.privacy.sections.use")}>
         <ul className="m-0 list-disc space-y-2 pl-5">
-          {USES.map((use) => (
-            <li key={use}>{use}</li>
+          {USE_KEYS.map((useKey) => (
+            <li key={useKey}>{t(`legal.privacy.uses.${useKey}`)}</li>
           ))}
         </ul>
       </Section>
 
-      <Section title="Sharing and third parties">
-        <p>
-          We do not sell Agent-Native hosted application data or use it for
-          third-party advertising. We share data with service providers that
-          help operate the hosted service, such as cloud infrastructure,
-          storage, authentication, email, observability, AI, and transcription
-          providers, when those services are needed for the feature you use.
-        </p>
-        <p>
-          When you connect an integration, the hosted app may send data to or
-          receive data from that provider according to your configuration and
-          the provider&apos;s own terms. We may also disclose information when
-          required for security, abuse prevention, legal compliance, or to
-          protect users and the service.
-        </p>
+      <Section title={t("legal.privacy.sections.sharing")}>
+        <p>{t("legal.privacy.paragraphs.sharing1")}</p>
+        <p>{t("legal.privacy.paragraphs.sharing2")}</p>
       </Section>
 
-      <Section title="Chrome Web Store limited use">
-        <p>
-          For the Agent-Native Clips Chrome extension, our use of information
-          received from Chrome extension APIs adheres to the Chrome Web Store
-          User Data Policy, including the Limited Use requirements. Browser
-          activity collected by the extension is used to provide the user-facing
-          recording and diagnostics workflow, not for advertising, resale,
-          credit-worthiness, or unrelated profiling.
-        </p>
+      <Section title={t("legal.privacy.sections.chromeLimitedUse")}>
+        <p>{t("legal.privacy.paragraphs.chromeLimitedUse")}</p>
       </Section>
 
-      <Section title="Retention and deletion">
-        <p>
-          We retain hosted application data for as long as needed to provide the
-          service, maintain workspace history, comply with obligations, resolve
-          disputes, or improve reliability and security. Users can delete clips,
-          documents, resources, and other hosted app content through the
-          relevant application controls where available.
-        </p>
-        <p>
-          Deleted content may remain in backups, logs, or audit records for a
-          limited period before it is removed according to operational retention
-          schedules.
-        </p>
+      <Section title={t("legal.privacy.sections.retention")}>
+        <p>{t("legal.privacy.paragraphs.retention1")}</p>
+        <p>{t("legal.privacy.paragraphs.retention2")}</p>
       </Section>
 
-      <Section title="Security">
-        <p>
-          We use reasonable administrative, technical, and organizational
-          safeguards designed to protect hosted application data, including
-          access controls, transport encryption, monitoring, and operational
-          security practices. No online service can guarantee perfect security,
-          so users should avoid including secrets or sensitive information in
-          recordings or prompts unless they intend to share that information
-          with the hosted application.
-        </p>
+      <Section title={t("legal.privacy.sections.security")}>
+        <p>{t("legal.privacy.paragraphs.security")}</p>
       </Section>
 
-      <Section title="Changes and contact">
+      <Section title={t("legal.privacy.sections.changes")}>
+        <p>{t("legal.privacy.paragraphs.changes1")}</p>
         <p>
-          We may update this policy as Agent-Native hosted applications change.
-          The updated date at the top of the page shows when the policy was last
-          revised.
-        </p>
-        <p>
-          For privacy requests or questions, contact Builder.io through the
-          support and privacy channels listed in the{" "}
+          {t("legal.privacy.paragraphs.changes2Prefix")}{" "}
           <a
             href="https://www.builder.io/legal/privacy"
             className="font-medium text-[var(--fg)] underline decoration-[var(--docs-border)] underline-offset-4 transition hover:text-[var(--docs-accent)]"
           >
-            Builder.io Privacy Policy
+            {t("legal.privacy.links.builderPrivacyFull")}
           </a>
           .
         </p>

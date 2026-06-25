@@ -1,3 +1,12 @@
+import { useT } from "@agent-native/core/client";
+import type {
+  PlanDiagramBlock,
+  PlanLegacyWireframeBlock,
+  PlanWireframeBlock,
+  PlanWireframeSurface,
+} from "@shared/plan-content";
+import { IconPencil } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
 import {
   type MouseEvent,
   type ReactNode,
@@ -8,16 +17,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { IconPencil } from "@tabler/icons-react";
-import { useTheme } from "next-themes";
+
 import { cn } from "@/lib/utils";
-import type {
-  PlanDiagramBlock,
-  PlanLegacyWireframeBlock,
-  PlanWireframeBlock,
-  PlanWireframeSurface,
-} from "@shared/plan-content";
-import { LegacyRegionWireframe } from "./LegacyRegionWireframe";
+
 import {
   HTML_ROUGH_SELECTOR,
   KitConfigContext,
@@ -25,18 +27,20 @@ import {
   Screen,
   renderNodes,
 } from "./kit";
-import { toggleWireframeStyle, useWireframeStyle } from "./use-wireframe-style";
+import { LegacyRegionWireframe } from "./LegacyRegionWireframe";
+import {
+  RUNTIME_SENTINEL_ATTR,
+  mountPrototypeRuntime,
+} from "./prototype-runtime";
 import {
   sanitizeDiagramHtml,
   sanitizeWireframeCss,
   sanitizeWireframeHtml,
   scopeDesignCss,
 } from "./sanitize-html";
-import {
-  RUNTIME_SENTINEL_ATTR,
-  mountPrototypeRuntime,
-} from "./prototype-runtime";
+import { toggleWireframeStyle, useWireframeStyle } from "./use-wireframe-style";
 import { renderWireframeIconHtml } from "./wireframe-icons";
+
 import "./html-artboard.css";
 
 /**
@@ -578,6 +582,7 @@ export function SketchDiagram({
   data: PlanDiagramBlock["data"];
   compact?: boolean;
 }) {
+  const t = useT();
   if (data.html?.trim()) {
     return <HtmlDiagram data={data} compact={compact} />;
   }
@@ -598,7 +603,7 @@ export function SketchDiagram({
   if (nodes.length === 0) {
     return (
       <div className="rounded-[12px] border border-plan-line bg-plan-block p-4 text-sm text-plan-muted">
-        Diagram content is empty.
+        {t("plansPage.wireframe.emptyDiagram")}
       </div>
     );
   }

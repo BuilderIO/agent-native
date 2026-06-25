@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { z } from "zod";
 
 export default defineAction({

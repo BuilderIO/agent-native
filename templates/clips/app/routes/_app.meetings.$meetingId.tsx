@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, useNavigate, useParams } from "react-router";
-import { toast } from "sonner";
+import {
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconArrowLeft,
   IconCheck,
@@ -17,9 +19,26 @@ import {
   IconUsers,
   IconWand,
 } from "@tabler/icons-react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { NavLink, useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
+
+import { CaptureInstallButton } from "@/components/capture-install-options";
+import { PageHeader } from "@/components/library/page-header";
+import {
+  AttendeeStack,
+  attendeeInitials,
+  type AttendeeStackParticipant,
+} from "@/components/meetings/attendee-stack";
+import { BulletLink } from "@/components/meetings/bullet-link";
+import { CanvasEditor } from "@/components/meetings/canvas-editor";
+import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
+import { ShareMeetingPopover } from "@/components/meetings/share-meeting-dialog";
+import {
+  TranscriptBubbles,
+  type TranscriptSegment,
+} from "@/components/meetings/transcript-bubbles";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,6 +49,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,31 +60,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
-import {
-  AttendeeStack,
-  attendeeInitials,
-  type AttendeeStackParticipant,
-} from "@/components/meetings/attendee-stack";
-import { PageHeader } from "@/components/library/page-header";
-import { ShareMeetingPopover } from "@/components/meetings/share-meeting-dialog";
-import {
-  TranscriptBubbles,
-  type TranscriptSegment,
-} from "@/components/meetings/transcript-bubbles";
-import { BulletLink } from "@/components/meetings/bullet-link";
-import { CanvasEditor } from "@/components/meetings/canvas-editor";
-import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
-import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { CaptureInstallButton } from "@/components/capture-install-options";
+import { useDesktopPromo } from "@/hooks/use-desktop-promo";
+import enMessages from "@/i18n/en-US";
+import { cn } from "@/lib/utils";
 
 export function meta() {
-  return [{ title: "Meeting · Clips" }];
+  return [{ title: enMessages.meetingDetailRoute.pageTitle }];
 }
 
 interface ActionItem {
@@ -135,6 +141,7 @@ function TitleEditor({
   compact?: boolean;
   readOnly?: boolean;
 }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -154,7 +161,9 @@ function TitleEditor({
 
   if (readOnly) {
     return (
-      <h1 className={cn(textCls, "min-w-0")}>{value || "Untitled meeting"}</h1>
+      <h1 className={cn(textCls, "min-w-0")}>
+        {value || t("meetingDetail.untitledMeeting")}
+      </h1>
     );
   }
 
@@ -165,7 +174,9 @@ function TitleEditor({
         onClick={() => setEditing(true)}
         className="group flex min-w-0 items-center gap-2 text-left cursor-pointer"
       >
-        <h1 className={textCls}>{value || "Untitled meeting"}</h1>
+        <h1 className={textCls}>
+          {value || t("meetingDetail.untitledMeeting")}
+        </h1>
         <IconEdit
           className={cn(
             editIconCls,
@@ -301,6 +312,7 @@ function ActionItemsByPerson({
 }
 
 export default function MeetingDetailRoute() {
+  const t = useT();
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -483,7 +495,7 @@ export default function MeetingDetailRoute() {
     // regeneration; only the AI summary/bullets are overwritten. Reassure
     // the user their own notes are kept.
     if (hasNotes) {
-      toast.info("Regenerating notes — your own notes are kept");
+      toast.info(t("meetingDetail.regeneratingNotes"));
     }
     autoFinalizedRef.current = true;
     finalize.mutate({ meetingId: meeting.id });
@@ -495,13 +507,15 @@ export default function MeetingDetailRoute() {
       { id: meeting.id },
       {
         onSuccess: () => {
-          toast.success("Meeting removed");
+          toast.success(t("meetingDetail.meetingRemoved"));
           qc.invalidateQueries({ queryKey: ["action", "list-meetings"] });
           navigate("/meetings", { replace: true });
         },
         onError: (err: unknown) => {
           toast.error(
-            err instanceof Error ? err.message : "Couldn't remove meeting",
+            err instanceof Error
+              ? err.message
+              : t("meetingDetail.couldNotRemoveMeeting"),
           );
         },
       },
@@ -548,7 +562,7 @@ export default function MeetingDetailRoute() {
     return (
       <div className="p-6 max-w-2xl mx-auto w-full">
         <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          Couldn't load this meeting.
+          {t("meetingDetail.couldNotLoadMeeting")}
         </div>
       </div>
     );
@@ -570,10 +584,10 @@ export default function MeetingDetailRoute() {
     try {
       await navigator.clipboard.writeText(text);
       setTranscriptCopied(true);
-      toast.success("Transcript copied");
+      toast.success(t("meetingDetail.transcriptCopied"));
       setTimeout(() => setTranscriptCopied(false), 1500);
     } catch {
-      toast.error("Couldn't copy transcript");
+      toast.error(t("meetingDetail.couldNotCopyTranscript"));
     }
   };
 
@@ -584,13 +598,13 @@ export default function MeetingDetailRoute() {
           <TooltipTrigger asChild>
             <NavLink
               to="/meetings"
-              aria-label="All meetings"
+              aria-label={t("meetingDetail.allMeetings")}
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
               <IconArrowLeft className="h-4 w-4" />
             </NavLink>
           </TooltipTrigger>
-          <TooltipContent>All meetings</TooltipContent>
+          <TooltipContent>{t("meetingDetail.allMeetings")}</TooltipContent>
         </Tooltip>
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <TitleEditor
@@ -616,7 +630,7 @@ export default function MeetingDetailRoute() {
           {!canEdit ? null : finalize.isPending ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-              Generating notes…
+              {t("meetingDetail.generatingNotesInline")}
             </span>
           ) : hasNotes ? (
             <Button
@@ -625,7 +639,7 @@ export default function MeetingDetailRoute() {
               onClick={handleFinalize}
               className="cursor-pointer h-8"
             >
-              Regenerate notes
+              {t("meetingDetail.regenerateNotes")}
             </Button>
           ) : null}
           <ShareMeetingPopover
@@ -634,7 +648,7 @@ export default function MeetingDetailRoute() {
           >
             <Button size="sm" className="shrink-0 gap-1.5">
               <IconShare3 className="h-4 w-4" />
-              Share
+              {t("meetingDetail.share")}
             </Button>
           </ShareMeetingPopover>
           {canEdit && (
@@ -645,7 +659,7 @@ export default function MeetingDetailRoute() {
                     size="icon"
                     variant="ghost"
                     className="h-8 w-8 cursor-pointer"
-                    aria-label="Meeting options"
+                    aria-label={t("meetingDetail.meetingOptions")}
                   >
                     <IconDots className="h-4 w-4" />
                   </Button>
@@ -659,16 +673,17 @@ export default function MeetingDetailRoute() {
                     className="text-destructive focus:text-destructive"
                   >
                     <IconTrash className="mr-2 h-4 w-4" />
-                    Remove meeting
+                    {t("meetingDetail.removeMeeting")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Remove this meeting?</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    {t("meetingDetail.removeThisMeeting")}
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    This removes the meeting from Clips. It will not delete any
-                    linked transcript or change your Google Calendar.
+                    {t("meetingDetail.removeDescription")}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -683,7 +698,9 @@ export default function MeetingDetailRoute() {
                     disabled={deleteMeeting.isPending}
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   >
-                    {deleteMeeting.isPending ? "Removing..." : "Remove"}
+                    {deleteMeeting.isPending
+                      ? t("meetingDetail.removing")
+                      : t("meetingDetail.remove")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -695,10 +712,7 @@ export default function MeetingDetailRoute() {
       {showDesktopRecordHint && (
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-border bg-accent/20 px-3 py-2.5">
           <IconDeviceDesktop className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="text-sm">
-            Record live notes for this meeting from the Clips desktop app — the
-            transcript and AI notes will appear here automatically.
-          </span>
+          <span className="text-sm">{t("meetingDetail.desktopHint")}</span>
           {!isDesktopApp && (
             <CaptureInstallButton
               size="sm"
@@ -706,7 +720,7 @@ export default function MeetingDetailRoute() {
               className="ml-auto h-8 gap-1.5 cursor-pointer"
             >
               <IconExternalLink className="h-3.5 w-3.5" />
-              Get desktop app
+              {t("meetingDetail.getDesktopApp")}
             </CaptureInstallButton>
           )}
         </div>
@@ -715,7 +729,7 @@ export default function MeetingDetailRoute() {
       {finalize.isError && (
         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {(finalize.error as Error)?.message ||
-            "Couldn't generate notes. Try again."}
+            t("meetingDetail.generateNotesFailed")}
         </div>
       )}
 
@@ -746,7 +760,7 @@ export default function MeetingDetailRoute() {
             className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-0.5 hover:text-foreground hover:bg-accent/40 cursor-pointer"
           >
             <IconExternalLink className="h-3.5 w-3.5" />
-            Join call
+            {t("meetingDetail.joinCall")}
           </a>
         )}
       </div>
@@ -769,20 +783,20 @@ export default function MeetingDetailRoute() {
                   value="notes"
                   className="h-7 px-2.5 text-xs data-[state=active]:bg-muted"
                 >
-                  My notes
+                  {t("meetingDetail.myNotes")}
                 </TabsTrigger>
                 <TabsTrigger
                   value="ai"
                   className="h-7 gap-1 px-2.5 text-xs data-[state=active]:bg-muted"
                 >
                   <IconWand className="h-3 w-3" />
-                  AI notes
+                  {t("meetingDetail.aiNotes")}
                 </TabsTrigger>
                 <TabsTrigger
                   value="actions"
                   className="h-7 px-2.5 text-xs data-[state=active]:bg-muted"
                 >
-                  Action items
+                  {t("meetingDetail.actionItems")}
                   {actionItems.length > 0 && (
                     <span className="ml-1 text-muted-foreground">
                       {actionItems.length}
@@ -793,7 +807,7 @@ export default function MeetingDetailRoute() {
               {finalize.isPending && (
                 <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                   <IconLoader2 className="h-3 w-3 animate-spin" />
-                  Working…
+                  {t("meetingDetail.working")}
                 </span>
               )}
             </div>
@@ -847,8 +861,7 @@ export default function MeetingDetailRoute() {
                 />
               ) : (
                 <p className="text-sm leading-relaxed text-muted-foreground/50 italic">
-                  No action items yet. They appear here after notes are
-                  generated from a transcript.
+                  {t("meetingDetail.noActionItems")}
                 </p>
               )}
             </TabsContent>
@@ -860,12 +873,14 @@ export default function MeetingDetailRoute() {
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2.5 bg-background">
             <div className="flex items-center gap-1.5 text-xs font-medium">
               <IconNotes className="h-3.5 w-3.5" />
-              Transcript
+              {t("meetingDetail.transcript")}
             </div>
             <div className="flex items-center gap-2">
               {meeting.transcriptStatus === "ready" && (
                 <span className="text-[10px] text-muted-foreground">
-                  {segments.length} segments
+                  {t("meetingDetail.segments", {
+                    count: segments.length,
+                  })}
                 </span>
               )}
               {segments.length > 0 && (
@@ -875,7 +890,7 @@ export default function MeetingDetailRoute() {
                       size="icon"
                       variant="ghost"
                       className="h-7 w-7 cursor-pointer"
-                      aria-label="Copy transcript"
+                      aria-label={t("meetingDetail.copyTranscript")}
                       onClick={handleCopyTranscript}
                     >
                       {transcriptCopied ? (
@@ -885,7 +900,9 @@ export default function MeetingDetailRoute() {
                       )}
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Copy full transcript</TooltipContent>
+                  <TooltipContent>
+                    {t("meetingDetail.copyFullTranscript")}
+                  </TooltipContent>
                 </Tooltip>
               )}
             </div>

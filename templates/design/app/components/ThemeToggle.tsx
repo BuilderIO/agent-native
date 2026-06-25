@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useT } from "@agent-native/core/client";
 import { IconMoon, IconSun } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -10,6 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export function ThemeToggle({ className }: { className?: string }) {
+  const t = useT();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [mounted, setMounted] = useState(false);
@@ -32,7 +35,7 @@ export function ThemeToggle({ className }: { className?: string }) {
           )}
         </Button>
       </TooltipTrigger>
-      <TooltipContent>Toggle theme</TooltipContent>
+      <TooltipContent>{t("root.toggleTheme")}</TooltipContent>
     </Tooltip>
   );
 }

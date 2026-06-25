@@ -1,5 +1,6 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useChangeVersions } from "@agent-native/core/client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
 import { appApiPath } from "@/lib/api-path";
 
 // ─── Generic integration credentials (via encrypted per-user vault) ──────────

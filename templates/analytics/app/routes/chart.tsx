@@ -1,5 +1,7 @@
+import { useT } from "@agent-native/core/client";
 import { useMemo } from "react";
 import { useSearchParams } from "react-router";
+
 import { SqlChart } from "@/components/dashboard/SqlChart";
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
@@ -66,16 +68,24 @@ function decodePanel(raw: string): SqlPanel | { error: string } {
         : undefined) as SqlPanel["config"],
     };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "Failed to decode panel" };
+    return { error: e instanceof Error ? e.message : "failedToDecodePanel" };
   }
 }
 
 function ChartError({ message }: { message: string }) {
+  const t = useT();
+  const displayMessage =
+    message === "failedToDecodePanel"
+      ? t("common.failedToDecodePanel")
+      : message;
+
   return (
     <div className="flex h-full w-full items-center justify-center p-4">
       <div className="text-xs text-muted-foreground text-center max-w-md">
-        <div className="font-medium text-foreground">Chart unavailable</div>
-        <div className="mt-1">{message}</div>
+        <div className="font-medium text-foreground">
+          {t("common.chartUnavailable")}
+        </div>
+        <div className="mt-1">{displayMessage}</div>
       </div>
     </div>
   );

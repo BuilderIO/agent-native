@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { IconChevronRight } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useT } from "@agent-native/core/client";
 import type { PlanContent } from "@shared/plan-content";
+import { IconChevronRight } from "@tabler/icons-react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+
+import { cn } from "@/lib/utils";
+
 import {
   collectPlanTocItems,
   getActivePlanTocId,
@@ -42,6 +45,7 @@ export function PlanTableOfContents({
    * its heading) so a link never resolves to a hidden element. */
   omitBlockIds?: string[];
 }) {
+  const t = useT();
   const navRef = useRef<HTMLElement>(null);
   const elementsRef = useRef<Map<string, HTMLElement>>(new Map());
   const [activeId, setActiveId] = useState("");
@@ -209,7 +213,10 @@ export function PlanTableOfContents({
   return (
     <>
       {/* Wide layout: the contents live in the right-hand side rail. */}
-      <aside className="plan-document-toc" aria-label="Plan sections">
+      <aside
+        className="plan-document-toc"
+        aria-label={t("raw.toc.planSections")}
+      >
         <nav ref={navRef} className="plan-document-toc__nav">
           <p className="plan-document-toc__heading">{heading}</p>
           <ol className="plan-document-toc__list">{items.map(renderLink)}</ol>

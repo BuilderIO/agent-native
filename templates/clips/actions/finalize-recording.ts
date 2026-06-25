@@ -9,30 +9,34 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { and, eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
   appStateList,
   readAppState,
   writeAppState,
   deleteAppState,
 } from "@agent-native/core/application-state";
-import { uploadFile } from "@agent-native/core/file-upload";
 import { emit } from "@agent-native/core/event-bus";
+import { uploadFile } from "@agent-native/core/file-upload";
 import { captureRouteError } from "@agent-native/core/server";
+import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { debugLog } from "../server/lib/debug.js";
 import {
   applyFaststart,
   hasPlayableMp4Metadata,
 } from "../server/lib/faststart.js";
 import {
+  getCurrentOwnerEmail,
+  ownerEmailMatches,
+} from "../server/lib/recordings.js";
+import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
-import { debugLog } from "../server/lib/debug.js";
 import requestTranscript from "./request-transcript.js";
-import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 
 /**
  * Decode a base64 string back into a Uint8Array.
@@ -150,7 +154,7 @@ export default defineAction({
         .where(
           and(
             eq(schema.recordings.id, id),
-            eq(schema.recordings.ownerEmail, ownerEmail),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           ),
         );
 

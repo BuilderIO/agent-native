@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import { IconPlayerPause, IconPlayerPlay, IconX } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
+import { useT } from "@agent-native/core/client";
+import { IconPlayerSkipForward, IconX } from "@tabler/icons-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface CountdownOverlayProps {
   /** Total seconds to count down from. Default 3. */
   seconds?: number;
-  /** Called when the countdown reaches 1. */
+  /** Called when the countdown reaches 1 (drives the recording-start cue). */
   onOneSecond?: () => void;
-  /** Called when the countdown reaches 0. */
+  /** Called when the countdown reaches 0 (or the user skips). */
   onComplete: () => void;
   /** Called when the user cancels before recording begins. */
   onCancel: () => void;
@@ -19,78 +19,104 @@ export function CountdownOverlay({
   onComplete,
   onCancel,
 }: CountdownOverlayProps) {
+  const t = useT();
   const [remaining, setRemaining] = useState(seconds);
-  const [paused, setPaused] = useState(false);
-  // Ensure onComplete fires exactly once for the lifetime of the countdown,
-  // even if its identity changes while `remaining` is already 0 (which would
-  // otherwise re-run this effect and call it again).
+  // Ensure each callback fires exactly once for the lifetime of the countdown,
+  // even if identities change or the user skips while the timer is mid-flight.
   const hasCompletedRef = useRef(false);
   const hasPlayedOneSecondCueRef = useRef(false);
 
-  useEffect(() => {
-    if (remaining !== 1 || hasPlayedOneSecondCueRef.current) return;
+  const playOneSecondCue = useCallback(() => {
+    if (hasPlayedOneSecondCueRef.current) return;
     hasPlayedOneSecondCueRef.current = true;
     onOneSecond?.();
-  }, [remaining, onOneSecond]);
+  }, [onOneSecond]);
+
+  const complete = useCallback(() => {
+    if (hasCompletedRef.current) return;
+    hasCompletedRef.current = true;
+    onComplete();
+  }, [onComplete]);
+
+  // Skip the rest of the countdown and start recording immediately. Still play
+  // the start cue so the user gets the same audible confirmation they'd get if
+  // the countdown had run to zero.
+  const handleSkip = useCallback(() => {
+    playOneSecondCue();
+    complete();
+  }, [playOneSecondCue, complete]);
+
+  useEffect(() => {
+    if (remaining === 1) playOneSecondCue();
+  }, [remaining, playOneSecondCue]);
 
   useEffect(() => {
     if (remaining <= 0) {
-      if (!hasCompletedRef.current) {
-        hasCompletedRef.current = true;
-        onComplete();
-      }
+      complete();
       return;
     }
-    if (paused) return;
     const id = window.setTimeout(() => setRemaining((v) => v - 1), 1000);
     return () => window.clearTimeout(id);
-  }, [remaining, onComplete, paused]);
+  }, [remaining, complete]);
+
+  // Keyboard parity with the desktop overlay: Enter starts now, Esc cancels.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        handleSkip();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleSkip, onCancel]);
+
+  const controlClasses =
+    "flex h-16 w-16 items-center justify-center rounded-full border border-white/25 bg-white/5 text-white/90 shadow-lg backdrop-blur transition-colors hover:border-white/60 hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70";
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm"
       aria-live="polite"
-      aria-label={`Recording starts in ${remaining}`}
+      aria-label={t("countdownOverlay.startsIn", { count: remaining })}
     >
-      <div className="flex flex-col items-center gap-6">
+      <div className="flex items-center gap-10 sm:gap-14">
+        <button
+          type="button"
+          onClick={onCancel}
+          aria-label={t("countdownOverlay.cancel")}
+          className={controlClasses}
+        >
+          <IconX className="h-7 w-7" stroke={1.75} />
+        </button>
+
         <div
           key={remaining}
-          className="flex h-48 w-48 items-center justify-center rounded-full text-[120px] font-bold text-white shadow-2xl"
+          className="flex h-44 w-44 items-center justify-center rounded-full text-[112px] font-bold leading-none text-white shadow-2xl duration-200 animate-in zoom-in-75 fade-in"
           style={{
             background:
-              "radial-gradient(circle at 30% 30%, rgba(255,255,255,0.15), transparent 60%), hsl(var(--primary))",
+              "radial-gradient(circle at 30% 30%, rgba(255,255,255,0.18), transparent 60%), hsl(var(--primary))",
           }}
         >
           {remaining > 0 ? remaining : "Go"}
         </div>
 
-        <div className="flex items-center gap-2 rounded-full border border-white/15 bg-black/40 p-1.5 shadow-2xl backdrop-blur">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="rounded-full"
-            onClick={() => setPaused((value) => !value)}
-          >
-            {paused ? (
-              <IconPlayerPlay className="h-4 w-4" />
-            ) : (
-              <IconPlayerPause className="h-4 w-4" />
-            )}
-            {paused ? "Resume" : "Pause"}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="rounded-full border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-            onClick={onCancel}
-          >
-            <IconX className="h-4 w-4" />
-            Cancel
-          </Button>
-        </div>
+        <button
+          type="button"
+          onClick={handleSkip}
+          aria-label={t("countdownOverlay.skip")}
+          className={controlClasses}
+        >
+          <IconPlayerSkipForward className="h-7 w-7" stroke={1.75} />
+        </button>
       </div>
+
+      <p className="absolute bottom-16 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-xs font-medium text-white/70 backdrop-blur">
+        {t("countdownOverlay.hint")}
+      </p>
     </div>
   );
 }

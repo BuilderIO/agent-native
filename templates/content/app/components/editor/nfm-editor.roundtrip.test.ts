@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 
+import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { Editor } from "@tiptap/core";
 import { describe, expect, it } from "vitest";
+
 import { createVisualEditorExtensions } from "./VisualEditor";
-import { docToNfm, nfmToDoc } from "@shared/nfm";
 
 /**
  * End-to-end fidelity: load canonical NFM into a REAL TipTap editor (full

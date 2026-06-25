@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
+
 import type { Settings } from "../shared/api.js";
 
 const DEFAULT_SETTINGS: Settings = {

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   Area,
   AreaChart,
@@ -7,6 +8,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const data = [
@@ -20,10 +22,12 @@ const data = [
 ];
 
 export function RevenueChart() {
+  const t = useT();
+
   return (
     <Card className="col-span-full lg:col-span-4 bg-card border-border/50">
       <CardHeader>
-        <CardTitle>Revenue over time</CardTitle>
+        <CardTitle>{t("dashboard.revenueOverTime")}</CardTitle>
       </CardHeader>
       <CardContent className="pl-2">
         <div className="h-[300px] w-full">

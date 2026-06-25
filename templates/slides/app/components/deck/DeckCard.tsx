@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { VisibilityBadge, useT } from "@agent-native/core/client";
 import {
   IconDots,
   IconTrash,
@@ -7,9 +7,8 @@ import {
   IconPalette,
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
-import type { Deck } from "@/context/DeckContext";
-import SlideRenderer from "./SlideRenderer";
-import { VisibilityBadge } from "@agent-native/core/client";
+import { Link } from "react-router";
+
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -17,6 +16,9 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import type { Deck } from "@/context/DeckContext";
+
+import SlideRenderer from "./SlideRenderer";
 
 interface DeckCardProps {
   deck: Deck;
@@ -35,6 +37,7 @@ export default function DeckCard({
   isDuplicating = false,
   designSystemTitle,
 }: DeckCardProps) {
+  const t = useT();
   const firstSlide = deck.slides?.[0];
   const [isRenaming, setIsRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -139,7 +142,7 @@ export default function DeckCard({
       </Link>
 
       {/* Menu Button - always visible on touch devices */}
-      <div className="absolute top-2 right-2 sm:opacity-0 sm:group-hover:opacity-100">
+      <div className="absolute top-2 end-2 sm:opacity-0 sm:group-hover:opacity-100">
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
@@ -148,7 +151,7 @@ export default function DeckCard({
                 e.stopPropagation();
               }}
               className="p-2 sm:p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-border hover:bg-black/80"
-              aria-label="Deck options"
+              aria-label={t("raw.deckOptions")}
             >
               <IconDots className="w-3.5 h-3.5 text-foreground/70" />
             </button>
@@ -170,7 +173,7 @@ export default function DeckCard({
                 startRename();
               }}
             >
-              <IconPencil className="w-3.5 h-3.5 mr-2" />
+              <IconPencil className="w-3.5 h-3.5 me-2" />
               Rename
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -182,7 +185,7 @@ export default function DeckCard({
               }}
               disabled={isDuplicating}
             >
-              <IconCopy className="w-3.5 h-3.5 mr-2" />
+              <IconCopy className="w-3.5 h-3.5 me-2" />
               {isDuplicating ? "Duplicating..." : "Duplicate"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -194,7 +197,7 @@ export default function DeckCard({
               }}
               className="text-red-400 focus:text-red-400"
             >
-              <IconTrash className="w-3.5 h-3.5 mr-2" />
+              <IconTrash className="w-3.5 h-3.5 me-2" />
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
