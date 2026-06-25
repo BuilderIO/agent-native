@@ -26,6 +26,7 @@ import {
   IconPlus,
   IconSearch,
   IconStar,
+  IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconFolderOpen,
@@ -42,6 +43,7 @@ import {
   FeedbackButton,
   appPath,
   useCodeMode,
+  useT,
 } from "@agent-native/core/client";
 import {
   ExtensionSlot,
@@ -217,6 +219,7 @@ export function DocumentSidebar({
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  const t = useT();
   const { data: documents = [], isLoading } = useDocuments();
   const createDocument = useCreateDocument();
   const createDatabase = useCreateContentDatabase(null);
@@ -248,6 +251,7 @@ export function DocumentSidebar({
   const [activeDragSection, setActiveDragSection] =
     useState<SidebarDocumentSection | null>(null);
   const localFilesActive = location.pathname.startsWith("/local-files");
+  const settingsActive = location.pathname.startsWith("/settings");
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
@@ -767,7 +771,24 @@ export function DocumentSidebar({
       onClick={() => navigate("/local-files")}
     >
       <IconFolderOpen size={15} className="shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-left">Local files</span>
+      <span className="min-w-0 flex-1 truncate text-start">Local files</span>
+    </button>
+  );
+
+  const renderSettingsNavButton = () => (
+    <button
+      className={cn(
+        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+        settingsActive
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+      )}
+      onClick={() => navigate("/settings")}
+    >
+      <IconSettings size={15} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-start">
+        {t("navigation.settings")}
+      </span>
     </button>
   );
 
@@ -784,7 +805,7 @@ export function DocumentSidebar({
       <button
         type="button"
         aria-expanded={!collapsed}
-        className="flex w-full items-center gap-1 rounded-md px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+        className="flex w-full items-center gap-1 rounded-md px-3 py-1.5 text-start text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
         onClick={() => toggleSection(id)}
       >
         <IconChevronRight
@@ -792,6 +813,7 @@ export function DocumentSidebar({
           className={cn(
             "shrink-0 transition-transform",
             !collapsed && "rotate-90",
+            "rtl:-scale-x-100",
           )}
         />
         <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -955,7 +977,7 @@ export function DocumentSidebar({
 
   if (collapsed) {
     return (
-      <div className="flex flex-col h-full w-12 border-r border-border bg-muted/30 items-center py-3 gap-1">
+      <div className="flex flex-col h-full w-12 border-e border-border bg-muted/30 items-center py-3 gap-1">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -984,6 +1006,22 @@ export function DocumentSidebar({
           </TooltipTrigger>
           <TooltipContent>Local files</TooltipContent>
         </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={cn(
+                "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
+                settingsActive
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => navigate("/settings")}
+            >
+              <IconSettings size={16} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{t("navigation.settings")}</TooltipContent>
+        </Tooltip>
       </div>
     );
   }
@@ -991,7 +1029,7 @@ export function DocumentSidebar({
   return (
     <div
       className={cn(
-        "relative flex h-full min-h-0 flex-col border-r border-border bg-muted/30",
+        "relative flex h-full min-h-0 flex-col border-e border-border bg-muted/30",
         width === undefined && "w-full",
       )}
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
@@ -1062,7 +1100,7 @@ export function DocumentSidebar({
       )}
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="min-w-full w-max py-2 pr-2">
+        <div className="min-w-full w-max py-2 pe-2">
           {/* Search results */}
           {filteredDocuments ? (
             <>
@@ -1079,7 +1117,7 @@ export function DocumentSidebar({
                     <button
                       key={doc.id}
                       className={cn(
-                        "w-full flex items-center gap-2 px-3 py-[5px] text-sm text-left rounded-md",
+                        "w-full flex items-center gap-2 px-3 py-[5px] text-sm text-start rounded-md",
                         doc.id === activeDocumentId
                           ? "bg-accent text-accent-foreground"
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -1124,7 +1162,7 @@ export function DocumentSidebar({
                       <button
                         key={doc.id}
                         className={cn(
-                          "w-full flex items-center gap-2 px-4 py-[5px] text-sm text-left rounded-md",
+                          "w-full flex items-center gap-2 px-4 py-[5px] text-sm text-start rounded-md",
                           doc.id === activeDocumentId
                             ? "bg-accent text-accent-foreground"
                             : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -1202,7 +1240,10 @@ export function DocumentSidebar({
       </ScrollArea>
 
       <div className="shrink-0 border-t border-border px-3 py-2">
-        {renderLocalFilesNavButton()}
+        <div className="space-y-1">
+          {renderLocalFilesNavButton()}
+          {renderSettingsNavButton()}
+        </div>
       </div>
 
       <div className="shrink-0 border-t border-border">
@@ -1237,7 +1278,7 @@ export function DocumentSidebar({
       {onResize && (
         <div
           className={cn(
-            "absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 active:bg-primary/30",
+            "absolute top-0 end-0 w-1 h-full cursor-col-resize hover:bg-primary/20 active:bg-primary/30",
             isResizing && "bg-primary/30",
           )}
           onMouseDown={handleMouseDown}

@@ -3,11 +3,14 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   Area,
   AreaChart,
@@ -49,7 +52,6 @@ import {
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { useSqlQuery } from "@/lib/sql-query";
-import { useChartTooltipFlip } from "@/hooks/use-chart-tooltip-flip";
 import type {
   SqlPanel,
   ChartType,
@@ -75,6 +77,11 @@ const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
   pointerEvents: "none",
 };
 
+const PORTAL_GUTTER_PADDING = 12;
+const PORTAL_CURSOR_OFFSET = 24;
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
+
 const CHART_TOOLTIP_PROPS = {
   allowEscapeViewBox: { x: true, y: true },
   wrapperStyle: CHART_TOOLTIP_WRAPPER_STYLE,
@@ -89,6 +96,10 @@ const CHART_LEGEND_PROPS = {
   iconSize: 8,
   wrapperStyle: CHART_LEGEND_WRAPPER_STYLE,
 } as const;
+
+const PARTIAL_DAY_TIME_ZONE = "America/Los_Angeles";
+const PARTIAL_DAY_DASH = "3 5";
+const PARTIAL_DAY_KEY_PREFIX = "__sql_chart_partial_day";
 
 function formatYValue(
   value: number,
@@ -160,6 +171,122 @@ function truncateLabel(value: string, max = 48): string {
   return `${value.slice(0, max - 3)}...`;
 }
 
+function parseCalendarDate(value: string): Date | null {
+  const normalized = /^\d{8}$/.test(value)
+    ? `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`
+    : value;
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalized);
+  if (dateOnly) {
+    return new Date(
+      Number(dateOnly[1]),
+      Number(dateOnly[2]) - 1,
+      Number(dateOnly[3]),
+    );
+  }
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function toSqlChartDateKey(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+    if (ymd) return `${ymd[1]}-${ymd[2]}-${ymd[3]}`;
+    const compact = /^(\d{4})(\d{2})(\d{2})$/.exec(trimmed);
+    if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  }
+
+  const parsed = new Date(String(value ?? ""));
+  return Number.isNaN(parsed.getTime()) ? null : sqlChartLocalDateKey(parsed);
+}
+
+export function sqlChartLocalDateKey(
+  date = new Date(),
+  timeZone = PARTIAL_DAY_TIME_ZONE,
+): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+    const get = (type: string) =>
+      parts.find((part) => part.type === type)?.value ?? "";
+    const year = get("year");
+    const month = get("month");
+    const day = get("day");
+    if (year && month && day) return `${year}-${month}-${day}`;
+  } catch {}
+  return date.toISOString().slice(0, 10);
+}
+
+export interface SplitTimeSeries {
+  key: string;
+  solidKey: string;
+  partialKey: string | null;
+}
+
+export function splitCurrentDayTimeSeriesRows(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  yKeys: string[],
+  todayKey = sqlChartLocalDateKey(),
+): { rows: Record<string, unknown>[]; series: SplitTimeSeries[] } {
+  const todayIndexes = rows
+    .map((row, index) => ({ index, dateKey: toSqlChartDateKey(row[xKey]) }))
+    .filter((entry) => entry.dateKey === todayKey)
+    .map((entry) => entry.index);
+  const firstTodayIndex = todayIndexes[0] ?? -1;
+
+  if (firstTodayIndex <= 0 || yKeys.length === 0) {
+    return {
+      rows,
+      series: yKeys.map((key) => ({ key, solidKey: key, partialKey: null })),
+    };
+  }
+
+  const todaySet = new Set(todayIndexes);
+  const previousIndex = firstTodayIndex - 1;
+  const series = yKeys.map((key, index) => ({
+    key,
+    solidKey: `${PARTIAL_DAY_KEY_PREFIX}_${index}_solid`,
+    partialKey: `${PARTIAL_DAY_KEY_PREFIX}_${index}_partial`,
+  }));
+  const splitRows = rows.map((row, index) => {
+    const next = { ...row };
+    const isToday = todaySet.has(index);
+    const isPartialSegmentStart = index === previousIndex;
+    for (const item of series) {
+      next[item.solidKey] = isToday ? null : row[item.key];
+      next[item.partialKey] =
+        isToday || isPartialSegmentStart ? row[item.key] : null;
+    }
+    return next;
+  });
+
+  return { rows: splitRows, series };
+}
+
+export function shouldSplitCurrentDayTimeSeries(
+  panel: Pick<SqlPanel, "source">,
+  xKey: string,
+): boolean {
+  if (panel.source === "prometheus") return false;
+
+  const normalizedKey = xKey.trim().toLowerCase();
+  if (normalizedKey === "timestamp" || normalizedKey.endsWith("_timestamp")) {
+    return false;
+  }
+
+  return (
+    normalizedKey === "date" ||
+    normalizedKey === "day" ||
+    normalizedKey.endsWith("_date") ||
+    normalizedKey.endsWith("_day")
+  );
+}
+
 function formatSeriesLabel(value: string): string {
   const { metric, labels } = parsePrometheusSeriesLabel(value);
   const target =
@@ -225,11 +352,8 @@ function formatSeriesLabelForPanel(panel: SqlPanel, value: string): string {
 function formatXLabel(value: string, panel: SqlPanel): string {
   try {
     const s = String(value);
-    const normalized = /^\d{8}$/.test(s)
-      ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
-      : s;
-    const d = new Date(normalized);
-    if (!isNaN(d.getTime()) && s.length >= 8) {
+    const d = parseCalendarDate(s);
+    if (d && s.length >= 8) {
       return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     }
   } catch {}
@@ -245,12 +369,21 @@ function numericTooltipValue(value: unknown): number {
   return Number.isFinite(numeric) ? numeric : Number.NEGATIVE_INFINITY;
 }
 
+function tooltipItemName(item: {
+  dataKey?: string | number;
+  name?: string | number;
+}): string {
+  return String(item.name ?? item.dataKey ?? "");
+}
+
 export function sortTooltipPayloadItems<
   T extends {
+    dataKey?: string | number;
+    name?: string | number;
     value?: unknown;
   },
 >(items: T[]): T[] {
-  return items
+  const sorted = items
     .map((item, index) => ({ item, index }))
     .sort((a, b) => {
       const diff =
@@ -258,6 +391,13 @@ export function sortTooltipPayloadItems<
       return diff !== 0 ? diff : a.index - b.index;
     })
     .map(({ item }) => item);
+  const seen = new Set<string>();
+  return sorted.filter((item) => {
+    const name = tooltipItemName(item);
+    if (seen.has(name)) return false;
+    seen.add(name);
+    return true;
+  });
 }
 
 function useSeriesVisibility(keys: string[]): {
@@ -435,11 +575,15 @@ function ChartTooltip({
   seriesNameFormatter?: (value: string) => string;
   valueFormatter?: (value: number) => string;
 }) {
-  const tooltipRef = useChartTooltipFlip<HTMLDivElement>();
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const portalRef = useRef<HTMLDivElement | null>(null);
+  const [portalPosition, setPortalPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
   const items = sortTooltipPayloadItems(
     payload?.filter((item) => item.value != null && item.value !== "") ?? [],
   );
-  if (!active || items.length === 0) return null;
 
   const labelText =
     label == null
@@ -448,11 +592,96 @@ function ChartTooltip({
         ? labelFormatter(String(label))
         : String(label);
 
-  return (
-    <div
-      ref={tooltipRef}
-      className="min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg"
-    >
+  useBrowserLayoutEffect(() => {
+    if (!active || items.length === 0 || typeof window === "undefined") {
+      setPortalPosition(null);
+      return;
+    }
+
+    const anchor = anchorRef.current;
+    const wrapper = anchor?.parentElement;
+    if (!anchor || !wrapper) return;
+
+    let frame = 0;
+    const apply = () => {
+      frame = 0;
+      if (!(wrapper as HTMLElement).style.transform) return;
+
+      const anchorRect = anchor.getBoundingClientRect();
+      const portalRect = portalRef.current?.getBoundingClientRect();
+      const width = portalRect?.width || anchorRect.width;
+      const height = portalRect?.height || anchorRect.height;
+      if (width === 0 || height === 0) return;
+
+      const sidebar = document.querySelector(".agent-sidebar-panel");
+      const sidebarRect = sidebar?.getBoundingClientRect();
+      const rightLimit =
+        sidebarRect && sidebarRect.width > 0 && sidebarRect.left > 0
+          ? sidebarRect.left - PORTAL_GUTTER_PADDING
+          : window.innerWidth - PORTAL_GUTTER_PADDING;
+      const bottomLimit = window.innerHeight - PORTAL_GUTTER_PADDING;
+
+      let left = anchorRect.left;
+      let top = anchorRect.top;
+
+      if (left + width > rightLimit) {
+        left = anchorRect.left - width - PORTAL_CURSOR_OFFSET;
+      }
+      left = Math.max(
+        PORTAL_GUTTER_PADDING,
+        Math.min(left, rightLimit - width),
+      );
+
+      if (top + height > bottomLimit) {
+        top = bottomLimit - height;
+      }
+      top = Math.max(PORTAL_GUTTER_PADDING, top);
+
+      setPortalPosition((prev) =>
+        prev &&
+        Math.abs(prev.left - left) < 0.5 &&
+        Math.abs(prev.top - top) < 0.5
+          ? prev
+          : { left, top },
+      );
+    };
+
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(apply);
+    };
+
+    schedule();
+
+    const mutationObserver = new MutationObserver(schedule);
+    mutationObserver.observe(wrapper, {
+      attributes: true,
+      attributeFilter: ["style", "class"],
+    });
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(schedule);
+    resizeObserver?.observe(anchor);
+    if (portalRef.current) resizeObserver?.observe(portalRef.current);
+
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      mutationObserver.disconnect();
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+    };
+  });
+
+  if (!active || items.length === 0) return null;
+
+  const tooltip = (
+    <div className="min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg">
       {labelText && (
         <div className="mb-1.5 truncate font-medium text-foreground">
           {labelText}
@@ -484,6 +713,32 @@ function ChartTooltip({
         })}
       </div>
     </div>
+  );
+
+  return (
+    <>
+      <div ref={anchorRef} aria-hidden="true" className="invisible">
+        {tooltip}
+      </div>
+      {portalPosition && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={portalRef}
+              role="tooltip"
+              style={{
+                position: "fixed",
+                left: portalPosition.left,
+                top: portalPosition.top,
+                zIndex: 1000,
+                pointerEvents: "none",
+              }}
+            >
+              {tooltip}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 
@@ -1268,6 +1523,21 @@ function TimeSeriesRenderer({
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
   const { hiddenKeys, visibleKeys, toggleSeries } = useSeriesVisibility(yKeys);
+  const splitPartialDay = shouldSplitCurrentDayTimeSeries(panel, xKey);
+  const { rows: chartRows, series } = useMemo(
+    () =>
+      splitPartialDay
+        ? splitCurrentDayTimeSeriesRows(rows, xKey, yKeys)
+        : {
+            rows,
+            series: yKeys.map((key) => ({
+              key,
+              solidKey: key,
+              partialKey: null,
+            })),
+          },
+    [rows, xKey, yKeys, splitPartialDay],
+  );
 
   if (chartType === "line") {
     return (
@@ -1280,7 +1550,7 @@ function TimeSeriesRenderer({
         showCustomLegend
       >
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rows}>
+          <LineChart data={chartRows}>
             <XAxis
               dataKey={xKey}
               stroke="hsl(var(--muted-foreground))"
@@ -1313,18 +1583,33 @@ function TimeSeriesRenderer({
               }
               itemSorter={(item) => -(Number(item.value) || 0)}
             />
-            {yKeys.map((key, i) => (
+            {series.map((item, i) => (
               <Line
-                key={key}
+                key={item.solidKey}
                 type="monotone"
-                dataKey={key}
-                name={seriesNameFormatter(key)}
+                dataKey={item.solidKey}
+                name={seriesNameFormatter(item.key)}
                 stroke={colors[i % colors.length]}
                 strokeWidth={2}
                 dot={false}
-                hide={hiddenKeys.has(key)}
+                hide={hiddenKeys.has(item.key)}
               />
             ))}
+            {series.map((item, i) =>
+              item.partialKey ? (
+                <Line
+                  key={item.partialKey}
+                  type="monotone"
+                  dataKey={item.partialKey}
+                  name={seriesNameFormatter(item.key)}
+                  stroke={colors[i % colors.length]}
+                  strokeWidth={2}
+                  strokeDasharray={PARTIAL_DAY_DASH}
+                  dot={false}
+                  hide={hiddenKeys.has(item.key)}
+                />
+              ) : null,
+            )}
           </LineChart>
         </ResponsiveContainer>
       </ChartFrame>
@@ -1346,7 +1631,7 @@ function TimeSeriesRenderer({
       showCustomLegend
     >
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={rows}>
+        <AreaChart data={chartRows}>
           {showFill && (
             <defs>
               {yKeys.map((key, i) => (
@@ -1404,20 +1689,37 @@ function TimeSeriesRenderer({
             }
             itemSorter={(item) => -(Number(item.value) || 0)}
           />
-          {yKeys.map((key, i) => (
+          {series.map((item, i) => (
             <Area
-              key={key}
+              key={item.solidKey}
               type="monotone"
-              dataKey={key}
-              name={seriesNameFormatter(key)}
+              dataKey={item.solidKey}
+              name={seriesNameFormatter(item.key)}
               stroke={colors[i % colors.length]}
               strokeWidth={2}
               fillOpacity={showFill ? 1 : 0}
-              fill={showFill ? `url(#sql-gradient-${key})` : "none"}
+              fill={showFill ? `url(#sql-gradient-${item.key})` : "none"}
               stackId={stacked ? "stack" : undefined}
-              hide={hiddenKeys.has(key)}
+              hide={hiddenKeys.has(item.key)}
             />
           ))}
+          {series.map((item, i) =>
+            item.partialKey ? (
+              <Area
+                key={item.partialKey}
+                type="monotone"
+                dataKey={item.partialKey}
+                name={seriesNameFormatter(item.key)}
+                stroke={colors[i % colors.length]}
+                strokeWidth={2}
+                strokeDasharray={PARTIAL_DAY_DASH}
+                fill="none"
+                fillOpacity={0}
+                stackId={stacked ? "partial-stack" : undefined}
+                hide={hiddenKeys.has(item.key)}
+              />
+            ) : null,
+          )}
         </AreaChart>
       </ResponsiveContainer>
     </ChartFrame>

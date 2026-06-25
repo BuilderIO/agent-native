@@ -371,7 +371,7 @@ export function GoogleConnectBanner({
         )}
 
         {showWizard && !allConfigured && (
-          <div className="mt-8 w-full max-w-lg text-left">
+          <div className="mt-8 w-full max-w-lg text-start">
             <SetupWizard
               currentStep={currentStep}
               setCurrentStep={setCurrentStep}
@@ -561,7 +561,7 @@ function GoogleVerificationNotice({ className = "" }: { className?: string }) {
           Google may show a warning
         </button>
       </PopoverTrigger>
-      <PopoverContent align="center" className="w-72 text-left">
+      <PopoverContent align="center" className="w-72 text-start">
         <div className="flex items-start gap-2.5">
           <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">
             <IconAlertTriangle className="h-3.5 w-3.5" />
@@ -611,7 +611,7 @@ function GoogleAuthIssuePanel({
 
   return (
     <div
-      className={`rounded-lg border border-amber-500/25 bg-amber-500/[0.07] p-3 text-left ${className}`}
+      className={`rounded-lg border border-amber-500/25 bg-amber-500/[0.07] p-3 text-start ${className}`}
     >
       <div className="flex items-start gap-3">
         <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">
@@ -633,7 +633,7 @@ function GoogleAuthIssuePanel({
                 className="h-8 gap-1.5 px-3 text-xs font-medium"
                 onClick={onSignOut}
               >
-                <IconLogout className="h-3.5 w-3.5" />
+                <IconLogout className="h-3.5 w-3.5 rtl:-scale-x-100" />
                 Sign out
               </Button>
               <Button
@@ -696,7 +696,7 @@ function SetupWizard({
             key={i}
             role="button"
             tabIndex={0}
-            className={`w-full text-left rounded-lg border p-3 transition-colors cursor-pointer ${
+            className={`w-full text-start rounded-lg border p-3 transition-colors cursor-pointer ${
               isActive
                 ? "border-primary/40 bg-primary/5"
                 : isCompleted
@@ -723,7 +723,7 @@ function SetupWizard({
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium">
-                  <span className="text-muted-foreground mr-1.5">{i + 1}.</span>
+                  <span className="text-muted-foreground me-1.5">{i + 1}.</span>
                   {step.title}
                 </p>
 

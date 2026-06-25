@@ -38,7 +38,7 @@ export function OnboardingBanner({
       </span>
       <span style={styles.cta}>
         Continue
-        <IconChevronRight size={12} />
+        <IconChevronRight size={12} className="rtl:-scale-x-100" />
       </span>
     </button>
   );
@@ -57,11 +57,11 @@ const styles: Record<string, React.CSSProperties> = {
     color: "inherit",
     fontSize: 12,
     cursor: "pointer",
-    textAlign: "left" as const,
+    textAlign: "start" as const,
   },
   left: { display: "flex", alignItems: "center", gap: 6 },
   title: { fontWeight: 600 },
-  counter: { opacity: 0.65, marginLeft: 4 },
+  counter: { opacity: 0.65, marginInlineStart: 4 },
   cta: {
     display: "flex",
     alignItems: "center",

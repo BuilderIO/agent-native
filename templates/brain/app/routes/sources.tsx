@@ -1074,7 +1074,7 @@ function ProviderCatalog({
                     variant="outline"
                     className={`${grantStateClass(grantState)} w-fit max-w-full`}
                   >
-                    <GrantIcon className="mr-1 size-3" />
+                    <GrantIcon className="me-1 size-3" />
                     {grantStateLabel(grantState)}
                   </Badge>
                   <Badge
@@ -2037,7 +2037,7 @@ export default function SourcesRoute() {
                       {enqueueCapturesDistillation.isPending ? (
                         <IconLoader2 className="size-4 animate-spin" />
                       ) : (
-                        <IconSend className="size-4" />
+                        <IconSend className="size-4 rtl:-scale-x-100" />
                       )}
                       Queue selected
                     </Button>
@@ -2205,7 +2205,7 @@ export default function SourcesRoute() {
                           {enqueueDistillation.isPending ? (
                             <IconLoader2 className="size-4 animate-spin" />
                           ) : (
-                            <IconSend className="size-4" />
+                            <IconSend className="size-4 rtl:-scale-x-100" />
                           )}
                           {queueActionLabel(queue)}
                         </Button>

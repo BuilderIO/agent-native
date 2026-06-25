@@ -392,8 +392,8 @@ function ComposerAttachmentPreviewCard({
         className={cn(
           "absolute flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-background/95 text-muted-foreground shadow-sm transition hover:text-foreground",
           isImage
-            ? "right-1.5 top-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100"
-            : "right-1.5 top-1.5",
+            ? "end-1.5 top-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100"
+            : "end-1.5 top-1.5",
         )}
         aria-label={`Remove ${attachment.name}`}
       >
@@ -637,9 +637,7 @@ export interface AssistantChatProps {
   suggestions?: string[];
   /** Context-aware suggestions merged with `suggestions`. Enabled by default. */
   dynamicSuggestions?: AgentDynamicSuggestionsOption;
-  /** Optional content rendered in the empty state, above the suggestion buttons.
-   *  Used by MultiTabAssistantChat to surface "previous chats for this design"
-   *  when the current thread is empty but the scope has other threads. */
+  /** Optional content rendered in the empty state, above the suggestion buttons. */
   emptyStateAddon?: React.ReactNode;
   /** Whether to show the header bar. Default: true */
   showHeader?: boolean;
@@ -3133,7 +3131,7 @@ const AssistantChatInner = forwardRef<
                                   content: [{ type: "text", text: suggestion }],
                                 });
                               }}
-                              className="w-full rounded-lg border border-border px-3 py-2 text-left text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                              className="w-full rounded-lg border border-border px-3 py-2 text-start text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
                             >
                               {suggestion}
                             </button>

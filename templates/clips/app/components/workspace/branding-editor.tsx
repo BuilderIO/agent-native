@@ -142,7 +142,7 @@ export function BrandingEditor({
                 disabled={disabled}
                 className="max-w-[120px] tabular-nums uppercase"
               />
-              <div className="flex items-center gap-1 ml-2">
+              <div className="flex items-center gap-1 ms-2">
                 {PRESETS.map((c) => (
                   <button
                     key={c}

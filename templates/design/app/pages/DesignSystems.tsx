@@ -446,7 +446,7 @@ export default function DesignSystems() {
                 {/* New design system card */}
                 <button
                   onClick={() => navigate("/design-systems/setup")}
-                  className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-left cursor-pointer"
+                  className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
                 >
                   <div className="aspect-video flex items-center justify-center bg-muted/30">
                     <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
@@ -487,7 +487,7 @@ export default function DesignSystems() {
                           openDesignSystemDetails(ds.id);
                         }}
                         aria-pressed={isSelectionMode ? isSelected : undefined}
-                        className="block w-full text-left cursor-pointer"
+                        className="block w-full text-start cursor-pointer"
                       >
                         {/* Color preview */}
                         <div className="aspect-video bg-muted/50 flex items-center justify-center gap-2 p-4">
@@ -545,7 +545,7 @@ export default function DesignSystems() {
                         />
                       </div>
                       {isSelectionMode && ds.canManage ? (
-                        <div className="absolute top-2 left-2 z-10">
+                        <div className="absolute top-2 start-2 z-10">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Checkbox
@@ -569,7 +569,7 @@ export default function DesignSystems() {
                               <TooltipTrigger asChild>
                                 <button
                                   onClick={() => handleSetDefault(ds.id)}
-                                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
+                                  className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
                                 >
                                   {ds.isDefault ? (
                                     <IconStarFilled className="w-3.5 h-3.5 text-yellow-400" />
@@ -588,9 +588,7 @@ export default function DesignSystems() {
                           {ds.canManage && (
                             <div
                               className={`absolute top-2 z-10 opacity-0 group-hover:opacity-100 ${
-                                ds.accessRole === "owner"
-                                  ? "right-10"
-                                  : "right-2"
+                                ds.accessRole === "owner" ? "end-10" : "end-2"
                               }`}
                             >
                               <DropdownMenu>
@@ -609,7 +607,7 @@ export default function DesignSystems() {
                                     onClick={() => setDeleteId(ds.id)}
                                     className="text-red-400 focus:text-red-400 cursor-pointer"
                                   >
-                                    <IconTrash className="w-3.5 h-3.5 mr-2" />
+                                    <IconTrash className="w-3.5 h-3.5 me-2" />
                                     Delete
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>

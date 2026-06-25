@@ -467,7 +467,7 @@ export function MicrophoneVisualizer({
           {statusLabel ? (
             <span
               className={cn(
-                "pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-background/85 px-2 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm",
+                "pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 rounded-full bg-background/85 px-2 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm",
                 error && "text-foreground",
               )}
             >

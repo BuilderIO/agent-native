@@ -204,7 +204,7 @@ export default function DownloadPage() {
           </a>
           <a
             href={appPath("/library")}
-            className="ml-auto text-sm text-muted-foreground hover:text-foreground"
+            className="ms-auto text-sm text-muted-foreground hover:text-foreground"
           >
             Back to library
           </a>
@@ -245,7 +245,7 @@ export default function DownloadPage() {
           </div>
 
           {clipsChromeExtensionEnabled && (
-            <section className="mt-10 w-full max-w-xl rounded-2xl border border-border bg-card p-4 text-left shadow-sm">
+            <section className="mt-10 w-full max-w-xl rounded-2xl border border-border bg-card p-4 text-start shadow-sm">
               <div className="flex items-start gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <IconBrandChrome className="h-4 w-4" />

@@ -169,7 +169,7 @@ export function DocumentTreeItem({
         {...(isLocalFileNode ? {} : listeners)}
         aria-label={node.title || "Untitled"}
         className={cn(
-          "group relative flex min-w-56 items-center gap-1.5 rounded-md py-[5px] pr-2 text-sm cursor-pointer select-none",
+          "group relative flex min-w-56 items-center gap-1.5 rounded-md py-[5px] pe-2 text-sm cursor-pointer select-none",
           canEdit && !isLocalFileNode && "cursor-grab active:cursor-grabbing",
           isDragging && "bg-accent/70 text-accent-foreground shadow-sm",
           isInsideDropTarget &&
@@ -179,7 +179,7 @@ export function DocumentTreeItem({
             : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
         )}
         style={{
-          paddingLeft: `${indent}px`,
+          paddingInlineStart: `${indent}px`,
           width: rowWidth === undefined ? undefined : `${rowWidth}px`,
         }}
         onClick={() => {
@@ -248,7 +248,11 @@ export function DocumentTreeItem({
             >
               <IconChevronRight
                 size={14}
-                className={cn("transition-transform", expanded && "rotate-90")}
+                className={cn(
+                  "transition-transform",
+                  expanded && "rotate-90",
+                  "rtl:-scale-x-100",
+                )}
               />
             </button>
           )}
@@ -259,7 +263,7 @@ export function DocumentTreeItem({
         </span>
 
         <div
-          className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 bg-inherit"
+          className="absolute end-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 bg-inherit"
           onPointerDown={(e) => e.stopPropagation()}
         >
           {hasMenuActions && (
@@ -282,7 +286,7 @@ export function DocumentTreeItem({
                   >
                     <IconStar
                       size={14}
-                      className={cn("mr-2", node.isFavorite && "fill-current")}
+                      className={cn("me-2", node.isFavorite && "fill-current")}
                     />
                     {node.isFavorite
                       ? "Remove from favorites"
@@ -298,7 +302,7 @@ export function DocumentTreeItem({
                       setDeleteDialogOpen(true);
                     }}
                   >
-                    <IconTrash size={14} className="mr-2" />
+                    <IconTrash size={14} className="me-2" />
                     Delete
                   </DropdownMenuItem>
                 )}

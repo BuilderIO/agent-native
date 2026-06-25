@@ -370,7 +370,7 @@ function SecretCard({ secret, onChanged, focusInput }: SecretCardProps) {
                 href={secret.docsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground ml-auto"
+                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground ms-auto"
               >
                 Get key
                 <IconExternalLink size={10} />
@@ -626,7 +626,7 @@ function AdHocKeysSection() {
               <option value="user">Personal</option>
               <option value="workspace">Workspace</option>
             </select>
-            <div className="ml-auto flex items-center gap-1.5">
+            <div className="ms-auto flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={resetForm}

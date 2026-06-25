@@ -24,6 +24,7 @@ interface RunRow {
   completed_at: number | null;
   error_code: string | null;
   error_detail: string | null;
+  diag_stage: string | null;
 }
 
 let rows: RunRow[] = [];
@@ -84,8 +85,47 @@ const mockDb = {
         completed_at: null,
         error_code: null,
         error_detail: null,
+        diag_stage: null,
       });
       return { rows: [], rowsAffected: 1 };
+    }
+
+    // recordRunDiagnostic — UPDATE agent_runs SET diag_stage = ? WHERE id = ?
+    if (/UPDATE agent_runs SET diag_stage = \?/i.test(sql)) {
+      const [stage, id] = args;
+      const row = rows.find((r) => r.id === id);
+      if (row) {
+        row.diag_stage = stage as string;
+        return { rows: [], rowsAffected: 1 };
+      }
+      return { rows: [], rowsAffected: 0 };
+    }
+
+    // reapUnclaimedBackgroundRun — UPDATE ... WHERE id=? AND status='running'
+    // AND dispatch_mode='background' AND COALESCE(heartbeat_at,started_at) < ?
+    if (
+      /UPDATE agent_runs SET status = 'errored'/i.test(sql) &&
+      /dispatch_mode = 'background'/i.test(sql) &&
+      /WHERE id = \?/i.test(sql)
+    ) {
+      const completedAt = args[0] as number;
+      const id = args[3] as string;
+      const cutoff = args[4] as number;
+      const row = rows.find(
+        (r) =>
+          r.id === id &&
+          r.status === "running" &&
+          r.dispatch_mode === "background",
+      );
+      if (!row) return { rows: [], rowsAffected: 0 };
+      if (liveness(row) < cutoff) {
+        row.status = "errored";
+        row.completed_at = completedAt;
+        row.error_code = args[1] as string;
+        row.error_detail = args[2] as string;
+        return { rows: [], rowsAffected: 1 };
+      }
+      return { rows: [], rowsAffected: 0 };
     }
 
     // claimBackgroundRun
@@ -190,8 +230,13 @@ const {
   insertRun,
   claimBackgroundRun,
   reapIfStale,
+  reapUnclaimedBackgroundRun,
+  recordRunDiagnostic,
   tryClaimRunSlot,
   getRunStatus,
+  RUN_DIAG_STAGE,
+  UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
+  UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT,
   RUN_STALE_MS: STORE_RUN_STALE_MS,
   BACKGROUND_RUN_STALE_MS: STORE_BACKGROUND_RUN_STALE_MS,
 } = await import("./run-store.js");
@@ -299,5 +344,105 @@ describe("run-store durable background", () => {
     const slot = await tryClaimRunSlot("thread-fg");
     expect(slot.claimed).toBe(true);
     expect(slot.activeRunId).toBeNull();
+  });
+
+  // ─── DIAGNOSTIC: recordRunDiagnostic writes the last reached stage ──────────
+  describe("recordRunDiagnostic", () => {
+    it("stamps the diag_stage JSON onto the run row", async () => {
+      await insertRun("r-diag", "t1", "turn", { dispatchMode: "background" });
+      await recordRunDiagnostic(
+        "r-diag",
+        RUN_DIAG_STAGE.authFailed,
+        "status=401",
+      );
+      const stored = rows.find((r) => r.id === "r-diag")!.diag_stage!;
+      const parsed = JSON.parse(stored);
+      expect(parsed.stage).toBe(RUN_DIAG_STAGE.authFailed);
+      expect(parsed.detail).toBe("status=401");
+      expect(typeof parsed.at).toBe("number");
+    });
+
+    it("is a no-op for an empty runId and never throws", async () => {
+      await expect(
+        recordRunDiagnostic("", RUN_DIAG_STAGE.routeEntered),
+      ).resolves.toBeUndefined();
+    });
+
+    it("exposes the full ordered stage vocabulary", () => {
+      // The literal strings are the client-readable contract — pin them.
+      expect(RUN_DIAG_STAGE).toMatchObject({
+        routeEntered: "route_entered",
+        authFailed: "auth_failed",
+        authPassed: "auth_passed",
+        workerEntered: "worker_entered",
+        workerClaimed: "worker_claimed",
+        workerClaimLost: "worker_claim_lost",
+        workerStarted: "worker_started",
+        workerThrew: "worker_threw",
+        routeThrew: "route_threw",
+      });
+    });
+  });
+
+  // ─── FALLBACK HARDENING: reapUnclaimedBackgroundRun ────────────────────────
+  describe("reapUnclaimedBackgroundRun (202-acked but worker never started)", () => {
+    it("exports a grace MUCH tighter than the 90s claimed-worker window", () => {
+      expect(UNCLAIMED_BACKGROUND_RUN_GRACE_MS).toBe(25_000);
+      expect(UNCLAIMED_BACKGROUND_RUN_GRACE_MS).toBeLessThan(
+        STORE_BACKGROUND_RUN_STALE_MS,
+      );
+      expect(UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode).toBe(
+        "background_worker_never_started",
+      );
+      expect(UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.recoverable).toBe(true);
+    });
+
+    it("reaps a never-claimed background run past the tight grace (recoverable)", async () => {
+      const now = Date.now();
+      await insertRun("r-unclaimed", "t1", "turn", {
+        dispatchMode: "background",
+      });
+      // 30s with no claim/heartbeat: worker never started — the silent death.
+      rows.find((r) => r.id === "r-unclaimed")!.heartbeat_at = now - 30_000;
+
+      const reaped = await reapUnclaimedBackgroundRun("r-unclaimed");
+      expect(reaped).toBe(true);
+      const row = rows.find((r) => r.id === "r-unclaimed")!;
+      expect(row.status).toBe("errored");
+      expect(row.error_code).toBe("background_worker_never_started");
+    });
+
+    it("does NOT reap a background run that is still within the grace (cold start)", async () => {
+      const now = Date.now();
+      await insertRun("r-coldstart", "t1", "turn", {
+        dispatchMode: "background",
+      });
+      // 10s ago — a Netlify cold start may still claim it. Leave it alone.
+      rows.find((r) => r.id === "r-coldstart")!.heartbeat_at = now - 10_000;
+
+      expect(await reapUnclaimedBackgroundRun("r-coldstart")).toBe(false);
+      expect(await getRunStatus("r-coldstart")).toBe("running");
+    });
+
+    it("does NOT reap a run the worker already CLAIMED (no longer 'background')", async () => {
+      const now = Date.now();
+      await insertRun("r-claimed", "t1", "turn", {
+        dispatchMode: "background",
+      });
+      await claimBackgroundRun("r-claimed"); // → 'background-processing'
+      // Even if it goes quiet, a claimed worker is protected here (it has the
+      // wider window via reapIfStale, not this fast unclaimed path).
+      rows.find((r) => r.id === "r-claimed")!.heartbeat_at = now - 60_000;
+
+      expect(await reapUnclaimedBackgroundRun("r-claimed")).toBe(false);
+      expect(await getRunStatus("r-claimed")).toBe("running");
+    });
+
+    it("does NOT touch a plain foreground run", async () => {
+      const now = Date.now();
+      await insertRun("r-fg2", "t1"); // no dispatch_mode
+      rows.find((r) => r.id === "r-fg2")!.heartbeat_at = now - 60_000;
+      expect(await reapUnclaimedBackgroundRun("r-fg2")).toBe(false);
+    });
   });
 });

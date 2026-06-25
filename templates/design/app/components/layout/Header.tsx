@@ -1,15 +1,15 @@
 import { useLocation } from "react-router";
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery, useT } from "@agent-native/core/client";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { AgentToggleButton } from "@agent-native/core/client";
 import { RunsTray } from "@agent-native/core/client/progress";
 
-const pageTitles: Record<string, string> = {
-  "/": "Designs",
-  "/templates": "Templates",
-  "/design-systems": "Design Systems",
-  "/design-systems/setup": "Set up design system",
-  "/settings": "Settings",
+const pageTitleKeys: Record<string, string> = {
+  "/": "navigation.designs",
+  "/templates": "navigation.templates",
+  "/design-systems": "navigation.designSystems",
+  "/design-systems/setup": "navigation.setupDesignSystem",
+  "/settings": "navigation.settings",
 };
 
 function DesignTitle({ id }: { id: string }) {
@@ -21,7 +21,10 @@ function DesignTitle({ id }: { id: string }) {
 }
 
 function StaticTitle({ pathname }: { pathname: string }) {
-  const title = pageTitles[pathname] ?? "Design";
+  const t = useT();
+  const title = pageTitleKeys[pathname]
+    ? t(pageTitleKeys[pathname])
+    : t("navigation.brand");
   return (
     <h1 className="text-lg font-semibold tracking-tight truncate">{title}</h1>
   );
