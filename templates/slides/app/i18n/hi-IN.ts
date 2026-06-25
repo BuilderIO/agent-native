@@ -50,6 +50,17 @@ const messages = {
     expandSidebar: "साइडबार फैलाएं",
     collapseSidebar: "साइडबार समेटें",
   },
+  notFound: {
+    message: "यह पेज अभी मौजूद नहीं है।",
+    backToDecks: "डेक पर वापस जाएं",
+  },
+  designSystems: {
+    new: "नया डिज़ाइन सिस्टम",
+    setupBrand: "अपना ब्रांड सेट करें",
+    emptyTitle: "अपना ब्रांड सेट करें identity",
+    emptyDescription:
+      "अपने brand colors, typography और logos के साथ design system बनाएं। हर नया deck आपकी visual identity का पालन करेगा।",
+  },
 };
 
 export default messages;

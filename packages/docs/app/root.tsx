@@ -6,8 +6,10 @@ import {
   ScrollRestoration,
   Link,
   isRouteErrorResponse,
+  useMatches,
   useRouteError,
   useLocation,
+  type LoaderFunctionArgs,
 } from "react-router";
 import { useState, useEffect, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -15,25 +17,29 @@ import {
   AgentNativeI18nProvider,
   AgentSidebar,
   configureTracking,
+  getLocaleInitScript,
   useT,
 } from "@agent-native/core/client";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 import {
   DEFAULT_DOCS_LOCALE,
-  docsLocaleFromPathname,
   localeDirection,
+  routeLocaleFromPathname,
+  sitePathForLocale,
+  type DocsLocale,
 } from "./components/docs-locale";
 import {
   canonicalPathForPath,
   docsAlternateLinksForPath,
 } from "./components/docs-seo";
-import { docsI18nCatalog } from "./i18n";
+import { docsI18nCatalog, loadDocsMessages } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
 
 import appCss from "./global.css?url";
 
 const SITE_URL = "https://www.agent-native.com";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -82,6 +88,50 @@ const JSON_LD = JSON.stringify({
   ],
 });
 
+export function resolveLayoutLocale(pathname: string): DocsLocale {
+  return routeLocaleFromPathname(pathname) ?? DEFAULT_DOCS_LOCALE;
+}
+
+async function initialMessagesForLocale(locale: DocsLocale) {
+  if (locale === DEFAULT_DOCS_LOCALE) return null;
+  return loadDocsMessages(locale);
+}
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  const locale = resolveLayoutLocale(new URL(request.url).pathname);
+  return {
+    locale,
+    preference: { locale },
+    messages: await initialMessagesForLocale(locale),
+  };
+}
+
+type RootLocaleData = Awaited<ReturnType<typeof loader>>;
+
+function isRootLocaleData(data: unknown): data is RootLocaleData {
+  if (!data || typeof data !== "object") return false;
+  const value = data as Partial<RootLocaleData>;
+  return typeof value.locale === "string" && Boolean(value.preference);
+}
+
+function fallbackRootLocaleData(pathname: string): RootLocaleData {
+  const locale = resolveLayoutLocale(pathname);
+  return {
+    locale,
+    preference: { locale },
+    messages: null,
+  };
+}
+
+function useRootLocaleData() {
+  const location = useLocation();
+  const matches = useMatches();
+  const rootMatch = matches.find((match) => isRootLocaleData(match.data));
+  return isRootLocaleData(rootMatch?.data)
+    ? rootMatch.data
+    : fallbackRootLocaleData(location.pathname);
+}
+
 export const links = () => [
   { rel: "stylesheet", href: appCss },
   { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
@@ -122,16 +172,15 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
 }
 
 function DocsI18nProvider({ children }: { children: React.ReactNode }) {
-  const location = useLocation();
-  const routeLocale =
-    docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE;
+  const localeData = useRootLocaleData();
 
   return (
     <AgentNativeI18nProvider
-      key={routeLocale}
+      key={localeData.locale}
       catalog={docsI18nCatalog}
-      initialLocale={routeLocale}
-      initialPreference={routeLocale}
+      initialLocale={localeData.locale}
+      initialPreference={localeData.preference.locale}
+      initialMessages={localeData.messages ?? undefined}
       persistPreference={false}
     >
       {children}
@@ -279,9 +328,24 @@ function ScrollManager() {
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const location = useLocation();
-  const locale =
-    docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE;
+  const localeData = useRootLocaleData();
+  const locale = localeData.locale;
+  const localeInitScript =
+    typeof document !== "undefined"
+      ? (document.querySelector<HTMLScriptElement>(LOCALE_INIT_SCRIPT_SELECTOR)
+          ?.innerHTML ??
+        getLocaleInitScript({
+          locale,
+          preference:
+            locale === DEFAULT_DOCS_LOCALE ? undefined : localeData.preference,
+          messages: localeData.messages,
+        }))
+      : getLocaleInitScript({
+          locale,
+          preference:
+            locale === DEFAULT_DOCS_LOCALE ? undefined : localeData.preference,
+          messages: localeData.messages,
+        });
 
   return (
     <html lang={locale} dir={localeDirection(locale)} suppressHydrationWarning>
@@ -289,6 +353,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: localeInitScript }}
+        />
         <script
           async
           src="https://www.googletagmanager.com/gtag/js?id=G-ESF7FYXGN9"
@@ -396,6 +465,9 @@ function RootShell({ mounted }: { mounted: boolean }) {
 
 function LocalizedError({ error }: { error: unknown }) {
   const t = useT();
+  const localeData = useRootLocaleData();
+  const localizedPath = (path: string) =>
+    sitePathForLocale(path, localeData.locale);
 
   if (isRouteErrorResponse(error) && error.status === 404) {
     return (
@@ -413,14 +485,14 @@ function LocalizedError({ error }: { error: unknown }) {
           <div className="flex items-center gap-3">
             <Link
               data-an-prefetch="render"
-              to="/"
+              to={localizedPath("/")}
               className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
             >
               {t("errors.goHome")}
             </Link>
             <Link
               data-an-prefetch="render"
-              to="/docs"
+              to={localizedPath("/docs")}
               className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
             >
               {t("errors.readDocs")}
@@ -442,7 +514,7 @@ function LocalizedError({ error }: { error: unknown }) {
         </p>
         <Link
           data-an-prefetch="render"
-          to="/"
+          to={localizedPath("/")}
           className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
         >
           {t("errors.goHome")}

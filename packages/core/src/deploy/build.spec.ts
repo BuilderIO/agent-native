@@ -1106,22 +1106,31 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     );
   }
 
-  it("is ON BY DEFAULT (flag unset) so the -background function is emitted", () => {
-    // Default-on matches the runtime gate (isFlagEnabled) — the 15-min
-    // `-background` function MUST be emitted by default so the worker gets the
-    // real long budget instead of overshooting the ~60s synchronous wall.
-    expect(isDurableBackgroundDeployEnabled()).toBe(true);
+  it("is OFF BY DEFAULT (flag unset) so the -background function is NOT emitted", () => {
+    // Default-off (opt-in) matches the runtime gate (isFlagEnabled) — durable is
+    // opt-in until the async worker path is proven live, so the 15-min
+    // `-background` function is emitted only when an app explicitly opts in.
+    expect(isDurableBackgroundDeployEnabled()).toBe(false);
   });
 
-  it("is ON for truthy, unrecognized, or empty flag values (default-on)", () => {
-    for (const value of ["1", "true", "TRUE", " yes ", "on", "", "maybe"]) {
+  it("is ON only when explicitly opted in via a truthy flag", () => {
+    for (const value of ["1", "true", "TRUE", " yes ", "on"]) {
       process.env.AGENT_CHAT_DURABLE_BACKGROUND = value;
       expect(isDurableBackgroundDeployEnabled()).toBe(true);
     }
   });
 
-  it("is OFF only when explicitly opted out via a falsy flag", () => {
-    for (const value of ["0", "false", "no", "off", "FALSE", " Off "]) {
+  it("is OFF for falsy, unrecognized, or empty flag values (default-off)", () => {
+    for (const value of [
+      "0",
+      "false",
+      "no",
+      "off",
+      "FALSE",
+      " Off ",
+      "",
+      "maybe",
+    ]) {
       process.env.AGENT_CHAT_DURABLE_BACKGROUND = value;
       expect(isDurableBackgroundDeployEnabled()).toBe(false);
     }
@@ -1182,6 +1191,13 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(entry).toContain(
       "globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true",
     );
+    // The wrapper passes Netlify's (request, context) through to the Nitro
+    // handler and guards the handoff so a pre-route failure is logged loudly
+    // instead of silently swallowed behind the async 202.
+    expect(entry).toContain("async function handler(request, context)");
+    expect(entry).toContain("cachedHandler(rewritten, context)");
+    expect(entry).toMatch(/try\s*\{/);
+    expect(entry).toContain("wrapper failed before reaching the route");
   });
 
   it("does NOT touch the server /* catch-all (no excludedPath patch — default url is never shadowed)", () => {

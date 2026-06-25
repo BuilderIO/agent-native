@@ -50,6 +50,17 @@ const messages = {
     expandSidebar: "Expandir barra lateral",
     collapseSidebar: "Recolher barra lateral",
   },
+  notFound: {
+    message: "Esta página ainda não existe.",
+    backToDecks: "Voltar aos decks",
+  },
+  designSystems: {
+    new: "Novo sistema de design",
+    setupBrand: "Configure sua marca",
+    emptyTitle: "Configure sua marca identity",
+    emptyDescription:
+      "Crie um sistema de design com as cores, tipografia e logotipos da sua marca. Cada novo deck seguira sua identidade visual.",
+  },
 };
 
 export default messages;

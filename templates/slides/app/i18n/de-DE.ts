@@ -51,6 +51,17 @@ const messages = {
     expandSidebar: "Seitenleiste erweitern",
     collapseSidebar: "Seitenleiste einklappen",
   },
+  notFound: {
+    message: "Diese Seite existiert noch nicht.",
+    backToDecks: "Zurück zu Decks",
+  },
+  designSystems: {
+    new: "Neues Designsystem",
+    setupBrand: "Marke einrichten",
+    emptyTitle: "Marke einrichten identity",
+    emptyDescription:
+      "Erstelle ein Designsystem mit Markenfarben, Typografie und Logos. Jedes neue Deck folgt deiner visuellen Identitat.",
+  },
 };
 
 export default messages;

@@ -48,6 +48,27 @@ const messages = {
     collapse: "收起侧边栏",
     syncing: "正在同步…",
   },
+  analytics: {
+    selectRange: "选择范围",
+    lastDays: "过去 {{count}} 天",
+    allTime: "全部时间",
+    average: "平均值",
+    lowest: "最低",
+    highest: "最高",
+    daysTracked: "已记录天数",
+    daysUnit: "天",
+    net: "净值",
+    consumed: "摄入",
+    burned: "消耗",
+    noData: "暂无数据",
+    current: "当前",
+    change: "变化",
+    trendView: "趋势视图",
+    actualWeight: "实际体重",
+    trendDescription: "蓝色趋势线会平滑每日波动，展示你的整体进展。",
+    noWeightData: "暂无体重数据",
+    noWeightDescription: "开始记录体重即可查看趋势",
+  },
 };
 
 export default messages;

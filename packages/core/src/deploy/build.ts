@@ -1485,10 +1485,12 @@ export function findInstalledResvgPackages(
  * Reads the same env flag the runtime gate uses
  * (`AGENT_CHAT_DURABLE_BACKGROUND`).
  *
- * DEFAULT-ON, matching the runtime gate (`isFlagEnabled` in
- * durable-background.ts): unset/empty/unknown means enabled; an app opts OUT
- * only with an explicit falsy value (`false`/`0`/`no`/`off`). This is what
- * actually emits the 15-min `-background` function so the `_process-run`
+ * DEFAULT-OFF (opt-in), matching the runtime gate (`isFlagEnabled` in
+ * durable-background.ts): unset/empty/unknown means DISABLED; an app opts IN
+ * only with an explicit truthy value (`true`/`1`/`yes`/`on`). A premature
+ * fleet-wide default-on caused real-user incidents (2026-06-24) before the
+ * async worker path was proven, so durable is opt-in until verified live. This
+ * gate is what emits the 15-min `-background` function so the `_process-run`
  * dispatch lands on it (async 202 → the worker runs with the real 15-min budget
  * → its ~13-min soft-timeout fits). The deploy gate and runtime gate MUST agree:
  * if the deploy emitted no `-background` function but the runtime still routed
@@ -1499,9 +1501,9 @@ export function findInstalledResvgPackages(
  */
 export function isDurableBackgroundDeployEnabled(): boolean {
   const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
-  if (raw == null) return true;
+  if (raw == null) return false;
   const v = raw.trim().toLowerCase();
-  return !(v === "0" || v === "false" || v === "no" || v === "off");
+  return v === "1" || v === "true" || v === "yes" || v === "on";
 }
 
 /**
@@ -1615,20 +1617,37 @@ let cachedHandler;
 // PROCESS_RUN_PATH before delegating. Method, ALL headers (the HMAC
 // Authorization: Bearer MUST survive — the plugin verifies it) and the body are
 // preserved by cloning the incoming Request with only its URL pathname set.
-export default async function handler(request) {
-  cachedHandler ??= (await import("./main.mjs")).default;
-  const url = new URL(request.url);
-  url.pathname = PROCESS_RUN_PATH;
-  // Read the body once and pass it through. GET/HEAD have no body.
-  const method = request.method || "POST";
-  const hasBody = method !== "GET" && method !== "HEAD";
-  const body = hasBody ? await request.text() : undefined;
-  const rewritten = new Request(url.toString(), {
-    method,
-    headers: request.headers,
-    body,
-  });
-  return cachedHandler(rewritten);
+export default async function handler(request, context) {
+  try {
+    cachedHandler ??= (await import("./main.mjs")).default;
+    const url = new URL(request.url);
+    url.pathname = PROCESS_RUN_PATH;
+    // Read the body once and pass it through. GET/HEAD have no body.
+    const method = request.method || "POST";
+    const hasBody = method !== "GET" && method !== "HEAD";
+    const body = hasBody ? await request.text() : undefined;
+    const rewritten = new Request(url.toString(), {
+      method,
+      headers: request.headers,
+      body,
+    });
+    // Netlify Functions v2 invokes the handler as (request, context); the Nitro
+    // netlify handler accepts (request[, context]). Pass context through so a
+    // handler that uses it (e.g. waitUntil) does not trip over an undefined arg
+    // before it ever routes the request.
+    return await cachedHandler(rewritten, context);
+  } catch (err) {
+    // Netlify already returned 202 for this background invocation and DISCARDS
+    // this return, so a throw here is otherwise INVISIBLE — it would only surface
+    // downstream as the reaper's "worker never claimed the run". Log it loudly
+    // for the function log; the FOREGROUND circuit-breaker (production-agent.ts)
+    // is what recovers the run by executing it inline when no worker claims.
+    console.error(
+      "[agent-background] wrapper failed before reaching the route:",
+      (err && err.stack) || err,
+    );
+    throw err;
+  }
 }
 
 export const config = {
@@ -2121,11 +2140,11 @@ export default bundle;
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
   }
 
-  // Durable background agent runs (default-ON; opt out with a falsy
+  // Durable background agent runs (default-OFF / opt-in; enable with a truthy
   // AGENT_CHAT_DURABLE_BACKGROUND). Additive ONLY: emits a SECOND Netlify
   // function whose name ends in `-background` re-exporting the same handler
   // bundle, so the chat `_process-run` POST lands on Netlify's async (15-min)
-  // function. When explicitly opted out this is a no-op and the single-function
+  // function. When not opted in this is a no-op and the single-function
   // deploy is byte-for-byte unchanged.
   if (preset === "netlify" && isDurableBackgroundDeployEnabled()) {
     try {

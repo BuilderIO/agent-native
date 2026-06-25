@@ -68,6 +68,20 @@ const messages = {
     title: "新しいコンポジション",
     description: "作成したい動画を説明してください",
     placeholder: "作成したい動画を説明してください...",
+    timedOut:
+      "コンポジションのリクエストがタイムアウトしました。サイドバーからもう一度お試しください。",
+    generating: "生成中...",
+  },
+  notFound: {
+    message: "このページはまだ存在しません。続けて指示すると作成できます。",
+    backToStudio: "Studio に戻る",
+  },
+  designSystems: {
+    new: "新しいデザインシステム",
+    setupBrand: "ブランドを設定",
+    emptyTitle: "ブランドアイデンティティを設定",
+    emptyDescription:
+      "ブランドカラー、タイポグラフィ、ロゴを使ってデザインシステムを作成します。新しいコンポジションはすべてそのビジュアルアイデンティティに従います。",
   },
 };
 

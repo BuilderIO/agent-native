@@ -66,6 +66,19 @@ const messages = {
     title: "新建合成",
     description: "描述你想创建的视频",
     placeholder: "描述你想创建的视频...",
+    timedOut: "作品请求超时。请从侧边栏重试。",
+    generating: "正在生成...",
+  },
+  notFound: {
+    message: "此页面尚不存在。继续提示即可构建它。",
+    backToStudio: "返回 Studio",
+  },
+  designSystems: {
+    new: "新建设计系统",
+    setupBrand: "设置你的品牌",
+    emptyTitle: "设置你的品牌标识",
+    emptyDescription:
+      "使用你的品牌颜色、字体和徽标创建设计系统。每个新作品都会遵循你的视觉标识。",
   },
 };
 

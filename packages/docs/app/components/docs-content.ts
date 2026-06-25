@@ -145,7 +145,7 @@ export async function loadDoc(
 
   const key = localizedDocKey(docsLocale, slug);
   const loader = localizedMdLoaders[key];
-  if (!loader) return undefined;
+  if (!loader) return docs.get(slug);
 
   const existingPromise = localizedDocPromises.get(key);
   if (existingPromise) return existingPromise;
@@ -156,7 +156,10 @@ export async function loadDoc(
       cacheLocalizedDoc(docsLocale, entry);
       return entry;
     })
-    .catch(() => undefined);
+    .catch((error) => {
+      localizedDocPromises.delete(key);
+      throw error;
+    });
   localizedDocPromises.set(key, promise);
   return promise;
 }

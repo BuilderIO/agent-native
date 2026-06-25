@@ -17,6 +17,7 @@ import {
 } from "react-i18next";
 import { callAction } from "./use-action.js";
 import { setClientAppState } from "./application-state.js";
+import defaultEnglishMessages from "../templates/default/app/i18n/en-US.js";
 import {
   DEFAULT_LOCALE,
   LOCALE_HYDRATION_GLOBAL,
@@ -79,6 +80,7 @@ export interface AgentNativeI18nProviderProps {
 
 interface LocaleContextValue {
   locale: LocaleCode;
+  sourceLocale: LocaleCode;
   preference: LocalePreference;
   dir: "ltr" | "rtl";
   metadata: LocaleMetadata;
@@ -437,13 +439,14 @@ export function AgentNativeI18nProvider({
   const context = useMemo<LocaleContextValue>(
     () => ({
       locale,
+      sourceLocale,
       preference,
       dir: localeDirection(locale),
       metadata: LOCALE_METADATA[locale],
       setPreference,
       loading,
     }),
-    [loading, locale, preference, setPreference],
+    [loading, locale, preference, setPreference, sourceLocale],
   );
 
   return (
@@ -461,12 +464,160 @@ export function useLocale(): LocaleContextValue {
   return value;
 }
 
+export function useOptionalLocale(): LocaleContextValue | null {
+  return useContext(LocaleContext);
+}
+
+const CORE_FALLBACK_MESSAGES: Record<string, string> = {
+  "runsTray.runs": "Runs",
+  "runsTray.agentRuns": "Agent runs",
+  "runsTray.activeRun_one": "{{count}} active run",
+  "runsTray.activeRun_other": "{{count}} active runs",
+  "runsTray.failedRun_one": "{{count}} failed run",
+  "runsTray.failedRun_other": "{{count}} failed runs",
+  "runsTray.recentRuns": "Recent runs",
+  "runsTray.noRecentRuns": "No recent runs",
+  "runsTray.ariaAgentRuns": "Agent runs, {{label}}",
+  "runsTray.summaryRunning": "{{activeCount}} running",
+  "runsTray.summaryRunningRecent":
+    "{{activeCount}} running · {{terminalCount}} recent",
+  "runsTray.summaryRecent_one": "{{count}} recent run",
+  "runsTray.summaryRecent_other": "{{count}} recent runs",
+  "runsTray.noTrackedWorkYet": "No tracked work yet",
+  "runsTray.emptyDescription":
+    "Background agent work will appear here while it runs and after it finishes.",
+  "runsTray.open": "Open",
+  "runsTray.stopRun": "Stop {{title}}",
+  "runsTray.hideRun": "Hide {{title}}",
+  "runsTray.statusRunning": "Running",
+  "runsTray.statusDone": "Done",
+  "runsTray.statusFailed": "Failed",
+  "runsTray.statusStopped": "Stopped",
+  "runsTray.updatedJustNow": "Updated just now",
+  "runsTray.finishedJustNow": "Finished just now",
+  "runsTray.updatedMinutes": "Updated {{count}}m ago",
+  "runsTray.finishedMinutes": "Finished {{count}}m ago",
+  "runsTray.updatedHours": "Updated {{count}}h ago",
+  "runsTray.finishedHours": "Finished {{count}}h ago",
+  "runsTray.updatedDate": "Updated {{date}}",
+  "runsTray.finishedDate": "Finished {{date}}",
+  "codeRequired.fallbackDetail":
+    "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
+  "codeRequired.defaultFeature": "Make the requested code changes to this app",
+  "codeRequired.branchError": "Failed to create branch",
+  "codeRequired.title": "Code changes required",
+  "codeRequired.subtitleWithFeature":
+    '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
+  "codeRequired.subtitle":
+    "This action creates or modifies source code, which needs Desktop or Builder from this surface.",
+  "codeRequired.desktopTitle": "Use Agent Native Desktop",
+  "codeRequired.desktopDescription":
+    "Open the project in the desktop app to enable source edits and CLI access.",
+  "codeRequired.builderAgentTitle": "Use Builder.io Agent",
+  "codeRequired.builderAgentDescription":
+    "Let our cloud agent make the changes for you. You'll get a link to preview and deploy.",
+  "codeRequired.codeChangeTitle": "This requires a code change",
+  "codeRequired.codeChangeBadge": "Code change",
+  "codeRequired.connectBuilderTitle": "Connect Builder.io",
+  "codeRequired.connectBuilderDescription":
+    "Connect Builder to enable cloud-based code changes from this app.",
+  "codeRequired.setupRequired": "Setup required",
+  "codeRequired.branchCreated": "Branch created",
+  "codeRequired.close": "Close",
+  "agentPanel.useBuilder": "Use Builder",
+  "agentPanel.openDesktopToEditCode": "Open Desktop to edit code",
+  "agentPanel.codeUnavailableDescription":
+    "Source-code changes and CLI access are available in the Agent Native Desktop app.",
+  "agentPanel.downloadDesktop": "Download Desktop",
+  "agentPanel.chatMode": "Chat mode",
+  "agentPanel.chat": "Chat",
+  "agentPanel.cliTerminalMode": "CLI terminal mode",
+  "agentPanel.cli": "CLI",
+  "agentPanel.workspaceMode": "Workspace files, agents, skills, and tasks",
+  "agentPanel.workspace": "Workspace",
+  "agentPanel.newChat": "New chat",
+  "agentPanel.newTerminal": "New terminal",
+  "agentPanel.panelOptions": "Agent panel options",
+  "agentPanel.collapseSidebar": "Collapse sidebar",
+  "agentPanel.hideChats": "Hide chats",
+  "agentPanel.allChats": "All chats",
+  "agentPanel.settings": "Settings",
+  "agentPanel.feedback": "Feedback",
+  "agentPanel.exitFullscreen": "Exit fullscreen",
+  "agentPanel.fullscreen": "Fullscreen",
+  "agentPanel.closeTab": "Close tab",
+  "agentPanel.closeOtherTabs": "Close other tabs",
+  "agentPanel.closeAllTabs": "Close all tabs",
+  "agentPanel.clearChat": "Clear chat",
+  "agentPanel.cliRequiresDevMode": "CLI requires dev mode",
+  "agentPanel.cliRequiresDevModeDescription":
+    "Run this app locally with pnpm dev or use Builder.io to access the CLI terminal.",
+  "agentPanel.toggleAgent": "Toggle agent",
+};
+
+function flattenMessages(
+  value: unknown,
+  prefix = "",
+  out: Record<string, string> = {},
+) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+  for (const [key, child] of Object.entries(value)) {
+    const nextKey = prefix ? `${prefix}.${key}` : key;
+    if (typeof child === "string") {
+      out[nextKey] = child;
+    } else {
+      flattenMessages(child, nextKey, out);
+    }
+  }
+  return out;
+}
+
+const DEFAULT_ENGLISH_MESSAGES = flattenMessages(defaultEnglishMessages);
+
+function interpolateFallbackMessage(
+  template: string,
+  options?: Record<string, unknown>,
+) {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, name: string) => {
+    const value = options?.[name];
+    return value == null ? "" : String(value);
+  });
+}
+
+function fallbackMessage(key: string, options?: Record<string, unknown>) {
+  const count = Number(options?.count);
+  const pluralKey =
+    Number.isFinite(count) && count === 1 ? `${key}_one` : `${key}_other`;
+  const template =
+    DEFAULT_ENGLISH_MESSAGES[pluralKey] ??
+    DEFAULT_ENGLISH_MESSAGES[key] ??
+    CORE_FALLBACK_MESSAGES[pluralKey] ??
+    CORE_FALLBACK_MESSAGES[key];
+  return template ? interpolateFallbackMessage(template, options) : key;
+}
+
 export function useT() {
-  return useTranslation().t;
+  const { i18n, t } = useTranslation();
+  const context = useContext(LocaleContext);
+  const sourceLocale = context?.sourceLocale ?? DEFAULT_LOCALE;
+  return useCallback(
+    (key: string, options?: Record<string, unknown>) => {
+      const translated = t(key, options);
+      if (translated !== key) return translated;
+      const getFixedT = (
+        i18n as { getFixedT?: (locale: LocaleCode) => typeof t }
+      ).getFixedT;
+      const sourceFallback = getFixedT?.(sourceLocale)(key, options);
+      if (sourceFallback && sourceFallback !== key) return sourceFallback;
+      return fallbackMessage(key, options);
+    },
+    [i18n, sourceLocale, t],
+  );
 }
 
 export function useFormatters() {
-  const { locale } = useLocale();
+  const context = useContext(LocaleContext);
+  const locale = context?.locale ?? DEFAULT_LOCALE;
   return useMemo(
     () => ({
       formatDate(
@@ -543,7 +694,7 @@ export function LanguagePicker({
           className={
             variant === "icon"
               ? "flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
-              : "flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-left text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
+              : "flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
           }
           aria-label={resolvedLabel}
           title={selected?.label ?? resolvedLabel}
@@ -581,7 +732,7 @@ export function LanguagePicker({
                   value={option.value}
                   className="relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 py-2.5 text-[12px] outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40"
                 >
-                  <span className="absolute left-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
+                  <span className="absolute start-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
                     <SelectPrimitive.ItemIndicator>
                       <IconCheck className="h-3.5 w-3.5" />
                     </SelectPrimitive.ItemIndicator>

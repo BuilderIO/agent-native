@@ -73,6 +73,23 @@ const messages = {
     collapseSidebar: "Seitenleiste einklappen",
     signIn: "Anmelden",
   },
+  chat: {
+    suggestionShipped: "Was wurde in der letzten Woche ausgeliefert?",
+    suggestionUi: "Wie sieht die neue Checkout-Oberfläche aus?",
+    suggestionAuth: "Wann hat sich die Auth-API geändert?",
+    suggestionApi: "Wie ist die Billing-API aufgebaut?",
+    emptyState: "Plan fragen",
+    placeholder:
+      "Frage, was ausgeliefert wurde, was sich geandert hat oder was der aktuelle Code zeigt...",
+    heading: "Plan fragen",
+    description:
+      "Durchsuche Zusammenfassungen gemergter PRs, prufe visuelle Blocke und veroffentliche Code-Antworten als Diagramme, Wireframes, API-Spezifikationen und Datenmodelle.",
+  },
+  guest: {
+    banner:
+      "Du surfst als Gast. Melde dich an, um Plane zu erstellen, Kommentare zu hinterlassen und deine Arbeit zu behalten.",
+    signIn: "Anmelden",
+  },
 };
 
 export default messages;

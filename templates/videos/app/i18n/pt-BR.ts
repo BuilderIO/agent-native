@@ -69,6 +69,20 @@ const messages = {
     title: "Nova composição",
     description: "Descreva o vídeo que você quer criar",
     placeholder: "Descreva o vídeo que você quer criar...",
+    timedOut:
+      "A solicitacao de composicao expirou. Tente novamente pela barra lateral.",
+    generating: "Gerando...",
+  },
+  notFound: {
+    message: "Esta pagina ainda nao existe. Continue pedindo para cria-la.",
+    backToStudio: "Voltar ao Studio",
+  },
+  designSystems: {
+    new: "Novo sistema de design",
+    setupBrand: "Configurar sua marca",
+    emptyTitle: "Configure a identidade da sua marca",
+    emptyDescription:
+      "Crie um sistema de design com as cores, tipografia e logotipos da sua marca. Cada nova composicao seguira sua identidade visual.",
   },
 };
 

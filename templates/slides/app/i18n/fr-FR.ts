@@ -50,6 +50,17 @@ const messages = {
     expandSidebar: "Développer la barre latérale",
     collapseSidebar: "Réduire la barre latérale",
   },
+  notFound: {
+    message: "Cette page n’existe pas encore.",
+    backToDecks: "Retour aux présentations",
+  },
+  designSystems: {
+    new: "Nouveau système de design",
+    setupBrand: "Configurer votre marque",
+    emptyTitle: "Configurer votre marque identity",
+    emptyDescription:
+      "Creez un systeme de design avec les couleurs, la typographie et les logos de votre marque. Chaque nouvelle presentation suivra votre identite visuelle.",
+  },
 };
 
 export default messages;

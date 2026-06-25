@@ -2,10 +2,17 @@ import { redirect, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import DocsLayout from "../components/DocsLayout";
 import DocContent from "../components/DocContent";
 import { getDoc, type DocEntry } from "../components/docs-content";
+import {
+  DEFAULT_DOCS_LOCALE,
+  docsPathForSlug,
+  isDocsLocale,
+} from "../components/docs-locale";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 /** Legacy slug → current slug. Keep in sync with any renames in content/. */
 const SLUG_REDIRECTS: Record<string, string> = {
+  "core-philosophy": "key-concepts",
+  "database-adapters": "deployment",
   resources: "workspace",
   secrets: "security",
   // Plans docs consolidated into the single template-plan page.
@@ -14,9 +21,13 @@ const SLUG_REDIRECTS: Record<string, string> = {
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const slug = params.slug!;
+  if (isDocsLocale(slug)) {
+    throw redirect(docsPathForSlug("getting-started", slug), 302);
+  }
+
   const target = SLUG_REDIRECTS[slug];
   if (target) {
-    throw redirect(`/docs/${target}`, 301);
+    throw redirect(docsPathForSlug(target, DEFAULT_DOCS_LOCALE), 301);
   }
   const doc = getDoc(slug);
   if (!doc) {

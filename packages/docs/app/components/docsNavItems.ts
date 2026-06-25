@@ -4,7 +4,6 @@ import {
   docsPathForSlug,
   type DocsLocale,
 } from "./docs-locale";
-import { hasLocalizedDoc } from "./docs-content";
 
 export type NavItem = {
   id: string;
@@ -356,14 +355,10 @@ function toNavItem(
   t: Translate,
 ): NavItem {
   const slug = config.slug;
-  const itemLocale =
-    slug && locale !== DEFAULT_DOCS_LOCALE && !hasLocalizedDoc(locale, slug)
-      ? DEFAULT_DOCS_LOCALE
-      : locale;
   return {
     id: config.id,
     label: navLabel(t, config.labelKey),
-    to: slug ? docsPathForSlug(slug, itemLocale) : undefined,
+    to: slug ? docsPathForSlug(slug, locale) : undefined,
     children: config.children?.map((child) => toNavItem(child, locale, t)),
   };
 }

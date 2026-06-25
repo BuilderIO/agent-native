@@ -4,6 +4,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useT } from "@agent-native/core/client";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
@@ -22,6 +23,7 @@ export function DispatchShell({
   description?: string;
   children: ReactNode;
 }) {
+  const t = useT();
   useSetPageTitle(
     <div className="flex items-center gap-2 min-w-0">
       <h1 className="text-lg font-semibold tracking-tight truncate text-foreground">
@@ -33,7 +35,7 @@ export function DispatchShell({
             <button
               type="button"
               className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground cursor-pointer"
-              aria-label={`About ${title}`}
+              aria-label={t("dispatch.sidebar.aboutPage", { title })}
             >
               <IconInfoCircle className="h-3.5 w-3.5" />
             </button>

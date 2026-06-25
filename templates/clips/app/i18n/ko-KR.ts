@@ -80,6 +80,23 @@ const messages = {
       body: "다른 검색어를 시도하거나 필터를 확인하세요.",
     },
   },
+  trashRoute: {
+    title: "휴지통",
+    selected: "{{count}}개 선택됨",
+    deselectAll: "모두 선택 해제",
+    selectAll: "모두 선택",
+    restore: "복원",
+    deleteForever: "영구 삭제",
+    deleteForeverTitle: "영구 삭제할까요?",
+    bulkDeleteDescription:
+      "녹화 {{count}}개가 영구적으로 제거됩니다. 이 작업은 되돌릴 수 없습니다.",
+    singleDeleteDescription:
+      "이 녹화는 영구적으로 제거됩니다. 이 작업은 되돌릴 수 없습니다.",
+    restored: "복원됨",
+    restoreFailed: "복원 실패",
+    permanentlyDeleted: "영구 삭제됨",
+    deleteFailed: "삭제 실패",
+  },
   settings: {
     openAgentSettings: "에이전트 설정 열기",
     agentDescription:

@@ -50,6 +50,28 @@ const messages = {
     collapse: "Contraer barra lateral",
     syncing: "Sincronizando...",
   },
+  analytics: {
+    selectRange: "Seleccionar intervalo",
+    lastDays: "Últimos {{count}} días",
+    allTime: "Todo el tiempo",
+    average: "Promedio",
+    lowest: "Mínimo",
+    highest: "Máximo",
+    daysTracked: "Días registrados",
+    daysUnit: "días",
+    net: "Neto",
+    consumed: "Consumido",
+    burned: "Quemado",
+    noData: "Aún no hay datos disponibles",
+    current: "Actual",
+    change: "Cambio",
+    trendView: "Vista de tendencia",
+    actualWeight: "Peso real",
+    trendDescription:
+      "La línea azul de tendencia suaviza las fluctuaciones diarias para mostrar tu progreso general.",
+    noWeightData: "Aún no hay datos de peso",
+    noWeightDescription: "Empieza a registrar tu peso para ver tendencias",
+  },
 };
 
 export default messages;

@@ -68,6 +68,19 @@ const messages = {
     title: "नई कंपोज़िशन",
     description: "जिस वीडियो को बनाना चाहते हैं उसका वर्णन करें",
     placeholder: "जिस वीडियो को बनाना चाहते हैं उसका वर्णन करें...",
+    timedOut: "composition request timed out हो गई। sidebar से फिर कोशिश करें।",
+    generating: "बनाया जा रहा है...",
+  },
+  notFound: {
+    message: "यह पेज अभी मौजूद नहीं है। इसे बनाने के लिए prompt देते रहें।",
+    backToStudio: "Studio पर वापस जाएं",
+  },
+  designSystems: {
+    new: "नया design system",
+    setupBrand: "अपना brand सेट करें",
+    emptyTitle: "अपनी brand identity सेट करें",
+    emptyDescription:
+      "अपने brand colors, typography और logos के साथ design system बनाएं। हर नई composition आपकी visual identity का पालन करेगी।",
   },
 };
 

@@ -1,4 +1,4 @@
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery, useT } from "@agent-native/core/client";
 import { subDays } from "date-fns";
 import {
   LineChart,
@@ -44,19 +44,26 @@ export function meta() {
 }
 
 export default function AnalyticsPage() {
+  const t = useT();
   const [timeRange, setTimeRange] = useState("30");
 
   useSetHeaderActions(
     <Select value={timeRange} onValueChange={setTimeRange}>
       <SelectTrigger className="w-[130px] sm:w-[140px] bg-card/40 border-border/30 h-8 text-xs shrink-0">
-        <IconCalendar className="w-3.5 h-3.5 mr-1.5 sm:mr-2 opacity-50" />
-        <SelectValue placeholder="Select range" />
+        <IconCalendar className="w-3.5 h-3.5 me-1.5 sm:me-2 opacity-50" />
+        <SelectValue placeholder={t("analytics.selectRange")} />
       </SelectTrigger>
       <SelectContent className="bg-zinc-900 border-white/10">
-        <SelectItem value="7">Last 7 Days</SelectItem>
-        <SelectItem value="30">Last 30 Days</SelectItem>
-        <SelectItem value="90">Last 90 Days</SelectItem>
-        <SelectItem value="all">All Time</SelectItem>
+        <SelectItem value="7">
+          {t("analytics.lastDays", { count: 7 })}
+        </SelectItem>
+        <SelectItem value="30">
+          {t("analytics.lastDays", { count: 30 })}
+        </SelectItem>
+        <SelectItem value="90">
+          {t("analytics.lastDays", { count: 90 })}
+        </SelectItem>
+        <SelectItem value="all">{t("analytics.allTime")}</SelectItem>
       </SelectContent>
     </Select>,
   );
@@ -145,10 +152,14 @@ export default function AnalyticsPage() {
         {/* Stats Cards */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {[
-            { label: "Average", value: stats.average },
-            { label: "Lowest", value: stats.lowest },
-            { label: "Highest", value: stats.highest },
-            { label: "Days Tracked", value: stats.total, unit: "days" },
+            { label: t("analytics.average"), value: stats.average },
+            { label: t("analytics.lowest"), value: stats.lowest },
+            { label: t("analytics.highest"), value: stats.highest },
+            {
+              label: t("analytics.daysTracked"),
+              value: stats.total,
+              unit: t("analytics.daysUnit"),
+            },
           ].map((stat) => (
             <div
               key={stat.label}
@@ -174,15 +185,22 @@ export default function AnalyticsPage() {
           <CardHeader className="pb-4">
             <CardTitle className="text-base font-medium">
               Calorie Trend (
-              {timeRange === "all" ? "All Time" : `Last ${timeRange} Days`})
+              {timeRange === "all"
+                ? t("analytics.allTime")
+                : t("analytics.lastDays", { count: Number(timeRange) })}
+              )
             </CardTitle>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="net" className="w-full">
               <TabsList className="grid w-full grid-cols-3 mb-4 sm:mb-6 bg-secondary/40">
-                <TabsTrigger value="net">Net</TabsTrigger>
-                <TabsTrigger value="consumed">Consumed</TabsTrigger>
-                <TabsTrigger value="burned">Burned</TabsTrigger>
+                <TabsTrigger value="net">{t("analytics.net")}</TabsTrigger>
+                <TabsTrigger value="consumed">
+                  {t("analytics.consumed")}
+                </TabsTrigger>
+                <TabsTrigger value="burned">
+                  {t("analytics.burned")}
+                </TabsTrigger>
               </TabsList>
               {["net", "consumed", "burned"].map((tab) => (
                 <TabsContent key={tab} value={tab} className="mt-0">
@@ -267,7 +285,7 @@ export default function AnalyticsPage() {
                     </ResponsiveContainer>
                   ) : (
                     <div className="h-[250px] flex flex-col items-center justify-center text-muted-foreground rounded-xl border border-dashed border-border/50 bg-secondary/20">
-                      <p className="text-sm">No data available yet</p>
+                      <p className="text-sm">{t("analytics.noData")}</p>
                     </div>
                   )}
                 </TabsContent>
@@ -281,7 +299,10 @@ export default function AnalyticsPage() {
           <CardHeader className="pb-4">
             <CardTitle className="text-base font-medium">
               Weekly Net Calories vs Goal (
-              {timeRange === "all" ? "All Time" : `Last ${timeRange} Days`})
+              {timeRange === "all"
+                ? t("analytics.allTime")
+                : t("analytics.lastDays", { count: Number(timeRange) })}
+              )
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -298,20 +319,23 @@ export default function AnalyticsPage() {
           <CardHeader className="pb-4">
             <CardTitle className="text-base font-medium">
               Weight Trend (
-              {timeRange === "all" ? "All Time" : `Last ${timeRange} Days`})
+              {timeRange === "all"
+                ? t("analytics.allTime")
+                : t("analytics.lastDays", { count: Number(timeRange) })}
+              )
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-6">
               {[
-                { label: "Current", value: weightStats.current },
+                { label: t("analytics.current"), value: weightStats.current },
                 {
-                  label: "Change",
+                  label: t("analytics.change"),
                   value: weightStats.change,
                   colored: true,
                 },
-                { label: "Lowest", value: weightStats.lowest },
-                { label: "Highest", value: weightStats.highest },
+                { label: t("analytics.lowest"), value: weightStats.lowest },
+                { label: t("analytics.highest"), value: weightStats.highest },
               ].map((stat) => (
                 <div
                   key={stat.label}
@@ -343,8 +367,12 @@ export default function AnalyticsPage() {
 
             <Tabs defaultValue="trend" className="w-full">
               <TabsList className="grid w-full grid-cols-2 mb-4 sm:mb-6 bg-secondary/40">
-                <TabsTrigger value="trend">Trend View</TabsTrigger>
-                <TabsTrigger value="actual">Actual Weight</TabsTrigger>
+                <TabsTrigger value="trend">
+                  {t("analytics.trendView")}
+                </TabsTrigger>
+                <TabsTrigger value="actual">
+                  {t("analytics.actualWeight")}
+                </TabsTrigger>
               </TabsList>
               {["trend", "actual"].map((tab) => (
                 <TabsContent key={tab} value={tab} className="mt-0">
@@ -354,8 +382,7 @@ export default function AnalyticsPage() {
                     <div className="space-y-2">
                       {tab === "trend" && (
                         <p className="text-xs text-muted-foreground">
-                          The blue trend line smooths out daily fluctuations to
-                          show your overall progress.
+                          {t("analytics.trendDescription")}
                         </p>
                       )}
                       <ResponsiveContainer width="100%" height={250}>
@@ -453,9 +480,9 @@ export default function AnalyticsPage() {
                     </div>
                   ) : (
                     <div className="h-[250px] flex flex-col items-center justify-center text-muted-foreground rounded-xl border border-dashed border-border/50 bg-secondary/20">
-                      <p className="text-sm">No weight data available yet</p>
+                      <p className="text-sm">{t("analytics.noWeightData")}</p>
                       <p className="text-xs mt-1">
-                        Start logging your weight to see trends
+                        {t("analytics.noWeightDescription")}
                       </p>
                     </div>
                   )}

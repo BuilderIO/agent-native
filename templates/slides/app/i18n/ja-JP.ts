@@ -50,6 +50,17 @@ const messages = {
     expandSidebar: "サイドバーを展開",
     collapseSidebar: "サイドバーを折りたたむ",
   },
+  notFound: {
+    message: "このページはまだ存在しません。",
+    backToDecks: "デッキに戻る",
+  },
+  designSystems: {
+    new: "新しいデザインシステム",
+    setupBrand: "ブランドを設定",
+    emptyTitle: "ブランドを設定 identity",
+    emptyDescription:
+      "ブランドカラー、タイポグラフィ、ロゴを使ってデザインシステムを作成します。新しいデッキはすべてそのビジュアルアイデンティティに従います。",
+  },
 };
 
 export default messages;

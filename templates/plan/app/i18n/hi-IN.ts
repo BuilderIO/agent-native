@@ -73,6 +73,23 @@ const messages = {
     collapseSidebar: "साइडबार समेटें",
     signIn: "साइन इन करें",
   },
+  chat: {
+    suggestionShipped: "पिछले सप्ताह क्या शिप हुआ?",
+    suggestionUi: "नया checkout UI कैसा दिखता है?",
+    suggestionAuth: "auth API कब बदला?",
+    suggestionApi: "billing API का आकार कैसा है?",
+    emptyState: "Plan से पूछें",
+    placeholder:
+      "पूछें कि क्या शिप हुआ, क्या बदला, या मौजूदा code क्या दिखाता है...",
+    heading: "Plan से पूछें",
+    description:
+      "merged PR recaps खोजें, visual blocks देखें, और code answers को diagrams, wireframes, API specs और data models के रूप में प्रकाशित करें।",
+  },
+  guest: {
+    banner:
+      "You're browsing as a guest. साइन इन करें to create plans, leave comments, and keep your work.",
+    signIn: "साइन इन करें",
+  },
 };
 
 export default messages;

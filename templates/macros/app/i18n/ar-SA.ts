@@ -49,6 +49,28 @@ const messages = {
     collapse: "طي الشريط الجانبي",
     syncing: "جار المزامنة...",
   },
+  analytics: {
+    selectRange: "تحديد النطاق",
+    lastDays: "آخر {{count}} أيام",
+    allTime: "كل الوقت",
+    average: "المتوسط",
+    lowest: "الأدنى",
+    highest: "الأعلى",
+    daysTracked: "الأيام المسجلة",
+    daysUnit: "أيام",
+    net: "الصافي",
+    consumed: "المستهلك",
+    burned: "المحروق",
+    noData: "لا توجد بيانات بعد",
+    current: "الحالي",
+    change: "التغيير",
+    trendView: "عرض الاتجاه",
+    actualWeight: "الوزن الفعلي",
+    trendDescription:
+      "يعمل خط الاتجاه الأزرق على تنعيم التقلبات اليومية لإظهار تقدمك العام.",
+    noWeightData: "لا توجد بيانات وزن بعد",
+    noWeightDescription: "ابدأ بتسجيل وزنك لرؤية الاتجاهات",
+  },
 };
 
 export default messages;

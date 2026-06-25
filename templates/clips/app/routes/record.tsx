@@ -661,7 +661,7 @@ function RecordingErrorCard({
           {friendlyMessage}
         </p>
         {showTechnicalDetails && (
-          <details className="mt-3 text-left text-xs text-muted-foreground">
+          <details className="mt-3 text-start text-xs text-muted-foreground">
             <summary className="cursor-pointer font-medium text-foreground">
               Technical details
             </summary>
@@ -673,7 +673,7 @@ function RecordingErrorCard({
       </div>
 
       {guidance && (
-        <div className="border-b border-border bg-muted/25 px-6 py-4 text-left">
+        <div className="border-b border-border bg-muted/25 px-6 py-4 text-start">
           <div className="text-xs font-medium text-foreground">
             What to check
           </div>
@@ -874,6 +874,8 @@ export default function RecordRoute() {
     displaySurface: DisplaySurface;
     micDeviceId: string | null;
     cameraDeviceId: string | null;
+    cameraBlur: boolean;
+    cameraBlurRadius: number;
   } | null>(null);
   const tickRef = useRef<number | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
@@ -949,6 +951,8 @@ export default function RecordRoute() {
       displaySurface: DisplaySurface;
       micDeviceId: string | null;
       cameraDeviceId: string | null;
+      cameraBlur: boolean;
+      cameraBlurRadius: number;
     }) => {
       const blockedFeature = isEmbeddedWindow()
         ? getPolicyBlockedCaptureLabel({
@@ -994,6 +998,8 @@ export default function RecordRoute() {
           micDeviceId: opts.micDeviceId,
           cameraDeviceId: opts.cameraDeviceId,
           cameraBubbleSize: cameraSize,
+          cameraBlur: opts.cameraBlur,
+          cameraBlurRadius: opts.cameraBlurRadius,
           uploadUrl: "",
           abortUrl: "",
           onError: (err) => {
@@ -1006,6 +1012,13 @@ export default function RecordRoute() {
           // recording keeps going; just let the user know what happened.
           onWarning: (message) => {
             toast.warning(message);
+          },
+          // Camera ended (unplugged / revoked): drop the on-page bubble, and in
+          // camera-only mode clear the fullscreen preview too (it renders from
+          // previewStream) so neither freezes on the last frame.
+          onCameraEnded: () => {
+            setCameraStream(null);
+            if (opts.mode === "camera") setPreviewStream(null);
           },
           // Track the surface the user actually chose (and any mid-recording
           // switch) so the live camera bubble is hidden only when the full
@@ -2107,9 +2120,9 @@ export default function RecordRoute() {
             void doCancel();
             navigate("/library");
           }}
-          className="fixed left-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="fixed start-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <IconArrowLeft className="h-5 w-5" />
+          <IconArrowLeft className="h-5 w-5 rtl:-scale-x-100" />
         </button>
       )}
 
@@ -2151,7 +2164,7 @@ export default function RecordRoute() {
               )}
             </div>
             {!isDesktopApp && (
-              <div className="mx-auto mt-4 w-full max-w-md xl:absolute xl:left-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
+              <div className="mx-auto mt-4 w-full max-w-md xl:absolute xl:start-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
                 <DesktopRecorderCallout />
               </div>
             )}

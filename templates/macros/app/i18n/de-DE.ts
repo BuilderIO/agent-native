@@ -50,6 +50,28 @@ const messages = {
     collapse: "Seitenleiste einklappen",
     syncing: "Synchronisieren...",
   },
+  analytics: {
+    selectRange: "Zeitraum auswählen",
+    lastDays: "Letzte {{count}} Tage",
+    allTime: "Gesamter Zeitraum",
+    average: "Durchschnitt",
+    lowest: "Niedrigster Wert",
+    highest: "Höchster Wert",
+    daysTracked: "Erfasste Tage",
+    daysUnit: "Tage",
+    net: "Netto",
+    consumed: "Aufgenommen",
+    burned: "Verbrannt",
+    noData: "Noch keine Daten verfügbar",
+    current: "Aktuell",
+    change: "Änderung",
+    trendView: "Trendansicht",
+    actualWeight: "Tatsächliches Gewicht",
+    trendDescription:
+      "Die blaue Trendlinie glättet tägliche Schwankungen und zeigt deinen Gesamtfortschritt.",
+    noWeightData: "Noch keine Gewichtsdaten verfügbar",
+    noWeightDescription: "Protokolliere dein Gewicht, um Trends zu sehen",
+  },
 };
 
 export default messages;

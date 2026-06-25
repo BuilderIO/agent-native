@@ -72,6 +72,22 @@ const messages = {
     collapseSidebar: "طي الشريط الجانبي",
     signIn: "تسجيل الدخول",
   },
+  chat: {
+    suggestionShipped: "ما الذي صدر خلال الأسبوع الماضي؟",
+    suggestionUi: "كيف تبدو واجهة الدفع الجديدة؟",
+    suggestionAuth: "متى تغيّرت واجهة API للمصادقة؟",
+    suggestionApi: "ما شكل واجهة API للفوترة؟",
+    emptyState: "اسأل Plan",
+    placeholder: "اسأل عما تم إصداره أو تغييره أو ما يعرضه الكود الحالي...",
+    heading: "اسأل Plan",
+    description:
+      "ابحث في ملخصات PR المدمجة، وافحص الكتل المرئية، وانشر إجابات الكود كمخططات وإطارات سلكية ومواصفات API ونماذج بيانات.",
+  },
+  guest: {
+    banner:
+      "أنت تتصفح كضيف. سجّل الدخول لإنشاء الخطط وترك التعليقات والاحتفاظ بعملك.",
+    signIn: "تسجيل الدخول",
+  },
 };
 
 export default messages;

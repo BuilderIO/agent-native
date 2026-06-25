@@ -50,6 +50,28 @@ const messages = {
     collapse: "Sidebar समेटें",
     syncing: "Sync हो रहा है...",
   },
+  analytics: {
+    selectRange: "रेंज चुनें",
+    lastDays: "पिछले {{count}} दिन",
+    allTime: "पूरा समय",
+    average: "औसत",
+    lowest: "न्यूनतम",
+    highest: "अधिकतम",
+    daysTracked: "ट्रैक किए गए दिन",
+    daysUnit: "दिन",
+    net: "नेट",
+    consumed: "खाया गया",
+    burned: "बर्न किया गया",
+    noData: "अभी कोई डेटा उपलब्ध नहीं है",
+    current: "वर्तमान",
+    change: "बदलाव",
+    trendView: "ट्रेंड व्यू",
+    actualWeight: "वास्तविक वजन",
+    trendDescription:
+      "नीली ट्रेंड लाइन दैनिक उतार-चढ़ाव को स्मूथ करके आपकी कुल प्रगति दिखाती है।",
+    noWeightData: "अभी वजन डेटा उपलब्ध नहीं है",
+    noWeightDescription: "ट्रेंड देखने के लिए अपना वजन लॉग करना शुरू करें",
+  },
 };
 
 export default messages;

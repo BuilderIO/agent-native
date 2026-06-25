@@ -49,6 +49,17 @@ const messages = {
     expandSidebar: "توسيع الشريط الجانبي",
     collapseSidebar: "طي الشريط الجانبي",
   },
+  notFound: {
+    message: "هذه الصفحة غير موجودة بعد.",
+    backToDecks: "العودة إلى العروض",
+  },
+  designSystems: {
+    new: "نظام تصميم جديد",
+    setupBrand: "إعداد علامتك التجارية",
+    emptyTitle: "إعداد علامتك التجارية identity",
+    emptyDescription:
+      "أنشئ نظام تصميم بألوان علامتك وخطوطها وشعاراتها. سيتبع كل عرض جديد هويتك البصرية.",
+  },
 };
 
 export default messages;

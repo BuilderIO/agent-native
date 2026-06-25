@@ -50,6 +50,17 @@ const messages = {
     expandSidebar: "사이드바 펼치기",
     collapseSidebar: "사이드바 접기",
   },
+  notFound: {
+    message: "이 페이지는 아직 없습니다.",
+    backToDecks: "덱으로 돌아가기",
+  },
+  designSystems: {
+    new: "새 디자인 시스템",
+    setupBrand: "브랜드 설정",
+    emptyTitle: "브랜드 설정 identity",
+    emptyDescription:
+      "브랜드 색상, 타이포그래피, 로고로 디자인 시스템을 만드세요. 새 덱은 모두 이 시각적 정체성을 따릅니다.",
+  },
 };
 
 export default messages;

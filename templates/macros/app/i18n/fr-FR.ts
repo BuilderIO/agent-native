@@ -3,7 +3,7 @@ const messages = {
     commandActions: "Actions",
     search: "Rechercher",
     appearance: "Apparence",
-    toggleTheme: "Changer de theme",
+    toggleTheme: "Changementr de theme",
   },
   header: {
     entry: "Saisie",
@@ -49,6 +49,29 @@ const messages = {
     expand: "Developper la barre laterale",
     collapse: "Reduire la barre laterale",
     syncing: "Synchronisation...",
+  },
+  analytics: {
+    selectRange: "Sélectionner une période",
+    lastDays: "{{count}} derniers jours",
+    allTime: "Toute la période",
+    average: "Moyenne",
+    lowest: "Minimum",
+    highest: "Maximum",
+    daysTracked: "Jours suivis",
+    daysUnit: "jours",
+    net: "Net",
+    consumed: "Consommé",
+    burned: "Brûlé",
+    noData: "Aucune donnée disponible pour le moment",
+    current: "Actuel",
+    change: "Changement",
+    trendView: "Vue tendance",
+    actualWeight: "Poids réel",
+    trendDescription:
+      "La ligne de tendance bleue lisse les fluctuations quotidiennes pour montrer votre progression globale.",
+    noWeightData: "Aucune donnée de poids disponible pour le moment",
+    noWeightDescription:
+      "Commencez à enregistrer votre poids pour voir les tendances",
   },
 };
 

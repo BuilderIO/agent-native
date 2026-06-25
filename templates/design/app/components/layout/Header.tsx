@@ -1,9 +1,5 @@
 import { useLocation } from "react-router";
-import {
-  LanguagePicker,
-  useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+import { useActionQuery, useT } from "@agent-native/core/client";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { AgentToggleButton } from "@agent-native/core/client";
 import { RunsTray } from "@agent-native/core/client/progress";
@@ -54,7 +50,6 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <LanguagePicker variant="icon" />
         <RunsTray pollMs={1500} />
         <AgentToggleButton />
       </div>

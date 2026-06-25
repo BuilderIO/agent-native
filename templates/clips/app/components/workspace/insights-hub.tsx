@@ -71,7 +71,7 @@ export function InsightsHub() {
         <h1 className="text-base font-semibold tracking-tight truncate">
           Insights
         </h1>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ms-auto flex items-center gap-2">
           <Select value={days} onValueChange={setDays}>
             <SelectTrigger className="h-8 w-36">
               <SelectValue placeholder="Period" />
@@ -85,7 +85,7 @@ export function InsightsHub() {
           </Select>
           <Button variant="outline" size="sm" className="h-8" asChild>
             <a href={csvUrl} download>
-              <IconDownload className="size-4 mr-1.5" />
+              <IconDownload className="size-4 me-1.5" />
               Export CSV
             </a>
           </Button>

@@ -379,6 +379,63 @@ export async function claimBackgroundRun(runId: string): Promise<boolean> {
 }
 
 /**
+ * Read the claim/lifecycle state of a single run by id — for the foreground
+ * circuit-breaker that confirms a background worker actually CLAIMED a run that
+ * was dispatched with a Netlify async 202. A 202 only means the invocation was
+ * ENQUEUED; if the generated background-function wrapper fails to import/hand off
+ * to the route it never reaches `claimBackgroundRun`, leaving the row stuck at
+ * `dispatch_mode = 'background'`. `'background-processing'` means a worker won
+ * the claim; a terminal `status` means the run already resolved. Returns null if
+ * the row is missing.
+ */
+export async function readBackgroundRunClaim(runId: string): Promise<{
+  dispatchMode: string | null;
+  status: string | null;
+  diagStage: string | null;
+} | null> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT dispatch_mode, status, diag_stage FROM agent_runs WHERE id = ? LIMIT 1`,
+    args: [runId],
+  });
+  const row = rows?.[0] as
+    | {
+        dispatch_mode?: string | null;
+        status?: string | null;
+        diag_stage?: string | null;
+      }
+    | undefined;
+  if (!row) return null;
+  return {
+    dispatchMode: row.dispatch_mode ?? null,
+    status: row.status ?? null,
+    diagStage: row.diag_stage ?? null,
+  };
+}
+
+/**
+ * Resolve the authenticated owner email for a run by joining it to its chat
+ * thread. The durable background worker's self-dispatch is cookieless
+ * (HMAC-only — see `AGENT_CHAT_PROCESS_RUN_PATH`), so it has no session for the
+ * normal owner resolution and would otherwise be treated as unauthenticated.
+ * The thread's `owner_email` was written by the authenticated foreground when it
+ * created the thread, so it is a trusted, non-forgeable owner source: only the
+ * HMAC-signed `runId` selects the row, and the caller cannot influence which
+ * owner that row maps to. Returns null when the run (or its thread) is missing.
+ */
+export async function getRunOwnerEmail(runId: string): Promise<string | null> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT t.owner_email AS owner_email FROM agent_runs r JOIN chat_threads t ON r.thread_id = t.id WHERE r.id = ? LIMIT 1`,
+    args: [runId],
+  });
+  const row = rows?.[0] as { owner_email?: string | null } | undefined;
+  return row?.owner_email ?? null;
+}
+
+/**
  * Atomically acquire a run lease for a thread. Succeeds (returns true) only
  * when no other run for the same thread is currently status='running' with a
  * fresh heartbeat. Works for both Postgres and SQLite: the stale-cutoff
@@ -481,6 +538,13 @@ export const RUN_DIAG_STAGE = {
   workerThrew: "worker_threw",
   /** The route handler caught an error from the worker invocation. */
   routeThrew: "route_threw",
+  /**
+   * The foreground circuit-breaker fired: a Netlify async 202 was returned but
+   * no background worker CLAIMED the run within the foreground grace window
+   * (the generated function wrapper never reached the route), so the foreground
+   * recovered by running the turn inline. The run still completes for the user.
+   */
+  foregroundInlineRecovery: "foreground_inline_recovery",
 } as const;
 
 export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];

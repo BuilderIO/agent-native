@@ -1072,7 +1072,7 @@ function Modal({
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto p-0">
-        <DialogHeader className="border-b p-4 pr-10">
+        <DialogHeader className="border-b p-4 pe-10">
           <DialogTitle className="text-base">{title}</DialogTitle>
           {description ? (
             <DialogDescription>{description}</DialogDescription>
@@ -1784,7 +1784,7 @@ function SetupWizard({
             onClick={() => onStepChange(step - 1)}
             disabled={saving}
           >
-            <IconArrowLeft size={14} />
+            <IconArrowLeft size={14} className="rtl:-scale-x-100" />
             Back
           </Button>
         ) : null}
@@ -1795,7 +1795,7 @@ function SetupWizard({
             disabled={!canAdvance || loading || saving}
           >
             Next
-            <IconArrowRight size={14} />
+            <IconArrowRight size={14} className="rtl:-scale-x-100" />
           </Button>
         ) : (
           <Button

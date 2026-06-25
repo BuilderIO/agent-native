@@ -50,6 +50,28 @@ const messages = {
     collapse: "サイドバーを折りたたむ",
     syncing: "同期中…",
   },
+  analytics: {
+    selectRange: "範囲を選択",
+    lastDays: "過去{{count}}日",
+    allTime: "全期間",
+    average: "平均",
+    lowest: "最低",
+    highest: "最高",
+    daysTracked: "記録日数",
+    daysUnit: "日",
+    net: "差し引き",
+    consumed: "摂取",
+    burned: "消費",
+    noData: "まだデータがありません",
+    current: "現在",
+    change: "変化",
+    trendView: "トレンド表示",
+    actualWeight: "実測体重",
+    trendDescription:
+      "青いトレンド線は日々の変動をならし、全体の進捗を示します。",
+    noWeightData: "まだ体重データがありません",
+    noWeightDescription: "体重を記録し始めるとトレンドが表示されます",
+  },
 };
 
 export default messages;

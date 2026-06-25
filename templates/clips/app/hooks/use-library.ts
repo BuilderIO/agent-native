@@ -101,6 +101,8 @@ export function useRecordingsCount(
     { ...args, countOnly: true } as any,
     {
       select: (data: any) => (typeof data?.total === "number" ? data.total : 0),
+      retry: false,
+      throwOnError: false,
     },
   );
 }

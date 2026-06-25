@@ -36,7 +36,7 @@ import {
 } from "@/hooks/use-emails";
 import { useAliases } from "@/hooks/use-aliases";
 import { expandAliasTokens } from "@/lib/alias-utils";
-import { useAgentChatGenerating } from "@agent-native/core/client";
+import { useAgentChatGenerating, useT } from "@agent-native/core/client";
 import { toast } from "sonner";
 import type { ComposeState, EmailMessage } from "@shared/types";
 import {
@@ -89,6 +89,7 @@ export const InlineReplyComposer = forwardRef<
   },
   ref,
 ) {
+  const t = useT();
   const [showQuoted, setShowQuoted] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
@@ -452,7 +453,7 @@ export const InlineReplyComposer = forwardRef<
         <>
           <div className="flex items-center justify-between px-4 pt-3 pb-1">
             <span className="text-[13px] font-semibold text-green-400">
-              Forward
+              {t("mail.compose.forward")}
             </span>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -463,7 +464,7 @@ export const InlineReplyComposer = forwardRef<
                   <IconExternalLink className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Pop out to compose window</TooltipContent>
+              <TooltipContent>{t("mail.compose.popOut")}</TooltipContent>
             </Tooltip>
           </div>
           {recipientFields}
@@ -473,10 +474,10 @@ export const InlineReplyComposer = forwardRef<
           <div className="flex items-center justify-between px-4 pt-3 pb-1">
             <div className="flex items-center gap-1.5 min-w-0">
               <span className="text-[13px] font-semibold text-green-400">
-                Reply
+                {t("mail.compose.reply")}
               </span>
               <span className="text-[13px] text-muted-foreground/70 truncate">
-                to {recipientDisplay}
+                {t("mail.compose.replyTo", { recipient: recipientDisplay })}
               </span>
             </div>
             <Tooltip>
@@ -488,7 +489,7 @@ export const InlineReplyComposer = forwardRef<
                   <IconExternalLink className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Pop out to compose window</TooltipContent>
+              <TooltipContent>{t("mail.compose.popOut")}</TooltipContent>
             </Tooltip>
           </div>
           {recipientFields}
@@ -540,7 +541,11 @@ export const InlineReplyComposer = forwardRef<
           <>
             <button
               type="button"
-              aria-label={showQuoted ? "Hide quoted text" : "Show quoted text"}
+              aria-label={
+                showQuoted
+                  ? t("mail.thread.hideQuotedText")
+                  : t("mail.thread.showQuotedText")
+              }
               onClick={() => setShowQuoted(!showQuoted)}
               className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground"
             >
@@ -577,7 +582,7 @@ export const InlineReplyComposer = forwardRef<
                 <IconBold className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Bold</TooltipContent>
+            <TooltipContent>{t("mail.compose.bold")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -590,7 +595,7 @@ export const InlineReplyComposer = forwardRef<
                 <IconItalic className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Italic</TooltipContent>
+            <TooltipContent>{t("mail.compose.italic")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -603,7 +608,7 @@ export const InlineReplyComposer = forwardRef<
                 <IconLink className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Insert link</TooltipContent>
+            <TooltipContent>{t("mail.compose.insertLink")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -616,7 +621,7 @@ export const InlineReplyComposer = forwardRef<
                 <IconPaperclip className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Attach file</TooltipContent>
+            <TooltipContent>{t("mail.compose.attachFile")}</TooltipContent>
           </Tooltip>
 
           <div className="mx-1 h-4 w-px bg-border" />
@@ -624,7 +629,7 @@ export const InlineReplyComposer = forwardRef<
           {isGenerating ? (
             <div className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-              <span>Generating…</span>
+              <span>{t("mail.compose.generating")}</span>
             </div>
           ) : (
             <Popover open={generateOpen} onOpenChange={setGenerateOpen}>
@@ -634,13 +639,13 @@ export const InlineReplyComposer = forwardRef<
                   size="sm"
                   className="h-7 gap-1.5 px-2 text-xs"
                 >
-                  Generate
+                  {t("mail.compose.generate")}
                 </Button>
               </PopoverTrigger>
               <PopoverContent side="top" align="start" className="w-80 p-3">
                 <div className="flex flex-col gap-2">
                   <label className="text-xs font-medium text-muted-foreground">
-                    What should the agent write?
+                    {t("mail.compose.agentPromptLabel")}
                   </label>
                   <textarea
                     value={generatePrompt}
@@ -655,13 +660,14 @@ export const InlineReplyComposer = forwardRef<
                         setGenerateOpen(false);
                       }
                     }}
-                    placeholder="e.g. Write a polite follow-up..."
+                    placeholder={t("mail.compose.agentPromptPlaceholder")}
                     className="min-h-[60px] w-full resize-none rounded-md border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
                     autoFocus
                   />
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-muted-foreground">
-                      <kbd className="kbd-hint">↵</kbd> to submit
+                      <kbd className="kbd-hint">↵</kbd>{" "}
+                      {t("mail.compose.toSubmit")}
                     </span>
                     <Button
                       size="sm"
@@ -669,7 +675,7 @@ export const InlineReplyComposer = forwardRef<
                       disabled={!generatePrompt.trim()}
                       className="h-7 gap-1.5 px-3 text-xs"
                     >
-                      Generate
+                      {t("mail.compose.generate")}
                     </Button>
                   </div>
                 </div>
@@ -690,7 +696,7 @@ export const InlineReplyComposer = forwardRef<
                 <IconTrash className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Discard draft</TooltipContent>
+            <TooltipContent>{t("mail.compose.discardDraft")}</TooltipContent>
           </Tooltip>
           <Button
             size="sm"
@@ -699,7 +705,7 @@ export const InlineReplyComposer = forwardRef<
             className="gap-1.5"
           >
             <IconSend className="h-3.5 w-3.5" />
-            Send
+            {t("mail.compose.send")}
           </Button>
         </div>
       </div>

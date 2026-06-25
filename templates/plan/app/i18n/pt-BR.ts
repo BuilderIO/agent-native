@@ -73,6 +73,23 @@ const messages = {
     collapseSidebar: "Recolher barra lateral",
     signIn: "Entrar",
   },
+  chat: {
+    suggestionShipped: "O que foi lançado na última semana?",
+    suggestionUi: "Como é a nova interface de checkout?",
+    suggestionAuth: "Quando a API de autenticação mudou?",
+    suggestionApi: "Qual é o formato da API de cobrança?",
+    emptyState: "Perguntar ao Plan",
+    placeholder:
+      "Pergunte o que foi enviado, o que mudou ou o que o codigo atual mostra...",
+    heading: "Perguntar ao Plan",
+    description:
+      "Pesquise recaps de PRs mesclados, inspecione blocos visuais e publique respostas de codigo como diagramas, wireframes, specs de API e modelos de dados.",
+  },
+  guest: {
+    banner:
+      "Voce esta navegando como convidado. Entre para criar planos, deixar comentarios e manter seu trabalho.",
+    signIn: "Entrar",
+  },
 };
 
 export default messages;

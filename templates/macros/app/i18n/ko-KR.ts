@@ -50,6 +50,28 @@ const messages = {
     collapse: "사이드바 접기",
     syncing: "동기화 중…",
   },
+  analytics: {
+    selectRange: "범위 선택",
+    lastDays: "최근 {{count}}일",
+    allTime: "전체 기간",
+    average: "평균",
+    lowest: "최저",
+    highest: "최고",
+    daysTracked: "기록한 일수",
+    daysUnit: "일",
+    net: "순",
+    consumed: "섭취",
+    burned: "소모",
+    noData: "아직 데이터가 없습니다",
+    current: "현재",
+    change: "변화",
+    trendView: "추세 보기",
+    actualWeight: "실제 체중",
+    trendDescription:
+      "파란 추세선은 일별 변동을 완화해 전체 진행 상황을 보여줍니다.",
+    noWeightData: "아직 체중 데이터가 없습니다",
+    noWeightDescription: "추세를 보려면 체중을 기록하세요",
+  },
 };
 
 export default messages;
