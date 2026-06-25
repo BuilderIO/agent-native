@@ -106,7 +106,6 @@ const deDE = {
     templates: {
       title: "Forke und passe eine voll ausgestattete app an",
       eyebrow: "100 % kostenlos und Open Source",
-      body: "Wenn ein action Screens braucht, starte mit einer geprüften app, die du anpassen kannst. Chat ist das minimale app scaffold; Domain-Templates ergänzen Produkt-workflows, Beispieldaten und agent-ready actions.",
       cta: "Alle Templates ansehen",
     },
     skills: {

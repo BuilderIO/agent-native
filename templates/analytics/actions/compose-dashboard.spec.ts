@@ -176,6 +176,22 @@ describe("compose-dashboard", () => {
     expect(referred.sql).toContain("interval '30 days'");
   });
 
+  it("uses portable date expressions for daily first-party panels", () => {
+    for (const metric of [
+      "signups-over-time",
+      "pageviews-over-time",
+      "dau-over-time",
+      "wau-over-time",
+      "one-day-retention-by-template",
+    ]) {
+      const panel = buildPanel(metric)!;
+      expect(panel.sql).toContain("substr(timestamp, 1, 10)");
+      expect(panel.sql).toContain("CURRENT_DATE");
+      expect(panel.sql).not.toContain("AT TIME ZONE");
+      expect(panel.sql).not.toContain("now() AT TIME ZONE");
+    }
+  });
+
   it("uses the canonical template fallback for active-user panels", () => {
     for (const metric of ["dau-over-time", "wau-over-time"]) {
       const panel = buildPanel(metric)!;

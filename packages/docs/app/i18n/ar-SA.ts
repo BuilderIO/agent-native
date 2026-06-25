@@ -105,7 +105,6 @@ const arSA = {
     templates: {
       title: "اعمل fork وخصّص app كاملة الميزات",
       eyebrow: "مجاني 100% ومفتوح المصدر",
-      body: "عندما يحتاج action إلى شاشات، ابدأ من app موثوقة يمكنك تخصيصها. Chat هو الحد الأدنى من app scaffold؛ وتضيف قوالب النطاق workflows للمنتج وبيانات أمثلة و agent-ready actions.",
       cta: "عرض كل القوالب",
     },
     skills: {

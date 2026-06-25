@@ -106,7 +106,6 @@ const jaJP = {
     templates: {
       title: "機能豊富な app を fork してカスタマイズ",
       eyebrow: "100% 無料でオープンソース",
-      body: "action に画面が必要なときは、カスタマイズ可能な検証済み app から始めます。Chat は最小の app scaffold です。ドメインテンプレートは、プロダクト workflows、サンプルデータ、agent-ready actions を追加します。",
       cta: "すべてのテンプレートを見る",
     },
     skills: {
