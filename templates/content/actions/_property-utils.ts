@@ -38,6 +38,7 @@ type ContentDatabaseRow = InferSelectModel<typeof schema.contentDatabases>;
 type ContentDatabaseItemRow = InferSelectModel<
   typeof schema.contentDatabaseItems
 >;
+type DbClient = ReturnType<typeof getDb>;
 
 export function nanoid(size = 12): string {
   const chars =
@@ -816,8 +817,8 @@ export async function countBlocksFieldsForDatabase(
 // creating a duplicate.
 async function findExistingPrimaryBlocksDefinition(
   databaseId: string,
+  db: DbClient = getDb(),
 ): Promise<string | null> {
-  const db = getDb();
   const definitions = await db
     .select({
       id: schema.documentPropertyDefinitions.id,
@@ -849,8 +850,9 @@ export async function seedDefaultBlocksField(args: {
   ownerEmail: string;
   orgId: string | null;
   now: string;
+  db?: DbClient;
 }): Promise<string | null> {
-  const db = getDb();
+  const db = args.db ?? getDb();
 
   // Deterministic id keyed to the database so concurrent claimants converge on
   // the same value; the UNIQUE primary-key on definitions also rejects a
@@ -864,6 +866,7 @@ export async function seedDefaultBlocksField(args: {
   // path. The atomic UPDATE (column still NULL) makes this race-safe.
   const existingPrimary = await findExistingPrimaryBlocksDefinition(
     args.databaseId,
+    db,
   );
   if (existingPrimary) {
     await db

@@ -15,7 +15,7 @@ import { SchemaBlockEditor } from "./SchemaBlockEditor.js";
  */
 export function blockEditSurface(
   spec: BlockSpec<any>,
-): "inline" | "panel" | "container" {
+): "inline" | "panel" | "container" | "none" {
   return spec.editSurface ?? (spec.Edit ? "inline" : "panel");
 }
 
@@ -66,6 +66,8 @@ export function BlockView({
     editing && editable && spec.placement.includes("block") && !!onChange;
 
   if (!canEdit) return readNode;
+
+  if (blockEditSurface(spec) === "none") return readNode;
 
   const commit = (nextData: unknown, meta?: BlockDataChangeMeta) =>
     onChange?.(nextData, meta);

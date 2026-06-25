@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import { contentDatabaseQueryKey } from "./use-content-database";
 import type {
   ConfigureDocumentPropertyRequest,
   DeleteDocumentPropertyRequest,
@@ -20,7 +21,10 @@ export function useDocumentProperties(documentId: string | null) {
   );
 }
 
-export function useConfigureDocumentProperty(documentId: string) {
+export function useConfigureDocumentProperty(
+  documentId: string,
+  databaseDocumentId = documentId,
+) {
   const queryClient = useQueryClient();
   return useActionMutation<
     DocumentPropertiesResponse,
@@ -34,13 +38,16 @@ export function useConfigureDocumentProperty(documentId: string) {
         queryKey: ["action", "get-document", { id: documentId }],
       });
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
+        queryKey: contentDatabaseQueryKey(databaseDocumentId),
       });
     },
   });
 }
 
-export function useSetDocumentProperty(documentId: string) {
+export function useSetDocumentProperty(
+  documentId: string,
+  databaseDocumentId = documentId,
+) {
   const queryClient = useQueryClient();
   return useActionMutation<
     DocumentPropertiesResponse,
@@ -54,13 +61,16 @@ export function useSetDocumentProperty(documentId: string) {
         queryKey: ["action", "get-document", { id: documentId }],
       });
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
+        queryKey: contentDatabaseQueryKey(databaseDocumentId),
       });
     },
   });
 }
 
-export function useDuplicateDocumentProperty(documentId: string) {
+export function useDuplicateDocumentProperty(
+  documentId: string,
+  databaseDocumentId = documentId,
+) {
   const queryClient = useQueryClient();
   return useActionMutation<
     DocumentPropertiesResponse,
@@ -74,13 +84,16 @@ export function useDuplicateDocumentProperty(documentId: string) {
         queryKey: ["action", "get-document", { id: documentId }],
       });
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
+        queryKey: contentDatabaseQueryKey(databaseDocumentId),
       });
     },
   });
 }
 
-export function useReorderDocumentProperty(documentId: string) {
+export function useReorderDocumentProperty(
+  documentId: string,
+  databaseDocumentId = documentId,
+) {
   const queryClient = useQueryClient();
   return useActionMutation<
     DocumentPropertiesResponse,
@@ -94,13 +107,16 @@ export function useReorderDocumentProperty(documentId: string) {
         queryKey: ["action", "get-document", { id: documentId }],
       });
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
+        queryKey: contentDatabaseQueryKey(databaseDocumentId),
       });
     },
   });
 }
 
-export function useDeleteDocumentProperty(documentId: string) {
+export function useDeleteDocumentProperty(
+  documentId: string,
+  databaseDocumentId = documentId,
+) {
   const queryClient = useQueryClient();
   return useActionMutation<
     DocumentPropertiesResponse,
@@ -114,7 +130,7 @@ export function useDeleteDocumentProperty(documentId: string) {
         queryKey: ["action", "get-document", { id: documentId }],
       });
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
+        queryKey: contentDatabaseQueryKey(databaseDocumentId),
       });
     },
   });
