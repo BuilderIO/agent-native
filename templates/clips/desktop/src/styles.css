@@ -2099,7 +2099,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .countdown-control-skip {
   /* center at +200px from row center: 200 - (64 / 2) = 168px */
-  right: -232px;
+  left: 168px;
 }
 
 .countdown-control:hover {
@@ -2115,6 +2115,20 @@ body[data-clips-route="recording-pill"] #root {
 .countdown-control:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.9);
   outline-offset: 2px;
+}
+
+/*
+ * Absolutely centers the number without contributing width to .countdown-controls.
+ * This keeps the controls div at zero width so the cancel/skip button positions
+ * (left: -232px, left: 168px) line up exactly with the Rust cursor-poll hit-rects
+ * (CONTROL_OFFSET_X = 200.0) measured from the window center.
+ */
+.countdown-number-wrap {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .countdown-number {
