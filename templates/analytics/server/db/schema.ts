@@ -80,6 +80,38 @@ export const analyses = table("analyses", {
 export const analysisShares = createSharesTable("analysis_shares");
 
 /**
+ * Curated "Strategic Accounts" list — the source of truth for the migrated
+ * fusion-analytics Strategic Accounts overview. The (sensitive) account names
+ * live ONLY in this org-scoped table and the dashboard config row, never in
+ * source or git. Both surfaces read from it: the extension reads it live, and
+ * the SQL dashboard's `accounts` variable is projected from it.
+ *
+ * `deploymentStatus` and `notes` are editable manual fields (the source kept
+ * these in localStorage); everything else is the curated roster. Metrics are
+ * always queried live from BigQuery, never stored here.
+ */
+export const strategicAccounts = table("strategic_accounts", {
+  id: text("id").primaryKey(),
+  /** HubSpot company name — the join key against warehouse tables. */
+  companyName: text("company_name").notNull(),
+  /** Optional HubSpot company id when known. */
+  companyId: text("company_id"),
+  /** Editable deployment-status badge (e.g. "Production", "Pilot"). */
+  deploymentStatus: text("deployment_status").notNull().default(""),
+  /** Editable free-text note. */
+  notes: text("notes").notNull().default(""),
+  /** Manual ordering for the grid. */
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});
+
+export const strategicAccountShares = createSharesTable(
+  "strategic_account_shares",
+);
+
+/**
  * BigQuery result cache (pre-existing — moved here from db plugin so a
  * single drizzle schema covers the template).
  */

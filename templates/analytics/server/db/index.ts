@@ -25,3 +25,13 @@ registerShareableResource({
   getResourcePath: (analysis) => `/analyses/${analysis.id}`,
   getDb,
 });
+
+registerShareableResource({
+  type: "strategic-account",
+  resourceTable: schema.strategicAccounts,
+  sharesTable: schema.strategicAccountShares,
+  displayName: "Strategic Account",
+  titleColumn: "companyName",
+  getResourcePath: () => `/dashboards/strategic-accounts`,
+  getDb,
+});
