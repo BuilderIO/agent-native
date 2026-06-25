@@ -4966,19 +4966,15 @@ export function createProductionAgentHandler(
       await updateRunHeartbeat(runId).catch(() => {});
     }
 
-    // DIAGNOSTIC-ONLY: emit the pre-startRun setup-timing breakdown. Best-effort
-    // and fire-and-forget — never blocks or throws. Runs for both the inline and
-    // background-worker paths since it sits just before the single startRun call.
+    // DIAGNOSTIC-ONLY: build the pre-startRun setup-timing breakdown now (so the
+    // marks reflect the work done BEFORE the loop), but EMIT it from inside
+    // startRun's callback below — the run row does not exist until startRun
+    // inserts it, so a pre-startRun write would no-op on the inline path.
     setupMark("preStart");
     const setupDetail =
       Object.entries(setupMarks)
         .map(([k, v]) => `${k}=${v}`)
         .join(" ") + ` total=${Date.now() - setupT0}`;
-    void recordRunDiagnostic(
-      runId,
-      RUN_DIAG_STAGE.setupTimings,
-      setupDetail,
-    ).catch(() => {});
 
     startRun(
       runId,
@@ -4990,6 +4986,16 @@ export function createProductionAgentHandler(
         };
 
         send({ type: "activity", label: "Starting agent" });
+
+        // DIAGNOSTIC-ONLY: emit the pre-startRun setup-timing breakdown now that
+        // the run row exists (startRun has inserted it), so it persists on the
+        // inline path too. Awaited and recorded BEFORE worker_started so it can
+        // never land after and clobber the true last stage on background runs.
+        await recordRunDiagnostic(
+          runId,
+          RUN_DIAG_STAGE.setupTimings,
+          setupDetail,
+        ).catch(() => {});
 
         // DIAGNOSTIC: the agent loop body actually started running. For a
         // background worker, a run that is claimed but never reaches this stage
