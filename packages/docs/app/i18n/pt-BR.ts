@@ -21,7 +21,7 @@ const ptBR = {
     terms: "Termos",
   },
   feedback: {
-    label: "Feedback",
+    label: "Comentários",
     placeholder: "Conte o que deixaria esta documentação melhor.",
   },
   demoVideo: {

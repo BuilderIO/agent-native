@@ -35,6 +35,7 @@ import {
   sanitizeWireframeHtml,
   scopeDesignCss,
 } from "./sanitize-html.js";
+import { useBlockCopy } from "./block-copy.js";
 import { renderWireframeIconHtml } from "./wireframe-icons.js";
 
 /**
@@ -291,9 +292,10 @@ function ArtboardFrame({
 
 function WireframeStyleToggleButton() {
   const style = useWireframeStyle();
+  const copy = useBlockCopy();
   const nextStyle = style === "sketchy" ? "clean" : "sketchy";
-  const label = nextStyle === "clean" ? "Clean" : "Sketchy";
-  const description = `Switch to ${label.toLowerCase()} visual style`;
+  const label = nextStyle === "clean" ? copy.clean : copy.sketchy;
+  const description = copy.switchVisualStyle.replace("{{style}}", label);
 
   return (
     <button

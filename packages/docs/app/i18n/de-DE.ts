@@ -21,7 +21,7 @@ const deDE = {
     terms: "Bedingungen",
   },
   feedback: {
-    label: "Feedback",
+    label: "Rückmeldung",
     placeholder: "Sag uns, wie diese Dokumentation besser werden kann.",
   },
   demoVideo: {
@@ -34,7 +34,7 @@ const deDE = {
   theme: {
     light: "hell",
     dark: "dunkel",
-    label: "Theme: {{theme}}",
+    label: "Design: {{theme}}",
   },
   docs: {
     navigateAria: "Docs navigieren",
