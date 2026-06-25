@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.77.6
+
+### Patch Changes
+
+- 1fab043: Localize shared extension sidebar chrome and changelog labels/dates.
+
 ## 0.77.5
 
 ### Patch Changes
