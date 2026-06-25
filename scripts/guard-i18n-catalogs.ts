@@ -1,4 +1,10 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -19,6 +25,27 @@ async function main() {
 
   for (const dir of catalogDirs) {
     errors.push(...(await checkCatalogDir(dir)));
+  }
+  const rawLiteralResult = checkRawVisibleLiterals();
+  if (process.env.UPDATE_I18N_RAW_LITERAL_BASELINE === "1") {
+    writeFileSync(
+      rawLiteralBaselinePath,
+      [
+        "# Existing raw visible UI literals.",
+        "# Keep this file sorted. Remove entries as surfaces move to i18n.",
+        "# Format: relative/source/path.tsx|Visible string",
+        ...rawLiteralResult.issueIds,
+        "",
+      ].join("\n"),
+    );
+    console.log(
+      `[guard:i18n-catalogs] updated ${path.relative(
+        rootDir,
+        rawLiteralBaselinePath,
+      )} with ${rawLiteralResult.issueIds.length} entries`,
+    );
+  } else {
+    errors.push(...rawLiteralResult.errors);
   }
 
   if (errors.length > 0) {
@@ -334,6 +361,167 @@ function extractPlaceholders(message: string): Set<string> {
   }
 
   return out;
+}
+
+const rawLiteralRoots = [
+  "packages/docs/app/components",
+  "packages/docs/app/routes/_index.tsx",
+  "packages/docs/app/routes/skills.tsx",
+  "packages/docs/app/routes/templates._index.tsx",
+  "packages/docs/app/routes/templates.$slug.tsx",
+  ...safeReadDir(path.join(rootDir, "templates")).flatMap((template) => [
+    path.join("templates", template, "app", "components"),
+    path.join("templates", template, "app", "pages"),
+    path.join("templates", template, "app", "routes"),
+  ]),
+];
+
+const rawLiteralBaselinePath = path.join(
+  rootDir,
+  "scripts",
+  "i18n-raw-literal-baseline.txt",
+);
+
+const rawLiteralFileIgnore = [
+  ".test.",
+  ".spec.",
+  ".stories.",
+  "/ui/",
+  "/__tests__/",
+];
+
+const rawLiteralAttributeNames = [
+  "aria-label",
+  "placeholder",
+  "title",
+  "alt",
+  "label",
+];
+
+const rawLiteralAllowPatterns = [
+  /^(?:Agent-Native|GitHub|LinkedIn|HubSpot)$/,
+  /^[A-Z0-9_./:@#?&=%+ -]+$/,
+  /^[a-z0-9_./:@#?&=%+ -]+$/,
+  /^\d+$/,
+  /^[A-Z][a-zA-Z]+(?:\.[a-zA-Z]+)+$/,
+  /^https?:\/\//,
+  /^\/[_a-zA-Z0-9./:$-]+$/,
+  /^#[a-zA-Z0-9_-]+$/,
+  /^[A-Z][a-z]+(?: [A-Z][a-z]+){0,2}$/,
+];
+const codeLikeRawLiteralPattern =
+  /[{}();=<>]|\b(?:const|let|return|useState|useRef|useMemo|ReactNode|Record|Map|Set|Promise|queryClient|undefined|null|true|false)\b/;
+
+function readRawLiteralBaseline() {
+  if (!existsSync(rawLiteralBaselinePath)) return new Set<string>();
+  return new Set(
+    readFileSync(rawLiteralBaselinePath, "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#")),
+  );
+}
+
+function checkRawVisibleLiterals(): { errors: string[]; issueIds: string[] } {
+  const errors: string[] = [];
+  const issueIds = new Set<string>();
+  const baseline = readRawLiteralBaseline();
+  for (const entry of rawLiteralRoots) {
+    const abs = path.join(rootDir, entry);
+    if (!existsSync(abs)) continue;
+    const files = collectSourceFiles(abs);
+    for (const file of files) {
+      const rel = path.relative(rootDir, file);
+      if (rawLiteralFileIgnore.some((part) => rel.includes(part))) continue;
+      const text = readFileSync(file, "utf8");
+      const issues = checkRawVisibleLiteralFile(rel, text);
+      for (const issue of issues) {
+        issueIds.add(issue.id);
+        if (baseline.has(issue.id)) continue;
+        errors.push(issue.message);
+      }
+    }
+  }
+  return { errors, issueIds: [...issueIds].sort() };
+}
+
+function collectSourceFiles(entry: string): string[] {
+  if (!existsSync(entry)) return [];
+  const stat = readdirOrFile(entry);
+  if (stat.type === "file") return isSourceFile(entry) ? [entry] : [];
+  const out: string[] = [];
+  for (const child of safeReadDir(entry)) {
+    out.push(...collectSourceFiles(path.join(entry, child)));
+  }
+  return out;
+}
+
+function readdirOrFile(entry: string): { type: "file" | "dir" } {
+  try {
+    const stat = statSync(entry);
+    return { type: stat.isDirectory() ? "dir" : "file" };
+  } catch {
+    return { type: "file" };
+  }
+}
+
+function isSourceFile(file: string): boolean {
+  return /\.(tsx?|jsx?)$/.test(file);
+}
+
+function checkRawVisibleLiteralFile(
+  rel: string,
+  text: string,
+): Array<{ id: string; message: string }> {
+  if (text.includes("i18n-raw-literal-disable-file")) return [];
+  const issues: Array<{ id: string; message: string }> = [];
+  const lines = text.split(/\r?\n/);
+  const report = (index: number, value: string) => {
+    const line = lineNumberAt(text, index);
+    const lineText = lines[line - 1] ?? "";
+    if (lineText.includes("i18n-ignore")) return;
+    if (/^\s*(?:\/\/|\*)/.test(lineText)) return;
+    const trimmed = value.replace(/\s+/g, " ").trim();
+    if (!isLikelyVisibleLiteral(trimmed)) return;
+    const id = `${rel}|${trimmed}`;
+    issues.push({
+      id,
+      message: `${rel}:${line}: raw visible string "${trimmed}" must use i18n, add // i18n-ignore, or update ${path.relative(
+        rootDir,
+        rawLiteralBaselinePath,
+      )}`,
+    });
+  };
+
+  for (const match of text.matchAll(/>([^<>{}]*[A-Za-z][^<>{}]*)</g)) {
+    report(match.index ?? 0, match[1] ?? "");
+  }
+
+  const attrPattern = new RegExp(
+    `\\b(?:${rawLiteralAttributeNames.join("|")})="([^"{]*[A-Za-z][^"]*)"`,
+    "g",
+  );
+  for (const match of text.matchAll(attrPattern)) {
+    report(match.index ?? 0, match[1] ?? "");
+  }
+
+  return issues;
+}
+
+function lineNumberAt(text: string, index: number): number {
+  let line = 1;
+  for (let i = 0; i < index; i++) {
+    if (text.charCodeAt(i) === 10) line++;
+  }
+  return line;
+}
+
+function isLikelyVisibleLiteral(value: string): boolean {
+  if (value.length < 3) return false;
+  if (!/[A-Za-z]/.test(value)) return false;
+  if (value.includes("{") || value.includes("}")) return false;
+  if (codeLikeRawLiteralPattern.test(value)) return false;
+  return !rawLiteralAllowPatterns.some((pattern) => pattern.test(value));
 }
 
 void main();

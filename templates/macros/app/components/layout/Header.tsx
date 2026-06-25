@@ -2,7 +2,6 @@ import { useLocation } from "react-router";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
   AgentToggleButton,
-  LanguagePicker,
   useT,
 } from "@agent-native/core/client";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
@@ -49,7 +48,6 @@ export function Header({ onOpenSidebar }: HeaderProps) {
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {actions}
-        <LanguagePicker variant="icon" />
         <AgentToggleButton />
       </div>
     </header>

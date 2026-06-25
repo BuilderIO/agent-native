@@ -121,11 +121,8 @@ export function Layout({ children }: LayoutProps) {
             questions={guidedQuestions}
             onSubmit={handleGuidedSubmit}
             onSkip={handleGuidedSkip}
-            title={guidedTitle ?? "Clarify the dashboard"}
-            description={
-              guidedDescription ??
-              "A few choices help the agent pick the right source, metrics, cuts, and layout before it writes SQL."
-            }
+            title={guidedTitle ?? t("guidedQuestions.title")}
+            description={guidedDescription ?? t("guidedQuestions.description")}
             skipLabel={guidedSkipLabel}
             submitLabel={guidedSubmitLabel}
           />

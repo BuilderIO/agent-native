@@ -1,6 +1,5 @@
 import { useLocation } from "react-router";
 import {
-  LanguagePicker,
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
@@ -54,7 +53,6 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <LanguagePicker variant="icon" />
         <RunsTray pollMs={1500} />
         <AgentToggleButton />
       </div>

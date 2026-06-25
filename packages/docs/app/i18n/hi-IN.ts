@@ -20,6 +20,17 @@ const hiIN = {
     privacy: "गोपनीयता",
     terms: "शर्तें",
   },
+  feedback: {
+    label: "फ़ीडबैक",
+    placeholder: "बताएं कि ये दस्तावेज़ और बेहतर कैसे हो सकते हैं।",
+  },
+  demoVideo: {
+    visualPlanningAria: "Agent-Native विज़ुअल प्लानिंग डेमो",
+  },
+  docBlocks: {
+    blockLabel: "{{alias}} ब्लॉक",
+    unknownBlockType: "अज्ञात ब्लॉक प्रकार",
+  },
   theme: {
     light: "लाइट",
     dark: "डार्क",
@@ -1069,32 +1080,39 @@ const hiIN = {
     },
   },
   skillsPage: {
-    heroTitle: "Give your coding agent new superpowers",
+    metaTitle: "Agent Skills - कोडिंग एजेंट के लिए Visual Plan और Visual Recap",
+    metaDescription:
+      "अपने कोडिंग एजेंट को विजुअल प्लानिंग और PR रिकैप देने के लिए Agent-Native ऐप-समर्थित skills इंस्टॉल करें।",
+    metaOgDescription:
+      "अपने कोडिंग एजेंट को Agent-Native ऐप्स से चलने वाले slash commands दें जिन्हें आप host, inspect और customize कर सकते हैं।",
+    metaKeywords:
+      "agent skills, visual plan, visual recap, कोडिंग एजेंट, Claude Code, Codex, PR review, planning, agent-native",
+    heroTitle: "अपने कोडिंग एजेंट को नई शक्तियां दें",
     heroBody:
-      "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation and visual PR recaps after changes land.",
-    sectionTitle: "App-backed skills for coding agents",
+      "पूरी तरह customize किए जा सकने वाले Agent-Native ऐप-समर्थित skills इंस्टॉल करें: implementation से पहले visual planning और changes के बाद visual PR recaps।",
+    sectionTitle: "कोडिंग एजेंट के लिए ऐप-समर्थित skills",
     sectionBody:
-      "Use hosted shareable app links, local files, or a self-hosted/custom app, and your agent gets instructions plus the matching MCP surface when one is required.",
+      "Hosted shareable app links, local files, या self-hosted/custom app इस्तेमाल करें; आपके agent को instructions और जरूरत होने पर matching MCP surface मिलता है।",
     ctaBody:
-      "Works with Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, and similar coding agents.",
-    readVisualPlansDocs: "Read the Visual Plans docs",
-    browseTemplates: "Browse templates",
+      "Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code और समान coding agents के साथ काम करता है।",
+    readVisualPlansDocs: "Visual Plans docs पढ़ें",
+    browseTemplates: "Templates देखें",
     visualPlan: {
       name: "Visual Plan",
-      tagline: "Review before code",
+      tagline: "Code से पहले review",
       description:
-        "Turns a coding task into a shareable plan with diagrams, file notes, and optional UI sketches.",
-      feature1: "See the implementation shape before changes land",
-      feature2: "Comment, revise, approve, or hand off",
+        "Coding task को diagrams, file notes और optional UI sketches वाले shareable plan में बदलता है।",
+      feature1: "Changes land होने से पहले implementation shape देखें",
+      feature2: "Comment, revise, approve, या hand off करें",
       videoAriaLabel: "Visual Plan skill demo video",
     },
     visualRecap: {
       name: "Visual Recap",
-      tagline: "Review after changes",
+      tagline: "Changes के बाद review",
       description:
-        "Turns a PR or git diff into a shareable recap of what changed and why.",
-      feature1: "Summarizes schema, API, and file changes",
-      feature2: "Optionally posts one sticky PR comment",
+        "PR या git diff को what changed और why के shareable recap में बदलता है।",
+      feature1: "Schema, API, और file changes summarize करता है",
+      feature2: "Optional sticky PR comment post कर सकता है",
       videoAriaLabel: "Visual Recap skill demo video",
     },
   },

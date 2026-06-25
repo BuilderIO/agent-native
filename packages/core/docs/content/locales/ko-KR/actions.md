@@ -85,9 +85,9 @@ actions 정도이며 작업 자체에 필요한 전제 조건은 아닙니다.
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});",
   "annotations": [
-    { "lines": "5", "label": "Tool surface", "note": "`description` is what the agent reads to decide when to call this. The per-field `.describe()` calls flow into the JSON Schema too." },
+    { "lines": "5", "label": "도구 표면", "note": "`description`은 에이전트가 이 액션을 언제 호출할지 판단하기 위해 읽는 내용입니다. 각 필드의 `.describe()` 호출도 JSON Schema에 들어갑니다." },
     { "lines": "6-9", "label": "타입 계약", "note": "하나의 schema가 **모든** 표면의 입력을 검증하고 모델용 JSON Schema로 변환합니다. 유효하지 않은 입력은 `run`에 도달하지 않습니다." },
-    { "lines": "10-13", "label": "One implementation", "note": "The `run` body is the single source of truth — the UI button and the agent tool both execute exactly this." }
+    { "lines": "10-13", "label": "단일 구현", "note": "`run` 본문이 단일 진실 공급원입니다. UI 버튼과 에이전트 도구가 정확히 이것을 실행합니다." }
   ]
 }
 ```
@@ -150,19 +150,19 @@ export default defineAction({
 
 `GET` 작업의 경우 `leadId`는 쿼리 매개변수 `/_agent-native/actions/get-lead?leadId=abc`로 전달됩니다.
 
-```an-api title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead"
+```an-api title="자동 마운트된 action 엔드포인트" method="GET" path="/_agent-native/actions/get-lead"
 {
   "method": "GET",
   "path": "/_agent-native/actions/get-lead",
-  "summary": "Every action is mounted here automatically — the filename is the action name.",
-  "description": "POST by default; `http: { method: \"GET\" }` makes it a GET. The React hooks and `callAction` always call this path by name, regardless of any `http.path` override.",
-  "auth": "Session cookie; frontend calls carry `X-Agent-Native-Frontend: 1`",
+  "summary": "모든 action은 여기에 자동으로 마운트됩니다. 파일 이름이 action 이름입니다.",
+  "description": "기본값은 POST입니다. `http: { method: \"GET\" }`는 이를 GET으로 만듭니다. React hooks와 `callAction`은 `http.path` override와 관계없이 항상 이름으로 이 경로를 호출합니다.",
+  "auth": "세션 쿠키; 프론트엔드 호출에는 `X-Agent-Native-Frontend: 1`이 포함됩니다",
   "params": [
-    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET args arrive as query params; POST args arrive in the JSON body." }
+    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET 인수는 query params로 도착하고 POST 인수는 JSON body로 도착합니다." }
   ],
   "responses": [
-    { "status": "200", "description": "The action's return value as JSON." },
-    { "status": "400", "description": "Input failed schema validation before run() fired." }
+    { "status": "200", "description": "action의 반환값을 JSON으로 반환합니다." },
+    { "status": "400", "description": "run()이 실행되기 전에 입력이 schema validation에 실패했습니다." }
   ]
 }
 ```
