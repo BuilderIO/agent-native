@@ -163,28 +163,13 @@ export { PROVIDER_TO_ENV };
  */
 export const BACKGROUND_CLAIM_GRACE_MS = 15_000;
 /**
- * Longer cap used ONLY while the worker has proven it is alive and grinding
- * through setup — it recorded `auth_passed`/`worker_entered` but has not reached
- * `claimBackgroundRun` yet. Heavy apps (e.g. analytics) can take longer than the
- * base grace to build the system prompt + load actions before claiming; without
- * the extension the foreground abandons a live worker mid-setup and recovers
- * inline, wasting the background budget. A dead handoff never records those
- * stages, so it is NOT extended and still recovers at the base grace.
- *
- * MUST stay UNDER `UNCLAIMED_BACKGROUND_RUN_GRACE_MS`: an unclaimed background
- * row is reaped by `reapUnclaimedBackgroundRun` (fired by `/runs/active`
- * polling) once it has been unclaimed that long, which would kill a slow-but-
- * live worker mid-setup. Capping the foreground wait just below that window lets
- * the foreground claim the run inline (flipping it out of `background`) BEFORE
- * the reaper can fire, so the extended wait and the reaper never race. (A setup
- * slower than this cap therefore falls back to inline rather than the background
- * worker — if that bites a real app, optimize its setup rather than widening the
- * window past the reaper.) Stays within the foreground's ~40s soft-timeout.
+ * Safety margin subtracted from the unclaimed-reaper grace when deciding how
+ * long the foreground may keep waiting for a slow-but-live worker to claim. The
+ * foreground recovers the run inline this many ms BEFORE `reapUnclaimedBackgroundRun`
+ * would error an unclaimed row, so the foreground always wins the race to claim
+ * and the two never collide — see `resolveBackgroundDispatchOutcome`.
  */
-export const EXTENDED_BACKGROUND_CLAIM_GRACE_MS = Math.max(
-  BACKGROUND_CLAIM_GRACE_MS,
-  UNCLAIMED_BACKGROUND_RUN_GRACE_MS - 2_000,
-);
+export const BACKGROUND_REAPER_SAFETY_MARGIN_MS = 2_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
 
 export type BackgroundDispatchOutcome =
@@ -234,16 +219,23 @@ export async function resolveBackgroundDispatchOutcome(opts: {
   runId: string;
   graceMs: number;
   /**
-   * Optional longer cap, applied ONLY while the worker is provably alive and
-   * still in setup (see `EXTENDED_BACKGROUND_CLAIM_GRACE_MS`). Omit to disable
-   * the extension (behaves exactly like the base grace).
+   * The unclaimed-run reaper's grace (`UNCLAIMED_BACKGROUND_RUN_GRACE_MS`). When
+   * provided, the foreground may keep waiting PAST `graceMs` while the worker is
+   * provably alive and still in setup — but it recovers inline before the run has
+   * been unclaimed this long (minus the safety margin), so it always claims
+   * before the reaper can fire. Omit to disable the extension (behaves exactly
+   * like the base grace).
    */
-  extendedGraceMs?: number;
+  reaperGraceMs?: number;
+  /** Margin subtracted from `reaperGraceMs` (default `BACKGROUND_REAPER_SAFETY_MARGIN_MS`). */
+  reaperSafetyMarginMs?: number;
   pollIntervalMs: number;
   readClaim: (runId: string) => Promise<{
     dispatchMode: string | null;
     status: string | null;
     diagStage?: string | null;
+    /** COALESCE(heartbeat_at, started_at) — the reaper's liveness basis. */
+    lastLivenessAt?: number | null;
   } | null>;
   claim: (runId: string) => Promise<boolean>;
   now?: () => number;
@@ -272,13 +264,13 @@ export async function resolveBackgroundDispatchOutcome(opts: {
   ]);
 
   if (opts.dispatched) {
-    // One now() at entry + one per iteration (matches the pre-extension call
-    // count, so callers/tests that model a stepping clock stay deterministic).
+    // One now() at entry + one per iteration (so callers/tests that model a
+    // stepping clock stay deterministic).
     const startedAt = now();
     const baseDeadline = startedAt + opts.graceMs;
-    const maxDeadline =
-      startedAt + Math.max(opts.graceMs, opts.extendedGraceMs ?? opts.graceMs);
-    let deadline = baseDeadline;
+    const reaperGraceMs = opts.reaperGraceMs;
+    const reaperMargin =
+      opts.reaperSafetyMarginMs ?? BACKGROUND_REAPER_SAFETY_MARGIN_MS;
     for (;;) {
       const claim = await opts.readClaim(opts.runId).catch(() => null);
       if (
@@ -294,21 +286,28 @@ export async function resolveBackgroundDispatchOutcome(opts: {
       // Worker recorded a pre-claim death — no point waiting out the grace.
       if (stage && DIED_BEFORE_CLAIM.has(stage)) break;
       const elapsedNow = now();
-      // ADAPTIVE GRACE: the base window elapsed but the worker is alive and still
-      // in setup (heavy cold start) — extend ONCE to the longer cap so a live
-      // worker is not abandoned mid-setup (which would waste the background
-      // budget by recovering inline). The extension never applies to a dead
-      // handoff because it never recorded an ALIVE_IN_SETUP stage.
-      if (
-        deadline < maxDeadline &&
-        elapsedNow >= baseDeadline &&
+      // The unclaimed-reaper errors any still-`background` row once it has been
+      // unclaimed for `reaperGraceMs`, measured from the row's OWN liveness
+      // (COALESCE(heartbeat_at, started_at)) — NOT from when we began polling.
+      // Recover inline just before that point so the foreground claims the run
+      // first; anchoring to the row's liveness makes this immune to dispatch
+      // latency between insertRun and the start of polling.
+      const reaperWillFireSoon =
+        reaperGraceMs != null &&
+        claim?.lastLivenessAt != null &&
+        elapsedNow - claim.lastLivenessAt >= reaperGraceMs - reaperMargin;
+      if (reaperWillFireSoon) break;
+      // ADAPTIVE GRACE: past the base window, keep polling ONLY while the worker
+      // is provably alive and still in setup (heavy cold start). A dead handoff
+      // never recorded an ALIVE_IN_SETUP stage, so it recovers inline at the base
+      // grace; the reaper-anchored break above bounds how long a live worker can
+      // extend. The extension is enabled only when a reaper grace was provided.
+      const aliveInSetup =
+        reaperGraceMs != null &&
         claim?.status === "running" &&
-        stage &&
-        ALIVE_IN_SETUP.has(stage)
-      ) {
-        deadline = maxDeadline;
-      }
-      if (elapsedNow >= deadline) break;
+        !!stage &&
+        ALIVE_IN_SETUP.has(stage);
+      if (elapsedNow >= baseDeadline && !aliveInSetup) break;
       await sleep(opts.pollIntervalMs);
     }
   }
@@ -4630,7 +4629,7 @@ export function createProductionAgentHandler(
         backgroundRowInserted,
         runId,
         graceMs: BACKGROUND_CLAIM_GRACE_MS,
-        extendedGraceMs: EXTENDED_BACKGROUND_CLAIM_GRACE_MS,
+        reaperGraceMs: UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
         pollIntervalMs: BACKGROUND_CLAIM_POLL_MS,
         readClaim: readBackgroundRunClaim,
         claim: claimBackgroundRun,

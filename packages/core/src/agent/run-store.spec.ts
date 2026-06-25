@@ -14,6 +14,8 @@ let claimStateRows: Array<{
   dispatch_mode: string | null;
   status: string | null;
   diag_stage?: string | null;
+  started_at?: number | null;
+  heartbeat_at?: number | null;
 }> = [];
 let runOwnerRows: Array<{ owner_email: string | null }> = [];
 let insertEventBehavior: () => void = () => {};
@@ -43,9 +45,9 @@ const mockDb = {
     if (/SELECT status FROM agent_runs WHERE id/i.test(rawSql)) {
       return { rows: runStatusRows, rowsAffected: 0 };
     }
-    // readBackgroundRunClaim: SELECT dispatch_mode, status, diag_stage FROM agent_runs WHERE id = ?
+    // readBackgroundRunClaim: SELECT dispatch_mode, status, diag_stage, started_at, heartbeat_at FROM agent_runs WHERE id = ?
     if (
-      /SELECT dispatch_mode, status, diag_stage FROM agent_runs WHERE id/i.test(
+      /SELECT dispatch_mode, status, diag_stage.*FROM agent_runs WHERE id/i.test(
         rawSql,
       )
     ) {
@@ -116,27 +118,36 @@ describe("run store", () => {
     vi.clearAllMocks();
   });
 
-  it("readBackgroundRunClaim parses dispatch_mode + status + diag_stage, or null when missing", async () => {
+  it("readBackgroundRunClaim parses dispatch_mode + status + diag_stage + liveness, or null when missing", async () => {
     claimStateRows = [
       {
         dispatch_mode: "background",
         status: "running",
         diag_stage: '{"stage":"route_entered"}',
+        started_at: 1000,
+        heartbeat_at: null,
       },
     ];
     expect(await readBackgroundRunClaim("run-bg")).toEqual({
       dispatchMode: "background",
       status: "running",
       diagStage: '{"stage":"route_entered"}',
+      lastLivenessAt: 1000, // COALESCE(heartbeat_at, started_at)
     });
 
     claimStateRows = [
-      { dispatch_mode: "background-processing", status: "running" },
+      {
+        dispatch_mode: "background-processing",
+        status: "running",
+        started_at: 2000,
+        heartbeat_at: 2500,
+      },
     ];
     expect(await readBackgroundRunClaim("run-claimed")).toEqual({
       dispatchMode: "background-processing",
       status: "running",
       diagStage: null,
+      lastLivenessAt: 2500, // heartbeat_at wins over started_at
     });
 
     claimStateRows = [];
