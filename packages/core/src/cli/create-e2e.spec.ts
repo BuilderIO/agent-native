@@ -282,7 +282,7 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     );
     expect(workspaceYaml).toContain("allowBuilds:");
     expect(workspaceYaml).toContain("minimumReleaseAgeExclude:");
-    expect(workspaceYaml).toContain('"@sentry/node"');
+    expect(workspaceYaml).toContain('"@sentry/*"');
     expect(workspaceYaml).not.toContain("@assistant-ui");
   });
 });
@@ -324,6 +324,8 @@ describe("headless onboarding guards", { timeout: 60000 }, () => {
     ).toBeDefined();
     expect(types).not.toContain("vite/client");
     expect(types).toContain("node");
+    expect(tsconfig.compilerOptions?.baseUrl).toBeUndefined();
+    expect(tsconfig.compilerOptions?.paths?.["*"]).toEqual(["./*"]);
   });
 
   it("keeps the package root (Node default) entry free of the React client barrel", () => {
@@ -1036,6 +1038,51 @@ describe("Netlify scaffold rewrite", () => {
     expect(netlify).not.toContain("pnpm install");
     expect(netlify).toContain('publish = "dist"');
     expect(netlify).toContain('functions = ".netlify/functions-internal"');
+  });
+
+  it("keeps unpooled database overrides for unindented template netlify commands", () => {
+    const appDir = path.join(tmpDir, "unpooled-unindented-app");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "netlify.toml"),
+      [
+        "[build]",
+        'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} NITRO_PRESET=netlify pnpm --filter mail build"',
+        'publish = "templates/mail/dist"',
+        'functions = "templates/mail/.netlify/functions-internal"',
+        "",
+      ].join("\n"),
+    );
+
+    _rewriteNetlifyToml(appDir, "mail", "standalone");
+
+    const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain("NETLIFY_DATABASE_URL_UNPOOLED");
+    expect(netlify).toContain("NITRO_PRESET=netlify pnpm build");
+    expect(netlify).not.toContain("pnpm install");
+  });
+
+  it("rewrites unindented chat template netlify build commands for standalone apps", () => {
+    const appDir = path.join(tmpDir, "chat-standalone-netlify");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "netlify.toml"),
+      [
+        "[build]",
+        'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build"',
+        'publish = "templates/chat/dist"',
+        'functions = "templates/chat/.netlify/functions-internal"',
+        "",
+      ].join("\n"),
+    );
+
+    _rewriteNetlifyToml(appDir, "builder-agent-native-starter", "standalone");
+
+    const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain("NITRO_PRESET=netlify pnpm build");
+    expect(netlify).not.toContain("--filter chat");
+    expect(netlify).not.toContain("pnpm install");
+    expect(netlify).toContain('publish = "dist"');
   });
 
   it("does not add Dispatch root redirects to other workspace apps", () => {

@@ -39,10 +39,10 @@ describe("PlanImageViewer", () => {
     expect(container.firstElementChild?.tagName).toBe("SPAN");
 
     expect(
-      container.querySelector('[aria-label="raw.imageViewer.viewFullSize"]'),
+      container.querySelector('[aria-label="View full size"]'),
     ).toBeTruthy();
     expect(
-      container.querySelector('[aria-label="raw.imageViewer.imageOptions"]'),
+      container.querySelector('[aria-label="Image options"]'),
     ).toBeTruthy();
   });
 
@@ -50,7 +50,7 @@ describe("PlanImageViewer", () => {
     render(<PlanImageViewer src="" alt="A cat" uploading />);
 
     expect(container.querySelector("img")).toBeNull();
-    expect(container.textContent).toContain("raw.imageViewer.uploadingImage");
+    expect(container.textContent).toContain("Uploading image");
   });
 
   it("opens a full-size lightbox when the zoom button is clicked", () => {
@@ -59,17 +59,15 @@ describe("PlanImageViewer", () => {
     );
 
     const zoom = container.querySelector(
-      '[aria-label="raw.imageViewer.viewFullSize"]',
+      '[aria-label="View full size"]',
     ) as HTMLButtonElement;
     act(() => zoom.click());
 
     // The lightbox portals to <body> with its own toolbar; the "Fit" /
     // "Actual size" zoom label only exists inside the lightbox.
-    expect(document.body.textContent).toContain("raw.imageViewer.fitToScreen");
+    expect(document.body.textContent).toContain("Fit to screen");
     expect(
-      document.body.querySelector(
-        '[aria-label="raw.imageViewer.downloadImage"]',
-      ),
+      document.body.querySelector('[aria-label="Download image"]'),
     ).toBeTruthy();
   });
 
@@ -90,10 +88,10 @@ describe("PlanImageViewer", () => {
     expect(actions).toBeTruthy();
     expect(actions!.querySelectorAll("button")).toHaveLength(2);
     expect(
-      container.querySelector('[aria-label="raw.imageViewer.viewFullSize"]'),
+      container.querySelector('[aria-label="View full size"]'),
     ).toBeTruthy();
     expect(
-      container.querySelector('[aria-label="raw.imageViewer.imageOptions"]'),
+      container.querySelector('[aria-label="Image options"]'),
     ).toBeTruthy();
   });
 

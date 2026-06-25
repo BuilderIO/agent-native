@@ -1,5 +1,46 @@
 # @agent-native/core
 
+## 0.77.12
+
+### Patch Changes
+
+- 67dba9b: Sync builder-agent-native-starter toolchain files (React Router config, Vite config, server plugins, etc.) alongside the manifest so dependency bumps from templates/chat do not leave the starter in a broken state. Standalone UI scaffolds re-declare tsconfig `paths` and `baseUrl` for `@/*` resolution; headless scaffolds omit `baseUrl` for TS 6 tsgo compatibility. Netlify post-process now rewrites unindented template build commands.
+
+## 0.77.11
+
+### Patch Changes
+
+- 7560a7c: Clear collaborative awareness state immediately when an editor leaves a document.
+
+## 0.77.10
+
+### Patch Changes
+
+- 12545bc: Keep standalone scaffold installs stable when fresh Sentry transitive packages are published.
+
+## 0.77.9
+
+### Patch Changes
+
+- 3eeec7f: Generalize the `ensureTable()` DDL guard to ALL on-demand schema-init paths
+  (~36 stores: agent run-store, application-state, chat-threads, usage,
+  oauth-tokens, resources, observability, integrations, provider-api, mcp,
+  workspace-connections, extensions, audit, harness, a2a, notifications,
+  browser-sessions, auth/sessions, agent-teams run-queue, better-auth, and more).
+
+  Every `ensureTable` now probes `information_schema`/`pg_indexes` before issuing
+  `CREATE TABLE`/`ALTER TABLE ADD COLUMN`/`CREATE INDEX`, so the already-migrated
+  hot path takes NO `ACCESS EXCLUSIVE` lock on Postgres. Any DDL that must run is
+  wrapped in a transaction-scoped `SET LOCAL lock_timeout` (never leaks onto the
+  pooled connection), and a swallowed lock-timeout triggers a RE-PROBE: if the
+  schema is still missing it throws (so the per-store init memo rejects and retries)
+  rather than memoizing init success against absent schema. This fixes
+  background-function (durable agent-chat) workers hanging indefinitely on the
+  first-touch DDL lock of any table on shared Neon. Shared helpers live in
+  `db/ddl-guard.ts` (`ensureSchemaObject`/`ensureTableExists`/`ensureColumnExists`/
+  `ensureIndexExists`). SQLite (local dev) behavior is unchanged. CREATE SQL that
+  references `intType()` is built at runtime, not module scope.
+
 ## 0.77.8
 
 ### Patch Changes
