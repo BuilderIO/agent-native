@@ -15,18 +15,19 @@
  */
 
 import path from "path";
+
 import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
-import {
-  buildScopingPostgres,
-  buildScopingSqlite,
-  type ScopingContext,
-} from "./scoping.js";
 import {
   assertNoRawDbAccessControlWrite,
   assertNoSchemaQualifiedTables,
   assertNoSensitiveFrameworkTables,
 } from "./safety.js";
+import {
+  buildScopingPostgres,
+  buildScopingSqlite,
+  type ScopingContext,
+} from "./scoping.js";
 import { createSqliteScriptClient } from "./sqlite-client.js";
 
 function isPostgresUrl(url: string): boolean {

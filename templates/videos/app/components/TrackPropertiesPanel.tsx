@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useT } from "@agent-native/core/client";
 import {
   IconClock,
   IconPlus,
@@ -10,10 +10,14 @@ import {
   IconBraces,
   IconBolt,
 } from "@tabler/icons-react";
-import type { AnimationTrack, AnimatedProp, EasingKey } from "@/types";
-import { COMMON_PROP_TEMPLATES } from "@/types";
-import { cn } from "@/lib/utils";
-import { EASING_OPTIONS as EASING_OPTIONS_LIB } from "@/remotion/easingFunctions";
+import { useState } from "react";
+
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -22,16 +26,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { EASING_OPTIONS as EASING_OPTIONS_LIB } from "@/remotion/easingFunctions";
+import type { AnimationTrack, AnimatedProp, EasingKey } from "@/types";
+import { COMMON_PROP_TEMPLATES } from "@/types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -109,6 +111,7 @@ type TrackPropertiesPanelProps = {
 // ─── Read-only code block ─────────────────────────────────────────────────────
 
 function CodeBlock({ snippet }: { snippet: string }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -124,7 +127,7 @@ function CodeBlock({ snippet }: { snippet: string }) {
         <div className="flex items-center gap-1.5">
           <IconBraces size={9} className="text-zinc-500/70" />
           <span className="text-[9px] font-mono text-zinc-500/70 uppercase tracking-wider">
-            read-only
+            {t("editor.track.readOnly")}
           </span>
         </div>
         <button
@@ -137,7 +140,7 @@ function CodeBlock({ snippet }: { snippet: string }) {
           ) : (
             <IconCopy size={9} />
           )}
-          {copied ? "copied" : "copy"}
+          {copied ? t("editor.track.copied") : t("editor.track.copy")}
         </button>
       </div>
       <pre className="bg-zinc-950/50 text-[10px] font-mono text-zinc-400 leading-relaxed p-2.5 overflow-x-auto whitespace-pre">
@@ -158,6 +161,7 @@ function ExpressionPropRow({
   onRemove: () => void;
   onUpdate?: (updated: AnimatedProp) => void;
 }) {
+  const t = useT();
   const isProgrammatic = prop.programmatic ?? false;
   // Start collapsed - code is read-only and for curious users only
   const [expanded, setExpanded] = useState(false);
@@ -231,7 +235,7 @@ function ExpressionPropRow({
               style={{ color: `${EXPR_COLOR}70` }}
             >
               <span className="uppercase tracking-wider">
-                {expanded ? "hide" : "code"}
+                {expanded ? t("editor.track.hide") : t("editor.track.code")}
               </span>
               <IconChevronDown
                 size={10}
@@ -240,13 +244,17 @@ function ExpressionPropRow({
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            {expanded ? "Hide code" : "View expression code"}
+            {expanded
+              ? t("editor.track.hideCode")
+              : t("editor.track.viewExpressionCode")}
           </TooltipContent>
         </Tooltip>
 
         <button
           onClick={onRemove}
-          aria-label={`Remove ${prop.property}`}
+          aria-label={t("editor.track.removeProperty", {
+            property: prop.property,
+          })}
           className="flex-shrink-0 text-muted-foreground/30 hover:text-destructive/60 transition-colors"
         >
           <IconX size={11} />
@@ -263,7 +271,7 @@ function ExpressionPropRow({
             className="text-[10px] uppercase tracking-wider font-semibold"
             style={{ color: `${EXPR_COLOR}80` }}
           >
-            Parameters
+            {t("editor.track.parameters")}
           </span>
           <div className="space-y-2">
             {prop.parameters.map((param) => {
@@ -272,7 +280,9 @@ function ExpressionPropRow({
               return (
                 <div key={param.name} className="space-y-0.5">
                   <label className="text-[9px] text-muted-foreground/60 font-mono">
-                    {param.label}
+                    {t(`editor.track.parametersByName.${param.name}`, {
+                      defaultValue: param.label,
+                    })}
                   </label>
                   <input
                     type="number"
@@ -318,7 +328,7 @@ function ExpressionPropRow({
                   className="text-[10px] uppercase tracking-wider font-semibold"
                   style={{ color: `${EXPR_COLOR}80` }}
                 >
-                  How it works
+                  {t("editor.track.howItWorks")}
                 </span>
               </div>
               <p className="text-[11px] leading-relaxed text-muted-foreground/70">
@@ -334,12 +344,12 @@ function ExpressionPropRow({
                 className="text-[10px] uppercase tracking-wider font-semibold"
                 style={{ color: `${EXPR_COLOR}80` }}
               >
-                Values
+                {t("editor.track.values")}
               </span>
               <div className="flex items-center gap-1.5">
                 <div className="flex-1 space-y-0.5">
                   <span className="text-[9px] text-muted-foreground/40 font-mono">
-                    from
+                    {t("editor.track.from")}
                   </span>
                   <input
                     type="number"
@@ -353,7 +363,7 @@ function ExpressionPropRow({
                 </span>
                 <div className="flex-1 space-y-0.5">
                   <span className="text-[9px] text-muted-foreground/40 font-mono">
-                    to
+                    {t("editor.track.to")}
                   </span>
                   <input
                     type="number"
@@ -369,8 +379,7 @@ function ExpressionPropRow({
                 )}
               </div>
               <p className="text-[9px] text-muted-foreground/35 italic">
-                Edit these values in the track's Animated Properties section
-                above.
+                {t("editor.track.editValuesInAnimatedProperties")}
               </p>
             </div>
           )}
@@ -383,10 +392,10 @@ function ExpressionPropRow({
                   className="text-[10px] uppercase tracking-wider font-semibold"
                   style={{ color: `${EXPR_COLOR}80` }}
                 >
-                  Expression
+                  {t("editor.track.expression")}
                 </span>
                 <span className="text-[8px] text-muted-foreground/40 font-mono italic">
-                  read-only
+                  {t("editor.track.readOnly")}
                 </span>
               </div>
               <CodeBlock snippet={prop.codeSnippet} />
@@ -411,6 +420,7 @@ function AnimatedPropRow({
   onUpdate: (updated: AnimatedProp) => void;
   onRemove: () => void;
 }) {
+  const t = useT();
   const isCustom = prop.isCustom ?? false;
   const hasCode = !!prop.codeSnippet || !!prop.description;
   const [codeOpen, setCodeOpen] = useState(false);
@@ -432,7 +442,7 @@ function AnimatedPropRow({
         {isCustom ? (
           <input
             value={prop.property === "custom" ? "" : prop.property}
-            placeholder="css-property…"
+            placeholder={t("editor.track.cssPropertyPlaceholder")}
             onChange={(e) =>
               onUpdate({ ...prop, property: e.target.value || "custom" })
             }
@@ -479,14 +489,18 @@ function AnimatedPropRow({
               </button>
             </TooltipTrigger>
             <TooltipContent>
-              {codeOpen ? "Hide details" : "How this works"}
+              {codeOpen
+                ? t("editor.track.hideDetails")
+                : t("editor.track.howThisWorks")}
             </TooltipContent>
           </Tooltip>
         )}
 
         <button
           onClick={onRemove}
-          aria-label={`Remove ${prop.property}`}
+          aria-label={t("editor.track.removeProperty", {
+            property: prop.property,
+          })}
           className="flex-shrink-0 text-muted-foreground/40 hover:text-destructive/70 transition-colors"
         >
           <IconX size={11} />
@@ -498,24 +512,24 @@ function AnimatedPropRow({
         <div className="space-y-1.5">
           <div className="flex items-start gap-1">
             <span className="text-[9px] text-muted-foreground/50 w-7 pt-1 flex-shrink-0 font-mono">
-              from
+              {t("editor.track.from")}
             </span>
             <textarea
               rows={2}
               value={prop.from}
-              placeholder="e.g. translateX(-100%) rotate(10deg)"
+              placeholder={t("editor.track.fromExample")}
               onChange={(e) => onUpdate({ ...prop, from: e.target.value })}
               className="flex-1 bg-background border border-border/60 rounded px-1.5 py-1 text-[10px] font-mono text-foreground/80 resize-none focus:outline-none focus:ring-1 focus:ring-primary/40"
             />
           </div>
           <div className="flex items-start gap-1">
             <span className="text-[9px] text-muted-foreground/50 w-7 pt-1 flex-shrink-0 font-mono">
-              to
+              {t("editor.track.to")}
             </span>
             <textarea
               rows={2}
               value={prop.to}
-              placeholder="e.g. translateX(0) rotate(0deg)"
+              placeholder={t("editor.track.toExample")}
               onChange={(e) => onUpdate({ ...prop, to: e.target.value })}
               className="flex-1 bg-background border border-border/60 rounded px-1.5 py-1 text-[10px] font-mono text-foreground/80 resize-none focus:outline-none focus:ring-1 focus:ring-primary/40"
             />
@@ -554,7 +568,7 @@ function AnimatedPropRow({
           {prop.keyframes && prop.keyframes.length > 0 && (
             <div className="space-y-0.5">
               <label className="text-[8px] text-muted-foreground/50 uppercase tracking-wider">
-                Motion Curve
+                {t("editor.currentElement.motionCurve")}
               </label>
               <Select
                 value={prop.easing ?? "linear"}
@@ -566,13 +580,13 @@ function AnimatedPropRow({
                   <TooltipTrigger asChild>
                     <SelectTrigger
                       className="w-full h-auto text-[10px] bg-background border border-border/60 rounded px-1.5 py-1 text-foreground/80 focus:outline-none focus:ring-1 focus:ring-primary/40"
-                      aria-label="Applies to all keyframe segments"
+                      aria-label={t("editor.track.appliesToAllKeyframes")}
                     >
                       <SelectValue />
                     </SelectTrigger>
                   </TooltipTrigger>
                   <TooltipContent>
-                    Applies to all keyframe segments
+                    {t("editor.track.appliesToAllKeyframes")}
                   </TooltipContent>
                 </Tooltip>
                 <SelectContent>
@@ -602,7 +616,7 @@ function AnimatedPropRow({
                   style={{ color: accentColor, opacity: 0.6 }}
                 />
                 <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground/50">
-                  How it works
+                  {t("editor.track.howItWorks")}
                 </span>
               </div>
               <p className="text-[11px] leading-relaxed text-muted-foreground/65">
@@ -628,6 +642,7 @@ function PropPicker({
   accentColor: string;
   onSelect: (property: string) => void;
 }) {
+  const t = useT();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -648,7 +663,7 @@ function PropPicker({
         >
           <span className="flex items-center gap-1">
             <IconPlus size={9} />
-            Add property…
+            {t("editor.track.addProperty")}
           </span>
           <IconChevronDown size={9} />
         </button>
@@ -680,6 +695,7 @@ export function TrackPropertiesPanel({
   durationInFrames,
   onUpdateTrack,
 }: TrackPropertiesPanelProps) {
+  const t = useT();
   const duration = track.endFrame - track.startFrame;
   const startSec = (track.startFrame / fps).toFixed(2);
   const endSec = (track.endFrame / fps).toFixed(2);
@@ -732,7 +748,7 @@ export function TrackPropertiesPanel({
       {/* ── Label ──────────────────────────────────────────────────────── */}
       <div className="space-y-1">
         <label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-          Label
+          {t("editor.track.label")}
         </label>
         <input
           type="text"
@@ -745,7 +761,7 @@ export function TrackPropertiesPanel({
       {/* ── Easing ─────────────────────────────────────────────────────── */}
       <div className="space-y-1">
         <label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-          Timing Function
+          {t("editor.track.timingFunction")}
         </label>
         <div className="relative">
           <Select
@@ -778,7 +794,8 @@ export function TrackPropertiesPanel({
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
           <label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-            Start <span className="normal-case opacity-40">(f)</span>
+            {t("editor.track.start")}{" "}
+            <span className="normal-case opacity-40">(f)</span>
           </label>
           <input
             type="number"
@@ -798,7 +815,8 @@ export function TrackPropertiesPanel({
         </div>
         <div className="space-y-1">
           <label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-            End <span className="normal-case opacity-40">(f)</span>
+            {t("editor.track.end")}{" "}
+            <span className="normal-case opacity-40">(f)</span>
           </label>
           <input
             type="number"
@@ -839,7 +857,7 @@ export function TrackPropertiesPanel({
           <div className="flex items-center gap-1.5">
             <IconCode size={11} style={{ color: accentColor, opacity: 0.8 }} />
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-              Animated Properties
+              {t("editor.currentElement.animatedProperties")}
             </span>
           </div>
           {animatedProps.length > 0 && (
@@ -861,7 +879,7 @@ export function TrackPropertiesPanel({
             className="text-[10px] text-muted-foreground/35 text-center py-3 rounded-lg border border-dashed"
             style={{ borderColor: `${accentColor}20` }}
           >
-            No properties — add one below
+            {t("editor.track.noProperties")}
           </div>
         ) : (
           <div className="space-y-1.5">

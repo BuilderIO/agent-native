@@ -1,10 +1,12 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import type {
   AddDatabaseItemRequest,
   AttachContentDatabaseSourceRequest,
   BuilderCmsModelsResponse,
   ContentDatabaseResponse,
+  CreateInlineDatabaseRequest,
+  CreateInlineDatabaseResponse,
+  ListTrashedContentDatabasesResponse,
   ListContentDatabasesResponse,
   ContentDatabaseSourceFieldPropertyResponse,
   ContentDatabaseSourceStatusResponse,
@@ -24,9 +26,10 @@ import type {
   UpdateContentDatabaseViewRequest,
   ValidateBuilderSourceExecutionRequest,
 } from "@shared/api";
+import { useQueryClient } from "@tanstack/react-query";
 
-export function contentDatabaseQueryKey(_documentId?: string) {
-  return ["action", "get-content-database"] as const;
+export function contentDatabaseQueryKey(documentId: string) {
+  return ["action", "get-content-database", { documentId }] as const;
 }
 
 export function applySourceFieldPropertyToDatabaseResponse(
@@ -125,6 +128,92 @@ export function useCreateContentDatabase(documentId: string | null) {
           queryKey: ["action", "list-documents"],
         });
       },
+    },
+  );
+}
+
+export function useCreateInlineContentDatabase(hostDocumentId: string | null) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    CreateInlineDatabaseResponse,
+    CreateInlineDatabaseRequest
+  >("create-inline-content-database", {
+    onSuccess: (data) => {
+      if (hostDocumentId) {
+        queryClient.invalidateQueries({
+          queryKey: ["action", "get-document", { id: hostDocumentId }],
+        });
+      }
+      queryClient.invalidateQueries({
+        queryKey: [
+          "action",
+          "get-document",
+          { id: data.block.databaseDocumentId },
+        ],
+      });
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(data.block.databaseDocumentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+    },
+  });
+}
+
+export function useDeleteContentDatabase() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    { success: boolean; databaseId: string; deletedAt: string },
+    { databaseId: string }
+  >("delete-content-database", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-document"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-content-databases"],
+      });
+    },
+  });
+}
+
+export function useRestoreContentDatabase() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    { success: boolean; databaseId: string; deletedAt: null },
+    { databaseId: string }
+  >("restore-content-database", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-document"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-content-databases"],
+      });
+    },
+  });
+}
+
+export function useTrashedContentDatabases() {
+  return useActionQuery<ListTrashedContentDatabasesResponse>(
+    "list-trashed-content-databases",
+    {},
+    {
+      retry: false,
+      placeholderData: (previous) => previous,
     },
   );
 }

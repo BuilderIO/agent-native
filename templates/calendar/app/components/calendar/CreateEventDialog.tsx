@@ -1,39 +1,9 @@
-import { useState, useEffect, useRef } from "react";
-import { differenceInMinutes, format } from "date-fns";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
-import { useSettings } from "@/hooks/use-settings";
-import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
-import { setUndoAction } from "@/hooks/use-undo";
-import { agentNativePath, sendToAgentChat } from "@agent-native/core/client";
-import { toast } from "sonner";
+  agentNativePath,
+  sendToAgentChat,
+  useT,
+} from "@agent-native/core/client";
 import type { CalendarEventDraft } from "@shared/api";
-import {
-  AttendeeAutocomplete,
-  type AttendeeAutocompleteHandle,
-  type AttendeeRecipient,
-} from "@/components/calendar/AttendeeAutocomplete";
 import {
   IconCalendarTime,
   IconBrandZoom,
@@ -44,18 +14,54 @@ import {
   IconVideo,
   IconUsers,
 } from "@tabler/icons-react";
+import { differenceInMinutes, format } from "date-fns";
+import { useState, useEffect, useRef } from "react";
+import { toast } from "sonner";
+
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+  AttendeeAutocomplete,
+  type AttendeeAutocompleteHandle,
+  type AttendeeRecipient,
+} from "@/components/calendar/AttendeeAutocomplete";
 import {
   AttachmentControls,
   EventColorSwatches,
   ReminderControls,
 } from "@/components/calendar/EventOptionControls";
 import { FindTimeTakeover } from "@/components/calendar/FindTimePanel";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
+import { useSettings } from "@/hooks/use-settings";
+import { setUndoAction } from "@/hooks/use-undo";
+import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
+import { getGoogleEventColorHex } from "@/lib/event-colors";
 import {
   attachmentsToDrafts,
   buildReminderPayload,
@@ -70,7 +76,6 @@ import {
   type ReminderMode,
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
-import { getGoogleEventColorHex } from "@/lib/event-colors";
 
 type VideoProvider = "none" | "google_meet" | "zoom";
 type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";
@@ -191,6 +196,7 @@ export function CreateEventPopover({
   onDraftChange,
   onDraftCreated,
 }: CreateEventPopoverProps) {
+  const t = useT();
   const today = defaultDate || new Date();
   const defaultDateStr = format(today, "yyyy-MM-dd");
   const { data: settings } = useSettings();
@@ -447,17 +453,23 @@ export function CreateEventPopover({
 
   function handleDraftDescription() {
     sendToAgentChat({
-      message: `Draft a concise calendar event description for "${title || "Untitled event"}".`,
-      context: `New event draft:
-Title: ${title || "(not set)"}
-Date: ${date}${endDate !== date ? ` to ${endDate}` : ""}
-Time: ${allDay ? "All day" : `${startTime} to ${endTime}`}
-Timezone: ${timezone}
-Location: ${location || "(none)"}
-Attendees: ${attendees.map((attendee) => attendee.email).join(", ") || "(none)"}
-Current description: ${description || "(empty)"}
-
-Write a short, useful meeting description. Keep it paste-ready and avoid adding facts that are not in the draft.`,
+      message: t("eventForm.ai.descriptionMessage", {
+        title: title || t("eventForm.ai.untitledEvent"),
+      }),
+      context: t("eventForm.ai.descriptionContext", {
+        title: title || t("eventForm.ai.notSet"),
+        date,
+        endDate: endDate !== date ? t("eventForm.ai.toDate", { endDate }) : "",
+        time: allDay
+          ? t("eventForm.allDay")
+          : t("eventForm.ai.timeRange", { startTime, endTime }),
+        timezone,
+        location: location || t("eventForm.ai.none"),
+        attendees:
+          attendees.map((attendee) => attendee.email).join(", ") ||
+          t("eventForm.ai.none"),
+        description: description || t("eventForm.ai.empty"),
+      }),
       submit: true,
     });
   }
@@ -512,7 +524,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
     setStartTime(startParts.time);
     setEndTime(endParts.time);
     setFindTimeOpen(false);
-    toast("Time selected");
+    toast(t("eventForm.timeSelected"));
   }
 
   // Keep the global shortcut for long-form fields while regular inputs submit
@@ -545,7 +557,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
     e.preventDefault();
     const activeDraftId = safeDraftId(draft?.id);
     if (!title.trim()) {
-      toast.error("Title is required");
+      toast.error(t("eventForm.titleRequired"));
       return;
     }
 
@@ -652,7 +664,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
       },
       onError: (error) =>
         toast.error(
-          error instanceof Error ? error.message : "Failed to create event",
+          error instanceof Error ? error.message : t("eventForm.createFailed"),
         ),
     });
   }
@@ -662,7 +674,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
       <PopoverTrigger asChild>
         <Button size="sm" className="ml-1 h-7 gap-1.5 px-2.5 text-xs">
           <IconPlus className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">New Event</span>
+          <span className="hidden sm:inline">{t("eventForm.newEvent")}</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -682,7 +694,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
         }}
       >
         <div className="mb-3 text-sm font-semibold">
-          {draft ? "Review Invite" : "New Event"}
+          {draft ? t("eventForm.reviewInvite") : t("eventForm.newEvent")}
         </div>
         <form
           ref={formRef}
@@ -693,13 +705,13 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="event-title" className="text-xs">
-                Title
+                {t("eventForm.title")}
               </Label>
               <Input
                 id="event-title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="Event title"
+                placeholder={t("eventForm.eventTitlePlaceholder")}
                 autoFocus
                 className="h-8 text-sm"
               />
@@ -707,7 +719,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
 
             <div className="space-y-1.5">
               <Label htmlFor="event-type" className="text-xs">
-                Type
+                {t("eventForm.type")}
               </Label>
               <Select
                 value={eventType}
@@ -717,11 +729,17 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="default">Event</SelectItem>
-                  <SelectItem value="outOfOffice">Out of office</SelectItem>
-                  <SelectItem value="focusTime">Focus time</SelectItem>
+                  <SelectItem value="default">
+                    {t("eventForm.event")}
+                  </SelectItem>
+                  <SelectItem value="outOfOffice">
+                    {t("eventForm.outOfOffice")}
+                  </SelectItem>
+                  <SelectItem value="focusTime">
+                    {t("eventForm.focusTime")}
+                  </SelectItem>
                   <SelectItem value="workingLocation">
-                    Working location
+                    {t("eventForm.workingLocation")}
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -730,7 +748,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
             {eventType === "workingLocation" && (
               <div className="space-y-1.5">
                 <Label htmlFor="working-location-type" className="text-xs">
-                  Working from
+                  {t("eventForm.workingFrom")}
                 </Label>
                 <Select
                   value={workingLocationType}
@@ -745,9 +763,15 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="homeOffice">Home</SelectItem>
-                    <SelectItem value="officeLocation">Office</SelectItem>
-                    <SelectItem value="customLocation">Custom</SelectItem>
+                    <SelectItem value="homeOffice">
+                      {t("eventForm.home")}
+                    </SelectItem>
+                    <SelectItem value="officeLocation">
+                      {t("eventForm.office")}
+                    </SelectItem>
+                    <SelectItem value="customLocation">
+                      {t("eventForm.custom")}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -756,7 +780,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-2">
                 <Label htmlFor="event-description" className="text-xs">
-                  Description
+                  {t("eventForm.description")}
                 </Label>
                 <Button
                   type="button"
@@ -766,14 +790,14 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                   onClick={handleDraftDescription}
                 >
                   <IconMessage className="h-3 w-3" />
-                  Ask AI
+                  {t("eventForm.askAi")}
                 </Button>
               </div>
               <Textarea
                 id="event-description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Optional description"
+                placeholder={t("eventForm.optionalDescription")}
                 rows={2}
                 className="text-sm"
               />
@@ -782,7 +806,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="event-date" className="text-xs">
-                  Start date
+                  {t("eventForm.startDate")}
                 </Label>
                 <Input
                   id="event-date"
@@ -794,7 +818,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="event-end-date" className="text-xs">
-                  End date
+                  {t("eventForm.endDate")}
                 </Label>
                 <Input
                   id="event-end-date"
@@ -821,14 +845,14 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                       htmlFor="all-day"
                       className="text-xs text-muted-foreground"
                     >
-                      All day
+                      {t("eventForm.allDay")}
                     </Label>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
                   {eventType === "outOfOffice"
-                    ? "Out of office events must have a specific start and end time."
-                    : "Focus time events must have a specific start and end time."}
+                    ? t("eventForm.outOfOfficeTimedOnly")
+                    : t("eventForm.focusTimeTimedOnly")}
                 </TooltipContent>
               </Tooltip>
             ) : (
@@ -839,7 +863,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                   onCheckedChange={setAllDay}
                 />
                 <Label htmlFor="all-day" className="text-xs">
-                  All day
+                  {t("eventForm.allDay")}
                 </Label>
               </div>
             )}
@@ -848,7 +872,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="start-time" className="text-xs">
-                    Start
+                    {t("eventForm.start")}
                   </Label>
                   <Input
                     id="start-time"
@@ -860,7 +884,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="end-time" className="text-xs">
-                    End
+                    {t("eventForm.end")}
                   </Label>
                   <Input
                     id="end-time"
@@ -888,13 +912,13 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 onClick={() => setFindTimeOpen(true)}
               >
                 <IconCalendarTime className="h-3.5 w-3.5" />
-                Find a time
+                {t("eventForm.findTime")}
               </Button>
             )}
 
             <div className="space-y-1.5">
               <Label htmlFor="event-attendees" className="text-xs">
-                Attendees
+                {t("eventForm.attendees")}
               </Label>
               <AttendeeAutocomplete
                 ref={attendeeAutocompleteRef}
@@ -902,34 +926,33 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 onAdd={addAttendee}
                 onRemove={removeAttendee}
                 inputId="event-attendees"
-                placeholder="Search contacts or type an email"
+                placeholder={t("eventForm.attendeesPlaceholder")}
                 onEmptyEnter={() => formRef.current?.requestSubmit()}
               />
               {attendees.length > 0 && (
                 <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
                   <IconUsers className="h-3 w-3" />
-                  {attendees.length} invited — Google will email them when you
-                  create
+                  {t("eventForm.invitedNotice", { count: attendees.length })}
                 </p>
               )}
             </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="event-location" className="text-xs">
-                Location
+                {t("eventForm.location")}
               </Label>
               <Input
                 id="event-location"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                placeholder="Optional location"
+                placeholder={t("eventForm.optionalLocation")}
                 className="h-8 text-sm"
               />
             </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="event-video-provider" className="text-xs">
-                Video
+                {t("eventForm.video")}
               </Label>
               <Select
                 value={videoProvider}
@@ -944,17 +967,17 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No video</SelectItem>
+                  <SelectItem value="none">{t("eventForm.noVideo")}</SelectItem>
                   <SelectItem value="google_meet">
                     <span className="flex items-center gap-2">
                       <IconVideo className="h-3.5 w-3.5" />
-                      Google Meet
+                      {t("eventForm.googleMeet")}
                     </span>
                   </SelectItem>
                   <SelectItem value="zoom">
                     <span className="flex items-center gap-2">
                       <IconBrandZoom className="h-3.5 w-3.5" />
-                      Zoom
+                      {t("eventForm.zoom")}
                     </span>
                   </SelectItem>
                 </SelectContent>
@@ -964,8 +987,8 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-xs text-muted-foreground">
                       {zoomStatus.data?.configured === false
-                        ? "Zoom OAuth is not configured."
-                        : "Connect Zoom before creating this event."}
+                        ? t("eventForm.zoomNotConfigured")
+                        : t("eventForm.connectZoomBeforeCreate")}
                     </p>
                     {zoomStatus.data?.configured !== false && (
                       <Button
@@ -976,18 +999,19 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                         disabled={connectZoom.isPending}
                         onClick={() =>
                           connectZoom.mutate(undefined, {
-                            onSuccess: () => toast("Zoom connection opened"),
+                            onSuccess: () =>
+                              toast(t("eventForm.zoomConnectionOpened")),
                             onError: (error) =>
                               toast.error(
                                 error instanceof Error
                                   ? error.message
-                                  : "Could not connect Zoom",
+                                  : t("eventForm.zoomConnectFailed"),
                               ),
                           })
                         }
                       >
                         <IconBrandZoom className="h-3.5 w-3.5" />
-                        Connect
+                        {t("common.connect")}
                       </Button>
                     )}
                   </div>
@@ -1005,7 +1029,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 >
                   <span className="flex items-center gap-1.5">
                     <IconSettings2 className="h-3.5 w-3.5" />
-                    Event options
+                    {t("eventForm.eventOptions")}
                   </span>
                   <IconChevronDown className="h-3.5 w-3.5" />
                 </Button>
@@ -1014,7 +1038,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label htmlFor="event-availability" className="text-xs">
-                      Show as
+                      {t("eventForm.showAs")}
                     </Label>
                     <Select
                       value={
@@ -1036,15 +1060,19 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="opaque">Busy</SelectItem>
-                        <SelectItem value="transparent">Free</SelectItem>
+                        <SelectItem value="opaque">
+                          {t("eventForm.busy")}
+                        </SelectItem>
+                        <SelectItem value="transparent">
+                          {t("eventForm.free")}
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-1.5">
                     <Label htmlFor="event-visibility" className="text-xs">
-                      Visibility
+                      {t("eventForm.visibility")}
                     </Label>
                     <Select
                       value={
@@ -1062,9 +1090,15 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="default">Default</SelectItem>
-                        <SelectItem value="public">Public</SelectItem>
-                        <SelectItem value="private">Private</SelectItem>
+                        <SelectItem value="default">
+                          {t("eventForm.default")}
+                        </SelectItem>
+                        <SelectItem value="public">
+                          {t("eventForm.public")}
+                        </SelectItem>
+                        <SelectItem value="private">
+                          {t("eventForm.private")}
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1073,7 +1107,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 {!allDay && (
                   <div className="space-y-1.5">
                     <Label htmlFor="event-timezone" className="text-xs">
-                      Timezone
+                      {t("eventForm.timezone")}
                     </Label>
                     <TimezoneCombobox
                       id="event-timezone"
@@ -1084,7 +1118,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 )}
 
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Color</Label>
+                  <Label className="text-xs">{t("eventForm.color")}</Label>
                   <EventColorSwatches
                     value={colorId}
                     onChange={setColorId}
@@ -1093,7 +1127,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Alerts</Label>
+                  <Label className="text-xs">{t("eventForm.alerts")}</Label>
                   <ReminderControls
                     idPrefix="event"
                     mode={reminderMode}
@@ -1104,7 +1138,9 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Attachments</Label>
+                  <Label className="text-xs">
+                    {t("eventForm.attachments")}
+                  </Label>
                   <AttachmentControls
                     idPrefix="event"
                     attachments={attachments}
@@ -1118,8 +1154,11 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
           <FindTimeTakeover
             open={findTimeOpen}
             onOpenChange={setFindTimeOpen}
-            title="Find a time"
-            subtitle={title.trim() || (draft ? "Invite" : "New event")}
+            title={t("eventForm.findTime")}
+            subtitle={
+              title.trim() ||
+              (draft ? t("eventForm.invite") : t("eventForm.newEventLower"))
+            }
             date={date}
             timezone={timezone}
             durationMinutes={findTimeDurationMinutes}
@@ -1137,7 +1176,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
               <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
                 ↵
               </kbd>{" "}
-              to save
+              {t("eventForm.toSave")}
             </p>
             <div className="flex gap-2">
               <Button
@@ -1147,7 +1186,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                 className="h-7 text-xs"
                 onClick={() => onOpenChange(false)}
               >
-                Cancel
+                {t("eventForm.cancel")}
               </Button>
               <Button
                 type="submit"
@@ -1158,7 +1197,9 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
                   (videoProvider === "zoom" && !zoomStatus.data?.connected)
                 }
               >
-                {createEvent.isPending ? "Creating…" : "Create"}
+                {createEvent.isPending
+                  ? t("eventForm.creating")
+                  : t("eventForm.create")}
               </Button>
             </div>
           </div>

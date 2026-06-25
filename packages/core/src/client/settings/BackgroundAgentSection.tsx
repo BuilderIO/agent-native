@@ -1,17 +1,18 @@
-import { agentNativePath } from "../api-path.js";
-import { useState } from "react";
 import {
   IconGitBranch,
   IconCheck,
   IconExternalLink,
   IconLoader2,
 } from "@tabler/icons-react";
+import { useState } from "react";
+
+import { trackEvent } from "../analytics.js";
+import { agentNativePath } from "../api-path.js";
 import { SettingsSection } from "./SettingsSection.js";
 import {
   useBuilderStatus,
   withBuilderConnectTrackingParams,
 } from "./useBuilderStatus.js";
-import { trackEvent } from "../analytics.js";
 
 interface AgentsRunResult {
   branchName: string | null;

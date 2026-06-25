@@ -5,11 +5,13 @@ import {
   useAgentRouteState,
 } from "@agent-native/core/client";
 import { useLocation } from "react-router";
+
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
   view: string;
   path?: string;
+  threadId?: string;
 }
 
 export function useNavigationState() {
@@ -17,14 +19,21 @@ export function useNavigationState() {
   useAgentRouteState<NavigationState>({
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
-    getNavigationState: ({ pathname, search, hash }) => ({
-      view: viewForPath(pathname),
-      path: appPath(pathname),
-    }),
+    getNavigationState: ({ pathname }) => {
+      const threadId = threadIdFromPath(pathname);
+      return {
+        view: viewForPath(pathname),
+        path: appPath(pathname),
+        ...(threadId ? { threadId } : {}),
+      };
+    },
     getCommandPath: (command) =>
-      routerPath(command.path || pathForView(command.view)),
+      routerPath(command.path || pathForCommand(command)),
     onNavigate: (_command, path) => {
-      if (location.pathname === "/" && pathnameFromPath(path) !== "/") {
+      if (
+        isChatPath(location.pathname) &&
+        !isChatPath(pathnameFromPath(path))
+      ) {
         markAgentChatHomeHandoff("chat");
       }
     },
@@ -35,7 +44,19 @@ function pathnameFromPath(path: string): string {
   return path.split(/[?#]/, 1)[0] || "/";
 }
 
+function threadIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/chat\/([^/]+)/);
+  if (!match) return null;
+  try {
+    const value = decodeURIComponent(match[1]).trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
 function viewForPath(pathname: string): string {
+  if (isChatPath(pathname)) return "chat";
   if (pathname.startsWith("/database")) return "database";
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/observability")) return "observability";
@@ -62,6 +83,14 @@ function pathForView(view?: string): string {
   }
 }
 
+function pathForCommand(command: any): string {
+  const path = pathForView(command?.view);
+  if (path !== "/") return path;
+  const threadId =
+    typeof command?.threadId === "string" ? command.threadId.trim() : "";
+  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";
+}
+
 function routerPath(path: string): string {
   const basePath = appBasePath();
   if (!basePath) return path;
@@ -70,4 +99,8 @@ function routerPath(path: string): string {
     return path.slice(basePath.length) || "/";
   }
   return path;
+}
+
+function isChatPath(pathname: string): boolean {
+  return pathname === "/" || pathname.startsWith("/chat/");
 }

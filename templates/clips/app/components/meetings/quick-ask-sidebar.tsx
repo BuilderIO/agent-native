@@ -17,14 +17,15 @@
  *     listeners. Esc and Cmd+J both close the sheet.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { sendToAgentChat, useT } from "@agent-native/core/client";
 import {
   IconCommand,
   IconNotes,
   IconSend,
   IconWand,
 } from "@tabler/icons-react";
-import { sendToAgentChat } from "@agent-native/core/client";
+import { useCallback, useEffect, useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -36,16 +37,18 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-const QUICK_PROMPTS: Array<{ label: string; prompt: string }> = [
-  { label: "What did I miss?", prompt: "What did I miss?" },
+const QUICK_PROMPTS: Array<{ labelKey: string; promptKey: string }> = [
   {
-    label: "Summarize the last 5 minutes",
-    prompt: "Summarize the last 5 minutes of this meeting in 3-5 bullets.",
+    labelKey: "quickAsk.whatDidIMiss",
+    promptKey: "quickAsk.whatDidIMissPrompt",
   },
   {
-    label: "Action items for me",
-    prompt:
-      "List the action items from this meeting that are assigned to me. Use checkbox bullets.",
+    labelKey: "quickAsk.summarizeLastFive",
+    promptKey: "quickAsk.summarizeLastFivePrompt",
+  },
+  {
+    labelKey: "quickAsk.actionItemsForMe",
+    promptKey: "quickAsk.actionItemsForMePrompt",
   },
 ];
 
@@ -81,6 +84,7 @@ export function QuickAskSidebar({
   meetingTitle,
   segments,
 }: QuickAskSidebarProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [history, setHistory] = useState<ChatTurn[]>([]);
@@ -140,12 +144,12 @@ export function QuickAskSidebar({
         {
           id: `${turn.id}-ack`,
           role: "system",
-          text: "Sent to chat — see the agent sidebar for the reply.",
+          text: t("quickAsk.sentToChat"),
           ts: Date.now(),
         },
       ]);
     },
-    [meetingId, meetingTitle, segments],
+    [meetingId, meetingTitle, segments, t],
   );
 
   return (
@@ -157,30 +161,30 @@ export function QuickAskSidebar({
         <SheetHeader className="px-4 py-3 border-b border-border">
           <SheetTitle className="flex items-center gap-2 text-sm font-semibold">
             <IconWand className="h-4 w-4 text-primary" />
-            Ask about this meeting
+            {t("quickAsk.title")}
           </SheetTitle>
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <kbd className="inline-flex items-center gap-0.5 rounded border border-border bg-muted/50 px-1 py-px font-mono">
               <IconCommand className="h-3 w-3" />J
             </kbd>
-            <span>to toggle · Esc to close</span>
+            <span>{t("quickAsk.toggleHint")}</span>
           </div>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <div className="space-y-1.5">
             <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Quick prompts
+              {t("quickAsk.quickPrompts")}
             </p>
             <div className="flex flex-col gap-1.5">
               {QUICK_PROMPTS.map((q) => (
                 <button
-                  key={q.label}
+                  key={q.labelKey}
                   type="button"
-                  onClick={() => send(q.prompt)}
-                  className="text-left text-xs rounded-md border border-border bg-background px-2.5 py-2 hover:bg-accent/40 cursor-pointer"
+                  onClick={() => send(t(q.promptKey))}
+                  className="text-start text-xs rounded-md border border-border bg-background px-2.5 py-2 hover:bg-accent/40 cursor-pointer"
                 >
-                  {q.label}
+                  {t(q.labelKey)}
                 </button>
               ))}
             </div>
@@ -189,7 +193,7 @@ export function QuickAskSidebar({
           {history.length > 0 && (
             <div className="space-y-2">
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                History
+                {t("quickAsk.history")}
               </p>
               <div className="space-y-2">
                 {history.map((t) => (
@@ -212,10 +216,7 @@ export function QuickAskSidebar({
           {history.length === 0 && (
             <div className="flex flex-col items-center justify-center text-center gap-2 py-6 text-muted-foreground">
               <IconNotes className="h-5 w-5" />
-              <p className="text-xs">
-                Ask anything. The agent has the full transcript and meeting
-                context.
-              </p>
+              <p className="text-xs">{t("quickAsk.emptyDescription")}</p>
             </div>
           )}
         </div>
@@ -231,7 +232,7 @@ export function QuickAskSidebar({
             ref={textareaRef}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Ask anything…"
+            placeholder={t("quickAsk.placeholder")}
             className="min-h-[44px] max-h-32 resize-none text-sm"
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -245,9 +246,9 @@ export function QuickAskSidebar({
             size="icon"
             disabled={!draft.trim()}
             className="cursor-pointer h-9 w-9 shrink-0"
-            aria-label="Send"
+            aria-label={t("quickAsk.send")}
           >
-            <IconSend className="h-4 w-4" />
+            <IconSend className="h-4 w-4 rtl:-scale-x-100" />
           </Button>
         </form>
       </SheetContent>

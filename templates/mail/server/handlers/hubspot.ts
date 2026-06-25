@@ -1,3 +1,4 @@
+import { getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
@@ -5,7 +6,7 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { getSession } from "@agent-native/core/server";
+
 import {
   getHubSpotApiKey,
   HubSpotLookupError,

@@ -1,18 +1,18 @@
 [build]
-  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build"
-  publish = "packages/docs/dist"
+command = "pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build"
+publish = "packages/docs/dist"
 
 # Slug redirects for renamed docs — keep in sync with SLUG_REDIRECTS in app/routes/docs.$slug.tsx.
 [[redirects]]
-  from = "/docs/resources"
-  to = "/docs/workspace"
-  status = 301
-  force = true
+from = "/docs/resources"
+to = "/docs/workspace"
+status = 301
+force = true
 
 [build.environment]
-  NITRO_PRESET = "netlify"
-  AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
-  VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
+NITRO_PRESET = "netlify"
+AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
+VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
 
 # Cache headers intentionally live in @agent-native/core instead of this
 # Netlify config. The framework emits SSR HTML/.data SWR headers from the

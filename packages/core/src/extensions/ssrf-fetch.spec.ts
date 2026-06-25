@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { ssrfSafeFetch } from "./url-safety.js";
 
 // A public IP literal: isBlockedExtensionUrlWithDns short-circuits for IP

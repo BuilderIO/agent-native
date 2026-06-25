@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import {
   agentNativePath,
   appApiPath,
@@ -59,6 +60,22 @@ describe("agentNativePath", () => {
 
     expect(appBasePath()).toBe("/diagrams");
     expect(appApiPath("local-migration")).toBe("/diagrams/api/local-migration");
+  });
+
+  it("uses the external embed target when a transplanted app runs from srcdoc", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubGlobal("window", {
+      location: { pathname: "srcdoc" },
+      __AGENT_NATIVE_EXTERNAL_EMBED: {
+        target: "/assets/library?mediaType=image",
+      },
+    });
+
+    expect(appBasePath()).toBe("/assets");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/assets/_agent-native/agent-engine/status",
+    );
   });
 
   it("keeps a configured workspace base when the current path matches it", () => {

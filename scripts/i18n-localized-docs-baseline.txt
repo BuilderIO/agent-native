@@ -1,0 +1,3 @@
+# Existing localized docs strings that still match English source.
+# Keep this file sorted. Remove entries as translated docs improve.
+# Format: relative/localized/path.md|English source string

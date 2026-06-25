@@ -1,3 +1,20 @@
+import { agentChat } from "@agent-native/core";
+import {
+  AgentPresenceChip,
+  agentNativePath,
+  sendToAgentChat,
+  usePinchZoom,
+  useT,
+  useAvatarUrl,
+  type CollabUser,
+} from "@agent-native/core/client";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import {
+  IconAlertTriangle,
+  IconMaximize,
+  IconZoomIn,
+  IconZoomOut,
+} from "@tabler/icons-react";
 import {
   useState,
   useCallback,
@@ -5,57 +22,43 @@ import {
   useEffect,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { agentChat } from "@agent-native/core";
-import {
-  AgentPresenceChip,
-  agentNativePath,
-  sendToAgentChat,
-  usePinchZoom,
-  useAvatarUrl,
-  type CollabUser,
-} from "@agent-native/core/client";
 import { createPortal } from "react-dom";
-import { enterSelectionMode } from "@/root";
-import type { Slide } from "@/context/DeckContext";
-import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
-import SlideRenderer from "@/components/deck/SlideRenderer";
-import CodeEditor from "./CodeEditor";
-import ImageOverlay from "./ImageOverlay";
-import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
-import { BlockBubbleMenu } from "./BlockBubbleMenu";
-import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
-import {
-  DrawOverlay,
-  CanvasCommentPins,
-  MultiSelectChip,
-} from "@/components/visual-editor";
-import type { DesignSystemData } from "../../../shared/api";
-import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
-import { TAB_ID } from "@/lib/tab-id";
-import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
-import {
-  createPlaceholderImageTarget,
-  imageFileLooksSupported,
-} from "@/lib/slide-image-replacement";
-import {
-  IconAlertTriangle,
-  IconMaximize,
-  IconZoomIn,
-  IconZoomOut,
-} from "@tabler/icons-react";
+import type * as Y from "yjs";
+
+import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
+import SlideRenderer from "@/components/deck/SlideRenderer";
+import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
+import {
+  DrawOverlay,
+  CanvasCommentPins,
+  MultiSelectChip,
+} from "@/components/visual-editor";
+import type { Slide } from "@/context/DeckContext";
+import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import {
   computeCanvasFitZoom,
   MAX_CANVAS_ZOOM,
   MIN_CANVAS_ZOOM,
 } from "@/lib/canvas-zoom";
+import {
+  createPlaceholderImageTarget,
+  imageFileLooksSupported,
+} from "@/lib/slide-image-replacement";
+import { TAB_ID } from "@/lib/tab-id";
+import { enterSelectionMode } from "@/root";
+
+import type { DesignSystemData } from "../../../shared/api";
+import { BlockBubbleMenu } from "./BlockBubbleMenu";
+import CodeEditor from "./CodeEditor";
+import ImageOverlay from "./ImageOverlay";
+import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
 
 let builderIdCounter = 0;
 const CANVAS_ZOOM_PRESETS = [10, 25, 50, 75, 100, 125, 150, 200] as const;
@@ -402,7 +405,7 @@ function rectsIntersect(
 ): boolean {
   return !(
     a.right < b.left ||
-    a.left > b.right ||
+    a.left > b.right || // i18n-ignore geometry comparison
     a.bottom < b.top ||
     a.top > b.bottom
   );
@@ -514,6 +517,7 @@ export default function SlideEditor({
   onInlineEditStart,
   presentUsers = [],
 }: SlideEditorProps) {
+  const t = useT();
   const content = typeof slide.content === "string" ? slide.content : "";
   const isHtmlSlide =
     content.includes('class="fmd-slide"') ||
@@ -1406,12 +1410,12 @@ export default function SlideEditor({
                       className="h-6 w-6 cursor-pointer"
                       onClick={canvasZoomOut}
                       disabled={canvasZoom <= MIN_CANVAS_ZOOM}
-                      aria-label="Zoom out"
+                      aria-label={t("raw.zoomOut")}
                     >
                       <IconZoomOut className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Zoom out</TooltipContent>
+                  <TooltipContent>{t("raw.zoomOut")}</TooltipContent>
                 </Tooltip>
                 <span className="w-11 text-center text-xs tabular-nums text-muted-foreground">
                   {canvasZoom}%
@@ -1427,12 +1431,12 @@ export default function SlideEditor({
                         canvasZoom >=
                         CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1]
                       }
-                      aria-label="Zoom in"
+                      aria-label={t("raw.zoomIn")}
                     >
                       <IconZoomIn className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Zoom in</TooltipContent>
+                  <TooltipContent>{t("raw.zoomIn")}</TooltipContent>
                 </Tooltip>
                 <div className="mx-0.5 h-4 w-px bg-border" />
                 <Tooltip>
@@ -1442,12 +1446,12 @@ export default function SlideEditor({
                       size="icon"
                       className="h-6 w-6 cursor-pointer"
                       onClick={fitCanvasToScreen}
-                      aria-label="Fit slide to screen"
+                      aria-label={t("raw.fitSlideToScreen")}
                     >
                       <IconMaximize className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Fit to screen</TooltipContent>
+                  <TooltipContent>{t("raw.fitToScreen")}</TooltipContent>
                 </Tooltip>
               </div>
               <div
@@ -1487,7 +1491,7 @@ export default function SlideEditor({
                       {/* Double-click hint — only shown for HTML slides that support inline editing */}
                       {isHoveringText && !editingEl && isHtmlSlide && (
                         <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded bg-black/60 px-2 py-0.5 text-xs text-white/40 pointer-events-none select-none">
-                          Double-click any text to edit
+                          {t("raw.doubleClickEdit")}
                         </div>
                       )}
                       {agentActive && (

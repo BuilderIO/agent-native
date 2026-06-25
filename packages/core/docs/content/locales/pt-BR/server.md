@@ -1,0 +1,265 @@
+---
+title: "Servidor"
+description: "Rotas de servidor Nitro, plug-ins, rotas montadas em estrutura, contexto de solicitação e sincronização apoiada por SQL."
+---
+
+# Servidor
+
+Aplicativos nativos de agente usam [Nitro](https://nitro.build) para rotas de servidor e plug-ins. A maior parte do comportamento do produto deve residir em [Actions](/docs/actions); rotas personalizadas são para superfícies de protocolo nas quais actions não cabem: uploads, streaming, páginas públicas, retornos de chamada webhooks, OAuth e APIs específicos do provedor.
+
+```an-diagram title="O que roda no servidor" summary="As ações são o padrão. Rotas de arquivo personalizadas e rotas montadas em estrutura compartilham o mesmo aplicativo Nitro e o mesmo banco de dados SQL."
+{
+  "html": "<div class=\"diagram-server\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">Navegador / UI</div><div class=\"diagram-node\">loop do agente</div><div class=\"diagram-node\">clientes externos<br><small class=\"diagram-muted\">HTTP · MCP · A2A</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>servidor Nitro</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">superfície padrão</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/_agent-native/*</span><small class=\"diagram-muted\">framework routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/api/*</span><small class=\"diagram-muted\">custom file routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">plugins</span><small class=\"diagram-muted\">inicialização: migrações, jobs</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>banco de dados SQL<br><small class=\"diagram-muted\">Drizzle · ponto de coordenação</small></div></div>",
+  "css": ".diagram-server{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-server .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-server .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.diagram-server .diagram-row{display:flex;align-items:center;gap:8px}.diagram-server .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## Rotas baseadas em arquivo {#file-based-routes}
+
+As rotas residem em `server/routes/` e Nitro mapeia nomes de arquivos para métodos e caminhos:
+
+```text
+server/routes/
+  api/
+    health.get.ts              -> GET  /api/health
+    uploads.post.ts            -> POST /api/uploads
+    webhooks/
+      stripe.post.ts           -> POST /api/webhooks/stripe
+  [...page].get.ts             -> SSR catch-all for public pages
+```
+
+Cada rota exporta um `defineEventHandler`:
+
+```ts
+// server/routes/api/health.get.ts
+import { defineEventHandler } from "h3";
+
+export default defineEventHandler(() => ({
+  ok: true,
+  service: "my-template",
+}));
+```
+
+### Convenções de nomenclatura de rotas {#route-naming-conventions}
+
+| Padrão de nome de arquivo | Método HTTP | Caminho de exemplo          |
+| ------------------------- | ----------- | --------------------------- |
+| `index.get.ts`            | GET         | `/api/items`                |
+| `index.post.ts`           | POST        | `/api/items`                |
+| `[id].get.ts`             | GET         | `/api/items/:id`            |
+| `[id].patch.ts`           | PATCH       | `/api/items/:id`            |
+| `[id].delete.ts`          | DELETE      | `/api/items/:id`            |
+| `[...slug].get.ts`        | GET         | `/api/items/*` ou pega-tudo |
+
+## Prefira Actions para operações de aplicativos {#actions-first}
+
+Se o UI e o agente precisarem fazer algo, defina uma ação em vez de uma rota API personalizada. Actions torna-se automaticamente:
+
+- Ferramentas do agente.
+- Ganchos de front-end digitados.
+- Endpoints HTTP em `/_agent-native/actions/:name`.
+- Ferramentas que podem ser chamadas de MCP e A2A.
+- Comandos CLI para desenvolvimento.
+
+Use rotas `/api/*` personalizadas somente quando precisar de um protocolo em formato de rota ou comportamento binário/streaming. Consulte [Actions](/docs/actions).
+
+## Completamento de texto único {#complete-text}
+
+A maior parte do trabalho de IA deve passar pelo chat do agente para que os usuários possam ver, orientar e auditar
+o que aconteceu. Para transformações estreitas do lado do servidor que intencionalmente não precisam
+ferramentas, histórico de bate-papo ou estado de execução, use `completeText()` como um escape explícito
+hachurada.
+
+```ts
+// actions/classify-message.ts
+import { defineAction } from "@agent-native/core/action";
+import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Classify a short message",
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
+    const result = await completeText({
+      systemPrompt:
+        "Return exactly one label: urgent, follow-up, waiting, or archive.",
+      input: body,
+      maxOutputTokens: 16,
+      temperature: 0,
+    });
+
+    return { label: result.text.trim() };
+  },
+});
+```
+
+`completeText()` é executado na mesma camada de mecanismo configurada que o agente
+bate-papo, incluindo provedores Builder, Anthropic, AI SDK, padrões de modelo de usuário/aplicativo,
+segredos com escopo de solicitação e erros normalizados pelo mecanismo. É apenas para servidor; não
+chamar provedores de modelo a partir do código do cliente. Se a operação for voltada para o usuário, envolva-a
+em uma ação para que UI e o agente compartilhem a mesma capacidade.
+
+## Solicitar contexto e acesso {#request-context}
+
+Actions montado pela estrutura é executado automaticamente com contexto de solicitação. Rotas personalizadas não. Se uma rota personalizada lê ou grava recursos proprietários, carregue a sessão e finalize o trabalho:
+
+```an-annotated-code title="Escopo de uma rota personalizada para o usuário da solicitação"
+{
+  "filename": "server/routes/api/projects.get.ts",
+  "language": "ts",
+  "code": "import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectCompartilhars));\n    },\n  );\n});",
+  "annotations": [
+    {
+      "lines": "7-10",
+      "label": "Rotas personalizadas não têm contexto automático",
+      "note": "Ao contrário das ações, uma rota de arquivo deve carregar a própria sessão e falhar ao fechar quando não houver usuário autenticado."
+    },
+    {
+      "lines": "12-13",
+      "label": "Estabelecer contexto de solicitação",
+      "note": "`runWithRequestContext` disponibiliza o user/org para ajudantes de escopo durante o trabalho."
+    },
+    {
+      "lines": "18-19",
+      "label": "Leituras de propriedade do escopo",
+      "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+    }
+  ]
+}
+```
+
+`getDb` é criado por aplicativo via `createGetDb(schema)` em `server/db/index.ts`, portanto, rotas personalizadas importam-no do modelo (`../../db/index.js`), não de `@agent-native/core/db`; veja [Database — Where the DB Client Lives](/docs/database#db-client). Não execute `db.select().from(ownableTable)` sem escopo em rotas personalizadas.
+
+## Plugins de servidor {#server-plugins}
+
+Os plug-ins ficam no `server/plugins/` e são executados na inicialização. Use-os para migrações, configuração de provedores, trabalhos recorrentes, adaptadores de integração e configuração de plug-ins de estrutura.
+
+```ts
+// server/plugins/db.ts
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+As migrações devem ser aditivas. Nunca coloque SQL destrutivo em plugins de inicialização.
+
+## Rotas montadas em estrutura {#framework-routes}
+
+A estrutura monta suas próprias rotas em `/_agent-native/`. Trate esse namespace como reservado.
+
+| Prefixo da rota                  | Propósito                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Endpoints de ação HTTP                                                                      |
+| `/_agent-native/agent-chat`      | Loop de bate-papo do agente                                                                 |
+| `/_agent-native/poll`            | Sincronização UI suportada por SQL                                                          |
+| `/_agent-native/resources/*`     | Recursos do espaço de trabalho                                                              |
+| `/_agent-native/extensions/*`    | Extensões de tempo de execução e proxy de extensão (alias legado: `/_agent-native/tools/*`) |
+| `/_agent-native/integrations/*`  | Integrações de mensagens/webhook                                                            |
+| `/_agent-native/a2a`             | Agente para agente JSON-RPC                                                                 |
+| `/_agent-native/mcp`             | Ponto final MCP                                                                             |
+| `/_agent-native/onboarding/*`    | Lista de verificação de configuração                                                        |
+| `/_agent-native/observability/*` | Traces, feedback, avaliações, experimentos                                                  |
+| `/_agent-native/file-upload`     | Endpoint do provedor de upload de arquivos                                                  |
+
+As rotas de aplicativos personalizados devem usar `/api/*`, caminhos de aplicativos públicos ou caminhos de retorno de chamada específicos do provedor que não colidam com `/_agent-native/`.
+
+## Sincronização apoiada por SQL {#sync}
+
+O agente nativo não depende de observadores do sistema de arquivos ou de estado fixo na memória. Quando actions ou auxiliares de estrutura alteram dados, a versão de sincronização do banco de dados aumenta. O gancho do cliente `useDbSync()` pesquisa `/_agent-native/poll` e invalida os caches de consulta React.
+
+Isso funciona em implantações sem servidor e com várias instâncias porque o banco de dados é o ponto de coordenação. Se você escrever mutações personalizadas fora de actions, use auxiliares de estrutura ou emita a invalidação de sincronização apropriada para abrir a atualização de UIs.
+
+```an-diagram title="Ciclo de sincronização SQL-backed" summary="Sem observadores, sem estado pegajoso. Uma gravação ultrapassa uma versão em SQL; cada cliente pesquisa a versão e busca novamente."
+{
+  "html": "<div class=\"diagram-sync\"><div class=\"diagram-box\" data-rough>Ação / helper<br><small class=\"diagram-muted\">mutates data</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>banco de dados SQL</strong><small class=\"diagram-muted\">sync version increments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">useDbSync()<br><small class=\"diagram-muted\">polls /_agent-native/poll</small></div><div class=\"diagram-pill ok\">invalidate caches &rarr; UI refreshes</div></div></div>",
+  "css": ".diagram-sync{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sync .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+```an-api title="O ponto final da pesquisa" method="GET" path="/_agent-native/poll"
+{
+  "method": "GET",
+  "path": "/_agent-native/poll",
+  "summary": "Retorna as versões atuais de sincronização do banco de dados por origem para que o cliente possa detectar alterações.",
+  "description": "`useDbSync()` calls this on an interval (and falls back to it when SSE is unavailable). When a returned version is higher than the client's last-seen value, the matching React Query caches are invalidated and refetch.",
+  "auth": "Session cookie (request-scoped identity)",
+  "responses": [
+    { "status": "200", "description": "Current sync versions keyed by source." }
+  ]
+}
+```
+
+## Webhooks {#webhooks}
+
+A entrada webhooks deve verificar, persistir e retornar rapidamente. O trabalho de agente de longa duração deve usar o padrão de fila de integração:
+
+1. Verifique a assinatura ou desafio da plataforma.
+2. Insira trabalho durável em SQL.
+3. Autodisparar uma rota de processador assinada.
+4. Devolva 200 imediatamente.
+5. Deixe a nova execução do processador executar o loop do agente e postar o resultado.
+
+```an-diagram title="Padrão de fila de integração" summary="O manipulador de webhook retorna em milissegundos; uma execução assinada separada executa o trabalho lento do agente."
+{
+  "html": "<div class=\"diagram-webhook\"><div class=\"diagram-box\" data-rough>Webhook de entrada<br><small class=\"diagram-muted\">Slack · Stripe · email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Handler</strong><div class=\"diagram-step\"><span class=\"diagram-pill\">1</span><small class=\"diagram-muted\">verify signature</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><small class=\"diagram-muted\">insere trabalho no SQL</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">3</span><small class=\"diagram-muted\">self-fire processor</small></div><div class=\"diagram-step\"><span class=\"diagram-pill ok\">4</span><small class=\"diagram-muted\">return 200 now</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Signed processor<br><small class=\"diagram-muted\">executa o loop do agente e publica o resultado</small></div></div>",
+  "css": ".diagram-webhook{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-webhook .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-webhook .diagram-step{display:flex;align-items:center;gap:8px}.diagram-webhook .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+> [!WARNING]
+> Não confie em promessas inesperadas após retornar uma resposta — hosts sem servidor congelam a execução. Consulte [Messaging](/docs/messaging) para ver a fila de integração canônica.
+
+## Avançado: Escotilhas de Fuga {#advanced-escape-hatches}
+
+A maioria dos modelos nunca precisa disso. Rotas de arquivo Nitro e agente do framework
+o plug-in de bate-papo já conecta o servidor do aplicativo e o manipulador do agente de produção.
+Alcance-os somente ao criar uma integração de servidor personalizada fora do
+pilha de plug-ins de modelo padrão.
+
+### Servidores H3 programáticos {#create-server}
+
+Para pacotes personalizados ou testes que precisam de um aplicativo H3 diretamente, `createServer()`
+retorna um aplicativo e um roteador pré-configurados:
+
+```ts
+import { createServer } from "@agent-native/core/server";
+import { defineEventHandler } from "h3";
+
+const { app, router } = createServer();
+
+router.get(
+  "/api/health",
+  defineEventHandler(() => ({ ok: true })),
+);
+```
+
+### Manipulador de agente de produção {#agent-handler}
+
+O plugin de chat do agente da estrutura já monta o manipulador do agente de produção
+para modelos. Chame `createProductionAgentHandler()` apenas diretamente ao construir
+uma integração de servidor personalizada fora da pilha de plug-ins de modelo padrão —
+caso contrário, personalize o agente por meio de `AGENTS.md`, skills, actions e
+plug-in de bate-papo do agente.
+
+```ts
+import { createProductionAgentHandler } from "@agent-native/core/server";
+
+const handler = createProductionAgentHandler({
+  scripts,
+  systemPrompt: "You are the app agent...",
+});
+```

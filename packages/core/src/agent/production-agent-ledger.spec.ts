@@ -8,12 +8,13 @@
  *   4. Read-only tools never consult the ledger.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
+
+import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   runAgentLoop,
   type ActionEntry,
 } from "./production-agent.js";
-import type { AgentEngine, EngineEvent } from "./engine/types.js";
 
 // ─── Mock run-store so DB is never touched ───────────────────────────────────
 

@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core";
+import { stagingExecuteRequest } from "@agent-native/core/provider-api/staging";
 import { z } from "zod";
+
+import { requireRequestCredentialContext } from "../server/lib/credentials-context";
 import {
   ANALYTICS_PROVIDER_API_IDS,
   executeProviderApiRequest,
   getAnalyticsProviderApiRuntime,
 } from "../server/lib/provider-api";
-import { stagingExecuteRequest } from "@agent-native/core/provider-api/staging";
-import { requireRequestCredentialContext } from "../server/lib/credentials-context";
 import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials";
 
 const ProviderSchema = z.enum(ANALYTICS_PROVIDER_API_IDS);

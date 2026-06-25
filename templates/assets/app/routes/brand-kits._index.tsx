@@ -1,21 +1,28 @@
-import { Link, useNavigate } from "react-router";
-import { useMemo, useState } from "react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-import { toast } from "sonner";
+import {
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import { IconPalette, IconPhotoPlus, IconSearch } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
+import { useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import { PageShell } from "@/components/layout/PageShell";
 import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
 import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
 import { LibraryCard } from "@/components/library/LibraryCard";
 import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
-import { PageShell } from "@/components/layout/PageShell";
+import { Button } from "@/components/ui/button";
 import {
   sortLibrariesByUsage,
   type ImageLibrarySummary,
 } from "@/lib/libraries";
+
 import type { LibraryPreset } from "../../shared/library-presets";
 
 export default function BrandKitsIndexPage() {
+  const t = useT();
   const navigate = useNavigate();
   const { data, isLoading } = useActionQuery("list-libraries", {});
   const { data: presetData } = useActionQuery("list-library-presets", {});
@@ -56,7 +63,7 @@ export default function BrandKitsIndexPage() {
         },
         onError: (error: Error) => {
           setCreatingPresetId(null);
-          toast.error(error.message || "Could not create preset brand kit.");
+          toast.error(error.message || t("brandKits.presetCreateFailed"));
         },
       },
     );
@@ -70,12 +77,12 @@ export default function BrandKitsIndexPage() {
       {
         onSuccess: (copy: any) => {
           setDuplicatingId(null);
-          toast.success("Private brand kit copy created");
+          toast.success(t("brandKits.duplicateCreated"));
           navigate(`/brand-kits/${copy.id}`);
         },
         onError: (error: Error) => {
           setDuplicatingId(null);
-          toast.error(error.message || "Could not duplicate brand kit.");
+          toast.error(error.message || t("brandKits.duplicateFailed"));
         },
       },
     );
@@ -83,17 +90,16 @@ export default function BrandKitsIndexPage() {
 
   return (
     <PageShell
-      title="Brand Kits"
-      description="Organize references, generated assets, folders, and reusable style guidance."
+      title={t("brandKits.title")}
+      description={t("brandKits.description")}
     >
       <section className="space-y-4">
         <div>
           <h2 className="text-lg font-semibold tracking-tight">
-            Your brand kits
+            {t("brandKits.yourBrandKits")}
           </h2>
           <p className="mt-1 w-full text-sm text-muted-foreground">
-            Brand references, product imagery, videos, diagrams, and generated
-            candidates that other agents can reuse
+            {t("brandKits.yourBrandKitsDescription")}
           </p>
         </div>
 
@@ -103,7 +109,7 @@ export default function BrandKitsIndexPage() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search brand kits"
+              placeholder={t("brandKits.searchPlaceholder")}
               className="h-full flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />
           </div>
@@ -113,7 +119,7 @@ export default function BrandKitsIndexPage() {
             className="gap-2"
           >
             <IconPhotoPlus className="h-4 w-4" />
-            New Brand Kit
+            {t("brandKits.newBrandKit")}
           </Button>
         </div>
 
@@ -145,11 +151,10 @@ export default function BrandKitsIndexPage() {
             <div className="mx-auto max-w-2xl text-center">
               <IconPalette className="mx-auto h-10 w-10 text-muted-foreground" />
               <h3 className="mt-4 text-base font-semibold">
-                No brand kits yet
+                {t("brandKits.emptyTitle")}
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Start with a default style brand kit or create your own
-                references and style guidance.
+                {t("brandKits.emptyDescription")}
               </p>
             </div>
             <div className="mx-auto mt-6 max-w-4xl">
@@ -162,10 +167,10 @@ export default function BrandKitsIndexPage() {
             <div className="mt-5 flex flex-wrap justify-center gap-2">
               <Button onClick={() => setOpen(true)} className="gap-2">
                 <IconPhotoPlus className="h-4 w-4" />
-                New brand kit
+                {t("brandKits.newBrandKitLower")}
               </Button>
               <Button asChild variant="outline">
-                <Link to="/">Create asset</Link>
+                <Link to="/">{t("brandKits.createAsset")}</Link>
               </Button>
             </div>
           </div>

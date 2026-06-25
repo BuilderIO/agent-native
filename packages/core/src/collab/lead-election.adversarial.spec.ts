@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { AGENT_CLIENT_ID } from "./agent-identity.js";
 import {
   isReconcileLeadClient,
   reconcileRemoteAwarenessStates,
 } from "./client.js";
-import { AGENT_CLIENT_ID } from "./agent-identity.js";
 
 /** Minimal Awareness stand-in: isReconcileLeadClient only calls getStates(). */
 function fakeAwareness(states: Map<number, unknown>): any {

@@ -1,6 +1,8 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+
 import type { H3Event } from "h3";
 import { getHeader } from "h3";
+
 import {
   getAuthSecret,
   resolveSignupTrackingIdentity,

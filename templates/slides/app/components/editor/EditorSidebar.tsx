@@ -1,5 +1,10 @@
-import { useState, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
+import {
+  appBasePath,
+  PromptComposer,
+  type CollabUser,
+  useAvatarUrl,
+  useT,
+} from "@agent-native/core/client";
 import {
   useSortable,
   SortableContext,
@@ -14,25 +19,22 @@ import {
   IconLoader2,
   IconSquarePlus,
 } from "@tabler/icons-react";
-import type { Slide } from "@/context/DeckContext";
-import type { AspectRatio } from "@/lib/aspect-ratios";
-import SlideRenderer from "@/components/deck/SlideRenderer";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { useState, useRef, useEffect } from "react";
 import { useCallback } from "react";
-import {
-  appBasePath,
-  PromptComposer,
-  type CollabUser,
-  useAvatarUrl,
-} from "@agent-native/core/client";
+import { createPortal } from "react-dom";
+
+import SlideRenderer from "@/components/deck/SlideRenderer";
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
+import type { UploadedFile } from "@/components/editor/PromptDialog";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { Slide } from "@/context/DeckContext";
+import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { toast } from "@/hooks/use-toast";
+import type { AspectRatio } from "@/lib/aspect-ratios";
 
 interface EditorSidebarProps {
   slides: Slide[];
@@ -170,6 +172,7 @@ function SortableSlideThumb({
   presenceUsers?: CollabUser[];
   aspectRatio?: AspectRatio;
 }) {
+  const t = useT();
   const {
     attributes,
     listeners,
@@ -193,7 +196,7 @@ function SortableSlideThumb({
         ref={(node) => registerButtonRef(slide.id, node)}
         onClick={onSelect}
         onFocus={onSelect}
-        aria-label={`Select slide ${index + 1}`}
+        aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
         aria-current={isActive ? "true" : undefined}
         data-slide-thumbnail-id={slide.id}
         className={`w-full text-left flex items-start gap-2 p-2 rounded-lg transition-all duration-150 ${
@@ -254,12 +257,12 @@ function SortableSlideThumb({
                 onDuplicate();
               }}
               className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80"
-              aria-label="Duplicate slide"
+              aria-label={t("editorSidebar.duplicateSlide")}
             >
               <IconCopy className="w-3 h-3 text-white/60" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Duplicate</TooltipContent>
+          <TooltipContent>{t("editorSidebar.duplicate")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -269,12 +272,12 @@ function SortableSlideThumb({
                 onDelete();
               }}
               className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-900/80"
-              aria-label="Delete slide"
+              aria-label={t("editorSidebar.deleteSlide")}
             >
               <IconTrash className="w-3 h-3 text-white/60" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Delete</TooltipContent>
+          <TooltipContent>{t("editorSidebar.delete")}</TooltipContent>
         </Tooltip>
       </div>
     </div>
@@ -288,9 +291,13 @@ function GeneratingSlideSkeleton({
   index: number;
   aspectRatio?: AspectRatio;
 }) {
+  const t = useT();
   const cssRatio = (aspectRatio ?? "16:9").replace(":", " / ");
   return (
-    <div className="group relative" aria-label="Generating slide">
+    <div
+      className="group relative"
+      aria-label={t("editorSidebar.generatingSlide")}
+    >
       <div className="w-full flex items-start gap-2 p-2 rounded-lg bg-accent/30">
         <div className="flex-shrink-0 mt-2 w-3.5 h-3.5" />
         <span className="flex-shrink-0 w-5 mt-2 text-[10px] font-medium text-muted-foreground/70">
@@ -334,6 +341,7 @@ function AddSlidePopover({
   onDuplicateCurrent?: () => void;
   onAddEmpty?: () => void;
 }) {
+  const t = useT();
   const panelRef = useRef<HTMLDivElement>(null);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
@@ -374,16 +382,16 @@ function AddSlidePopover({
           });
           if (!res.ok) {
             const data = await res.json().catch(() => null);
-            throw new Error(data?.error || "Upload failed");
+            throw new Error(data?.error || t("editorSidebar.uploadFailed"));
           }
           uploaded = (await res.json()) as UploadedFile[];
         } catch (error) {
           toast({
-            title: "Upload failed",
+            title: t("editorSidebar.uploadFailed"),
             description:
               error instanceof Error
                 ? error.message
-                : "Could not upload the attached file.",
+                : t("editorSidebar.uploadAttachedFileFailed"),
             variant: "destructive",
           });
           return;
@@ -460,7 +468,7 @@ function AddSlidePopover({
       }}
     >
       <p className="px-1 pb-2 text-sm font-medium text-foreground/90">
-        Add slides
+        {t("editorSidebar.addSlides")}
       </p>
       {(onAddEmpty || (onDuplicateCurrent && slideCount > 0)) && (
         <>
@@ -474,9 +482,9 @@ function AddSlidePopover({
               className="w-full mb-1 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
             >
               <IconSquarePlus className="w-4 h-4 text-muted-foreground" />
-              <span>Add empty slide</span>
+              <span>{t("editorSidebar.addEmptySlide")}</span>
               <span className="ml-auto text-[11px] text-muted-foreground">
-                no AI
+                {t("editorSidebar.noAi")}
               </span>
             </button>
           )}
@@ -490,9 +498,9 @@ function AddSlidePopover({
               className="w-full mb-2 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
             >
               <IconCopy className="w-4 h-4 text-muted-foreground" />
-              <span>Duplicate current slide</span>
+              <span>{t("editorSidebar.duplicateCurrentSlide")}</span>
               <span className="ml-auto text-[11px] text-muted-foreground">
-                no AI
+                {t("editorSidebar.noAi")}
               </span>
             </button>
           )}
@@ -501,7 +509,7 @@ function AddSlidePopover({
       )}
       <PromptComposer
         autoFocus
-        placeholder="Describe the slides you want..."
+        placeholder={t("editorSidebar.promptPlaceholder")}
         draftScope={`slides:add-slide:${deckId}`}
         onSubmit={handleSubmit}
         onTextChange={setPromptText}
@@ -536,6 +544,7 @@ export default function EditorSidebar({
   slidePresence,
   aspectRatio,
 }: EditorSidebarProps) {
+  const t = useT();
   const activeIndex = slides.findIndex((s) => s.id === activeSlideId);
   const [addOpen, setAddOpen] = useState(false);
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
@@ -600,7 +609,7 @@ export default function EditorSidebar({
     <div className="w-56 sm:w-64 flex-shrink-0 border-r border-border bg-background flex flex-col h-full">
       <div className="p-3 border-b border-border flex items-center justify-between">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Slides
+          {t("editorSidebar.slides")}
         </span>
         {addSlideGenerating ? (
           <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
@@ -611,12 +620,12 @@ export default function EditorSidebar({
                 ref={headerAddRef}
                 onClick={() => setAddOpen(!addOpen)}
                 className="p-2 rounded-md hover:bg-accent transition-colors"
-                aria-label="Add slides"
+                aria-label={t("editorSidebar.addSlides")}
               >
                 <IconPlus className="w-4 h-4 text-muted-foreground" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Add slides</TooltipContent>
+            <TooltipContent>{t("editorSidebar.addSlides")}</TooltipContent>
           </Tooltip>
         )}
       </div>

@@ -1,7 +1,8 @@
-import { IconX, IconPlus } from "@tabler/icons-react";
+import { IconX, IconPlus, IconReload } from "@tabler/icons-react";
+
 import type { Tab } from "../App.js";
-import { getTabDisplayTitle } from "../lib/tab-title.js";
 import { shouldReserveMacOSWindowControlsSpace } from "../lib/platform.js";
+import { getTabDisplayTitle } from "../lib/tab-title.js";
 
 const reserveMacOSWindowControlsSpace = shouldReserveMacOSWindowControlsSpace();
 
@@ -11,6 +12,7 @@ interface TabBarProps {
   appName: string;
   onTabSelect: (tabId: string) => void;
   onTabClose: (tabId: string) => void;
+  onTabRefresh: (tabId: string) => void;
   onNewTab: () => void;
 }
 
@@ -20,6 +22,7 @@ export default function TabBar({
   appName,
   onTabSelect,
   onTabClose,
+  onTabRefresh,
   onNewTab,
 }: TabBarProps) {
   return (
@@ -49,6 +52,18 @@ export default function TabBar({
             >
               <span className="tab-label">{title}</span>
               <span
+                className="tab-refresh"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTabRefresh(tab.id);
+                }}
+                role="button"
+                tabIndex={-1}
+                title="Reload tab"
+              >
+                <IconReload size={11} strokeWidth={2} />
+              </span>
+              <span
                 className="tab-close"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -56,6 +71,7 @@ export default function TabBar({
                 }}
                 role="button"
                 tabIndex={-1}
+                title="Close tab"
               >
                 <IconX size={10} strokeWidth={2} />
               </span>

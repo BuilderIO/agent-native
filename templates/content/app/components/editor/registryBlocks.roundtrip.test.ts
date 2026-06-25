@@ -1,12 +1,14 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
-import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import { docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   parseRegistryBlockData,
   serializeRegistryBlockToMdx,
 } from "@shared/nfm-registry";
+import { describe, expect, it } from "vitest";
+
+import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
+
 import { seedRegistryBlockRaw } from "./registrySlashItems";
 
 /**

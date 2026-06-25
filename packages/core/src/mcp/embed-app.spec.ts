@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import type { ActionMcpAppResourceConfig } from "../action.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
@@ -50,7 +51,11 @@ describe("embedApp", () => {
     expect(html).toContain("return { error: text.trim() };");
     expect(html).toContain("record.embedTargetPath");
     expect(html).toContain("record.deepLinkUrl");
-    expect(html).toContain("const launchUrl = openStartUrl || openUrl");
+    expect(html.indexOf("structuredOpenLinkUrl")).toBeLessThan(
+      html.indexOf("record.url"),
+    );
+    expect(html).toContain("let launchUrl = openStartUrl || openUrl");
+    expect(html).not.toContain("launchUrl = openUrl;");
     expect(html).toContain("if (openUrl || openStartUrl)");
     expect(html).toContain("shouldSelfNavigateToApp");
     expect(html).toContain("function renderModeSource()");
@@ -62,8 +67,12 @@ describe("embedApp", () => {
     expect(html).toContain('appParam === "chatgpt"');
     expect(html).toContain("shouldRenderControlledAppFrame");
     expect(html).toContain("} else if (shouldRenderControlledAppFrame())");
+    expect(html).toContain("function isCurrentFrameUrl(src)");
+    expect(html).toContain("if (isCurrentFrameUrl(src))");
     expect(html).toContain("window.location.replace(src)");
-    expect(html).toContain("return !!openAiBridge || isChatGptSandboxHost();");
+    expect(html).toContain(
+      "return !!openAiBridge || !!app || isChatGptSandboxHost();",
+    );
     expect(html).toContain("shouldTransplantAppDocument");
     expect(html).toContain("isClaudeMcpContentHost");
     expect(html).toContain("transplantAppDocument");
@@ -72,6 +81,18 @@ describe("embedApp", () => {
     expect(html).toContain("__AGENT_NATIVE_EXTERNAL_EMBED");
     expect(html).toContain("window.history.replaceState");
     expect(html).toContain("mountTransplantedHtml");
+    expect(html).toContain(
+      "function importHeadChildrenWithBase(source, baseHref)",
+    );
+    expect(html).toContain('document.createElement("base")');
+    expect(html).toContain(
+      'String(node.nodeName || "").toLowerCase() === "base"',
+    );
+    expect(html).toContain("document.head.replaceChildren(");
+    expect(html).toContain(
+      "importHeadChildrenWithBase(parsed.head, config.baseHref)",
+    );
+    expect(html).not.toContain("document.head.prepend(base)");
     expect(html).toContain("resolveTransplantAppDocumentSource");
     expect(html).toContain('"X-Agent-Native-Embed-Transplant": "1"');
     expect(html).toContain('Accept: "application/json"');
@@ -101,18 +122,20 @@ describe("embedApp", () => {
     expect(html).toContain('render.frame === "transplant"');
     expect(html).toContain("isClaudeMcpContentHost()");
     expect(html).toContain("if (isClaudeMcpContentHost()) return true;");
+    // ChatGPT is excluded from the transplant set — it uses the controlled
+    // nested frame, not cross-origin import() inside its sandbox.
     expect(html).toContain(
+      'isClaudeMcpContentHost() ||\n        mode === "transplant"',
+    );
+    expect(html).not.toContain(
       "isClaudeMcpContentHost() ||\n        isChatGptSandboxHost()",
     );
     // Standards-track MCP Apps hosts (Codex, Cursor, the SDK App fallback, and
-    // our own renderer) connect through the postMessage `ui/*` bridge rather
-    // than ChatGPT's `window.openai` global. They render the resource in a
-    // strict opaque-origin sandbox where self-navigation tears the host bridge
-    // down and shows a permanent / flashing loading state, so they must
-    // transplant the app document like Claude does.
-    expect(html).toContain("function isNativeMcpAppsBridgeHost()");
-    expect(html).toContain("return !!app && !openAiBridge;");
-    expect(html).toContain("isNativeMcpAppsBridgeHost() ||");
+    // our own renderer) keep the host bridge alive by rendering the real app in
+    // a controlled child iframe. Transplant remains a fallback for strict
+    // Claude-style hosts and explicit render-mode requests.
+    expect(html).not.toContain("function isNativeMcpAppsBridgeHost()");
+    expect(html).not.toContain("isNativeMcpAppsBridgeHost() ||");
     expect(html).toContain(
       'message.method === "ui/notifications/host-context-changed"',
     );
@@ -132,6 +155,16 @@ describe("embedApp", () => {
     expect(html).toContain('"agentNative.mcpHost.response"');
     expect(html).toContain('"agentNative.embedSessionExpired"');
     expect(html).toContain("refreshExpiredEmbedSession");
+    expect(html).toContain("const maxEmbedSessionRefreshAttempts = 2");
+    expect(html).toContain("let embedSessionRefreshAttempts = 0");
+    expect(html).toContain(
+      "if (embedSessionRefreshAttempts >= maxEmbedSessionRefreshAttempts)",
+    );
+    expect(html).toContain("embedSessionRefreshAttempts += 1");
+    expect(html).toContain("embedSessionRefreshAttempts = 0");
+    expect(html).toContain("let connectPromise = null;");
+    expect(html).toContain("if (connectPromise) return await connectPromise;");
+    expect(html).toContain("await nativeApp.connect();");
     expect(html).toContain(
       "if (response.status === 401 && isEmbedStartUrl(src))",
     );
@@ -233,6 +266,8 @@ describe("embedApp", () => {
     expect(html).toContain(
       "callEmbedSessionTool(embedSessionArgsFor(embedUrl))",
     );
+    expect(html).toContain("function shouldDirectRenderKnownAppRoute(src)");
+    expect(html).toContain("if (shouldDirectRenderKnownAppRoute(embedUrl))");
     expect(html).toContain("const embedUrl = withChatBridgeParam(launchUrl)");
     expect(html).toContain(
       'url.pathname.endsWith("/_agent-native/embed/start")',
@@ -244,6 +279,10 @@ describe("embedApp", () => {
     expect(html).toContain("const frameLoadTimeoutMs = 45000");
     expect(html).toContain("}, frameReadyTimeoutMs)");
     expect(html).toContain("}, frameLoadTimeoutMs)");
+    expect(html).toContain("function notifyOuterMcpAppReady()");
+    expect(html).toContain(
+      'window.parent.postMessage({ type: "agentNative.embeddedAppReady" }, "*")',
+    );
     expect(html).toContain('mode === "iframe" || mode === "nested"');
     expect(html).toContain('render.frame === "iframe"');
     expect(html).toContain('"agentNative.frameOrigin"');
@@ -379,6 +418,7 @@ describe("embedApp", () => {
     );
     expect(fixture.html).toContain('"agentNative.frameOrigin"');
     expect(fixture.html).toContain('"agentNative.embeddedAppReady"');
+    expect(fixture.html).toContain("notifyOuterMcpAppReady()");
     expect(fixture.html).toContain('"agentNative.submitChat"');
     expect(fixture.html).toContain('"agentNative.mcpHostContext"');
     expect(fixture.html).toContain('"agentNative.mcpHost.updateModelContext"');

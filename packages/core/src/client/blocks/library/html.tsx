@@ -1,8 +1,9 @@
-import { useEffect, useId, useState } from "react";
 import { IconCode, IconEdit, IconX } from "@tabler/icons-react";
+import { useEffect, useId, useState } from "react";
+
+import { AiEditableFieldLabel } from "../AiEditableField.js";
 import { defineBlock } from "../types.js";
 import type { BlockReadProps, BlockEditProps } from "../types.js";
-import { AiEditableFieldLabel } from "../AiEditableField.js";
 import { htmlSchema, htmlMdx, type HtmlBlockData } from "./html.config.js";
 import { useIsDark } from "./wireframe-kit.js";
 

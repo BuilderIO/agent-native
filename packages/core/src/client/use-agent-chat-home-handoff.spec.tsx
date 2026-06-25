@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { SIDEBAR_OPEN_KEY } from "./agent-sidebar-state.js";
 import { consumeAgentChatHomeHandoff } from "./chat-view-transition.js";
 import { useAgentChatHomeHandoffLinks } from "./use-agent-chat-home-handoff.js";
@@ -117,7 +118,7 @@ describe("useAgentChatHomeHandoffLinks", () => {
 
     expect(event.defaultPrevented).toBe(true);
     expect(pathname(container)).toBe("/dashboard");
-    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBeNull();
     expect(consumeAgentChatHomeHandoff("chat")).toBe(true);
   });
 

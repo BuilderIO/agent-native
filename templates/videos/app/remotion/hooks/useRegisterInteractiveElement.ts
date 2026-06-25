@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
+
 import { useCurrentElement } from "@/contexts/CurrentElementContext";
-import type { HoverAnimationResult } from "./useHoverAnimation";
 import type { CurrentElement } from "@/contexts/CurrentElementContext";
+
+import type { HoverAnimationResult } from "./useHoverAnimation";
 
 /**
  * Hook to register an interactive element and update CurrentElementContext on hover.

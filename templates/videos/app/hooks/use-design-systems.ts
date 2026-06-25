@@ -1,18 +1,20 @@
 import { useActionQuery } from "@agent-native/core/client";
 
+type DesignSystemSummary = {
+  id: string;
+  title: string;
+  description: string | null;
+  data: string;
+  isDefault: boolean;
+  createdAt: string;
+};
+
 export function useDesignSystems() {
   const { data, isLoading, error, refetch } = useActionQuery<{
-    designSystems: Array<{
-      id: string;
-      title: string;
-      description: string | null;
-      data: string;
-      isDefault: boolean;
-      createdAt: string;
-    }>;
+    designSystems: DesignSystemSummary[];
   }>("list-design-systems");
 
-  const designSystems = data?.designSystems || [];
+  const designSystems: DesignSystemSummary[] = data?.designSystems ?? [];
   const defaultSystem = designSystems.find((ds) => ds.isDefault);
 
   return { designSystems, defaultSystem, isLoading, error, refetch };

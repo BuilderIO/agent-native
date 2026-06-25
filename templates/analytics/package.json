@@ -3,20 +3,12 @@
   "displayName": "Agent-Native Analytics",
   "private": true,
   "type": "module",
-  "pkg": {
-    "assets": [
-      "dist/spa/*"
-    ],
-    "scripts": [
-      "dist/server/**/*.js"
-    ]
-  },
   "scripts": {
     "dev": "agent-native dev",
     "build": "agent-native build",
     "start": "agent-native start",
     "test": "vitest --run",
-    "format.fix": "prettier --write .",
+    "format.fix": "oxfmt --write .",
     "typecheck": "agent-native typecheck",
     "action": "agent-native action",
     "script": "agent-native script"
@@ -65,8 +57,8 @@
     "@radix-ui/react-toggle": "^1.1.9",
     "@radix-ui/react-toggle-group": "^1.1.10",
     "@radix-ui/react-tooltip": "^1.2.7",
-    "@react-router/dev": "^7.16.0",
-    "@react-router/fs-routes": "^7.16.0",
+    "@react-router/dev": "^8.0.1",
+    "@react-router/fs-routes": "^8.0.1",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.0",
     "@swc/core": "^1.13.3",
@@ -77,6 +69,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@types/three": "^0.176.0",
+    "@typescript/native-preview": "catalog:",
     "@vitejs/plugin-react-swc": "^4.0.0",
     "chart.js": "^4.5.1",
     "chartjs-node-canvas": "^5.0.0",
@@ -90,13 +83,14 @@
     "input-otp": "^1.4.2",
     "motion": "^12.38.0",
     "next-themes": "^0.4.6",
-    "prettier": "^3.6.2",
+    "oxfmt": "catalog:",
     "react": "catalog:",
     "react-day-picker": "^9.14.0",
     "react-dom": "catalog:",
     "react-hook-form": "^7.71.2",
+    "react-i18next": "^17.0.8",
     "react-resizable-panels": "^4.10.0",
-    "react-router": "^7.16.0",
+    "react-router": "^8.0.1",
     "recharts": "^3.8.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
@@ -108,5 +102,13 @@
     "vite": "catalog:",
     "vitest": "catalog:"
   },
-  "packageManager": "pnpm@10.14.0+sha512.ad27a79641b49c3e481a16a805baa71817a04bbe06a38d17e60e2eaee83f6a146c6a688125f5792e48dd5ba30e7da52a5cda4c3992b9ccf333f9ce223af84748"
+  "packageManager": "pnpm@10.14.0+sha512.ad27a79641b49c3e481a16a805baa71817a04bbe06a38d17e60e2eaee83f6a146c6a688125f5792e48dd5ba30e7da52a5cda4c3992b9ccf333f9ce223af84748",
+  "pkg": {
+    "assets": [
+      "dist/spa/*"
+    ],
+    "scripts": [
+      "dist/server/**/*.js"
+    ]
+  }
 }

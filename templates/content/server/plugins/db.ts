@@ -1,5 +1,19 @@
 import { runMigrations } from "@agent-native/core/db";
 
+import { repairUnseededBlocksFields } from "../../actions/_property-utils.js";
+
+function scheduleBlocksRepairRetry(attempt = 1): void {
+  const delayMs = Math.min(30_000 * attempt, 5 * 60_000);
+  const timeout = setTimeout(() => {
+    repairUnseededBlocksFields().catch(() => {
+      if (attempt < 5) scheduleBlocksRepairRetry(attempt + 1);
+    });
+  }, delayMs);
+  if (typeof timeout === "object" && "unref" in timeout) {
+    timeout.unref();
+  }
+}
+
 const runContentMigrations = runMigrations(
   [
     {
@@ -190,6 +204,8 @@ const runContentMigrations = runMigrations(
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       document_id TEXT NOT NULL,
+      owner_document_id TEXT,
+      owner_block_id TEXT,
       title TEXT NOT NULL DEFAULT 'Untitled database',
       view_config_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -418,6 +434,84 @@ const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS content_database_source_executions_change_set_idx ON content_database_source_executions (change_set_id);
         CREATE INDEX IF NOT EXISTS content_database_source_executions_idempotency_idx ON content_database_source_executions (idempotency_key)`,
     },
+    {
+      // Independent backing store for ADDITIONAL "Blocks" property fields. The
+      // primary "Content" Blocks field is backed by documents.content; every
+      // other Blocks field on a row stores its own content here, keyed by
+      // (document_id, property_id), so no two Blocks fields ever share content.
+      version: 48,
+      sql: `CREATE TABLE IF NOT EXISTS document_block_field_contents (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      document_id TEXT NOT NULL,
+      property_id TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 49,
+      sql: `CREATE INDEX IF NOT EXISTS document_block_field_contents_document_idx ON document_block_field_contents (document_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS document_block_field_contents_doc_prop_idx ON document_block_field_contents (document_id, property_id)`,
+    },
+    // v50-v52: DB-enforced single-primary Blocks invariant. `primary_blocks_property_id`
+    // is the one source of truth for which property backs `documents.content`;
+    // `blocks_seeded` records that a database was seeded once, so an intentionally
+    // deleted primary is never silently recreated. Both are additive and safe on
+    // existing data.
+    {
+      version: 50,
+      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS primary_blocks_property_id TEXT`,
+    },
+    {
+      version: 51,
+      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS blocks_seeded INTEGER NOT NULL DEFAULT 0`,
+    },
+    // v52: one-time backfill for LEGACY databases that already had a primary
+    // "Content" Blocks definition (seeded by the previous read-path safety net)
+    // before these columns existed. Point primary_blocks_property_id at that
+    // definition and mark the database seeded. Idempotent: only fills rows that
+    // are still NULL, and re-running is a no-op. Databases with NO primary
+    // definition are intentionally left unseeded — the startup repair seeds them
+    // exactly once via the authenticated path. The correlated subquery picks the
+    // primary definition by its options JSON marker (`"primary":true`); the
+    // simple `%...%` LIKE is portable across SQLite and Postgres.
+    {
+      version: 52,
+      sql: `UPDATE content_databases
+        SET primary_blocks_property_id = (
+              SELECT d.id FROM document_property_definitions d
+              WHERE d.database_id = content_databases.id
+                AND d.type = 'blocks'
+                AND d.options_json LIKE '%"primary":true%'
+              LIMIT 1
+            ),
+            blocks_seeded = 1
+        WHERE primary_blocks_property_id IS NULL
+          AND EXISTS (
+              SELECT 1 FROM document_property_definitions d
+              WHERE d.database_id = content_databases.id
+                AND d.type = 'blocks'
+                AND d.options_json LIKE '%"primary":true%'
+            )`,
+    },
+    // v53-v54: ownership metadata for inline databases. Nullable by design:
+    // full-page databases and non-owning references leave these empty.
+    {
+      version: 53,
+      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_document_id TEXT`,
+    },
+    {
+      version: 54,
+      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_block_id TEXT`,
+    },
+    // v55: soft-delete marker for inline database lifecycle. Nullable keeps
+    // existing databases active; cleanup remains a later explicit path.
+    {
+      version: 55,
+      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS deleted_at TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );
@@ -453,4 +547,16 @@ export default async function contentDatabasePlugin(
 ) {
   await runContentMigrations(nitroApp);
   await runContentSourceMigrations(nitroApp);
+  // One-time, boot-time repair: seed the primary "Content" Blocks field for any
+  // legacy database that has never been seeded (blocks_seeded = 0). Idempotent —
+  // the atomic claim in seedDefaultBlocksField makes re-runs no-ops, and it
+  // never runs from a read path, so opening a shared/legacy row stays a pure
+  // read. Failures here must not crash boot; migrations themselves succeeded.
+  try {
+    await repairUnseededBlocksFields();
+  } catch {
+    // Retry in-process so a transient boot-time repair failure does not leave
+    // legacy databases without their primary Blocks field until a full reboot.
+    scheduleBlocksRepairRetry();
+  }
 }

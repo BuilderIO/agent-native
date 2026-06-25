@@ -1,6 +1,6 @@
-import type { AppLoadContext, EntryContext } from "react-router";
-import { ServerRouter } from "react-router";
 import ReactDOMServer from "react-dom/server.browser";
+import type { EntryContext, RouterContextProvider } from "react-router";
+import { ServerRouter } from "react-router";
 const { renderToReadableStream } = ReactDOMServer;
 import { isbot } from "isbot";
 
@@ -11,7 +11,7 @@ export default async function handleRequest(
   responseStatusCode: number,
   responseHeaders: Headers,
   routerContext: EntryContext,
-  _loadContext: AppLoadContext,
+  _loadContext: RouterContextProvider,
 ) {
   if (request.method.toUpperCase() === "HEAD") {
     return new Response(null, {

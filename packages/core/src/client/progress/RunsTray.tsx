@@ -1,5 +1,3 @@
-import { agentNativePath } from "../api-path.js";
-import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   IconAlertCircle,
   IconCheck,
@@ -10,25 +8,29 @@ import {
   IconSubtask,
   IconX,
 } from "@tabler/icons-react";
-import { usePausingInterval } from "../use-pausing-interval.js";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
 import type { AgentRun, ProgressStatus } from "../../progress/types.js";
-import { cn } from "../utils.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
+import { agentNativePath } from "../api-path.js";
 import {
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "../components/ui/dropdown-menu.js";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useFormatters, useT } from "../i18n.js";
+import { usePausingInterval } from "../use-pausing-interval.js";
+import { cn } from "../utils.js";
 
 type AgentRunDto = AgentRun;
 type RunsTrayTriggerVariant = "icon" | "pill";
@@ -72,6 +74,7 @@ function useRunsTrayState({
   RunsTrayProps,
   "pollMs" | "limit" | "hideWhenIdle" | "showRecent"
 >): RunsTrayState {
+  const t = useT();
   const [runs, setRuns] = useState<AgentRunDto[]>([]);
   const includeRecent = showRecent ?? !hideWhenIdle;
 
@@ -153,12 +156,12 @@ function useRunsTrayState({
   );
   const triggerLabel =
     activeCount > 0
-      ? `${activeCount} active run${activeCount > 1 ? "s" : ""}`
+      ? t("runsTray.activeRun", { count: activeCount })
       : failedCount > 0
-        ? `${failedCount} failed run${failedCount > 1 ? "s" : ""}`
+        ? t("runsTray.failedRun", { count: failedCount })
         : hasRuns
-          ? "Recent runs"
-          : "No recent runs";
+          ? t("runsTray.recentRuns")
+          : t("runsTray.noRecentRuns");
   const TriggerIcon =
     activeCount > 0
       ? IconLoader2
@@ -203,6 +206,7 @@ export function RunsTray({
   align = "end",
   className,
 }: RunsTrayProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const {
     runs,
@@ -249,7 +253,7 @@ export function RunsTray({
                   aria-hidden
                 />
                 {triggerVariant === "pill" ? (
-                  <span className="leading-none">Runs</span>
+                  <span className="leading-none">{t("runsTray.runs")}</span>
                 ) : null}
                 {activeCount > 0 ? (
                   <span
@@ -311,6 +315,7 @@ export function RunsTrayMenuItem({
   RunsTrayProps,
   "pollMs" | "limit" | "hideWhenIdle" | "showRecent" | "onOpenThread"
 >) {
+  const t = useT();
   const [submenuOpen, setSubmenuOpen] = useState(false);
   const {
     runs,
@@ -335,7 +340,7 @@ export function RunsTrayMenuItem({
   return (
     <DropdownMenuSub open={submenuOpen} onOpenChange={setSubmenuOpen}>
       <DropdownMenuSubTrigger
-        aria-label={`Agent runs, ${triggerLabel}`}
+        aria-label={t("runsTray.ariaAgentRuns", { label: triggerLabel })}
         className="cursor-pointer gap-2"
         onClick={(event) => {
           event.preventDefault();
@@ -353,7 +358,9 @@ export function RunsTrayMenuItem({
           className={cn(triggerTone, activeCount > 0 && "animate-spin")}
           aria-hidden
         />
-        <span className="min-w-0 flex-1 truncate">Agent runs</span>
+        <span className="min-w-0 flex-1 truncate">
+          {t("runsTray.agentRuns")}
+        </span>
         {activeCount > 0 ? (
           <span
             aria-label={triggerLabel}
@@ -405,16 +412,24 @@ function RunsTrayContent({
   onStop: (runId: string) => void;
   onOpenThread?: (threadId: string, run: AgentRunDto) => void;
 }) {
+  const t = useT();
   return (
     <>
       <div className="border-b border-border px-3 py-2">
-        <div className="text-sm font-medium text-foreground">Agent runs</div>
+        <div className="text-sm font-medium text-foreground">
+          {t("runsTray.agentRuns")}
+        </div>
         <div className="mt-0.5 text-[11px] text-muted-foreground">
           {activeCount > 0
-            ? `${activeCount} running${terminalCount > 0 ? ` · ${terminalCount} recent` : ""}`
+            ? terminalCount > 0
+              ? t("runsTray.summaryRunningRecent", {
+                  activeCount,
+                  terminalCount,
+                })
+              : t("runsTray.summaryRunning", { activeCount })
             : hasRuns
-              ? `${runs.length} recent run${runs.length > 1 ? "s" : ""}`
-              : "No tracked work yet"}
+              ? t("runsTray.summaryRecent", { count: runs.length })
+              : t("runsTray.noTrackedWorkYet")}
         </div>
       </div>
       {hasRuns ? (
@@ -437,11 +452,10 @@ function RunsTrayContent({
             aria-hidden
           />
           <div className="mt-2 text-sm font-medium text-foreground">
-            No recent runs
+            {t("runsTray.noRecentRuns")}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Background agent work will appear here while it runs and after it
-            finishes.
+            {t("runsTray.emptyDescription")}
           </p>
         </div>
       )}
@@ -465,21 +479,39 @@ function getRunThreadId(run: AgentRunDto): string | undefined {
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
-function formatRunTime(run: AgentRunDto): string {
+function formatRunTime(
+  run: AgentRunDto,
+  t: ReturnType<typeof useT>,
+  formatDate: ReturnType<typeof useFormatters>["formatDate"],
+): string {
   const when = run.completedAt ?? run.updatedAt ?? run.startedAt;
   const timestamp = Date.parse(when);
   if (!Number.isFinite(timestamp)) return "";
   const diffMs = Date.now() - timestamp;
-  const prefix = run.status === "running" ? "Updated" : "Finished";
-  if (diffMs < 30_000) return `${prefix} just now`;
+  const isRunning = run.status === "running";
+  if (diffMs < 30_000) {
+    return t(
+      isRunning ? "runsTray.updatedJustNow" : "runsTray.finishedJustNow",
+    );
+  }
   const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 60) return `${prefix} ${minutes}m ago`;
+  if (minutes < 60) {
+    return t(
+      isRunning ? "runsTray.updatedMinutes" : "runsTray.finishedMinutes",
+      {
+        count: minutes,
+      },
+    );
+  }
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${prefix} ${hours}h ago`;
-  return `${prefix} ${new Date(timestamp).toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-  })}`;
+  if (hours < 24) {
+    return t(isRunning ? "runsTray.updatedHours" : "runsTray.finishedHours", {
+      count: hours,
+    });
+  }
+  return t(isRunning ? "runsTray.updatedDate" : "runsTray.finishedDate", {
+    date: formatDate(timestamp, { month: "short", day: "numeric" }),
+  });
 }
 
 function isAgentTeamRun(run: AgentRunDto): boolean {
@@ -501,6 +533,8 @@ function RunRow({
   onStop: (runId: string) => void;
   onOpenThread?: (threadId: string, run: AgentRunDto) => void;
 }) {
+  const t = useT();
+  const { formatDate } = useFormatters();
   const threadId = getRunThreadId(run);
   const isRunning = run.status === "running";
   const canStop = isRunning && isAgentTeamRun(run);
@@ -541,7 +575,7 @@ function RunRow({
       ) : null}
       <div className="flex items-center justify-between gap-2">
         <span className="min-w-0 truncate text-[10px] text-muted-foreground/70">
-          {formatRunTime(run)}
+          {formatRunTime(run, t, formatDate)}
         </span>
         <div className="flex shrink-0 items-center gap-1">
           {threadId && onOpenThread ? (
@@ -550,14 +584,14 @@ function RunRow({
               className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent/60 hover:text-foreground"
               onClick={() => onOpenThread(threadId, run)}
             >
-              Open
+              {t("runsTray.open")}
               <IconExternalLink size={12} aria-hidden />
             </button>
           ) : null}
           {canStop ? (
             <button
               type="button"
-              aria-label={`Stop ${run.title}`}
+              aria-label={t("runsTray.stopRun", { title: run.title })}
               className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-destructive"
               onClick={() => onStop(run.id)}
             >
@@ -567,7 +601,7 @@ function RunRow({
           {!isRunning ? (
             <button
               type="button"
-              aria-label={`Hide ${run.title}`}
+              aria-label={t("runsTray.hideRun", { title: run.title })}
               className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
               onClick={() => onDismiss(run.id)}
             >
@@ -580,11 +614,11 @@ function RunRow({
   );
 }
 
-const STATUS_COPY: Record<ProgressStatus, string> = {
-  running: "Running",
-  succeeded: "Done",
-  failed: "Failed",
-  cancelled: "Stopped",
+const STATUS_COPY_KEYS: Record<ProgressStatus, string> = {
+  running: "runsTray.statusRunning",
+  succeeded: "runsTray.statusDone",
+  failed: "runsTray.statusFailed",
+  cancelled: "runsTray.statusStopped",
 };
 
 const STATUS_PILL_STYLES: Record<ProgressStatus, string> = {
@@ -595,6 +629,7 @@ const STATUS_PILL_STYLES: Record<ProgressStatus, string> = {
 };
 
 function StatusPill({ status }: { status: ProgressStatus }) {
+  const t = useT();
   const { Icon, className } = STATUS_GLYPHS[status];
   const spinClass = status === "running" ? " animate-spin" : "";
   return (
@@ -605,7 +640,7 @@ function StatusPill({ status }: { status: ProgressStatus }) {
       )}
     >
       <Icon size={12} className={`${className}${spinClass}`} aria-hidden />
-      {STATUS_COPY[status]}
+      {t(STATUS_COPY_KEYS[status])}
     </span>
   );
 }

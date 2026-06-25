@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   parseBrowserDiagnosticsRow,
   redactBrowserDiagnosticString,
@@ -90,5 +91,26 @@ describe("browser diagnostics helpers", () => {
         "Authorization: Bearer abc.def token=plain secret='quoted'",
       ),
     ).toBe("Authorization: <redacted> token=<redacted> secret='<redacted>'");
+  });
+
+  it("keeps benign console query values while redacting sensitive keys", () => {
+    expect(
+      redactBrowserDiagnosticString(
+        "Fetch failed /api/issues?ms=12833&frame=15166&view=recording&token=abc123",
+      ),
+    ).toBe(
+      "Fetch failed /api/issues?ms=12833&frame=15166&view=recording&token=<redacted>",
+    );
+  });
+
+  it("can redact all query values for URL fields", () => {
+    expect(
+      redactBrowserDiagnosticString(
+        "https://api.example.com/items?ms=12833&frame=15166&token=abc123",
+        { redactQueryValues: true },
+      ),
+    ).toBe(
+      "https://api.example.com/items?ms=<redacted>&frame=<redacted>&token=<redacted>",
+    );
   });
 });

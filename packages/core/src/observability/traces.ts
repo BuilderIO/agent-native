@@ -1,8 +1,8 @@
-import type { AgentChatEvent } from "../agent/types.js";
 import type { AgentLoopUsage } from "../agent/production-agent.js";
+import type { AgentChatEvent } from "../agent/types.js";
+import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
 import { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
-import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
 
 function spanId(): string {
   return `span-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

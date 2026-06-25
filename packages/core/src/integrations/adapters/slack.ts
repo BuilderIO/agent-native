@@ -1,5 +1,7 @@
 import type { H3Event } from "h3";
 import { createError, getHeader, readRawBody } from "h3";
+
+import type { EnvKeyConfig } from "../../server/create-server.js";
 import type {
   PlatformAdapter,
   IncomingMessage,
@@ -7,7 +9,6 @@ import type {
   IntegrationStatus,
   OutboundTarget,
 } from "../types.js";
-import type { EnvKeyConfig } from "../../server/create-server.js";
 
 /** Slack's max message length */
 const SLACK_MAX_LENGTH = 4000;

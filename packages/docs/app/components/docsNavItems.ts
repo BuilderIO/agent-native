@@ -1,191 +1,383 @@
-export type NavItem = { label: string; to?: string; children?: NavItem[] };
-export type NavSection = { title: string; items: NavItem[] };
+import enUS from "../i18n/en-US";
+import {
+  DEFAULT_DOCS_LOCALE,
+  docsPathForSlug,
+  type DocsLocale,
+} from "./docs-locale";
 
-export const NAV_SECTIONS: NavSection[] = [
+export type NavItem = {
+  id: string;
+  label: string;
+  to?: string;
+  children?: NavItem[];
+};
+export type NavSection = { id: string; title: string; items: NavItem[] };
+
+type Translate = (key: string) => string;
+
+type NavItemConfig = {
+  id: string;
+  labelKey: keyof typeof enUS.nav;
+  slug?: string;
+  children?: NavItemConfig[];
+};
+
+type NavSectionConfig = {
+  id: string;
+  titleKey: keyof typeof enUS.nav;
+  items: NavItemConfig[];
+};
+
+const NAV_SECTION_CONFIG: NavSectionConfig[] = [
   {
-    title: "Overview",
+    id: "overview",
+    titleKey: "overview",
     items: [
-      { label: "Getting Started", to: "/docs" as const },
       {
-        label: "What Is Agent-Native?",
-        to: "/docs/what-is-agent-native" as const,
+        id: "getting-started",
+        labelKey: "gettingStarted",
+        slug: "getting-started",
       },
-      { label: "Agent Surfaces", to: "/docs/agent-surfaces" as const },
-      { label: "Key Concepts", to: "/docs/key-concepts" as const },
-      { label: "Templates", to: "/docs/cloneable-saas" as const },
-      { label: "FAQ", to: "/docs/faq" as const },
+      {
+        id: "what-is-agent-native",
+        labelKey: "whatIsAgentNative",
+        slug: "what-is-agent-native",
+      },
+      {
+        id: "agent-surfaces",
+        labelKey: "agentSurfaces",
+        slug: "agent-surfaces",
+      },
+      { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
+      { id: "cloneable-saas", labelKey: "templates", slug: "cloneable-saas" },
+      { id: "faq", labelKey: "faq", slug: "faq" },
     ],
   },
   {
-    title: "Core Architecture",
+    id: "core-architecture",
+    titleKey: "coreArchitecture",
     items: [
-      { label: "Server", to: "/docs/server" as const },
-      { label: "Client", to: "/docs/client" as const },
-      { label: "Routing", to: "/docs/routing" as const },
-      { label: "Actions", to: "/docs/actions" as const },
-      { label: "Human Approval", to: "/docs/human-approval" as const },
-      { label: "Public Agent Web", to: "/docs/agent-web-surfaces" as const },
-      { label: "Database", to: "/docs/database" as const },
-      { label: "Local File Mode", to: "/docs/local-file-mode" as const },
-      { label: "File Uploads", to: "/docs/file-uploads" as const },
-      { label: "Deployment", to: "/docs/deployment" as const },
-      { label: "Progress", to: "/docs/progress" as const },
+      { id: "server", labelKey: "server", slug: "server" },
+      { id: "client", labelKey: "client", slug: "client" },
+      { id: "routing", labelKey: "routing", slug: "routing" },
+      { id: "actions", labelKey: "actions", slug: "actions" },
+      {
+        id: "human-approval",
+        labelKey: "humanApproval",
+        slug: "human-approval",
+      },
+      {
+        id: "agent-web-surfaces",
+        labelKey: "publicAgentWeb",
+        slug: "agent-web-surfaces",
+      },
+      { id: "database", labelKey: "database", slug: "database" },
+      {
+        id: "internationalization",
+        labelKey: "internationalization",
+        slug: "internationalization",
+      },
+      {
+        id: "local-file-mode",
+        labelKey: "localFileMode",
+        slug: "local-file-mode",
+      },
+      { id: "file-uploads", labelKey: "fileUploads", slug: "file-uploads" },
+      { id: "deployment", labelKey: "deployment", slug: "deployment" },
+      { id: "progress", labelKey: "progress", slug: "progress" },
     ],
   },
   {
-    title: "Data, Auth & Governance",
+    id: "data-auth-governance",
+    titleKey: "dataAuthGovernance",
     items: [
-      { label: "Authentication", to: "/docs/authentication" as const },
-      { label: "Multi-Tenancy", to: "/docs/multi-tenancy" as const },
-      { label: "Security & Data Scoping", to: "/docs/security" as const },
-      { label: "Sharing & Privacy", to: "/docs/sharing" as const },
-      { label: "Tracking & Analytics", to: "/docs/tracking" as const },
-      { label: "Observability", to: "/docs/observability" as const },
       {
-        label: "Observational Memory",
-        to: "/docs/observational-memory" as const,
+        id: "authentication",
+        labelKey: "authentication",
+        slug: "authentication",
       },
-      { label: "CI Eval Gate", to: "/docs/evals" as const },
+      { id: "multi-tenancy", labelKey: "multiTenancy", slug: "multi-tenancy" },
+      {
+        id: "security",
+        labelKey: "securityDataScoping",
+        slug: "security",
+      },
+      { id: "sharing", labelKey: "sharingPrivacy", slug: "sharing" },
+      {
+        id: "tracking",
+        labelKey: "trackingAnalytics",
+        slug: "tracking",
+      },
+      { id: "audit-log", labelKey: "auditLog", slug: "audit-log" },
+      { id: "observability", labelKey: "observability", slug: "observability" },
+      {
+        id: "observational-memory",
+        labelKey: "observationalMemory",
+        slug: "observational-memory",
+      },
+      { id: "evals", labelKey: "ciEvalGate", slug: "evals" },
     ],
   },
   {
-    title: "Using Your Agent",
+    id: "using-your-agent",
+    titleKey: "usingYourAgent",
     items: [
-      { label: "Overview", to: "/docs/using-your-agent" as const },
-      { label: "Context Awareness", to: "/docs/context-awareness" as const },
-      { label: "Agent Mentions", to: "/docs/agent-mentions" as const },
-      { label: "Voice Input", to: "/docs/voice-input" as const },
-      { label: "Drop-in Agent", to: "/docs/drop-in-agent" as const },
-      { label: "Component API", to: "/docs/components" as const },
-      { label: "Native Chat UI", to: "/docs/native-chat-ui" as const },
       {
-        label: "Real-Time Collaboration",
-        to: "/docs/real-time-collaboration" as const,
-      },
-    ],
-  },
-  {
-    title: "Workspace",
-    items: [
-      { label: "Workspace Overview", to: "/docs/workspace" as const },
-      { label: "Skills", to: "/docs/skills-guide" as const },
-      { label: "Custom Agents & Teams", to: "/docs/agent-teams" as const },
-      {
-        label: "Workspace Governance",
-        to: "/docs/workspace-management" as const,
-      },
-      { label: "Recurring Jobs", to: "/docs/recurring-jobs" as const },
-      { label: "Automations", to: "/docs/automations" as const },
-      { label: "Extensions", to: "/docs/extensions" as const },
-      {
-        label: "Multi-App Workspaces",
-        to: "/docs/multi-app-workspace" as const,
-      },
-      { label: "Onboarding & API Keys", to: "/docs/onboarding" as const },
-    ],
-  },
-  {
-    title: "Integrations",
-    items: [
-      { label: "Messaging (Slack, Email…)", to: "/docs/messaging" as const },
-      { label: "Dispatch", to: "/docs/dispatch" as const },
-      { label: "A2A Protocol", to: "/docs/a2a-protocol" as const },
-      {
-        label: "MCP Clients (Add Tools)",
-        to: "/docs/mcp-clients" as const,
+        id: "using-your-agent-overview",
+        labelKey: "usingYourAgentOverview",
+        slug: "using-your-agent",
       },
       {
-        label: "MCP Server (Expose Your App)",
-        to: "/docs/mcp-protocol" as const,
+        id: "context-awareness",
+        labelKey: "contextAwareness",
+        slug: "context-awareness",
       },
       {
-        label: "External Agents (Connect a Host)",
-        to: "/docs/external-agents" as const,
+        id: "agent-mentions",
+        labelKey: "agentMentions",
+        slug: "agent-mentions",
       },
-      { label: "MCP Apps (Inline UIs)", to: "/docs/mcp-apps" as const },
-      { label: "Cross-App SSO", to: "/docs/cross-app-sso" as const },
-      { label: "Notifications", to: "/docs/notifications" as const },
+      { id: "voice-input", labelKey: "voiceInput", slug: "voice-input" },
+      { id: "drop-in-agent", labelKey: "dropInAgent", slug: "drop-in-agent" },
+      { id: "components", labelKey: "componentApi", slug: "components" },
       {
-        label: "Workspace Connections",
-        to: "/docs/workspace-connections" as const,
+        id: "native-chat-ui",
+        labelKey: "nativeChatUi",
+        slug: "native-chat-ui",
       },
-    ],
-  },
-  {
-    title: "Build Apps",
-    items: [
-      { label: "Creating Templates", to: "/docs/creating-templates" as const },
       {
-        label: "Writing Agent Instructions",
-        to: "/docs/writing-agent-instructions" as const,
-      },
-      { label: "Embedding SDK", to: "/docs/embedding-sdk" as const },
-      { label: "Frames", to: "/docs/frames" as const },
-    ],
-  },
-  {
-    title: "Advanced: Extend the Runtime",
-    items: [
-      { label: "Agent-Native Code UI", to: "/docs/code-agents-ui" as const },
-      {
-        label: "Migrating (/migrate)",
-        to: "/docs/migration-workbench" as const,
-      },
-      { label: "Harness Agents", to: "/docs/harness-agents" as const },
-      { label: "Adapters", to: "/docs/sandbox-adapters" as const },
-      { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
-      { label: "In-Loop Processors", to: "/docs/processors" as const },
-      { label: "Durable Resume", to: "/docs/durable-resume" as const },
-      {
-        label: "Blueprint Installer",
-        to: "/docs/blueprint-installer" as const,
+        id: "real-time-collaboration",
+        labelKey: "realTimeCollaboration",
+        slug: "real-time-collaboration",
       },
     ],
   },
   {
-    title: "Templates",
-    // ── DO NOT add new templates here directly. ──
-    // The public-facing template list is the strict allow-list in
-    // `packages/shared-app-config/templates.ts` (entries with `hidden: false`).
-    // To surface a new template in the docs sidebar, first flip its `hidden`
-    // flag in that file. The CI guard `scripts/guard-template-list.mjs`
-    // enforces this — adding a slug here that isn't in the allow-list will
-    // fail the build.
-    //
-    // Important: this is the docs sidebar, so these links must point to the
-    // markdown docs under `/docs/template-<slug>`, never the marketing/demo
-    // landing pages under `/templates/<slug>`. The tests and guard script
-    // intentionally enforce this because this list has regressed before.
+    id: "workspace",
+    titleKey: "workspace",
     items: [
-      { label: "Chat", to: "/docs/template-chat" as const },
-      { label: "Calendar", to: "/docs/template-calendar" as const },
-      { label: "Content", to: "/docs/template-content" as const },
       {
-        // Chevron-only group: no `to`, so it renders as an expand/collapse
-        // toggle, not a link. The main Plans doc is the first child below.
-        label: "Plans",
+        id: "workspace-overview",
+        labelKey: "workspaceOverview",
+        slug: "workspace",
+      },
+      { id: "skills-guide", labelKey: "skills", slug: "skills-guide" },
+      {
+        id: "agent-teams",
+        labelKey: "customAgentsTeams",
+        slug: "agent-teams",
+      },
+      {
+        id: "workspace-management",
+        labelKey: "workspaceGovernance",
+        slug: "workspace-management",
+      },
+      {
+        id: "recurring-jobs",
+        labelKey: "recurringJobs",
+        slug: "recurring-jobs",
+      },
+      { id: "automations", labelKey: "automations", slug: "automations" },
+      { id: "extensions", labelKey: "extensions", slug: "extensions" },
+      {
+        id: "multi-app-workspace",
+        labelKey: "multiAppWorkspaces",
+        slug: "multi-app-workspace",
+      },
+      {
+        id: "onboarding",
+        labelKey: "onboardingApiKeys",
+        slug: "onboarding",
+      },
+    ],
+  },
+  {
+    id: "integrations",
+    titleKey: "integrations",
+    items: [
+      { id: "messaging", labelKey: "messaging", slug: "messaging" },
+      { id: "dispatch", labelKey: "dispatch", slug: "dispatch" },
+      { id: "a2a-protocol", labelKey: "a2aProtocol", slug: "a2a-protocol" },
+      { id: "mcp-clients", labelKey: "mcpClients", slug: "mcp-clients" },
+      {
+        id: "mcp-protocol",
+        labelKey: "mcpServer",
+        slug: "mcp-protocol",
+      },
+      {
+        id: "external-agents",
+        labelKey: "externalAgents",
+        slug: "external-agents",
+      },
+      { id: "mcp-apps", labelKey: "mcpApps", slug: "mcp-apps" },
+      { id: "cross-app-sso", labelKey: "crossAppSso", slug: "cross-app-sso" },
+      { id: "notifications", labelKey: "notifications", slug: "notifications" },
+      {
+        id: "workspace-connections",
+        labelKey: "workspaceConnections",
+        slug: "workspace-connections",
+      },
+    ],
+  },
+  {
+    id: "build-apps",
+    titleKey: "buildApps",
+    items: [
+      {
+        id: "creating-templates",
+        labelKey: "creatingTemplates",
+        slug: "creating-templates",
+      },
+      {
+        id: "writing-agent-instructions",
+        labelKey: "writingAgentInstructions",
+        slug: "writing-agent-instructions",
+      },
+      { id: "embedding-sdk", labelKey: "embeddingSdk", slug: "embedding-sdk" },
+      { id: "frames", labelKey: "frames", slug: "frames" },
+    ],
+  },
+  {
+    id: "advanced-runtime",
+    titleKey: "advancedRuntime",
+    items: [
+      {
+        id: "code-agents-ui",
+        labelKey: "agentNativeCodeUi",
+        slug: "code-agents-ui",
+      },
+      {
+        id: "migration-workbench",
+        labelKey: "migrating",
+        slug: "migration-workbench",
+      },
+      {
+        id: "harness-agents",
+        labelKey: "harnessAgents",
+        slug: "harness-agents",
+      },
+      {
+        id: "sandbox-adapters",
+        labelKey: "adapters",
+        slug: "sandbox-adapters",
+      },
+      { id: "cli-adapters", labelKey: "cliAdapters", slug: "cli-adapters" },
+      { id: "processors", labelKey: "processors", slug: "processors" },
+      {
+        id: "durable-resume",
+        labelKey: "durableResume",
+        slug: "durable-resume",
+      },
+      {
+        id: "durable-background-runs",
+        labelKey: "durableBackgroundRuns",
+        slug: "durable-background-runs",
+      },
+      {
+        id: "blueprint-installer",
+        labelKey: "blueprintInstaller",
+        slug: "blueprint-installer",
+      },
+    ],
+  },
+  {
+    id: "templates",
+    titleKey: "templatesSection",
+    // Do not add new templates here directly. The public-facing template list
+    // is the strict allow-list in `packages/shared-app-config/templates.ts`
+    // (entries with `hidden: false`). The CI guard enforces this.
+    items: [
+      { id: "template-chat", labelKey: "chat", slug: "template-chat" },
+      {
+        id: "template-calendar",
+        labelKey: "calendar",
+        slug: "template-calendar",
+      },
+      { id: "template-content", labelKey: "content", slug: "template-content" },
+      {
+        id: "plans-group",
+        labelKey: "plans",
         children: [
-          { label: "Visual Plans", to: "/docs/template-plan" as const },
-          { label: "PR Visual Recap", to: "/docs/pr-visual-recap" as const },
           {
-            label: "Plan Plugin & Marketplace",
-            to: "/docs/plan-plugin" as const,
+            id: "template-plan",
+            labelKey: "visualPlans",
+            slug: "template-plan",
+          },
+          {
+            id: "pr-visual-recap",
+            labelKey: "prVisualRecap",
+            slug: "pr-visual-recap",
+          },
+          {
+            id: "plan-plugin",
+            labelKey: "planPluginMarketplace",
+            slug: "plan-plugin",
           },
         ],
       },
-      { label: "Slides", to: "/docs/template-slides" as const },
-      { label: "Video", to: "/docs/template-videos" as const },
-      { label: "Analytics", to: "/docs/template-analytics" as const },
-      { label: "Mail", to: "/docs/template-mail" as const },
-      { label: "Clips", to: "/docs/template-clips" as const },
-      { label: "Brain", to: "/docs/template-brain" as const },
-      { label: "Assets", to: "/docs/template-assets" as const },
-      { label: "Design", to: "/docs/template-design" as const },
-      { label: "Dispatch", to: "/docs/template-dispatch" as const },
-      { label: "Forms", to: "/docs/template-forms" as const },
+      { id: "template-slides", labelKey: "slides", slug: "template-slides" },
+      { id: "template-videos", labelKey: "video", slug: "template-videos" },
+      {
+        id: "template-analytics",
+        labelKey: "analytics",
+        slug: "template-analytics",
+      },
+      { id: "template-mail", labelKey: "mail", slug: "template-mail" },
+      { id: "template-clips", labelKey: "clips", slug: "template-clips" },
+      { id: "template-brain", labelKey: "brain", slug: "template-brain" },
+      { id: "template-assets", labelKey: "assets", slug: "template-assets" },
+      { id: "template-design", labelKey: "design", slug: "template-design" },
+      {
+        id: "template-dispatch",
+        labelKey: "dispatch",
+        slug: "template-dispatch",
+      },
+      { id: "template-forms", labelKey: "forms", slug: "template-forms" },
     ],
   },
 ];
+
+function enMessage(key: string): string {
+  const value = key
+    .split(".")
+    .reduce<unknown>(
+      (current, part) =>
+        current && typeof current === "object"
+          ? (current as Record<string, unknown>)[part]
+          : undefined,
+      enUS,
+    );
+  return typeof value === "string" ? value : key;
+}
+
+function navLabel(t: Translate, key: keyof typeof enUS.nav): string {
+  return t(`nav.${key}`) || enMessage(`nav.${key}`);
+}
+
+function toNavItem(
+  config: NavItemConfig,
+  locale: DocsLocale,
+  t: Translate,
+): NavItem {
+  const slug = config.slug;
+  return {
+    id: config.id,
+    label: navLabel(t, config.labelKey),
+    to: slug ? docsPathForSlug(slug, locale) : undefined,
+    children: config.children?.map((child) => toNavItem(child, locale, t)),
+  };
+}
+
+export function getDocsNavSections(
+  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+  t: Translate = enMessage,
+): NavSection[] {
+  return NAV_SECTION_CONFIG.map((section) => ({
+    id: section.id,
+    title: navLabel(t, section.titleKey),
+    items: section.items.map((item) => toNavItem(item, locale, t)),
+  }));
+}
 
 // Flat list for prev/next navigation and current-item lookups. Nested
 // children (e.g. the plan docs under the Plans group) are flattened in place
@@ -201,8 +393,14 @@ function flattenItems(items: NavItem[]): NavItem[] {
   );
 }
 
-// flattenItems already drops chevron-only group headers, so every entry here
-// has a real `to`; narrow the type so prev/next consumers see a definite path.
-export const NAV_ITEMS: (NavItem & { to: string })[] = NAV_SECTIONS.flatMap(
-  (s) => flattenItems(s.items),
-).filter((item): item is NavItem & { to: string } => item.to !== undefined);
+export function getDocsNavItems(
+  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+  t: Translate = enMessage,
+): (NavItem & { to: string })[] {
+  return getDocsNavSections(locale, t)
+    .flatMap((section) => flattenItems(section.items))
+    .filter((item): item is NavItem & { to: string } => item.to !== undefined);
+}
+
+export const NAV_SECTIONS: NavSection[] = getDocsNavSections();
+export const NAV_ITEMS: (NavItem & { to: string })[] = getDocsNavItems();

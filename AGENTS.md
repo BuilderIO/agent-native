@@ -120,7 +120,7 @@ instructions, and application state.
 ## Frontend And UX
 
 - TypeScript everywhere. Do not add `.js` or `.mjs` source files.
-- Run Prettier on modified source files.
+- Run oxfmt on modified source files.
 - Use shadcn/ui primitives for standard controls and dialogs. Do not build custom
   dropdowns/popovers/modals with absolute positioning.
 - Use Tabler Icons for UI icons. Do not use emojis as first-party icons.
@@ -185,8 +185,13 @@ Read the relevant skill before making changes in that area:
 - `context-xray` for inspecting and managing the live agent context window.
 - `actions` for action definitions and invocation.
 - `storing-data`, `portability`, `security`, `sharing` for data work.
+- `audit-log` for the automatic action-level audit trail (who changed what,
+  when, agent vs human) and the scoped `list-audit-events` read surface.
 - `performance` for keeping lists, reads, and page loads fast — column
   projection, indexing hot-path queries, and avoiding round-trip waterfalls.
+- `reliable-mutations` for writing data so it persists under the hosted run
+  budget — one atomic call, never loop many small writes, verify and report
+  proof-of-done, fail loud on cutoff.
 - `real-time-sync`, `context-awareness`, `client-side-routing` for UI state.
 - `client-methods` for browser/client APIs that must use named helpers instead
   of raw REST calls.

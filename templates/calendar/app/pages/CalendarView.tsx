@@ -1,7 +1,23 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { Link } from "react-router";
-import { cn } from "@/lib/utils";
-import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import {
+  AgentToggleButton,
+  agentNativePath,
+  NotificationsBell,
+  useT,
+} from "@agent-native/core/client";
+import type {
+  CalendarEvent,
+  CalendarEventDraft,
+  UpdateEventScope,
+} from "@shared/api";
+import {
+  IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronDown,
+  IconMenu2,
+  IconSearch,
+} from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   format,
   startOfMonth,
@@ -17,14 +33,25 @@ import {
   parseISO,
   startOfDay,
 } from "date-fns";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { Link } from "react-router";
+import { toast } from "sonner";
+
+import { CommandPalette } from "@/components/calendar/CommandPalette";
+import { CreateEventPopover } from "@/components/calendar/CreateEventDialog";
+import { DayView } from "@/components/calendar/DayView";
+import { DeleteEventDialog } from "@/components/calendar/DeleteEventDialog";
+import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
+import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import {
-  IconCheck,
-  IconChevronLeft,
-  IconChevronRight,
-  IconChevronDown,
-  IconMenu2,
-  IconSearch,
-} from "@tabler/icons-react";
+  shouldPromptGuests,
+  useGuestNotificationPrompt,
+} from "@/components/calendar/GuestNotificationDialog";
+import { MonthView } from "@/components/calendar/MonthView";
+import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
+import { WeekView } from "@/components/calendar/WeekView";
+import { useCalendarContext } from "@/components/layout/AppLayout";
+import type { ViewMode } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -34,27 +61,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Spinner } from "@/components/ui/spinner";
-import { MonthView } from "@/components/calendar/MonthView";
-import { WeekView } from "@/components/calendar/WeekView";
-import { DayView } from "@/components/calendar/DayView";
-import { CreateEventPopover } from "@/components/calendar/CreateEventDialog";
-import { CommandPalette } from "@/components/calendar/CommandPalette";
-import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
-import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
-import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
-import { DeleteEventDialog } from "@/components/calendar/DeleteEventDialog";
-import {
-  shouldPromptGuests,
-  useGuestNotificationPrompt,
-} from "@/components/calendar/GuestNotificationDialog";
-import { useCalendarContext } from "@/components/layout/AppLayout";
 import {
   useEvents,
   useCreateEvent,
@@ -63,38 +76,20 @@ import {
   prefetchEvents,
   shouldShowEventsSkeleton,
 } from "@/hooks/use-events";
-import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import { useSettings } from "@/hooks/use-settings";
-import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { useMeetingStartNotifications } from "@/hooks/use-meeting-start-notifications";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  AgentToggleButton,
-  agentNativePath,
-  NotificationsBell,
-} from "@agent-native/core/client";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { toast } from "sonner";
+import { useOverlayPeople } from "@/hooks/use-overlay-people";
+import { useSettings } from "@/hooks/use-settings";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
-import type {
-  CalendarEvent,
-  CalendarEventDraft,
-  UpdateEventScope,
-} from "@shared/api";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { getGoogleEventColorHex } from "@/lib/event-colors";
 import {
   dateTimeInTimezoneToIso,
   getLocalTimezone,
 } from "@/lib/event-form-utils";
-import { getGoogleEventColorHex } from "@/lib/event-colors";
-
-import type { ViewMode } from "@/components/layout/AppLayout";
-
-const viewModeLabels: Record<ViewMode, string> = {
-  month: "Month",
-  week: "Week",
-  day: "Day",
-};
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { cn } from "@/lib/utils";
 
 const CALENDAR_DRAFT_EVENT_PREFIX = "calendar-draft-event:";
 
@@ -292,6 +287,7 @@ function deletePersistedCalendarDraft(id: string) {
 }
 
 export default function CalendarView() {
+  const t = useT();
   const isMobile = useIsMobile();
   const {
     selectedDate,
@@ -345,6 +341,11 @@ export default function CalendarView() {
   const deleteEvent = useDeleteEvent();
   const { promptGuestNotification, guestNotificationDialog } =
     useGuestNotificationPrompt();
+  const viewModeLabels: Record<ViewMode, string> = {
+    month: t("calendarView.month"),
+    week: t("calendarView.week"),
+    day: t("calendarView.day"),
+  };
 
   // Compute date range for query based on view
   const { from, to } = useMemo(() => {
@@ -578,14 +579,14 @@ export default function CalendarView() {
         trimmedTitle && trimmedTitle !== "(No title)" ? trimmedTitle : "";
       if (!title && !isSlotDraftId(draftId)) {
         committingDraftIdsRef.current.delete(draftId);
-        toast.error("Add a title before creating the event");
+        toast.error(t("calendarView.addTitleBeforeCreate"));
         return;
       }
 
       const { start, end } = draftRange(draft, selectedDate);
       if (end.getTime() <= start.getTime()) {
         committingDraftIdsRef.current.delete(draftId);
-        toast.error("End time must be after start time");
+        toast.error(t("calendarView.endTimeAfterStart"));
         return;
       }
 
@@ -668,7 +669,9 @@ export default function CalendarView() {
             setQuickEditEventId(calendarDraftEventId(draftId));
           }
           toast.error(
-            error instanceof Error ? error.message : "Failed to create event",
+            error instanceof Error
+              ? error.message
+              : t("eventForm.createFailed"),
           );
         },
         onSettled: () => {
@@ -676,7 +679,7 @@ export default function CalendarView() {
         },
       });
     },
-    [createEvent, deleteEvent, eventDraft, selectedDate, setEventDraft],
+    [createEvent, deleteEvent, eventDraft, selectedDate, setEventDraft, t],
   );
 
   const updateDraftEvent = useCallback(
@@ -750,7 +753,7 @@ export default function CalendarView() {
 
   function handleOpenSelectedEventInGoogleCalendar(event: CalendarEvent) {
     if (!event.htmlLink) {
-      toast.error("Google Calendar link unavailable");
+      toast.error(t("calendarView.googleCalendarLinkUnavailable"));
       return;
     }
 
@@ -763,7 +766,7 @@ export default function CalendarView() {
             url.pathname.startsWith("/calendar/")));
 
       if (!isGoogleCalendarUrl) {
-        toast.error("Google Calendar link unavailable");
+        toast.error(t("calendarView.googleCalendarLinkUnavailable"));
         return;
       }
 
@@ -776,7 +779,7 @@ export default function CalendarView() {
         window.location.assign(url.toString());
       }
     } catch {
-      toast.error("Google Calendar link unavailable");
+      toast.error(t("calendarView.googleCalendarLinkUnavailable"));
     }
   }
 
@@ -822,11 +825,16 @@ export default function CalendarView() {
         onSuccess: () => {
           if (sidebarEvent?.id === ev.id) setSidebarEvent(null);
           setUndoAction(undo);
-          toast(`Event ${removeOnly ? "removed" : "deleted"}`, {
-            action: { label: "Undo", onClick: undo },
-          });
+          toast(
+            removeOnly
+              ? t("calendarView.eventRemoved")
+              : t("calendarView.eventDeleted"),
+            {
+              action: { label: t("calendarView.undo"), onClick: undo },
+            },
+          );
         },
-        onError: () => toast.error("Failed to delete event"),
+        onError: () => toast.error(t("calendarView.failedDeleteEvent")),
       },
     );
   }
@@ -922,7 +930,9 @@ export default function CalendarView() {
       });
     };
     const toastId = toast.loading(
-      isRecurring ? "Updating recurring event..." : "Moving event...",
+      isRecurring
+        ? t("calendarView.updatingRecurringEvent")
+        : t("calendarView.movingEvent"),
     );
 
     updateEvent.mutate(
@@ -934,12 +944,13 @@ export default function CalendarView() {
       {
         onSuccess: () => {
           setUndoAction(undo);
-          toast.success("Event moved", {
+          toast.success(t("calendarView.eventMoved"), {
             id: toastId,
-            action: { label: "Undo", onClick: undo },
+            action: { label: t("calendarView.undo"), onClick: undo },
           });
         },
-        onError: () => toast.error("Failed to move event", { id: toastId }),
+        onError: () =>
+          toast.error(t("calendarView.failedMoveEvent"), { id: toastId }),
       },
     );
   }
@@ -998,7 +1009,9 @@ export default function CalendarView() {
       });
     };
     const toastId = toast.loading(
-      isRecurring ? "Updating recurring event..." : "Updating event...",
+      isRecurring
+        ? t("calendarView.updatingRecurringEvent")
+        : t("calendarView.updatingEvent"),
     );
 
     updateEvent.mutate(
@@ -1010,12 +1023,13 @@ export default function CalendarView() {
       {
         onSuccess: () => {
           setUndoAction(undo);
-          toast.success("Event updated", {
+          toast.success(t("calendarView.eventUpdated"), {
             id: toastId,
-            action: { label: "Undo", onClick: undo },
+            action: { label: t("calendarView.undo"), onClick: undo },
           });
         },
-        onError: () => toast.error("Failed to update event", { id: toastId }),
+        onError: () =>
+          toast.error(t("calendarView.failedUpdateEvent"), { id: toastId }),
       },
     );
   }
@@ -1031,9 +1045,7 @@ export default function CalendarView() {
       activeSettings = result.data;
     }
     if (!activeSettings?.timezone) {
-      toast.error(
-        "Calendar settings are still loading. Try again in a moment.",
-      );
+      toast.error(t("calendarView.calendarSettingsLoading"));
       return;
     }
 
@@ -1275,13 +1287,13 @@ export default function CalendarView() {
                     size="icon"
                     className="h-8 w-8 lg:hidden"
                     onClick={openSidebar}
-                    aria-label="Open navigation"
+                    aria-label={t("calendarView.openNavigation")}
                   >
                     <IconMenu2 className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p>Open navigation</p>
+                  <p>{t("calendarView.openNavigation")}</p>
                 </TooltipContent>
               </Tooltip>
               <DropdownMenu>
@@ -1297,26 +1309,26 @@ export default function CalendarView() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   <DropdownMenuItem onClick={() => setViewMode("day")}>
-                    Day
+                    {t("calendarView.day")}
                     <kbd className="ml-auto text-[10px] text-muted-foreground">
                       D
                     </kbd>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setViewMode("week")}>
-                    Week
+                    {t("calendarView.week")}
                     <kbd className="ml-auto text-[10px] text-muted-foreground">
                       W
                     </kbd>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setViewMode("month")}>
-                    Month
+                    {t("calendarView.month")}
                     <kbd className="ml-auto text-[10px] text-muted-foreground">
                       M
                     </kbd>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel className="text-[10px] font-normal uppercase tracking-wider text-muted-foreground">
-                    Display
+                    {t("calendarView.display")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem
                     onSelect={(e) => {
@@ -1324,7 +1336,7 @@ export default function CalendarView() {
                       setViewPrefs({ hideWeekends: !viewPrefs.hideWeekends });
                     }}
                   >
-                    Hide weekends
+                    {t("calendarView.hideWeekends")}
                     {viewPrefs.hideWeekends && (
                       <IconCheck className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
                     )}
@@ -1343,12 +1355,12 @@ export default function CalendarView() {
                     onClick={handleToday}
                     className="h-7 px-2 text-xs font-medium sm:px-2.5"
                   >
-                    Today
+                    {t("calendarView.today")}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   <p>
-                    Go to today{" "}
+                    {t("eventForm.goToToday")}{" "}
                     <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
                       T
                     </kbd>
@@ -1381,7 +1393,7 @@ export default function CalendarView() {
               {eventsRefreshing && (
                 <Spinner
                   className="ml-1 size-3.5 shrink-0 text-muted-foreground"
-                  aria-label="Loading calendars"
+                  aria-label={t("calendarView.loadingCalendars")}
                 />
               )}
             </div>
@@ -1401,7 +1413,7 @@ export default function CalendarView() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   <p>
-                    Search{" "}
+                    {t("root.commandSearch")}{" "}
                     <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
                       /
                     </kbd>
@@ -1412,7 +1424,9 @@ export default function CalendarView() {
               {!isMobile && (
                 <NotificationsBell
                   browserNotifications
-                  emptyDescription="Calendar can pop browser alerts while this app is open. Clips desktop handles fuller meeting prompts with one-click notes."
+                  emptyDescription={t(
+                    "calendarView.notificationEmptyDescription",
+                  )}
                 />
               )}
               <CreateEventPopover
@@ -1576,13 +1590,17 @@ export default function CalendarView() {
               { id: eventId, ...options },
               {
                 onSuccess: () => {
-                  const label = options.removeOnly ? "removed" : "deleted";
                   setUndoAction(undo);
-                  toast(`Event ${label}`, {
-                    action: { label: "Undo", onClick: undo },
-                  });
+                  toast(
+                    options.removeOnly
+                      ? t("calendarView.eventRemoved")
+                      : t("calendarView.eventDeleted"),
+                    {
+                      action: { label: t("calendarView.undo"), onClick: undo },
+                    },
+                  );
                 },
-                onError: () => toast.error("Failed to delete event"),
+                onError: () => toast.error(t("calendarView.failedDeleteEvent")),
               },
             );
           }}
@@ -1594,6 +1612,7 @@ export default function CalendarView() {
 }
 
 function AccountAvatars() {
+  const t = useT();
   const googleStatus = useGoogleAuthStatus();
   const accounts = googleStatus.data?.accounts ?? [];
   if (accounts.length === 0) return null;
@@ -1604,7 +1623,7 @@ function AccountAvatars() {
         <Link
           to="/settings"
           className="flex items-center hover:opacity-90 ml-1"
-          aria-label="Manage accounts"
+          aria-label={t("calendarView.manageAccounts")}
         >
           <div className="flex items-center">
             {accounts.map((account, i) => (

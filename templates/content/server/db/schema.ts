@@ -100,8 +100,22 @@ export const contentDatabases = table("content_databases", {
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   orgId: text("org_id"),
   documentId: text("document_id").notNull(),
+  ownerDocumentId: text("owner_document_id"),
+  ownerBlockId: text("owner_block_id"),
   title: text("title").notNull().default("Untitled database"),
   viewConfigJson: text("view_config_json").notNull().default("{}"),
+  // Single source of truth for the primary "Content" Blocks field — the one
+  // backed by `documents.content`. A DB-enforced single-primary invariant: at
+  // most one property id lives here, so two concurrent seeds can never produce
+  // two aliasing primaries. NULL means there is currently no primary Blocks
+  // field (never seeded, or the primary was intentionally deleted).
+  primaryBlocksPropertyId: text("primary_blocks_property_id"),
+  // 1 once a database has been seeded with its primary Blocks field at least
+  // once. Distinguishes "never seeded" (legacy database needing backfill) from
+  // "primary intentionally deleted" (seeded once, then removed — must NOT be
+  // reseeded). See delete-document-property.
+  blocksSeeded: integer("blocks_seeded").notNull().default(0),
+  deletedAt: text("deleted_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -242,5 +256,24 @@ export const documentPropertyValues = table("document_property_values", {
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
+
+// Independent backing store for ADDITIONAL "Blocks" property fields. The
+// default/primary Blocks field ("Content") is backed by `documents.content`
+// (so the existing TipTap/Yjs editor, collab, and existing data migrate for
+// free). Every other Blocks field on a row gets its OWN content here, keyed by
+// (documentId, propertyId) — guaranteeing no two Blocks fields ever alias the
+// same content. Stored as markdown, same shape as `documents.content`.
+export const documentBlockFieldContents = table(
+  "document_block_field_contents",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    documentId: text("document_id").notNull(),
+    propertyId: text("property_id").notNull(),
+    content: text("content").notNull().default(""),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
 
 export const documentShares = createSharesTable("document_shares");

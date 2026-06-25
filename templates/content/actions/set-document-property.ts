@@ -3,9 +3,14 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
+  blocksStorageTarget,
+  isBlocksPropertyType,
   isComputedPropertyType,
+  normalizePropertyValue,
+  parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import {
@@ -13,6 +18,8 @@ import {
   nanoid,
   normalizedValueJson,
   resolvePropertyDatabaseForDocument,
+  writeBlockFieldContent,
+  writePrimaryBlocksContent,
 } from "./_property-utils.js";
 
 export default defineAction({
@@ -50,6 +57,39 @@ export default defineAction({
     }
 
     const now = new Date().toISOString();
+
+    // Blocks fields store rich-text content, not a property-values row. The
+    // primary "Content" field writes to the document body; additional Blocks
+    // fields write to their own independent store.
+    if (isBlocksPropertyType(type)) {
+      const normalized = normalizePropertyValue(type, value);
+      const content = typeof normalized === "string" ? normalized : "";
+      const target = blocksStorageTarget(
+        parsePropertyOptions(definition.optionsJson),
+      );
+      if (target === "document_body") {
+        await writePrimaryBlocksContent({ documentId, content, now });
+      } else {
+        await writeBlockFieldContent({
+          documentId,
+          propertyId,
+          ownerEmail: document.ownerEmail,
+          content,
+          now,
+        });
+      }
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return {
+        documentId,
+        databaseId: database.id,
+        properties: await listPropertiesForDocument({
+          ...document,
+          content: target === "document_body" ? content : document.content,
+          updatedAt: now,
+        }),
+      };
+    }
+
     const valueJson = normalizedValueJson(type, value);
     const [existing] = await db
       .select({ id: schema.documentPropertyValues.id })

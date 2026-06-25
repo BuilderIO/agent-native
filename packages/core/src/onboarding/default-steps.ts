@@ -6,8 +6,6 @@
  * `id` after these have been registered.
  */
 
-import { registerOnboardingStep } from "./registry.js";
-import type { OnboardingStep } from "./types.js";
 import {
   PROVIDER_ENV_META,
   PROVIDER_ENV_VARS,
@@ -21,6 +19,8 @@ import {
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { getSetting } from "../settings/store.js";
+import { registerOnboardingStep } from "./registry.js";
+import type { OnboardingStep } from "./types.js";
 
 type LlmKeyMethod = {
   provider: keyof typeof PROVIDER_ENV_META;
@@ -151,7 +151,7 @@ const databaseStep: OnboardingStep = {
   required: false,
   title: "Database",
   description:
-    "Agent-native stores app data in SQL. Set DATABASE_URL when you want to point this app at a specific database.",
+    "Agent-native stores app data in SQL. Set DATABASE_URL when you want to point this app at a specific database or opt into local PGlite.",
   methods: [
     {
       id: "database-url",
@@ -164,7 +164,8 @@ const databaseStep: OnboardingStep = {
           {
             key: "DATABASE_URL",
             label: "DATABASE_URL",
-            placeholder: "postgres://..., libsql://..., file:./data/app.db",
+            placeholder:
+              "postgres://..., libsql://..., file:./data/app.db, pglite:./data/pglite",
           },
           {
             key: "DATABASE_AUTH_TOKEN",

@@ -1,13 +1,14 @@
-import type { CredentialContext } from "./credentials";
-import {
-  resolveLocalAnalyticsProviderCredential,
-  resolveWorkspaceConnectionProviderCredential,
-} from "./provider-credentials";
 import {
   listOAuthAccountsByOwner,
   saveOAuthTokens,
   setOAuthDisplayName,
 } from "@agent-native/core/oauth-tokens";
+
+import type { CredentialContext } from "./credentials";
+import {
+  resolveLocalAnalyticsProviderCredential,
+  resolveWorkspaceConnectionProviderCredential,
+} from "./provider-credentials";
 
 const GITHUB_AUTH_URL = "https://github.com/login/oauth/authorize";
 const GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";

@@ -6,12 +6,17 @@ import {
   getRequestURL,
   type H3Event,
 } from "h3";
+
+import { getAppName } from "./app-name.js";
 import {
   resolveBuiltInAuthMarketing,
   resolveBuiltInAuthMarketingByName,
 } from "./auth-marketing.js";
-import { getAppName } from "./app-name.js";
-import { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
+import {
+  OG_ARABIC_FONT_FAMILY,
+  OG_FONT_FAMILY,
+  resolveOgFontFiles,
+} from "./og-fonts.js";
 
 export interface AgentNativeOgImageInput {
   appName?: string | null;
@@ -32,7 +37,8 @@ const BRAND_BLUE = "#00B5FF";
 const BRAND_MINT = "#48FFE4";
 const BG = "#000000";
 const FG = "#f5f5f5";
-const FONT_FAMILY = `${OG_FONT_FAMILY}, Arial, Helvetica, system-ui, sans-serif`;
+const DEFAULT_FONT_FAMILY = `${OG_FONT_FAMILY}, Arial, Helvetica, system-ui, sans-serif`;
+const ARABIC_FONT_FAMILY = `${OG_ARABIC_FONT_FAMILY}, ${OG_FONT_FAMILY}, Arial, Helvetica, system-ui, sans-serif`;
 const DEFAULT_ACCENT_TEXT = "100% free and open source";
 
 const LOGO_MARK = `
@@ -99,6 +105,16 @@ function estimateTextWidth(value: string, fontSize: number): number {
     }
   }
   return units * fontSize;
+}
+
+function containsArabicText(value: string): boolean {
+  return /[\u0600-\u06ff\u0750-\u077f\u0870-\u089f\ufb50-\ufdff\ufe70-\ufeff]/u.test(
+    value,
+  );
+}
+
+function fontFamilyForText(value: string): string {
+  return containsArabicText(value) ? ARABIC_FONT_FAMILY : DEFAULT_FONT_FAMILY;
 }
 
 function trimTextToWidth(
@@ -205,6 +221,8 @@ function textBlock({
   weight,
   fill,
   anchor = "start",
+  direction,
+  fontFamily = DEFAULT_FONT_FAMILY,
 }: {
   lines: string[];
   x: number;
@@ -213,9 +231,14 @@ function textBlock({
   lineHeight: number;
   weight: number;
   fill: string;
-  anchor?: "start" | "middle";
+  anchor?: "start" | "middle" | "end";
+  direction?: "ltr" | "rtl";
+  fontFamily?: string;
 }): string {
-  return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="${FONT_FAMILY}" font-size="${fontSize}" font-weight="${weight}" fill="${fill}">${lines
+  const directionAttrs = direction
+    ? ` direction="${direction}" unicode-bidi="plaintext"`
+    : "";
+  return `<text x="${x}" y="${y}" text-anchor="${anchor}"${directionAttrs} font-family="${fontFamily}" font-size="${fontSize}" font-weight="${weight}" fill="${fill}">${lines
     .map(
       (line, index) =>
         `<tspan x="${x}" dy="${index === 0 ? 0 : lineHeight}">${escapeSvg(line)}</tspan>`,
@@ -289,6 +312,10 @@ export function renderAgentNativeOgImageSvg(
   const title = cleanText(input.title) || titleFromAppName(appName);
   const accentText = cleanText(input.accentText) || DEFAULT_ACCENT_TEXT;
   const titleLayout = getTitleLayout(title);
+  const titleIsRtl = containsArabicText(title);
+  const textX = titleIsRtl ? WIDTH - 80 : 80;
+  const accentX = titleIsRtl ? WIDTH - 84 : 84;
+  const textAnchor = titleIsRtl ? "end" : "start";
   const titleY = titleLayout.lines.length > 1 ? 288 : 330;
   const accentY =
     titleY + titleLayout.lineHeight * (titleLayout.lines.length - 1) + 70;
@@ -312,7 +339,7 @@ export function renderAgentNativeOgImageSvg(
   <g>
     ${textBlock({
       lines: titleLayout.lines,
-      x: 80,
+      x: textX,
       y: titleY,
       fontSize: titleLayout.fontSize,
       lineHeight: titleLayout.lineHeight,
@@ -321,8 +348,21 @@ export function renderAgentNativeOgImageSvg(
       // bundle, which is the intended look for the display title.
       weight: 800,
       fill: FG,
+      anchor: textAnchor,
+      direction: titleIsRtl ? "rtl" : undefined,
+      fontFamily: fontFamilyForText(title),
     })}
-    <text x="84" y="${accentY}" font-family="${FONT_FAMILY}" font-size="34" font-weight="800" fill="${BRAND_BLUE}">${escapeSvg(accentText)}</text>
+    ${textBlock({
+      lines: [accentText],
+      x: accentX,
+      y: accentY,
+      fontSize: 34,
+      lineHeight: 40,
+      weight: 800,
+      fill: BRAND_BLUE,
+      anchor: textAnchor,
+      fontFamily: fontFamilyForText(accentText),
+    })}
   </g>
 </svg>`;
 }

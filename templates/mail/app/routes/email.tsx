@@ -1,16 +1,18 @@
+import { postNavigate, isInAgentEmbed, useT } from "@agent-native/core/client";
+import type { EmailMessage } from "@shared/types";
+import { IconExternalLink } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { useSearchParams } from "react-router";
-import { postNavigate, isInAgentEmbed } from "@agent-native/core/client";
-import { useThreadMessages } from "@/hooks/use-emails";
-import { formatEmailDate, formatEmailDateFull, cn } from "@/lib/utils";
-import { sanitizeHtml } from "@/lib/sanitize-html";
+
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconExternalLink } from "@tabler/icons-react";
-import type { EmailMessage } from "@shared/types";
+import { useThreadMessages } from "@/hooks/use-emails";
+import messages from "@/i18n/en-US";
+import { sanitizeHtml } from "@/lib/sanitize-html";
+import { formatEmailDate, formatEmailDateFull, cn } from "@/lib/utils";
 
 export function meta() {
-  return [{ title: "Email" }];
+  return [{ title: messages.mail.routeTitles.emailThread }];
 }
 
 // ─── Message Card ────────────────────────────────────────────────────────────
@@ -67,11 +69,12 @@ function MessageCard({ message }: { message: EmailMessage }) {
 // ─── Error State ─────────────────────────────────────────────────────────────
 
 function ErrorState({ message }: { message: string }) {
+  const t = useT();
   return (
     <div className="flex h-full w-full items-center justify-center p-6">
       <div className="text-center max-w-sm">
         <div className="text-sm font-medium text-foreground mb-1">
-          Unable to load thread
+          {t("mail.routeTitles.unableToLoadThread")}
         </div>
         <div className="text-xs text-muted-foreground">{message}</div>
       </div>
@@ -105,6 +108,7 @@ function LoadingSkeleton() {
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export default function EmailEmbedRoute() {
+  const t = useT();
   const [params] = useSearchParams();
   const threadId = params.get("threadId");
   const view = params.get("view") ?? "inbox";
@@ -115,7 +119,7 @@ export default function EmailEmbedRoute() {
   );
 
   if (!threadId) {
-    return <ErrorState message="No thread ID provided." />;
+    return <ErrorState message={t("mail.routeTitles.unableToLoadThread")} />;
   }
 
   const subject =
@@ -132,7 +136,7 @@ export default function EmailEmbedRoute() {
             <Skeleton className="h-4 w-48" />
           ) : (
             <h1 className="text-[13px] font-semibold text-muted-foreground">
-              Email thread
+              {t("mail.routeTitles.emailThread")}
             </h1>
           )}
         </div>
@@ -144,7 +148,7 @@ export default function EmailEmbedRoute() {
             onClick={() => postNavigate(`/${view}/${threadId}`)}
           >
             <IconExternalLink className="h-3.5 w-3.5" />
-            Open in app
+            {t("mail.routeTitles.openInApp")}
           </Button>
         )}
       </header>
@@ -154,7 +158,7 @@ export default function EmailEmbedRoute() {
         {isLoading && !messages ? (
           <LoadingSkeleton />
         ) : !messages || messages.length === 0 ? (
-          <ErrorState message="Thread not found or has no messages." />
+          <ErrorState message={t("mail.routeTitles.unableToLoadThread")} />
         ) : (
           <div>
             {messages.map((msg) => (

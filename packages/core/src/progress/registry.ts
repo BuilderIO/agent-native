@@ -1,7 +1,9 @@
 import { z } from "zod";
+
 import { emit as emitBusEvent } from "../event-bus/bus.js";
 import { registerEvent } from "../event-bus/registry.js";
 import type { EventDefinition } from "../event-bus/types.js";
+import { truncate } from "../shared/truncate.js";
 import { insertRun, updateRun, getRun, listRuns, deleteRun } from "./store.js";
 import {
   PROGRESS_STATUSES,
@@ -9,7 +11,6 @@ import {
   type StartRunInput,
   type UpdateProgressInput,
 } from "./types.js";
-import { truncate } from "../shared/truncate.js";
 
 registerEvent({
   name: "run.progress.started",

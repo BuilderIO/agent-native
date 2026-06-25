@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { injectWebmDuration } from "./webm-duration";
 
 function concat(...chunks: Uint8Array[]): Uint8Array {

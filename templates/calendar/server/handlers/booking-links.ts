@@ -1,4 +1,15 @@
 import {
+  getSession,
+  readBody,
+  runWithRequestContext,
+} from "@agent-native/core/server";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server/request-context";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { desc, eq } from "drizzle-orm";
+import {
   createError,
   defineEventHandler,
   getQuery,
@@ -7,24 +18,14 @@ import {
   type H3Event,
 } from "h3";
 import { nanoid } from "nanoid";
-import { desc, eq } from "drizzle-orm";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import {
-  getRequestUserEmail,
-  getRequestOrgId,
-} from "@agent-native/core/server/request-context";
+
 import { getDb, schema } from "../db/index.js";
-import {
-  getSession,
-  readBody,
-  runWithRequestContext,
-} from "@agent-native/core/server";
-import { ensureBookingUsername } from "./booking-usernames.js";
 import { normalizeBookingDurationInput } from "../lib/booking-durations.js";
 import {
   rowToBookingLink,
   serializeBookingHosts,
 } from "../lib/booking-link-utils.js";
+import { ensureBookingUsername } from "./booking-usernames.js";
 
 async function requireRequestContext<T>(
   event: H3Event,

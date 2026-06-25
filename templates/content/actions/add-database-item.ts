@@ -2,14 +2,15 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
 import {
   isComputedPropertyType,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { getContentDatabaseResponse } from "./_database-utils.js";
 import { nanoid, normalizedValueJson } from "./_property-utils.js";
 
 export default defineAction({
@@ -27,7 +28,12 @@ export default defineAction({
     const [database] = await db
       .select()
       .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, databaseId));
+      .where(
+        and(
+          eq(schema.contentDatabases.id, databaseId),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      );
     if (!database) throw new Error(`Database "${databaseId}" not found`);
 
     const access = await assertAccess(

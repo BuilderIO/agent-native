@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, it } from "vitest";
+
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
+
 import {
   buildRegistrySlashItems,
   seedRegistryBlockRaw,
@@ -32,6 +34,7 @@ const STANDARD_LIBRARY_BLOCK_TYPES = [
 
 /** Blocks registered in Content but intentionally hidden from the slash menu. */
 const HIDDEN_FROM_SLASH_MENU = ["columns", "question-form", "visual-questions"];
+const PHASED_BLOCKS_HIDDEN_FROM_SLASH_MENU = ["inline-database"];
 
 /**
  * T7 — registry-derived slash items + Notion gating for content's slash menu.
@@ -65,7 +68,13 @@ describe("buildRegistrySlashItems", () => {
     const items = buildRegistrySlashItems(contentBlockRegistry);
     const authorableBlockSpecs = contentBlockRegistry
       .list("block")
-      .filter((spec) => !HIDDEN_FROM_SLASH_MENU.includes(spec.type));
+      .filter(
+        (spec) =>
+          ![
+            ...HIDDEN_FROM_SLASH_MENU,
+            ...PHASED_BLOCKS_HIDDEN_FROM_SLASH_MENU,
+          ].includes(spec.type),
+      );
     expect(items.length).toBe(authorableBlockSpecs.length);
     // Includes the shared dev-doc / structured library labels.
     const titles = items.map((i) => i.title);
@@ -76,6 +85,8 @@ describe("buildRegistrySlashItems", () => {
     expect(offeredTypes).toEqual([...STANDARD_LIBRARY_BLOCK_TYPES]);
     expect(contentBlockRegistry.get("columns")).toBeDefined();
     expect(offeredTypes).not.toContain("columns");
+    expect(contentBlockRegistry.get("inline-database")).toBeDefined();
+    expect(offeredTypes).not.toContain("inline-database");
   });
 
   it("keeps API and schema aliases searchable in normal mode", () => {

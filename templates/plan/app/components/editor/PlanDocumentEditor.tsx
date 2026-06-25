@@ -1,4 +1,31 @@
 import {
+  useOptionalBlockRegistry,
+  type BlockRegistry,
+  type BlockDataChangeMeta,
+} from "@agent-native/core/blocks";
+import {
+  DragHandle,
+  RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
+  RunId,
+  SharedRichEditor,
+  generateTabId,
+  useT,
+  useCollaborativeDoc,
+  type DragHandleDropContext,
+  type DragHandleOptions,
+  type RichMarkdownCollabUser,
+} from "@agent-native/core/client";
+import { isNotionCompatibleBlockType } from "@shared/notion-compat";
+import {
+  createPlanBlockId,
+  type PlanBlock,
+  type PlanContent,
+} from "@shared/plan-content";
+import { blocksToProseJSON, proseJSONToBlocks } from "@shared/plan-doc";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { EditorView } from "@tiptap/pm/view";
+import type { Editor } from "@tiptap/react";
+import {
   createContext,
   useCallback,
   useContext,
@@ -7,37 +34,12 @@ import {
   useRef,
   useState,
 } from "react";
-import type { Editor } from "@tiptap/react";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import type { EditorView } from "@tiptap/pm/view";
-import {
-  DragHandle,
-  RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
-  RunId,
-  SharedRichEditor,
-  generateTabId,
-  useCollaborativeDoc,
-  type DragHandleDropContext,
-  type DragHandleOptions,
-  type RichMarkdownCollabUser,
-} from "@agent-native/core/client";
-import {
-  useOptionalBlockRegistry,
-  type BlockRegistry,
-  type BlockDataChangeMeta,
-} from "@agent-native/core/blocks";
-import {
-  createPlanBlockId,
-  type PlanBlock,
-  type PlanContent,
-} from "@shared/plan-content";
-import { blocksToProseJSON, proseJSONToBlocks } from "@shared/plan-doc";
-import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
+
+import { PlanBlockView } from "../plan/DocumentArea";
 import { PlanImageNode } from "../plan/PlanImageNode";
+import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
 import { buildPlanSlashCommands } from "./planSlashCommands";
 import { usePlanUndoStack, type PlanUndoStack } from "./usePlanUndoStack";
-import { PlanBlockView } from "../plan/DocumentArea";
-import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 
 /** One tab id per browser tab, shared by every plan document editor instance. */
 const TAB_ID = generateTabId();
@@ -774,6 +776,7 @@ export function PlanDocumentEditor({
   /** Forwarded to question-form and legacy visual-questions blocks. */
   onVisualQuestionsSubmit?: (summary: string) => void;
 }) {
+  const t = useT();
   const registryValue = useOptionalBlockRegistry();
   const registry = registryValue?.registry ?? null;
 
@@ -1065,9 +1068,9 @@ export function PlanDocumentEditor({
   const slashItems = useMemo(
     () =>
       registry
-        ? buildPlanSlashCommands(registry, { notionCompatibleOnly })
+        ? buildPlanSlashCommands(registry, { notionCompatibleOnly, t })
         : undefined,
-    [registry, notionCompatibleOnly],
+    [registry, notionCompatibleOnly, t],
   );
 
   // The reconcile value space is the AUTHORITATIVE blocks JSON — sourced from the
@@ -1431,6 +1434,7 @@ export function NestedPlanBlocksEditor({
   regionLabel?: string;
   compactVisuals?: boolean;
 }) {
+  const t = useT();
   const registryValue = useOptionalBlockRegistry();
   const registry = registryValue?.registry ?? null;
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -1498,9 +1502,9 @@ export function NestedPlanBlocksEditor({
   const slashItems = useMemo(
     () =>
       registry
-        ? buildPlanSlashCommands(registry, { notionCompatibleOnly })
+        ? buildPlanSlashCommands(registry, { notionCompatibleOnly, t })
         : undefined,
-    [registry, notionCompatibleOnly],
+    [registry, notionCompatibleOnly, t],
   );
 
   const value = useMemo(() => JSON.stringify(sourceBlocks), [sourceBlocks]);

@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { handleJsonRpcH3 as handleJsonRpc } from "./handlers.js";
+
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { handleJsonRpcH3 as handleJsonRpc } from "./handlers.js";
 import type { A2AConfig, Message } from "./types.js";
 
 const resolveOrgByDomainMock = vi.hoisted(() => vi.fn());

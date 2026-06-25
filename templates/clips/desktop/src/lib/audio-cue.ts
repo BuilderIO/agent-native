@@ -1,7 +1,7 @@
 /**
  * Recording-start audio cue.
  *
- * A short descending "boop" played the instant capture begins so the user
+ * A short, soft "ready" chime played the instant capture begins so the user
  * gets audible confirmation. Two design constraints shape this module:
  *
  *   1. Browser audio needs a user gesture to start. We therefore build the
@@ -14,12 +14,11 @@
  */
 
 export interface AudioCue {
-  /** Play the cue during the countdown once recording is about one second out. */
-  playCountdownCue(): Promise<void>;
   /**
    * Play the cue (bounded by a timeout) and wait a short settle so the tone
-   * sits just before capture rather than inside the recording. Safe to await
-   * directly before starting the recorder.
+   * sits just before capture rather than inside the recording. Call this at the
+   * exact moment recording starts (right before the recorder/native capture is
+   * kicked off) so the chime lines up with the real start, not the countdown.
    */
   playBeforeCapture(): Promise<void>;
   cleanup(): void;
@@ -38,7 +37,6 @@ function wait(ms: number): Promise<void> {
 
 /** A cue that does nothing — used when Web Audio is unavailable. */
 const noopAudioCue: AudioCue = {
-  async playCountdownCue() {},
   async playBeforeCapture() {},
   cleanup() {},
 };
@@ -67,37 +65,62 @@ async function playBeforeCapture(
   await wait(CUE_SETTLE_MS);
 }
 
-/** Schedule the descending-chirp tone on an already-running context. */
+/**
+ * Schedule the recording-start chime on an already-running context.
+ *
+ * A warm, bell-like rising two-note "ding-dong" (G5 → C6, a perfect fourth)
+ * voiced on triangle oscillators for a rounder, less electronic timbre, with a
+ * quiet octave overtone (C7) sparkling on top of the second note. Each note has
+ * a soft 18ms attack and a long exponential decay so it rings out gently — a
+ * confident "you're rolling" confirmation that sounds nothing like a flat
+ * countdown blip. Kept under ~420ms so it still fits inside
+ * `CUE_PLAY_TIMEOUT_MS` and lands right as capture begins.
+ */
 function scheduleTone(ctx: AudioContext): Promise<void> {
   return new Promise<void>((resolve) => {
-    const startedAt = ctx.currentTime + 0.005;
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
+    const t0 = ctx.currentTime + 0.005;
+    const voices = [
+      // Rising perfect fourth: a gentle "ding … dong".
+      { freq: 783.99, at: 0.0, dur: 0.26, peak: 0.07, type: "triangle" }, // G5
+      { freq: 1046.5, at: 0.11, dur: 0.34, peak: 0.085, type: "triangle" }, // C6
+      // Faint octave overtone gives the second note a soft bell shimmer.
+      { freq: 2093.0, at: 0.115, dur: 0.18, peak: 0.022, type: "sine" }, // C7
+    ] as const;
 
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(880, startedAt);
-    oscillator.frequency.exponentialRampToValueAtTime(660, startedAt + 0.14);
+    let lastStop = t0;
+    for (const voice of voices) {
+      const startAt = t0 + voice.at;
+      const stopAt = startAt + voice.dur;
+      lastStop = Math.max(lastStop, stopAt);
 
-    gain.gain.setValueAtTime(0.0001, startedAt);
-    gain.gain.exponentialRampToValueAtTime(0.07, startedAt + 0.018);
-    gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.18);
+      const oscillator = ctx.createOscillator();
+      oscillator.type = voice.type;
+      oscillator.frequency.setValueAtTime(voice.freq, startAt);
 
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
+      const gain = ctx.createGain();
+      // Smooth attack/decay envelope — ramps avoid the click of a hard gate.
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(voice.peak, startAt + 0.018);
+      gain.gain.exponentialRampToValueAtTime(0.0001, stopAt);
 
-    // Resolve on `ended`, with a timeout fallback in case it never fires.
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+
+      oscillator.start(startAt);
+      oscillator.stop(stopAt + 0.02);
+    }
+
+    // Resolve a touch after the final voice ends.
     let resolved = false;
     const finish = () => {
       if (resolved) return;
       resolved = true;
-      window.clearTimeout(timer);
       resolve();
     };
-    const timer = window.setTimeout(finish, 500);
-    oscillator.addEventListener("ended", finish, { once: true });
-
-    oscillator.start(startedAt);
-    oscillator.stop(startedAt + 0.2);
+    window.setTimeout(
+      finish,
+      Math.ceil((lastStop - ctx.currentTime) * 1000) + 60,
+    );
   });
 }
 
@@ -148,7 +171,6 @@ export function createAudioCue(): AudioCue {
     idleTimer = window.setTimeout(cleanup, CUE_IDLE_CLEANUP_MS);
 
     return {
-      playCountdownCue: play,
       playBeforeCapture: () => playBeforeCapture(play, cleanup),
       cleanup,
     };

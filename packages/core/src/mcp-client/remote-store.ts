@@ -21,22 +21,23 @@
  */
 
 import { createHash } from "node:crypto";
+
+import type { SecretScope } from "../secrets/register.js";
 import {
-  getUserSetting,
-  putUserSetting,
-  deleteUserSetting,
-} from "../settings/user-settings.js";
+  writeAppSecret,
+  readAppSecret,
+  deleteAppSecret,
+} from "../secrets/storage.js";
 import {
   getOrgSetting,
   putOrgSetting,
   deleteOrgSetting,
 } from "../settings/org-settings.js";
 import {
-  writeAppSecret,
-  readAppSecret,
-  deleteAppSecret,
-} from "../secrets/storage.js";
-import type { SecretScope } from "../secrets/register.js";
+  getUserSetting,
+  putUserSetting,
+  deleteUserSetting,
+} from "../settings/user-settings.js";
 import type { McpHttpServerConfig } from "./config.js";
 
 const SETTINGS_KEY = "mcp-servers-remote";
@@ -69,6 +70,14 @@ export interface StoredRemoteMcpServer {
    * supplied (or for legacy cleartext rows).
    */
   headerSecretKey?: string;
+  /**
+   * Trusted first-party Agent-Native app. Only framework-controlled
+   * registrations should set this; management routes intentionally do not
+   * expose it for arbitrary user-added MCP servers.
+   */
+  firstParty?: boolean;
+  /** Canonical first-party app id from the org directory, e.g. `assets`. */
+  firstPartyAppId?: string;
   /** Optional description shown in the UI. */
   description?: string;
   /** ms since epoch. */
@@ -316,12 +325,66 @@ export async function addRemoteServer(
     url: string;
     headers?: Record<string, string>;
     description?: string;
+    firstParty?: boolean;
+  },
+): Promise<
+  { ok: true; server: StoredRemoteMcpServer } | { ok: false; error: string }
+> {
+  if (input.firstParty) {
+    return {
+      ok: false,
+      error:
+        "First-party MCP servers must be registered through the trusted first-party registration path",
+    };
+  }
+  return addRemoteServerInternal(scope, scopeId, input);
+}
+
+export async function addFirstPartyRemoteServer(
+  orgId: string,
+  input: {
+    appId: string;
+    name: string;
+    url: string;
+    description?: string;
+  },
+): Promise<
+  { ok: true; server: StoredRemoteMcpServer } | { ok: false; error: string }
+> {
+  const trust = await isFirstPartyRemoteEndpointTrusted(
+    orgId,
+    input.appId,
+    input.url,
+  );
+  if (!trust.ok) return { ok: false, error: trust.error };
+  return addRemoteServerInternal("org", orgId, {
+    name: input.name,
+    url: input.url,
+    description: input.description,
+    firstParty: true,
+    firstPartyAppId: input.appId.trim().toLowerCase(),
+  });
+}
+
+async function addRemoteServerInternal(
+  scope: RemoteMcpScope,
+  scopeId: string,
+  input: {
+    name: string;
+    url: string;
+    headers?: Record<string, string>;
+    description?: string;
+    firstParty?: boolean;
+    firstPartyAppId?: string;
   },
 ): Promise<
   { ok: true; server: StoredRemoteMcpServer } | { ok: false; error: string }
 > {
   const name = normalizeServerName(input.name);
   if (!name) return { ok: false, error: "Name is required" };
+  if (input.firstParty && scope !== "org") {
+    return { ok: false, error: "First-party MCP servers must be org-scoped" };
+  }
   const urlCheck = validateRemoteUrl(input.url);
   if (!urlCheck.ok) return { ok: false, error: urlCheck.error ?? "Bad URL" };
 
@@ -360,11 +423,92 @@ export async function addRemoteServer(
     url: urlCheck.url!.toString(),
     headers: cleartext,
     headerSecretKey,
+    ...(input.firstParty ? { firstParty: true } : {}),
+    ...(input.firstPartyAppId
+      ? { firstPartyAppId: input.firstPartyAppId }
+      : {}),
     description: input.description?.trim() || undefined,
     createdAt: Date.now(),
   };
   await writeList(scope, scopeId, [...existing, server]);
   return { ok: true, server };
+}
+
+function normalizeEndpointPath(pathname: string): string {
+  return pathname.replace(/\/+$/, "") || "/";
+}
+
+function expectedFirstPartyMcpUrl(appUrl: string): URL | null {
+  try {
+    return new URL(`${appUrl.replace(/\/+$/, "")}/_agent-native/mcp`);
+  } catch {
+    return null;
+  }
+}
+
+function sameFirstPartyMcpEndpoint(endpointUrl: URL, appUrl: string): boolean {
+  const expected = expectedFirstPartyMcpUrl(appUrl);
+  if (!expected) return false;
+  return (
+    endpointUrl.origin === expected.origin &&
+    normalizeEndpointPath(endpointUrl.pathname) ===
+      normalizeEndpointPath(expected.pathname) &&
+    endpointUrl.search === expected.search
+  );
+}
+
+export async function isFirstPartyRemoteEndpointTrusted(
+  orgId: string,
+  appId: string,
+  endpoint: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const normalizedAppId = appId.trim().toLowerCase();
+  if (!orgId.trim()) {
+    return { ok: false, error: "Organization id is required" };
+  }
+  if (!normalizedAppId) {
+    return { ok: false, error: "First-party app id is required" };
+  }
+
+  let endpointUrl: URL;
+  try {
+    endpointUrl = new URL(endpoint);
+  } catch {
+    return { ok: false, error: "Not a valid URL" };
+  }
+
+  try {
+    const { getRequestOrgId } = await import("../server/request-context.js");
+    const requestOrgId = getRequestOrgId();
+    if (requestOrgId && requestOrgId !== orgId) {
+      return {
+        ok: false,
+        error:
+          "First-party MCP server org does not match the active request organization",
+      };
+    }
+  } catch {
+    // No request context helper available: the org-directory lookup below will
+    // still fail closed if it cannot authenticate a first-party app list.
+  }
+
+  const { fetchOrgApps } = await import("../mcp/org-directory.js");
+  const apps = await fetchOrgApps({ serviceOrgId: orgId });
+  const app = apps.find((candidate) => candidate.id === normalizedAppId);
+  if (!app) {
+    return {
+      ok: false,
+      error: "Could not verify the first-party app in the org directory",
+    };
+  }
+  if (!sameFirstPartyMcpEndpoint(endpointUrl, app.url)) {
+    return {
+      ok: false,
+      error:
+        "First-party MCP URL does not match the org-directory app endpoint",
+    };
+  }
+  return { ok: true };
 }
 
 export async function removeRemoteServer(
@@ -463,6 +607,10 @@ export function toHttpServerConfig(
     type: "http",
     url: stored.url,
     headers: stored.headers,
+    ...(stored.firstParty ? { firstParty: true } : {}),
+    ...(stored.firstPartyAppId
+      ? { firstPartyAppId: stored.firstPartyAppId }
+      : {}),
     description: stored.description,
   };
 }
@@ -484,6 +632,13 @@ export async function toHttpServerConfigAsync(
     type: "http",
     url: stored.url,
     headers: await materializeHeaders(scope, scopeId, stored),
+    ...(stored.firstParty ? { firstParty: true } : {}),
+    ...(stored.firstPartyAppId
+      ? { firstPartyAppId: stored.firstPartyAppId }
+      : {}),
+    ...(stored.firstParty && scope === "org"
+      ? { firstPartyOrgId: scopeId }
+      : {}),
     description: stored.description,
   };
 }

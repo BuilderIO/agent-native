@@ -14,16 +14,17 @@
  */
 
 import Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { table, text, ownableColumns } from "../db/schema.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { accessFilter, ForbiddenError, resolveAccess } from "./access.js";
-import { createSharesTable, type ShareRole } from "./schema.js";
-import { registerShareableResource } from "./registry.js";
-import shareResource from "./actions/share-resource.js";
 import listResourceShares from "./actions/list-resource-shares.js";
 import setResourceVisibility from "./actions/set-resource-visibility.js";
+import shareResource from "./actions/share-resource.js";
+import { registerShareableResource } from "./registry.js";
+import { createSharesTable, type ShareRole } from "./schema.js";
 
 vi.mock("../db/client.js", () => {
   return {

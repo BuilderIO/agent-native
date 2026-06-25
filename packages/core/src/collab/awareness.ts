@@ -11,8 +11,10 @@
  */
 
 import { EventEmitter } from "node:events";
+
 import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
 import type { H3Event } from "h3";
+
 import { readBody } from "../server/h3-helpers.js";
 
 const AWARENESS_TIMEOUT = 30_000; // 30 seconds

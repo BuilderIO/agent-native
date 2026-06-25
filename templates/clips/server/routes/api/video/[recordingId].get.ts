@@ -30,6 +30,21 @@
  * Route: GET /api/video/:recordingId
  */
 
+import { readAppState } from "@agent-native/core/application-state";
+import {
+  createSsrfSafeDispatcher,
+  isBlockedExtensionUrlWithDns,
+} from "@agent-native/core/extensions/url-safety";
+import { getOrgContext } from "@agent-native/core/org";
+import {
+  captureRouteError,
+  getSession,
+  runWithRequestContext,
+  signShortLivedToken,
+  verifyShortLivedToken,
+} from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getCookie,
@@ -41,26 +56,14 @@ import {
   setCookie,
   type H3Event,
 } from "h3";
-import { readAppState } from "@agent-native/core/application-state";
-import {
-  createSsrfSafeDispatcher,
-  isBlockedExtensionUrlWithDns,
-} from "@agent-native/core/extensions/url-safety";
-import { getOrgContext } from "@agent-native/core/org";
-import { resolveAccess } from "@agent-native/core/sharing";
-import {
-  captureRouteError,
-  getSession,
-  runWithRequestContext,
-  signShortLivedToken,
-  verifyShortLivedToken,
-} from "@agent-native/core/server";
+
 import {
   LOOM_START_MS_QUERY_PARAM,
   isLoomEmbedBackedRecording,
   loomEmbedUrlWithTimestamp,
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
+import { getDb, schema } from "../../../db/index.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
 
 interface RecordingRow {
@@ -301,12 +304,39 @@ export default defineEventHandler(async (event: H3Event) => {
   return runWithRequestContext(
     { userEmail: session?.email, orgId },
     async () => {
+      // Resolve via share grants first (owner / org / shared viewers). When
+      // there is no grant — e.g. an anonymous viewer on a public share/embed
+      // page — fall back to the public-visibility gate so public clips stay
+      // playable without signing in. This mirrors the visibility check in
+      // `/api/public-recording.get.ts` (which hands the player its videoUrl) so
+      // the metadata endpoint and this media endpoint never disagree about who
+      // can play a clip. Without this, anonymous viewers hit a 403 here and the
+      // player fails with "Could not start playback. Try again."
       const access = await resolveAccess("recording", recordingId);
-      if (!access) {
-        setResponseStatus(event, 403);
-        return { error: "Forbidden" };
+      let recRow: RecordingRow | null =
+        (access?.resource as RecordingRow | undefined) ?? null;
+      let role: string | null = access?.role ?? null;
+
+      if (!recRow) {
+        const db = getDb();
+        const [row] = await db
+          .select()
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, recordingId))
+          .limit(1);
+        if (!row) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
+        if (row.visibility !== "public") {
+          setResponseStatus(event, 403);
+          return { error: "Forbidden" };
+        }
+        recRow = row as RecordingRow;
+        role = "viewer";
       }
-      const rec = access.resource as RecordingRow;
+
+      const rec = recRow;
 
       if (rec.expiresAt) {
         const expires = new Date(rec.expiresAt).getTime();
@@ -333,7 +363,7 @@ export default defineEventHandler(async (event: H3Event) => {
         password?: string;
         t?: string;
       };
-      if (rec.password && access.role !== "owner") {
+      if (rec.password && role !== "owner") {
         const token = typeof q.t === "string" ? q.t : "";
         const cookieToken =
           getCookie(event, protectedMediaCookieName(recordingId)) ?? "";
@@ -376,7 +406,15 @@ export default defineEventHandler(async (event: H3Event) => {
         return loomEmbedResponse(embedUrl);
       }
 
-      const blob = await readAppState(`recording-blob-${recordingId}`);
+      // The `recording-blob-*` fallback only exists for local/dev recordings
+      // (production uses provider storage), and `readAppState` THROWS when there
+      // is no authenticated identity in context. An anonymous viewer of a public
+      // clip therefore has no blob to read anyway — swallow the missing-context
+      // error and fall through to the provider media URL instead of surfacing an
+      // unhandled 500 ("Could not start playback. Try again." in the player).
+      const blob = await readAppState(`recording-blob-${recordingId}`).catch(
+        () => null,
+      );
       const b64 = typeof blob?.data === "string" ? blob.data : null;
       const rangeHeader = getRequestHeader(event, "range");
 

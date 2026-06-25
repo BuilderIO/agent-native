@@ -1,0 +1,461 @@
+---
+title: "Mensagens"
+description: "Fale com seu agente por Slack, e-mail, Telegram ou WhatsApp — mesmo agente, mesma memória, mesmas ferramentas."
+---
+
+# Mensagens
+
+Conecte seu agente ao Slack, e-mail, Telegram ou WhatsApp para que você possa conversar com ele nos aplicativos que você já usa. É o mesmo agente — mesma memória, mesmas ferramentas, mesmos threads — apenas acessível de mais lugares.
+
+> **Usando o modelo Dispatch?** Tudo isso está configurado para você em **Configurações → Mensagens**. Clique para conectar cada plataforma — você não precisa ler o restante desta página, a menos que esteja personalizando ou construindo seu próprio modelo. Consulte [Dispatch](/docs/dispatch) ou [Dispatch template reference](/docs/template-dispatch).
+
+## O que você pode fazer {#what-you-can-do}
+
+- **Envie um e-mail para seu agente** em um endereço como `agent@yourcompany.com`. Ele responde na conversa, assim como um colega de trabalho faria.
+- **Comente seu agente** em uma conversa. Ele lerá e entrará em contato quando você perguntar.
+- **DM o agente em Slack** ou `@mention` em qualquer canal.
+- **Envie uma mensagem para o agente no Telegram ou WhatsApp** do seu telefone.
+- **Mesmo agente, mesma memória.** Tudo o que você contar no Slack será lembrado quando você enviar por e-mail mais tarde. O bate-papo na web e as mensagens externas compartilham um histórico de conversa.
+- Para alertas unidirecionais no aplicativo (ícone de sino, webhooks), consulte [Notifications](/docs/notifications).
+
+```an-diagram title="Muitos canais, um agente" summary="Cada plataforma segue o mesmo loop de agente e o mesmo histórico de thread SQL - então, um DM Slack e um e-mail continuam a mesma conversa."
+{
+  "html": "<div class=\"msg-fanin\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">Telegram</div><div class=\"diagram-node\">WhatsApp</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Um loop de agente</span><small class=\"diagram-muted\">mesma memória · mesmas ferramentas</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Um histórico de thread SQL<br><small class=\"diagram-muted\">web chat + external messages share it</small></div></div>",
+  "css": ".msg-fanin{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.msg-fanin .diagram-col{display:flex;flex-direction:column;gap:8px}.msg-fanin .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## Configurar Slack {#slack}
+
+### O que você precisa
+
+- Um espaço de trabalho Slack onde você pode instalar aplicativos (acesso de administrador)
+- Cerca de 5 minutos
+
+### Etapas
+
+1. Vá para **[api.slack.com/apps](https://api.slack.com/apps)** e clique em **Criar novo aplicativo** → **Do zero**. Dê um nome (por exemplo, "Agente") e escolha seu espaço de trabalho.
+2. Na barra lateral esquerda, abra **OAuth e Permissões**. Em **Escopos de token de bot**, adicione:
+   - `chat:write` — permite que o agente envie mensagens
+   - `app_mentions:read` — permite que o agente veja quando ele é @mencionado (opcional)
+   - `im:history` — permite que o agente leia mensagens diretas enviadas a ele
+   - `assistant:write` — opcional; permite que Slack mostre o status nativo "está pensando..." em threads assistentes
+   - `users:read.email` — opcional; ajuda modelos como o Mail a verificar o e-mail do remetente Slack quanto à identidade da fila de rascunho
+3. Clique em **Instalar no Workspace** na parte superior da página. Slack lhe dará um **Token de usuário de bot OAuth** que começa com `xoxb-`. Copie.
+4. Acesse **Informações básicas** na barra lateral e copie o **Segredo de assinatura**.
+5. Abra as configurações do seu aplicativo (ou o painel de variáveis de ambiente do seu provedor de hospedagem) e cole:
+   - `SLACK_BOT_TOKEN` — o token `xoxb-…`
+   - `SLACK_SIGNING_SECRET` — o segredo da assinatura
+   - `SLACK_ALLOWED_TEAM_IDS` — recomendado em produção; IDs de espaço de trabalho/equipe Slack separados por vírgula com permissão para enviar eventos
+   - `SLACK_ALLOWED_API_APP_IDS` — recomendado para aplicativos com vários espaços de trabalho; IDs de aplicativos Slack separados por vírgula têm permissão para usar este segredo de assinatura
+6. De volta ao Slack, abra **Event Subscriptions**, ative-o e cole esta solicitação URL:
+
+   ```texto
+   https://your-app.example.com/_agent-native/integrations/slack/webhook
+   ```
+
+   Em **Inscrever-se em eventos de bot**, adicione `message.im` (para DMs) e opcionalmente `app_mention` (para menções ao canal). Salvar.
+
+7. Envie um DM para seu bot em Slack. Deve responder.
+
+### Opcional: o aplicativo é aberto
+
+O aplicativo Slack se desenrola, permite que um aplicativo substitua a visualização normal do link do Slack por uma mais rica
+visualização. O Clips usa isso para visualizações de vídeos reproduzíveis no estilo Loom.
+
+Adicione estes escopos de bot extras quando seu aplicativo precisar de desdobramentos:
+
+- `links:read` — permite que Slack notifique o aplicativo quando domínios registrados são postados
+- `links:write` — permite que o aplicativo substitua a visualização padrão do Slack
+- `links.embed:write` — permite que o aplicativo incorpore URLs de mídia/player aprovados
+
+Em seguida, inscreva-se no evento `link_shared` e registre seus domínios de aplicativos públicos
+em **Domínios de desdobramento de aplicativos**. Para visualizações reproduzíveis somente de clipes, defina Slack
+Solicitação de assinaturas de eventos URL para:
+
+```text
+https://your-clips.example.com/api/slack/unfurl
+```
+
+Um aplicativo Slack tem uma solicitação de eventos API URL. Se o mesmo aplicativo Slack for capaz de lidar com
+tanto eventos de bate-papo do agente quanto desdobramentos de clipes, roteiam eventos Slack por meio de um pequeno
+despachante que envia eventos de mensagens para `/_agent-native/integrations/slack/webhook`
+e eventos `link_shared` para o manipulador de desdobramento de clipes.
+
+### Dicas
+
+- **Menções ao canal** — o bot só responde nos canais quando é mencionado com @, para evitar ruído.
+- **DMs** — cada DM é tratado como uma conversa privada com o agente.
+- **Mesma identidade, todos os canais** — se um usuário Slack tiver o mesmo e-mail de um usuário registrado em seu aplicativo, o agente o tratará como a mesma pessoa.
+- **Listas de permissões de produção** — defina `SLACK_ALLOWED_TEAM_IDS` e, para aplicativos Slack compartilhados, `SLACK_ALLOWED_API_APP_IDS` para que um segredo de assinatura válido não possa ser reutilizado por um espaço de trabalho inesperado.
+- **O aplicativo Clips é aberto** — Agent-Native instalável Os clipes para Slack usam `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` e `/api/slack/oauth/callback`. Cada espaço de trabalho Slack conectado obtém seu próprio token de bot criptografado em `app_secrets`; `SLACK_BOT_TOKEN` é apenas um substituto herdado de espaço de trabalho único.
+
+## Configurar o Telegram {#telegram}
+
+### O que você precisa
+
+- O aplicativo Telegram no seu telefone
+- Cerca de 3 minutos
+
+### Etapas
+
+1. Abra o Telegram e envie a mensagem **[@BotFather](https://t.me/BotFather)**.
+2. Envie `/newbot` e siga as instruções para nomear seu bot. BotFather responderá com um **token HTTP API**. Copie.
+3. Nas variáveis de ambiente do seu aplicativo, defina:
+   - `TELEGRAM_BOT_TOKEN` — o token do BotFather
+4. Após a implantação, registre o webhook por `POST`ing em seu aplicativo em:
+
+   ```texto
+   POST https://your-app.example.com/_agent-native/integrations/telegram/setup
+   ```
+
+   Isso diz ao Telegram para enviar mensagens para o webhook do seu aplicativo. Você só precisa fazer isso uma vez por implantação.
+
+5. Encontre seu bot no Telegram (procure o nome de usuário que o BotFather lhe deu) e envie uma mensagem para ele.
+
+## Configurar e-mail {#email}
+
+E-mail é a integração mais poderosa: seu agente obtém seu próprio endereço, responde no tópico, pode ser colocado em CC nas conversas e usa o e-mail do remetente como identidade. Nenhum comando `/link` é necessário.
+
+### O que você precisa
+
+- Um domínio que você controla (ou você pode usar um subdomínio de reenvio gratuito — veja abaixo)
+- Uma conta com **Resend** ou **SendGrid** para lidar com e-mails recebidos e enviados
+- Cerca de 10 minutos
+
+### Etapas (com reenvio — mais fácil)
+
+1. Inscreva-se em **[resend.com](https://resend.com)**. O nível gratuito é suficiente para começar.
+2. Escolha a aparência do endereço de e-mail do agente:
+   - **Mais fácil:** use um endereço `<your-slug>.resend.app` gratuito — não é necessário DNS.
+   - **Com marca:** adicione um domínio personalizado (como `yourcompany.com`) na página **Domínios** de Reenviar e siga as etapas do DNS.
+3. Em Reenviar, abra **Webhooks** → **Adicionar endpoint** e aponte para:
+
+   ```texto
+   https://your-app.example.com/_agent-native/integrations/email/webhook
+   ```
+
+   Inscreva-se no evento **`email.received`**. Reenviar lhe dará um segredo de assinatura. Copie-o.
+
+4. Nas variáveis de ambiente do seu aplicativo, defina:
+   - `EMAIL_AGENT_ADDRESS` — o endereço em que o agente recebe correspondência (por exemplo, `agent@yourcompany.com`)
+   - `RESEND_API_KEY` — sua chave de reenvio API
+   - `EMAIL_INBOUND_WEBHOOK_SECRET` — o segredo de assinatura de Reenviar (recomendado; usado para verificação de assinatura)
+
+5. Envie um e-mail para o endereço do agente. Ele responderá no mesmo tópico.
+
+### Etapas (com SendGrid)
+
+1. Inscreva-se em **[sendgrid.com](https://sendgrid.com)**.
+2. Adicione o registro MX do seu domínio para que os e-mails recebidos fluam para o SendGrid:
+   ```texto
+   MX suaempresa.com → mx.sendgrid.net (prioridade 10)
+   ```
+3. Abra **Configurações → Análise de entrada**, clique em **Adicionar host e URL** e defina o destino como:
+
+   ```texto
+   https://your-app.example.com/_agent-native/integrations/email/webhook
+   ```
+
+4. Definir variáveis de ambiente:
+   - `EMAIL_AGENT_ADDRESS` — o endereço em que o agente recebe
+   - `SENDGRID_API_KEY` — sua chave SendGrid API
+   - `EMAIL_INBOUND_WEBHOOK_SECRET` — segredo de assinatura Svix opcional se você configurou webhooks assinado
+
+5. Envie um e-mail para o endereço do agente.
+
+### Dicas
+
+- **CC o agente** para trazê-lo para um tópico. Quando o agente for colocado em CC, ele responderá a todos para que todo o tópico veja a resposta.
+- **A segmentação simplesmente funciona** — o agente usa cabeçalhos `Message-ID` / `In-Reply-To` / `References` padrão, para que as respostas permaneçam na thread correta em qualquer cliente de e-mail.
+- **A identidade é o e-mail do remetente.** Se `alice@acme.com` enviar um e-mail ao agente, essa _é_ a identidade dela, sem link ou fluxo de inscrição.
+- **Respostas completas** — a marcação na resposta do agente é renderizada como HTML no e-mail.
+- **Domínios permitidos** — restrinja quem pode enviar e-mail ao agente definindo `allowedDomains` na configuração da integração; mensagens de outros domínios são descartadas.
+- **Limite de taxa** — 20 mensagens recebidas por hora por remetente.
+
+## Configurar o WhatsApp {#whatsapp}
+
+### O que você precisa
+
+- Uma conta de desenvolvedor Meta (Facebook)
+- Um número de telefone que você pode dedicar ao bot
+- Cerca de 15 minutos (a configuração do Meta tem mais etapas)
+
+### Etapas
+
+1. Acesse **[Meta Developer Portal](https://developers.facebook.com/)**, clique em **Criar aplicativo** e escolha o tipo **Comercial**.
+2. Adicione o produto **WhatsApp** ao seu aplicativo e configure um número de telefone para usar como remetente.
+3. Na página de configuração do WhatsApp, pegue:
+   - **Token de acesso** (o temporário é adequado para testes; gere um token permanente antes de entrar no ar)
+   - **ID do número de telefone**
+4. Escolha qualquer string aleatória para usar como token de verificação. Você inserirá o mesmo valor nos dois locais abaixo.
+5. Nas variáveis de ambiente do seu aplicativo, defina:
+   - `WHATSAPP_ACCESS_TOKEN` — seu token de acesso
+   - `WHATSAPP_PHONE_NUMBER_ID` — o ID do número de telefone
+   - `WHATSAPP_VERIFY_TOKEN` — a string aleatória que você escolheu
+6. De volta à configuração do WhatsApp do Meta, abra a seção webhook e defina:
+
+   ```texto
+   Retorno de chamada URL: https://your-app.example.com/_agent-native/integrations/whatsapp/webhook
+   Token de verificação: a mesma string aleatória que você definiu como WHATSAPP_VERIFY_TOKEN
+   ```
+
+   Inscreva-se no campo `messages`.
+
+7. Envie uma mensagem do WhatsApp para o número de telefone do bot.
+
+## Use o Dispatch como caixa de entrada central do seu agente {#dispatch}
+
+Se você estiver executando vários aplicativos nativos de agente (e-mail, calendário, análise etc.), o padrão recomendado é configurar mensagens em **[Dispatch](/docs/dispatch)** (veja também [template reference](/docs/template-dispatch)) e deixá-lo encaminhar o trabalho para seus aplicativos de domínio por meio de [A2A](/docs/a2a-protocol).
+
+Por que isso é legal:
+
+- **Um agente, uma caixa de entrada.** Todos os seus canais (Slack, e-mail, Telegram, WhatsApp) fluem para o Dispatch. Você configura integrações apenas uma vez.
+- **Delegados do Dispatch.** Peça "resumir as inscrições da semana passada" — o Dispatch liga para o agente de análise. Peça "rascunhar uma resposta para Alice" — o Dispatch liga para o agente de correio.
+- **Cliques, não configuração.** A página **Configurações → Mensagens** do Dispatch tem botões de conexão para cada plataforma com os campos env-var integrados.
+
+Se você não precisa de um orquestrador, qualquer modelo único pode conectar mensagens diretamente usando os env vars nesta página.
+
+---
+
+## Para desenvolvedores {#for-developers}
+
+Tudo abaixo é referência técnica. Se você concluiu as etapas de configuração acima, pode parar por aqui, a menos que esteja personalizando o plug-in de integração ou criando seu próprio adaptador.
+
+### Como funciona {#how-it-works}
+
+A plataforma de entrada webhooks usa um padrão de fila SQL de plataforma cruzada para que funcione em todos os hosts sem servidor (Netlify, Vercel, Cloudflare Workers, Fly, Render, Node) sem depender de APIs de execução em segundo plano específicos da plataforma.
+
+1. A plataforma `POST`s para `/_agent-native/integrations/<platform>/webhook`. O manipulador verifica a assinatura, analisa a carga útil em um `IncomingMessage` e **insere uma linha em `integration_pending_tasks`** com `status='pending'`.
+2. O manipulador dispara um `POST /_agent-native/integrations/process-task` do tipo "dispare e esqueça" e retorna `200` imediatamente, bem dentro do SLA de 3 segundos do Slack.
+3. O endpoint do processador é executado em uma **nova execução de função** com seu próprio orçamento de tempo limite completo. Ele reivindica a tarefa atomicamente (`pending` → `processing` via `claimPendingTask`), executa o loop do agente, envia a resposta por meio do adaptador e marca a tarefa como `completed`.
+4. Um trabalho de repetição recorrente (`startPendingTasksRetryJob`, a cada 60s) varre tarefas presas em `pending` >90s ou `processing` >5min e reinicia o processador. Limitado a três tentativas e marcado como `failed`.
+
+```an-diagram title="Ciclo de vida do webhook de entrada" summary="O webhook apenas verifica, enfileira e retorna 200. Uma nova execução de função drena a fila e executa o loop do agente, com um trabalho de repetição de 60 anos como rede de segurança."
+{
+  "html": "<div class=\"msg-flow\"><div class=\"msg-row\"><div class=\"diagram-node\">Platform<br><small class=\"diagram-muted\">Slack · e-mail · etc.</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><strong>/webhook</strong><br><small class=\"diagram-muted\">verify signature + parse</small><br><span class=\"diagram-pill\">INSERT tarefa pendente</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">return 200</div></div><div class=\"msg-fire\"><span class=\"diagram-muted\">fire-and-forget</span> <span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</span></div><div class=\"msg-row\"><div class=\"diagram-box\" data-rough><strong>/process-task</strong><br><small class=\"diagram-muted\">execução nova · timeout próprio</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">claim</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">agent loop</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">adapter.sendResponse</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">completed</div></div><div class=\"diagram-panel msg-retry\" data-rough><span class=\"diagram-pill warn\">every 60s</span> <span class=\"diagram-muted\">retry job sweeps stuck tasks (pending &gt;90s · processing &gt;5min) and re-fires /process-task &mdash; capped at 3 attempts, then <strong>failed</strong></span></div></div>",
+  "css": ".msg-flow{display:flex;flex-direction:column;gap:12px}.msg-flow .msg-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.msg-flow .msg-fire{display:flex;align-items:center;gap:8px;padding-inline-start:12px}.msg-flow .msg-retry{display:flex;align-items:center;gap:8px;flex-wrap:wrap}"
+}
+```
+
+As conversas de entrada e saída vivem no mesmo thread SQL, então você pode continuar um DM Slack da web UI ou vice-versa.
+
+```an-api
+{
+  "method": "POST",
+  "path": "/_agent-native/integrations/slack/webhook",
+  "summary": "Slack Eventos API webhook de entrada",
+  "description": "Receives Slack events (DMs and channel `app_mention`s). Verifies the request signature, parses the payload into an `IncomingMessage`, inserts a `pending` row into `integration_pending_tasks`, fires the fresh-execution processor, and returns **200 immediately** — well inside Slack's 3-second SLA. The same route shape exists per platform under `/_agent-native/integrations/<platform>/webhook`.",
+  "auth": "HMAC-SHA256 of the raw body using `SLACK_SIGNING_SECRET`, checked against the `X-Slack-Signature` header. In production also gated by `SLACK_ALLOWED_TEAM_IDS` / `SLACK_ALLOWED_API_APP_IDS`.",
+  "params": [
+    { "name": "X-Slack-Signature", "in": "header", "type": "string", "required": true, "description": "Slack request signature, verified before any processing." },
+    { "name": "X-Slack-Request-Timestamp", "in": "header", "type": "string", "required": true, "description": "Timestamp used in the signature base string." }
+  ],
+  "request": {
+    "contentType": "application/json",
+    "example": "{\n  \"type\": \"event_callback\",\n  \"team_id\": \"T0123\",\n  \"api_app_id\": \"A0123\",\n  \"event\": {\n    \"type\": \"message\",\n    \"channel_type\": \"im\",\n    \"user\": \"U0123\",\n    \"text\": \"summarize last week's signups\"\n  }\n}"
+  },
+  "responses": [
+    { "status": "200", "description": "Acknowledged immediately. The agent loop runs in the separate /process-task execution. The first time a Request URL is saved, Slack POSTs a `url_verification` challenge and the adapter replies with the `challenge` value automatically.", "example": "{ \"ok\": true }" },
+    { "status": "401", "description": "Signature verification failed, or the team/app id is not in the production allowlist." }
+  ]
+}
+```
+
+#### Por que esse padrão (e não os atalhos nativos da plataforma) {#why-this-pattern}
+
+As funções sem servidor congelam no momento em que a resposta é enviada. Qualquer coisa ainda em execução – incluindo uma promessa de disparar e esquecer, uma chamada LLM adiada ou uma ferramenta em voo – é interrompida no meio da execução. A única maneira de manter um loop de agente ativo é iniciar uma **nova** execução de função para ele, que é o que o `/process-task` POST autoacionado faz.
+
+NOT usa alguma destas alternativas:
+
+- **Funções de segundo plano do Netlify** — Somente Netlify, requer um sufixo de nome de arquivo `-background.ts`, quebra em todos os outros hosts.
+- **Cloudflare `event.waitUntil()`** — somente para trabalhadores de CF, não portátil.
+- **Vercel `after()` / Fluid** — Somente Vercel, protegido por tempos de execução específicos.
+- **Promessas nuas de disparar e esquecer após `return`** — eliminadas silenciosamente quando a função congela; nenhum erro nos logs, o usuário nunca recebe uma resposta.
+
+A combinação fila SQL + self-webhook + retry-job é a única coisa que funciona de forma idêntica em todos os hosts suportados. O trabalho de nova tentativa é a rede de segurança — nunca presuma que o despacho inicial foi liberado antes que a função fosse congelada.
+
+### O plugin de integrações {#plugin}
+
+O plugin é montado automaticamente quando não existe uma versão personalizada. Para personalizar, crie:
+
+```ts
+// server/plugins/integrations.ts
+import { createIntegrationsPlugin } from "@agent-native/core/server";
+import { scriptRegistry } from "../../agent.config";
+
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  systemPrompt: "You are a helpful assistant...",
+});
+```
+
+Quais plataformas estão ativas dependem de quais variáveis ​​de ambiente estão definidas. O plugin registra rotas de webhook para cada uma delas em `/_agent-native/integrations/`.
+
+### Webhook URLs {#webhook-urls}
+
+```text
+/_agent-native/integrations/slack/webhook
+/_agent-native/integrations/telegram/webhook
+/_agent-native/integrations/whatsapp/webhook
+/_agent-native/integrations/email/webhook
+```
+
+O Telegram também expõe um endpoint de configuração único:
+
+```text
+POST /_agent-native/integrations/telegram/setup
+```
+
+### Variáveis de ambiente {#env-vars}
+
+| Plataforma | Obrigatório                                                                  | Opcional                                              |
+| ---------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Slack      | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                    | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
+| Telegrama  | `TELEGRAM_BOT_TOKEN`                                                         | —                                                     |
+| E-mail     | `EMAIL_AGENT_ADDRESS`, mais um de `RESEND_API_KEY` ou `SENDGRID_API_KEY`     | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
+| WhatsApp   | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
+
+Todas as credenciais residem em env vars - nunca no banco de dados, nunca no código-fonte. Use as configurações da barra lateral UI ou o painel ambiental do seu provedor de hospedagem.
+
+### Rodeamento e identidade {#threading-and-identity}
+
+Cada conversa externa é mapeada para um thread persistente no banco de dados nativo do agente:
+
+- **DM do Slack** → um thread por usuário Slack.
+- **Canal Slack @menção** → um thread por canal.
+- **Bate-papo do Telegram** → um tópico por bate-papo do Telegram.
+- **Conversa no WhatsApp** → uma conversa por número do WhatsApp.
+- **E-mail** → threading derivado dos cabeçalhos `Message-ID` / `In-Reply-To` / `References`.
+
+Os threads externos aparecem na web UI junto com os threads originados na web, marcados com sua plataforma de origem. Resolução de identidade: quando um usuário Slack/e-mail corresponde a um usuário registrado (normalmente por e-mail), ele é vinculado a essa conta.
+
+### Segurança {#security}
+
+Cada webhook recebido é verificado por assinatura antes do processamento:
+
+- **Slack** — HMAC-SHA256 do corpo usando `SLACK_SIGNING_SECRET`, verificado em relação ao cabeçalho `X-Slack-Signature`. Na primeira vez que você salva uma solicitação URL no painel Event Subscriptions de Slack, Slack envia um desafio `url_verification` para ela; o adaptador da estrutura detecta isso e responde com o valor `challenge` automaticamente, então o URL fica verde em Slack sem nenhum trabalho extra de sua parte.
+- **Telegram** — token secreto definido ao registrar o webhook.
+- **WhatsApp** — Desafio de verificação do Meta (usando `WHATSAPP_VERIFY_TOKEN`) mais assinatura de carga útil.
+- **E-mail** — Verificação de assinatura estilo Svix quando `EMAIL_INBOUND_WEBHOOK_SECRET` está definido (Reenviar e SendGrid usam este formato). Se o segredo não for definido, o webhook será aceito, mas um aviso será registrado.
+
+O adaptador de e-mail também impõe:
+
+- **Domínios permitidos** — array `allowedDomains` opcional na linha `integration_configs` da integração; remetentes fora da lista são descartados.
+- **Limite de taxa** — limite de taxa apoiado pela fila SQL de 20 mensagens de entrada por remetente por hora.
+
+### Envios proativos {#proactive-sends}
+
+O agente pode enviar mensagens por sua própria iniciativa (notificações, lembretes, resumos programados) chamando a ação `send-platform-message` com um campo `platform` de `"slack"`, `"telegram"`, `"whatsapp"` ou `"email"`. A ação está no pacote Dispatch em `packages/dispatch/src/actions/send-platform-message.ts` e você pode copiá-la/adaptá-la para qualquer modelo.
+
+### Adaptadores personalizados {#custom-adapters}
+
+Para adicionar uma nova plataforma de mensagens, implemente a interface `PlatformAdapter`:
+
+```ts
+import type { H3Event } from "h3";
+import type {
+  PlatformAdapter,
+  IncomingMessage,
+  OutgoingMessage,
+} from "@agent-native/core/server";
+import type { EnvKeyConfig } from "@agent-native/core/server";
+
+const myAdapter: PlatformAdapter = {
+  platform: "discord",
+  label: "Discord",
+
+  // Env keys this adapter needs (rendered in the settings UI)
+  getRequiredEnvKeys(): EnvKeyConfig[] {
+    return [
+      { key: "DISCORD_BOT_TOKEN", label: "Discord Bot Token", required: true },
+    ];
+  },
+
+  // Handle platform-specific verification challenges (e.g. Slack's
+  // url_verification). Return { handled: true, response } to short-circuit.
+  async handleVerification(event: H3Event) {
+    return { handled: false };
+  },
+
+  // Validate the webhook request signature
+  async verifyWebhook(event: H3Event): Promise<boolean> {
+    // Validate signature headers; return true if authentic
+    return true;
+  },
+
+  // Parse the webhook payload into a normalized IncomingMessage.
+  // Return null to silently ignore the event (bot messages, edits, etc.).
+  async parseIncomingMessage(event: H3Event): Promise<IncomingMessage | null> {
+    return {
+      platform: "discord",
+      externalThreadId: "channel-or-thread-id",
+      text: "the user's message",
+      senderId: "discord-user-id",
+      platformContext: { channelId: "channel-id" },
+      timestamp: Date.now(),
+    };
+  },
+
+  // Format plain agent text into a platform-appropriate OutgoingMessage.
+  // opts.threadDeepLinkUrl, when provided, is a URL back to the originating
+  // thread in the dispatch UI — render it as a button (Slack) or inline link.
+  formatAgentResponse(
+    text: string,
+    opts?: { threadDeepLinkUrl?: string },
+  ): OutgoingMessage {
+    return { text, platformContext: {} };
+  },
+
+  // Post the agent's response back to the platform
+  async sendResponse(
+    message: OutgoingMessage,
+    context: IncomingMessage,
+  ): Promise<void> {
+    // Call the platform's API, using context.platformContext for routing
+  },
+
+  // Return current connection/configuration status for the settings UI.
+  // baseUrl is the app's public URL, used for status checks that need it.
+  async getStatus(baseUrl?: string) {
+    return {
+      platform: "discord",
+      label: "Discord",
+      enabled: true,
+      configured: !!process.env.DISCORD_BOT_TOKEN,
+    };
+  },
+};
+```
+
+Registre-o em seu plugin de integrações:
+
+```ts
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  systemPrompt: "You are a helpful assistant...",
+  adapters: [myAdapter],
+});
+```
+
+Implementações de referência estão disponíveis em `packages/core/src/integrations/adapters/` (`slack.ts`, `telegram.ts`, `whatsapp.ts`, `email.ts`) — o adaptador de e-mail é o exemplo mais completo, incluindo verificação de assinatura, threading, limitação de taxa e renderização HTML.
+
+### Confiabilidade via despacho + continuações A2A {#reliability}
+
+Quando [Dispatch](/docs/dispatch) delega uma solicitação a outro aplicativo por meio de [A2A](/docs/a2a-protocol#continuations), o fluxo de recuperação de continuação garante que o usuário receba uma resposta Slack/e-mail, mesmo se o agente downstream travar no meio da execução. A tarefa do webhook original permanece em `processing` até que a continuação seja resolvida ou a nova varredura a marque como travada; de qualquer forma, o tópico da plataforma recebe uma resposta final em vez de ficar em silêncio.
+
+Isso significa que um espaço de trabalho de vários aplicativos liderado pelo Dispatch é mais resiliente do que um único modelo conectado diretamente às mensagens – falhas em qualquer aplicativo downstream se transformam em uma mensagem de erro elegante em vez de uma resposta descartada. Consulte [A2A continuations](/docs/a2a-protocol#continuations) para ver a história completa da garantia de entrega.
+
+### Armadilhas comuns {#pitfalls}
+
+- **Não leia duas vezes o corpo da solicitação.** O fluxo do corpo do h3 v2 é consumido uma vez: se você chamar `readBody(event)` depois que a estrutura já tiver analisado `event.node.req.body` (ou vice-versa), a segunda leitura travará a solicitação indefinidamente. Isso aparece com mais frequência com Resend e SendGrid - ambos transmitem a carga útil de entrada e a leitura pendente nunca é resolvida, a plataforma atinge o tempo limite e o webhook é tentado novamente até que seja desduplicado. Se você agrupar o manipulador de webhook da estrutura em seu próprio middleware, passe o `IncomingMessage` já analisado por meio da opção `incoming` em vez de permitir que o manipulador analise novamente.
+- **Não execute loops de agente dentro do manipulador de webhook.** O manipulador deve enfileirar e retornar — o loop de agente é executado na nova execução do processador. Colocá-lo em linha garante que o congelamento sem servidor acabe com a execução. Além disso, as integrações de gateway públicas (como Netlify ou Vercel) impõem limites de tempo limite HTTP estritos (por exemplo, o limite de solicitação de 10 segundos do Netlify). Como as execuções do agente e as ferramentas geralmente demoram mais do que essa janela, tentar executar o loop de forma síncrona na solicitação do webhook fará com que o gateway encerre a conexão, resultando em execução abortada e respostas descartadas. O padrão de fila `/process-task` com autowebhook assinado por HMAC é a única maneira de satisfazer os limites do gateway enquanto executa o loop completo do agente com segurança.
+- **Não confie na memória de desduplicação durante inicializações a frio.** A chave de desduplicação reside no índice exclusivo SQL `(platform, external_event_key)`, não em um mapa em processo. Se você substituir a fila, mantenha a desduplicação no nível SQL ou tentativas duplicadas de Slack acionarão execuções duplicadas do agente.
+- **Mantenha o auto-webhook URL acessível.** O processador URL é construído a partir de `APP_URL` / `URL` / `DEPLOY_URL` / `BETTER_AUTH_URL`, recorrendo aos cabeçalhos de solicitação de entrada. Em implantações de visualização com nomes de host reescritos, defina um deles explicitamente ou o despacho atingirá um 404.
+
+### Veja também {#see-also}
+
+- [Dispatch](/docs/dispatch) — visão geral do conceito para usar uma caixa de entrada central em aplicativos
+- [Dispatch template reference](/docs/template-dispatch): caixa de entrada central recomendada para espaços de trabalho com vários aplicativos
+- [A2A Protocol](/docs/a2a-protocol) — como os delegados do Dispatch trabalham para outros agentes, incluindo recuperação de continuação
+- [Agent Mentions](/docs/agent-mentions) — Agentes mencionados por `@` no web chat

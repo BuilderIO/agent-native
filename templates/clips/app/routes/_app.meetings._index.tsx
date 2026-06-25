@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { NavLink, useSearchParams } from "react-router";
-import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
+import {
+  agentNativePath,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconAlertTriangle,
   IconAppWindow,
@@ -16,8 +17,15 @@ import {
   IconSettings,
   IconX,
 } from "@tabler/icons-react";
-import { agentNativePath, useActionQuery } from "@agent-native/core/client";
-import { useDesktopPromo } from "@/hooks/use-desktop-promo";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { NavLink, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import { CaptureInstallButton } from "@/components/capture-install-options";
+import { PageHeader } from "@/components/library/page-header";
+import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
+import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
 import {
   UpcomingMeetingCard,
   MeetingCardSkeleton,
@@ -42,13 +50,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
-import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
-import { PageHeader } from "@/components/library/page-header";
-import { CaptureInstallButton } from "@/components/capture-install-options";
+import { useDesktopPromo } from "@/hooks/use-desktop-promo";
+import enMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: "Meetings · Clips" }];
+  return [{ title: enMessages.meetingsRoute.pageTitle }];
 }
 
 interface Meeting {
@@ -229,6 +235,7 @@ function hasGeneratedNotes(meeting: Meeting): boolean {
 }
 
 function RecordedMeetingRow({ meeting }: { meeting: Meeting }) {
+  const t = useT();
   const preview = buildPreview(meeting);
   const transcriptReady = meeting.transcriptStatus === "ready";
   const notesReady = hasGeneratedNotes(meeting);
@@ -261,7 +268,7 @@ function RecordedMeetingRow({ meeting }: { meeting: Meeting }) {
             </span>
           ) : (
             <span className="rounded border border-border px-1.5 py-0.5">
-              Transcript pending
+              {t("meetingsRoute.transcriptPending")}
             </span>
           )}
           {notesReady ? (
@@ -271,7 +278,7 @@ function RecordedMeetingRow({ meeting }: { meeting: Meeting }) {
             </span>
           ) : (
             <span className="rounded border border-border px-1.5 py-0.5">
-              Notes pending
+              {t("meetingsRoute.notesPending")}
             </span>
           )}
         </div>
@@ -281,12 +288,13 @@ function RecordedMeetingRow({ meeting }: { meeting: Meeting }) {
 }
 
 function RecordedMeetingsList({ meetings }: { meetings: Meeting[] }) {
+  const t = useT();
   if (meetings.length === 0) return null;
   const groups = groupByDay(meetings);
   return (
     <section className="space-y-4">
       <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 px-1">
-        Past recordings
+        {t("meetingsRoute.pastRecordings")}
       </h2>
       {groups.map(([day, items]) => (
         <div key={day} className="space-y-2">
@@ -340,12 +348,12 @@ function UpcomingMeetingsLoading() {
 }
 
 function CalendarReauthBanner({ onReconnect }: { onReconnect: () => void }) {
+  const t = useT();
   return (
     <div className="mb-6 flex flex-wrap items-center gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-sm text-amber-700 dark:text-amber-300">
       <IconAlertTriangle className="h-4 w-4 shrink-0" />
       <span className="min-w-0 flex-1">
-        Google Calendar needs to be reconnected to keep showing your upcoming
-        meetings.
+        {t("meetingsRoute.calendarNeedsReconnect")}
       </span>
       <Button
         size="sm"
@@ -425,6 +433,7 @@ function ConnectCalendarEmptyState({
 }: {
   onConnected?: () => void | Promise<void>;
 }) {
+  const t = useT();
   return (
     <div className="max-w-xl mx-auto mt-12">
       <div className="rounded-lg border border-border overflow-hidden">
@@ -434,15 +443,14 @@ function ConnectCalendarEmptyState({
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold text-foreground">
-              Connect Google Calendar
+              {t("meetingsRoute.connectGoogleCalendar")}
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
-              Get a desktop reminder when meetings start so recorded notes land
-              in this history automatically.
+              {t("meetingsRoute.desktopReminder")}
             </p>
             <div className="mt-3">
               <CalendarConnectionAction
-                label="Connect Google Calendar"
+                label={t("meetingsRoute.connectGoogleCalendar")}
                 onConnected={onConnected}
               />
             </div>
@@ -462,6 +470,7 @@ function CalendarAccountMenu({
   onConnected?: () => void | Promise<void>;
   onDisconnected?: () => void;
 }) {
+  const t = useT();
   const [connectPending, setConnectPending] = useState(false);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [disconnectTarget, setDisconnectTarget] =
@@ -495,7 +504,7 @@ function CalendarAccountMenu({
     setDisconnectingId(disconnectTarget.id);
     try {
       await requestDisconnectCalendar(disconnectTarget.id);
-      toast.success("Calendar disconnected");
+      toast.success(t("meetingsRoute.calendarDisconnected"));
       setDisconnectTarget(null);
       onDisconnected?.();
     } catch (err) {
@@ -520,7 +529,7 @@ function CalendarAccountMenu({
             size="sm"
             variant="outline"
             className="h-8 shrink-0 gap-1.5 cursor-pointer"
-            aria-label="Calendar settings"
+            aria-label={t("meetingsRoute.calendarSettings")}
           >
             <IconSettings className="h-4 w-4" />
             Calendar
@@ -544,7 +553,7 @@ function CalendarAccountMenu({
                 <div>{statusText}</div>
               </>
             ) : (
-              "Connect Google Calendar for meeting reminders."
+              t("meetingsRoute.connectCalendarReminder")
             )}
           </div>
           <DropdownMenuSeparator />
@@ -556,9 +565,9 @@ function CalendarAccountMenu({
             disabled={connectPending}
           >
             {connectPending ? (
-              <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+              <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
             ) : (
-              <IconExternalLink className="mr-2 h-4 w-4" />
+              <IconExternalLink className="me-2 h-4 w-4" />
             )}
             {primaryAccount ? "Reconnect calendar" : "Connect calendar"}
           </DropdownMenuItem>
@@ -574,7 +583,7 @@ function CalendarAccountMenu({
                   }}
                   className="text-destructive focus:text-destructive"
                 >
-                  <IconPlugOff className="mr-2 h-4 w-4" />
+                  <IconPlugOff className="me-2 h-4 w-4" />
                   Disconnect {calendarAccountLabel(account)}
                 </DropdownMenuItem>
               ))}
@@ -584,7 +593,9 @@ function CalendarAccountMenu({
       </DropdownMenu>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {t("meetingsRoute.disconnectGoogleCalendarTitle")}
+          </AlertDialogTitle>
           <AlertDialogDescription>
             Clips will stop reading events from{" "}
             {disconnectTarget
@@ -628,13 +639,14 @@ function MeetingsHeader({
   onConnected?: () => void | Promise<void>;
   onDisconnected?: () => void;
 }) {
+  const t = useT();
   return (
     <>
       <PageHeader>
         <h1 className="text-base font-semibold tracking-tight truncate">
-          Meetings
+          {t("meetingsRoute.title")}
         </h1>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ms-auto flex items-center gap-2">
           <CalendarAccountMenu
             accounts={calendarAccounts}
             onConnected={onConnected}
@@ -645,22 +657,22 @@ function MeetingsHeader({
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1 space-y-4">
           <p className="text-sm text-muted-foreground">
-            Upcoming calendar meetings and your recorded notes.
+            {t("meetingsRoute.intro")}
           </p>
           <div className="relative max-w-sm">
-            <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
-              placeholder="Search meetings..."
-              className="pl-8 pr-8 h-9 text-sm"
+              placeholder={t("meetingsRoute.searchPlaceholder")}
+              className="ps-8 pe-8 h-9 text-sm"
             />
             {query && (
               <button
                 type="button"
                 onClick={() => onQueryChange("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
-                aria-label="Clear search"
+                className="absolute end-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                aria-label={t("meetingsRoute.clearSearch")}
               >
                 <IconX className="h-3.5 w-3.5" />
               </button>
@@ -675,10 +687,10 @@ function MeetingsHeader({
               className="h-8 w-fit gap-1.5 cursor-pointer"
             >
               <IconAppWindow className="h-4 w-4" />
-              Get desktop app
+              {t("meetingsRoute.getDesktopApp")}
             </CaptureInstallButton>
             <p className="max-w-56 text-[11px] leading-snug text-muted-foreground">
-              Required for meeting reminders and transcription.
+              {t("meetingsRoute.requiredForReminders")}
             </p>
           </div>
         )}
@@ -699,6 +711,7 @@ function meetingMatches(m: Meeting, q: string): boolean {
 }
 
 export default function MeetingsIndexRoute() {
+  const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQ = searchParams.get("q") ?? "";
   const [query, setQuery] = useState(initialQ);
@@ -789,7 +802,7 @@ export default function MeetingsIndexRoute() {
         await new Promise((resolve) => window.setTimeout(resolve, 500));
       }
       await meetingsQuery.refetch();
-      if (connected) toast.success("Calendar connected");
+      if (connected) toast.success(t("meetingsRoute.calendarConnected"));
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Couldn't refresh your calendar",
@@ -886,7 +899,7 @@ export default function MeetingsIndexRoute() {
       <>
         <PageHeader>
           <h1 className="text-base font-semibold tracking-tight truncate">
-            Meetings
+            {t("meetingsRoute.title")}
           </h1>
         </PageHeader>
         <div className="p-6 max-w-6xl mx-auto w-full">
@@ -909,7 +922,7 @@ export default function MeetingsIndexRoute() {
       <>
         <PageHeader>
           <h1 className="text-base font-semibold tracking-tight truncate">
-            Meetings
+            {t("meetingsRoute.title")}
           </h1>
         </PageHeader>
         <div className="p-6 max-w-2xl mx-auto w-full">
@@ -965,18 +978,17 @@ export default function MeetingsIndexRoute() {
         <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-16 text-center">
           <IconCalendar className="h-10 w-10 text-muted-foreground/50 mx-auto" />
           <p className="mt-3 text-sm text-foreground font-medium">
-            No meetings yet
+            {t("meetingsRoute.noMeetingsYet")}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Upcoming calendar meetings show up here, and finished recordings
-            land here once you take notes.
+            {t("meetingsRoute.noMeetingsDescription")}
           </p>
         </div>
       ) : noSearchMatches ? (
         <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-12 text-center">
           <IconSearch className="h-7 w-7 text-muted-foreground/50 mx-auto" />
           <p className="mt-2 text-sm text-foreground">
-            No meetings match "{debouncedQuery}"
+            {t("meetingsRoute.noMeetingsMatch", { query: debouncedQuery })}
           </p>
           <Button
             variant="ghost"
@@ -984,7 +996,7 @@ export default function MeetingsIndexRoute() {
             onClick={() => setQuery("")}
             className="mt-2 cursor-pointer"
           >
-            Clear search
+            {t("meetingsRoute.clearSearch")}
           </Button>
         </div>
       ) : (
@@ -1001,7 +1013,7 @@ export default function MeetingsIndexRoute() {
       {(meetingsQuery.isFetching || upcomingQuery.isFetching) && !isLoading && (
         <div className="flex items-center justify-center mt-6 text-xs text-muted-foreground gap-1.5">
           <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-          Refreshing…
+          {t("meetingsRoute.refreshing")}
         </div>
       )}
     </div>

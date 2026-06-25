@@ -1,22 +1,26 @@
 {
   "name": "@agent-native/pinpoint",
-  "version": "0.1.9",
-  "type": "module",
+  "version": "0.1.10",
   "description": "Visual feedback and annotation tool for agent-native web applications",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/BuilderIO/agent-native",
     "directory": "packages/pinpoint"
   },
-  "bugs": {
-    "url": "https://github.com/BuilderIO/agent-native/issues"
+  "bin": {
+    "pinpoint": "./dist/cli.js"
   },
-  "homepage": "https://github.com/BuilderIO/agent-native#readme",
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
+  "files": [
+    "dist",
+    "src/scripts",
+    ".agents"
+  ],
+  "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -40,18 +44,14 @@
       "import": "./dist/types/index.js"
     }
   },
-  "bin": {
-    "pinpoint": "./dist/cli.js"
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
-  "files": [
-    "dist",
-    "src/scripts",
-    ".agents"
-  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "test": "vitest --run --passWithNoTests"
   },
   "dependencies": {
@@ -61,6 +61,21 @@
     "solid-js": "^1.9.10",
     "zod": "^4.3.6"
   },
+  "devDependencies": {
+    "@agent-native/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.2.1",
+    "@types/react": "^19.2.14",
+    "@typescript/native-preview": "catalog:",
+    "babel-preset-solid": "^1.9.10",
+    "esbuild-plugin-solid": "^0.6.0",
+    "express": "^5.1.0",
+    "tsup": "^8.4.0",
+    "typescript": "^6.0.3",
+    "vite-plugin-solid": "^2.11.0",
+    "vitest": "^4.1.5"
+  },
   "peerDependencies": {
     "@agent-native/core": ">=0.8.0",
     "react": ">=18.0.0"
@@ -69,19 +84,5 @@
     "react": {
       "optional": true
     }
-  },
-  "devDependencies": {
-    "@agent-native/core": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "@types/express": "^5.0.3",
-    "@types/node": "^24.2.1",
-    "@types/react": "^19.2.14",
-    "babel-preset-solid": "^1.9.10",
-    "esbuild-plugin-solid": "^0.6.0",
-    "express": "^5.1.0",
-    "tsup": "^8.4.0",
-    "typescript": "^6.0.3",
-    "vite-plugin-solid": "^2.11.0",
-    "vitest": "^4.1.5"
   }
 }

@@ -1,10 +1,28 @@
+import {
+  ShareButton,
+  callAction,
+  useActionMutation,
+  useChangeVersions,
+  useT,
+} from "@agent-native/core/client";
+import { useSendToAgentChat } from "@agent-native/core/client";
+import {
+  IconRefresh,
+  IconTrash,
+  IconClock,
+  IconArrowLeft,
+  IconDatabase,
+} from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useParams } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { incrementItemView } from "@/lib/item-popularity";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Link, useNavigate } from "react-router";
+
+import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
+import Markdown from "@/components/Markdown";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,35 +34,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  IconRefresh,
-  IconTrash,
-  IconClock,
-  IconArrowLeft,
-  IconDatabase,
-} from "@tabler/icons-react";
-import { Link, useNavigate } from "react-router";
-import {
-  ShareButton,
-  callAction,
-  useActionMutation,
-  useChangeVersions,
-} from "@agent-native/core/client";
-import { useSendToAgentChat } from "@agent-native/core/client";
-import Markdown from "@/components/Markdown";
-import LegacyFusionAnalysis, {
-  isLegacyFusionAnalysis,
-} from "./LegacyFusionAnalysis";
-import {
-  useSetPageTitle,
-  useSetHeaderActions,
-} from "@/components/layout/HeaderActions";
-import { cn } from "@/lib/utils";
+import { incrementItemView } from "@/lib/item-popularity";
 import {
   analysisDetailPrefetchKey,
   type PrefetchSnapshot,
@@ -54,6 +52,11 @@ import {
   resourceCanManage,
   type ResourceAccess,
 } from "@/lib/resource-access";
+import { cn } from "@/lib/utils";
+
+import LegacyFusionAnalysis, {
+  isLegacyFusionAnalysis,
+} from "./LegacyFusionAnalysis";
 
 interface Analysis extends ResourceAccess {
   id: string;
@@ -93,6 +96,7 @@ function formatDate(iso: string): string {
 }
 
 export default function AnalysisDetail() {
+  const t = useT();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -138,7 +142,7 @@ export default function AnalysisDetail() {
   const handleRerun = () => {
     if (!analysis || !canEdit) return;
     send({
-      message: `Re-run the analysis "${analysis.name}" with the latest data and update the saved results.`,
+      message: t("analyses.rerunMessage", { name: analysis.name }),
       context:
         `This is a re-run of a saved ad-hoc analysis. REAL_DATA_REQUIRED: run at least one real data-source query action before saving or answering; data-source-status, generate-chart, and save-analysis do not count as data queries. If no source can answer, report the exact unavailable/error result instead of saving guessed results.\n\n` +
         `Use these instructions to reproduce it:\n\n` +
@@ -185,13 +189,10 @@ export default function AnalysisDetail() {
                 disabled={isGenerating}
               >
                 <IconRefresh className="h-4 w-4" />
-                Re-run
+                {t("analyses.rerun")}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>
-              Re-run this analysis with the latest data and update the saved
-              results
-            </TooltipContent>
+            <TooltipContent>{t("analyses.rerunTooltip")}</TooltipContent>
           </Tooltip>
         ) : null}
         {canManage ? (
@@ -203,16 +204,15 @@ export default function AnalysisDetail() {
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete analysis?</AlertDialogTitle>
+                <AlertDialogTitle>{t("analyses.deleteTitle")}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will permanently delete "{analysis.name}" and its
-                  results.
+                  {t("analyses.deleteDescription", { name: analysis.name })}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
                 <AlertDialogAction onClick={handleDelete}>
-                  Delete
+                  {t("sidebar.delete")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -235,12 +235,12 @@ export default function AnalysisDetail() {
   if (!analysis) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <h3 className="text-lg font-semibold mb-2">Analysis not found</h3>
+        <h3 className="text-lg font-semibold mb-2">{t("analyses.notFound")}</h3>
         <p className="text-sm text-muted-foreground mb-4">
-          This analysis may have been deleted.
+          {t("analyses.mayHaveBeenDeleted")}
         </p>
         <Link to="/analyses" className="text-sm text-primary hover:underline">
-          Back to analyses
+          {t("analyses.backToAnalyses")}
         </Link>
       </div>
     );
@@ -264,7 +264,7 @@ export default function AnalysisDetail() {
             className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3"
           >
             <IconArrowLeft className="h-3 w-3" />
-            All analyses
+            {t("analyses.allAnalyses")}
           </Link>
           {analysis.description && (
             <p className="text-sm text-muted-foreground">
@@ -276,12 +276,18 @@ export default function AnalysisDetail() {
           <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <IconClock className="h-3 w-3" />
-              Updated {formatDate(analysis.updatedAt)}
+              {t("analyses.updated", { date: formatDate(analysis.updatedAt) })}
             </span>
             {analysis.createdAt !== analysis.updatedAt && (
-              <span>Created {formatDate(analysis.createdAt)}</span>
+              <span>
+                {t("analyses.created", {
+                  date: formatDate(analysis.createdAt),
+                })}
+              </span>
             )}
-            {analysis.author && <span>by {analysis.author}</span>}
+            {analysis.author && (
+              <span>{t("analyses.byAuthor", { author: analysis.author })}</span>
+            )}
             <span
               className={`flex items-center gap-1.5 font-medium ${
                 analysis.visibility === "public"
@@ -301,10 +307,10 @@ export default function AnalysisDetail() {
                 }`}
               />
               {analysis.visibility === "public"
-                ? "Public"
+                ? t("analyses.public")
                 : analysis.visibility === "org"
-                  ? "Shared with org"
-                  : "Private"}
+                  ? t("analyses.sharedWithOrg")
+                  : t("analyses.private")}
             </span>
           </div>
 

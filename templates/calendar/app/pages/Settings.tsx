@@ -1,5 +1,12 @@
-import { useState, useEffect } from "react";
-import { Link } from "react-router";
+import {
+  AppearancePicker,
+  callAction,
+  ChangelogSettingsCard,
+  LanguagePicker,
+  openAgentSettings,
+  type AppearancePresetId,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconBrandZoom,
   IconExternalLink,
@@ -8,10 +15,13 @@ import {
   IconCircleCheck,
   IconCircleX,
 } from "@tabler/icons-react";
+import { useState, useEffect } from "react";
+import { Link } from "react-router";
+import { toast } from "sonner";
+
+import { GoogleSetupWizard } from "@/components/calendar/GoogleSetupWizard";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
@@ -19,31 +29,27 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { GoogleSetupWizard } from "@/components/calendar/GoogleSetupWizard";
-import { TimezoneCombobox } from "@/components/TimezoneCombobox";
-import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
-import {
-  AppearancePicker,
-  callAction,
-  ChangelogSettingsCard,
-  type AppearancePresetId,
-} from "@agent-native/core/client";
-import changelog from "../../CHANGELOG.md?raw";
+import { Textarea } from "@/components/ui/textarea";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
   useGoogleDesktopAuth,
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
+import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import {
   useConnectZoom,
   useDisconnectZoom,
   useZoomStatus,
 } from "@/hooks/use-zoom-auth";
-import { toast } from "sonner";
+
+import changelog from "../../CHANGELOG.md?raw";
 
 export default function Settings() {
+  const t = useT();
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
@@ -54,7 +60,7 @@ export default function Settings() {
     startDesktopGoogleAuth,
   } = useGoogleDesktopAuth({
     onError: (issue) =>
-      toast.error(issue.message || issue.error || "Google sign-in failed"),
+      toast.error(issue.message || issue.error || t("settings.googleFailed")),
     onSuccess: () => window.location.reload(),
   });
   const zoomStatus = useZoomStatus();
@@ -86,8 +92,8 @@ export default function Settings() {
         defaultEventDuration: defaultDuration,
       },
       {
-        onSuccess: () => toast.success("Settings saved"),
-        onError: () => toast.error("Failed to save settings"),
+        onSuccess: () => toast.success(t("settings.saved")),
+        onError: () => toast.error(t("settings.saveFailed")),
       },
     );
   }
@@ -121,47 +127,74 @@ export default function Settings() {
       for (const account of accounts) {
         await disconnectGoogle.mutateAsync(account.email);
       }
-      toast.success("Google Calendar disconnected");
+      toast.success(t("settings.googleDisconnected"));
     } catch {
-      toast.error("Failed to disconnect");
+      toast.error(t("settings.disconnectFailed"));
     }
   }
 
   function handleConnectZoom() {
     connectZoom.mutate(undefined, {
-      onSuccess: () => toast("Zoom connection opened"),
+      onSuccess: () => toast(t("settings.zoomOpened")),
       onError: (error) =>
         toast.error(
-          error instanceof Error ? error.message : "Could not connect Zoom",
+          error instanceof Error
+            ? error.message
+            : t("settings.zoomConnectFailed"),
         ),
     });
   }
 
   function handleDisconnectZoom() {
     disconnectZoom.mutate(undefined, {
-      onSuccess: () => toast.success("Zoom disconnected"),
-      onError: () => toast.error("Failed to disconnect Zoom"),
+      onSuccess: () => toast.success(t("settings.zoomDisconnected")),
+      onError: () => toast.error(t("settings.zoomDisconnectFailed")),
     });
   }
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 px-4 py-8 pb-12">
       <div>
-        <h1 className="text-2xl font-semibold">Settings</h1>
+        <h1 className="text-2xl font-semibold">{t("settings.title")}</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Configure your calendar and integrations.
+          {t("settings.description")}
         </p>
       </div>
 
       <ChangelogSettingsCard markdown={changelog} />
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">
+            {t("settings.languageTitle")}
+          </CardTitle>
+          <CardDescription>{t("settings.languageDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent className="max-w-xs space-y-1.5">
+          <Label>{t("settings.languageLabel")}</Label>
+          <LanguagePicker label={t("settings.languageLabel")} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">{t("settings.agentTitle")}</CardTitle>
+          <CardDescription>{t("settings.agentDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="outline" onClick={() => openAgentSettings()}>
+            {t("settings.openAgentSettings")}
+          </Button>
+        </CardContent>
+      </Card>
+
       {/* Google Calendar Connection */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Google Calendar</CardTitle>
-          <CardDescription>
-            Connect your Google Calendar to sync events.
-          </CardDescription>
+          <CardTitle className="text-lg">
+            {t("settings.googleCalendar")}
+          </CardTitle>
+          <CardDescription>{t("settings.googleDescription")}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between">
@@ -170,7 +203,9 @@ export default function Settings() {
                 <>
                   <IconCircleCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                   <div>
-                    <p className="text-sm font-medium">Connected</p>
+                    <p className="text-sm font-medium">
+                      {t("common.connected")}
+                    </p>
                     {googleStatus.data.accounts?.length > 0 && (
                       <p className="text-xs text-muted-foreground">
                         {googleStatus.data.accounts
@@ -183,7 +218,9 @@ export default function Settings() {
               ) : (
                 <>
                   <IconCircleX className="h-5 w-5 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">Not connected</p>
+                  <p className="text-sm text-muted-foreground">
+                    {t("common.notConnected")}
+                  </p>
                 </>
               )}
             </div>
@@ -195,8 +232,8 @@ export default function Settings() {
                 onClick={handleDisconnect}
                 disabled={disconnectGoogle.isPending}
               >
-                <IconUnlink className="mr-1.5 h-3.5 w-3.5" />
-                Disconnect
+                <IconUnlink className="me-1.5 h-3.5 w-3.5" />
+                {t("common.disconnect")}
               </Button>
             ) : (
               <Button
@@ -208,8 +245,8 @@ export default function Settings() {
                   isGoogleDesktopAuthPending
                 }
               >
-                <IconExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                Connect
+                <IconExternalLink className="me-1.5 h-3.5 w-3.5" />
+                {t("common.connect")}
               </Button>
             )}
           </div>
@@ -219,10 +256,7 @@ export default function Settings() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Zoom</CardTitle>
-          <CardDescription>
-            Connect Zoom to create meeting links for calendar events and
-            bookings.
-          </CardDescription>
+          <CardDescription>{t("settings.zoomDescription")}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between gap-4">
@@ -231,7 +265,9 @@ export default function Settings() {
                 <>
                   <IconCircleCheck className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                   <div className="min-w-0">
-                    <p className="text-sm font-medium">Connected</p>
+                    <p className="text-sm font-medium">
+                      {t("common.connected")}
+                    </p>
                     {zoomStatus.data.accounts?.length > 0 && (
                       <p className="truncate text-xs text-muted-foreground">
                         {zoomStatus.data.accounts
@@ -247,12 +283,12 @@ export default function Settings() {
                   <div className="min-w-0">
                     <p className="text-sm text-muted-foreground">
                       {zoomStatus.data?.configured === false
-                        ? "Not configured"
-                        : "Not connected"}
+                        ? t("settings.zoomNotConfigured")
+                        : t("common.notConnected")}
                     </p>
                     {zoomStatus.data?.configured === false && (
                       <p className="text-xs text-muted-foreground">
-                        Add Zoom OAuth credentials to enable connection.
+                        {t("settings.zoomCredentialsPrompt")}
                       </p>
                     )}
                   </div>
@@ -267,8 +303,8 @@ export default function Settings() {
                 onClick={handleDisconnectZoom}
                 disabled={disconnectZoom.isPending}
               >
-                <IconUnlink className="mr-1.5 h-3.5 w-3.5" />
-                Disconnect
+                <IconUnlink className="me-1.5 h-3.5 w-3.5" />
+                {t("common.disconnect")}
               </Button>
             ) : (
               <Button
@@ -278,8 +314,8 @@ export default function Settings() {
                   connectZoom.isPending || zoomStatus.data?.configured === false
                 }
               >
-                <IconBrandZoom className="mr-1.5 h-3.5 w-3.5" />
-                Connect
+                <IconBrandZoom className="me-1.5 h-3.5 w-3.5" />
+                {t("common.connect")}
               </Button>
             )}
           </div>
@@ -290,10 +326,11 @@ export default function Settings() {
       {!googleStatus.data?.connected && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Connect Google Calendar</CardTitle>
+            <CardTitle className="text-lg">
+              {t("settings.connectGoogleCalendar")}
+            </CardTitle>
             <CardDescription>
-              Follow these steps to connect your Google account. Takes about 3
-              minutes.
+              {t("settings.connectGoogleDescription")}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -307,50 +344,49 @@ export default function Settings() {
       {/* General Settings */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">General</CardTitle>
-          <CardDescription>
-            Calendar defaults and fallback booking copy.
-          </CardDescription>
+          <CardTitle className="text-lg">{t("settings.general")}</CardTitle>
+          <CardDescription>{t("settings.generalDescription")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="timezone">Timezone</Label>
+            <Label htmlFor="timezone">{t("settings.timezone")}</Label>
             <TimezoneCombobox value={timezone} onChange={setTimezone} />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="booking-title">Fallback booking page title</Label>
+            <Label htmlFor="booking-title">
+              {t("settings.bookingTitleLabel")}
+            </Label>
             <Input
               id="booking-title"
               value={bookingTitle}
               onChange={(e) => setBookingTitle(e.target.value)}
-              placeholder="Book a Meeting"
+              placeholder={t("settings.bookingTitlePlaceholder")}
             />
             <p className="text-xs text-muted-foreground">
-              Used only when a booking link has no title. Create, open, and copy
-              public URLs from Booking links.
+              {t("settings.bookingTitleHelp")}
             </p>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="booking-desc">
-              Fallback booking page description
+              {t("settings.bookingDescriptionLabel")}
             </Label>
             <Textarea
               id="booking-desc"
               value={bookingDescription}
               onChange={(e) => setBookingDescription(e.target.value)}
-              placeholder="Pick a time that works for you."
+              placeholder={t("settings.bookingDescriptionPlaceholder")}
               rows={2}
             />
             <p className="text-xs text-muted-foreground">
-              Used only when a booking link has no description of its own.
+              {t("settings.bookingDescriptionHelp")}
             </p>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="default-duration">
-              Default event duration (minutes)
+              {t("settings.defaultDurationLabel")}
             </Label>
             <Input
               id="default-duration"
@@ -361,19 +397,20 @@ export default function Settings() {
               max={480}
             />
             <p className="text-xs text-muted-foreground">
-              Default length for new calendar events and booking slots. Booking
-              links can override this per link.
+              {t("settings.defaultDurationHelp")}
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
             <Button onClick={handleSave} disabled={updateSettings.isPending}>
-              {updateSettings.isPending ? "Saving..." : "Save Settings"}
+              {updateSettings.isPending
+                ? t("common.saving")
+                : t("settings.saveSettings")}
             </Button>
             <Button asChild variant="outline">
               <Link to="/booking-links">
-                <IconLink className="mr-1.5 h-3.5 w-3.5" />
-                Booking links
+                <IconLink className="me-1.5 h-3.5 w-3.5" />
+                {t("navigation.bookingLinks")}
               </Link>
             </Button>
           </div>
@@ -383,9 +420,9 @@ export default function Settings() {
       {/* Appearance */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Appearance</CardTitle>
+          <CardTitle className="text-lg">{t("settings.appearance")}</CardTitle>
           <CardDescription>
-            Pick a color theme for your workspace. Or just ask the agent.
+            {t("settings.appearanceDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent>

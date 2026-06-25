@@ -1,16 +1,19 @@
-import { useMemo } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { Sidebar } from "./Sidebar";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import {
   AgentSidebar,
   focusAgentChat,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
+  useT,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { useMemo } from "react";
+import { useLocation, useNavigate } from "react-router";
+
 import { TAB_ID } from "@/lib/tab-id";
+
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { Sidebar } from "./Sidebar";
 
 const BARE_ROUTES = new Set(["/form-preview"]);
 
@@ -26,6 +29,7 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const t = useT();
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "forms",
     activePath: location.pathname,
@@ -70,11 +74,11 @@ export function Layout({ children }: LayoutProps) {
           browserTabId={TAB_ID}
           openOnChatRunning={chatHomeHandoffActive}
           onFullscreenRequest={openAskAgentFullscreen}
-          emptyStateText="Ask me anything about your forms"
+          emptyStateText={t("agent.emptyState")}
           suggestions={[
-            "Build a customer feedback survey",
-            "Show submissions by day",
-            "Export responses to CSV",
+            t("agent.suggestionSurvey"),
+            t("agent.suggestionSubmissions"),
+            t("agent.suggestionExport"),
           ]}
           scope={sidebarScope}
         >

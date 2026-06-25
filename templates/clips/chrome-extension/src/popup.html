@@ -72,6 +72,7 @@
             aria-checked="false"
             data-mode="screen"
             aria-label="Screen only"
+            data-tooltip="Screen only"
           >
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <rect
@@ -98,6 +99,7 @@
             aria-checked="true"
             data-mode="screen-camera"
             aria-label="Screen and camera"
+            data-tooltip="Screen and camera"
           >
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <rect
@@ -126,6 +128,7 @@
             aria-checked="false"
             data-mode="camera"
             aria-label="Camera only"
+            data-tooltip="Camera only"
           >
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <rect
@@ -159,6 +162,31 @@
       </header>
 
       <div id="idle-content">
+        <div id="unsupported-notice" class="notice" role="alert" hidden>
+          <svg
+            class="notice-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <div class="notice-body">
+            <div class="notice-title">Clips can't draw controls here</div>
+            <div class="notice-text">
+              This is a browser page (like New&nbsp;Tab), so the countdown and
+              on-screen controls won't appear. You can still record a window or
+              full screen — stop from the Clips icon — or open a website for the
+              full experience.
+            </div>
+          </div>
+        </div>
         <section class="panel" aria-label="Recorder setup">
           <div id="source-row" class="row row-on">
             <span class="row-icon" aria-hidden="true">
@@ -239,10 +267,24 @@
                 />
               </svg>
             </span>
-            <button type="button" class="row-button" disabled>
-              <span class="row-label">Default camera</span>
+            <button id="camera-device-button" type="button" class="row-button">
+              <span id="camera-device-label" class="row-label"
+                >Default camera</span
+              >
               <span class="row-flex" aria-hidden="true"></span>
+              <span class="row-chev" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M6 9l6 6 6-6"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
             </button>
+            <div id="camera-device-menu" class="row-menu" hidden></div>
             <button
               id="include-camera"
               class="toggle toggle-on"
@@ -254,7 +296,7 @@
             </button>
           </div>
 
-          <div class="row row-on">
+          <div id="microphone-row" class="row row-on">
             <span class="row-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none">
                 <rect
@@ -274,10 +316,28 @@
                 />
               </svg>
             </span>
-            <button type="button" class="row-button" disabled>
-              <span class="row-label">Default mic</span>
+            <button
+              id="microphone-device-button"
+              type="button"
+              class="row-button"
+            >
+              <span id="microphone-device-label" class="row-label"
+                >Default mic</span
+              >
               <span class="row-flex" aria-hidden="true"></span>
+              <span class="row-chev" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M6 9l6 6 6-6"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
             </button>
+            <div id="microphone-device-menu" class="row-menu" hidden></div>
             <button
               id="include-microphone"
               class="toggle toggle-on"

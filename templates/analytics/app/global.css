@@ -314,31 +314,94 @@
 }
 
 /* The dashboard grid responds to the available content width — which shrinks
-   when the agent sidebar is open — not the viewport. Below the threshold it
-   stacks to one column (mobile layout); at/above it expands to the dashboard's
-   configured column count. Mirrors templates/macros/app/global.css. */
+   when the agent sidebar is open — not the viewport. Rows are rendered
+   explicitly so deleting a card only expands the remaining cards in that row. */
 .dashboard-grid-container {
   container: dashboard-grid / inline-size;
 }
 
 .dashboard-grid {
-  display: grid;
-  grid-auto-rows: auto;
+  --dashboard-grid-gap: 1rem;
+  --dashboard-drop-line: hsl(217 91% 60%);
+  display: flex;
+  flex-direction: column;
   align-items: stretch;
-  gap: 1rem;
-  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
 }
 
-.dashboard-grid > .dashboard-grid-cell {
-  grid-column: auto;
+.dashboard-grid-cell {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.dashboard-row-drop-slot,
+.dashboard-column-drop-slot {
+  position: relative;
+  z-index: 30;
+  flex: 0 0 1rem;
+}
+
+.dashboard-row-drop-slot {
+  height: 1rem;
+  margin-block: -0.125rem;
+}
+
+.dashboard-column-drop-slot {
+  height: 1rem;
+  margin-block: -0.5rem;
+}
+
+.dashboard-row-drop-slot::after,
+.dashboard-column-drop-slot::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  background: var(--dashboard-drop-line);
+  box-shadow: 0 0 0 1px hsl(217 91% 60% / 0.18);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.dashboard-row-drop-slot::after,
+.dashboard-column-drop-slot::after {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+.dashboard-row-drop-slot[data-active="true"]::after,
+.dashboard-column-drop-slot[data-active="true"]::after {
+  opacity: 1;
 }
 
 @container dashboard-grid (min-width: 768px) {
   .dashboard-grid {
-    grid-template-columns: repeat(var(--dash-cols), minmax(0, 1fr));
+    flex-direction: row;
+    margin-inline: calc(var(--dashboard-grid-gap) / -2);
   }
 
-  .dashboard-grid > .dashboard-grid-cell {
-    grid-column: span var(--panel-span);
+  .dashboard-grid-cell {
+    flex-basis: 0;
+    padding-inline: calc(var(--dashboard-grid-gap) / 2);
+  }
+
+  .dashboard-column-drop-slot {
+    align-self: stretch;
+    width: 1rem;
+    height: auto;
+    margin-block: 0;
+    margin-inline: -0.5rem;
+  }
+
+  .dashboard-column-drop-slot::after {
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    right: auto;
+    width: 2px;
+    height: auto;
+    transform: translateX(-50%);
   }
 }

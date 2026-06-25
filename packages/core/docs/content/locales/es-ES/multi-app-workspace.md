@@ -1,0 +1,312 @@
+---
+title: "Espacios de trabajo multiaplicación"
+description: "Aloje muchas aplicaciones nativas del agente en un monorepo con autenticación compartida, RBAC, instrucciones, skills, componentes y credenciales."
+---
+
+# Espacios de trabajo multiaplicación
+
+> **¿Qué documento de espacio de trabajo?** Esta página cubre la **forma de implementación**: un monorepo, muchas aplicaciones, autenticación compartida y una implementación unificada. Para saber qué es un espacio de trabajo (la capa de personalización: `AGENTS.md`, `LEARNINGS.md`, memoria personal, skills, agentes personalizados), consulte [Workspace](/docs/workspace); para la gobernanza (quién revisa, aprueba y es propietario de qué), consulte [Workspace Governance](/docs/workspace-management).
+
+Cuando codificar una herramienta interna requiere una tarde, no te detienes en una. Un equipo termina con un CRM, una bandeja de entrada de soporte, un tablero, una consola de operaciones: diez pequeñas aplicaciones, cada una estructurada de forma independiente. Eso es genial hasta que necesites cambiar algo en todos ellos.
+
+En ese momento, cada aplicación tiene su propio `AGENTS.md`, su propio complemento de autenticación, su propio componente de diseño copiado y pegado, su propio token Slack codificado y su propia idea de lo que es una "organización". Un cambio de regla de cumplimiento significa diez RP. Girar una clave API significa diez redespliegues. Una actualización de marca significa que diez encabezados diferentes no están sincronizados. Lo que facilitó su creación ahora dificulta su gestión.
+
+El patrón **espacio de trabajo de aplicaciones múltiples** es la forma en que el agente nativo resuelve esto. Alojas todas tus aplicaciones en un monorepo junto con un paquete `packages/shared` privado. El marco posee los valores predeterminados comunes; `packages/shared` es solo para el código, las instrucciones, skills, los componentes o las anulaciones de complementos que sean genuinamente personalizados para su espacio de trabajo. Cada aplicación se reduce a un puñado de pantallas y actions que la hacen única.
+
+## Qué se comparte {#what-gets-shared}
+
+Cualquier cosa que todas las aplicaciones de su organización deban acordar puede residir en `packages/shared`:
+
+| Cosa compartida                      | Dónde vive                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| Anulación de autenticación/SSO       | Exportar `authPlugin` desde `src/server/index.ts`                                                |
+| Reglas de la organización/RBAC       | Mejores organizaciones de autenticación, opcionalmente envueltas por ese `authPlugin`            |
+| Anulación del chat del agente        | Exportar `agentChatPlugin` desde `src/server/index.ts`                                           |
+| Instrucciones del agente empresarial | `AGENTS.md`                                                                                      |
+| Agente skills                        | `.agents/skills/<skill-name>/SKILL.md`                                                           |
+| Agente compartido actions            | `actions/*.ts`                                                                                   |
+| Componentes React compartidos        | Exportar desde `src/client/index.ts`                                                             |
+| Fichas de diseño/marca               | Agregue un archivo CSS compartido e impórtelo desde cada aplicación                              |
+| Credenciales API compartidas         | Prefiere credenciales con ámbito de marco; agregue ayudantes solo si necesita espacio de nombres |
+
+Cada aplicación individual se convierte en _solo un conjunto de pantallas_: rutas, paneles, vistas, actions específicos del dominio. Los valores predeterminados del marco cubren el resto hasta que agregues una personalización real del espacio de trabajo.
+
+Ese mismo límite se aplica cuando su aplicación quiere utilizar otra aplicación propia. Un nuevo panel de espacio de trabajo que necesita correo electrónico, calendario, análisis y contexto de memoria de la empresa debe utilizar las aplicaciones Mail, Calendar, Analytics y Brain existentes como vecinos conectados a través de enlaces o A2A. No debería clonar esas plantillas, crear una aplicación contenedora que las anide ni crear aplicaciones secundarias dentro de sí mismo solo para obtener acceso a sus datos o agentes. Bifurca o estructura una copia solo cuando quieras personalizar explícitamente esa aplicación.
+
+## Empezando {#getting-started}
+
+El espacio de trabajo es la forma predeterminada de un proyecto nativo del agente. Andamio uno con:
+
+```bash
+npx @agent-native/core@latest create my-company-platform
+```
+
+El CLI muestra un selector múltiple de cada plantilla propia. Elija tantos como desee (Correo + Calendario + Formularios, por ejemplo) y todos se integrarán en los mismos valores predeterminados de base de datos y autenticación de uso compartido del espacio de trabajo.
+
+Obtienes un monorepo pnpm con el paquete compartido privado, un `package.json` raíz que conecta el descubrimiento del espacio de trabajo, un `.env` compartido y un subdirectorio por aplicación que hayas elegido:
+
+```an-file-tree title="Un workspace generado"
+{
+  "entries": [
+    { "path": "package.json", "note": "Declara agent-native.workspaceCore" },
+    { "path": "pnpm-workspace.yaml", "note": "packages: [\"packages/*\", \"apps/*\"]" },
+    { "path": ".env.example", "note": "ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ... compartidos" },
+    { "path": "packages/shared/", "note": "@my-company-platform/shared" },
+    { "path": "packages/shared/src/server/", "note": "Overrides de plugins solo cuando haga falta" },
+    { "path": "packages/shared/src/client/", "note": "Código React compartido solo cuando haga falta" },
+    { "path": "packages/shared/AGENTS.md", "note": "Instrucciones para todo el workspace" },
+    { "path": "apps/mail/" },
+    { "path": "apps/calendar/" },
+    { "path": "apps/forms/" }
+  ]
+}
+```
+
+Luego arrancalo:
+
+```bash
+cd my-company-platform
+cp .env.example .env             # completa ANTHROPIC_API_KEY, BETTER_AUTH_SECRET, ...
+pnpm install
+pnpm dev                         # opens Dispatch; other apps start on first visit
+```
+
+Cada aplicación ya sabe cómo iniciar sesión, compartir la misma base de datos y cargar el espacio de trabajo `AGENTS.md`. No conectó nada de eso: el marco descubrió automáticamente el paquete compartido a través del campo `agent-native.workspaceCore` en la raíz `package.json`:
+
+```json
+{
+  "name": "my-company-platform",
+  "agent-native": {
+    "workspaceCore": "@my-company-platform/shared"
+  }
+}
+```
+
+## Agregar otra aplicación {#adding-a-new-app}
+
+Desde cualquier lugar dentro del espacio de trabajo:
+
+```bash
+npx @agent-native/core@latest add-app
+```
+
+El CLI muestra nuevamente el selector de plantillas con las aplicaciones que ya ha instalado filtradas. Elija uno o más y se estructurarán en `apps/`. Variante no interactiva:
+
+```bash
+npx @agent-native/core@latest add-app crm --template content
+```
+
+Cualquier plantilla propia funciona como una aplicación de espacio de trabajo: CLI ejecuta una pequeña transformación **workspacify** en la plantilla que agrega el paquete compartido como depósito y resuelve las referencias de `workspace:*`. No es necesario mantener un andamio paralelo de "aplicación de espacio de trabajo".
+
+```bash
+pnpm install                     # at the workspace root
+pnpm dev
+```
+
+Eso es todo. La nueva aplicación tiene las mismas instrucciones de inicio de sesión y espacio de trabajo que cualquier otra aplicación. Agregue una marca compartida, actions o credenciales solo cuando el espacio de trabajo realmente las necesite.
+
+## Qué anulas y dónde {#layering}
+
+Las aplicaciones nativas del agente dentro de un espacio de trabajo resuelven el comportamiento transversal desde tres lugares, en este orden:
+
+1. **Aplicación local**: archivos dentro de `apps/<name>/` (prioridad más alta)
+2. **Espacio de trabajo compartido**: archivos dentro de `packages/shared/` (la capa intermedia compartida)
+3. **Predeterminado del marco**: `@agent-native/core` (más bajo)
+
+La fusión se realiza por nombre de archivo. Si una aplicación proporciona un archivo local que también existe en sentido ascendente, el local gana. Si no es así, se aplica la versión compartida del espacio de trabajo. Si compartido tampoco proporciona uno, se activa el marco predeterminado. Esto se aplica a los complementos skills, actions y `AGENTS.md`.
+
+```an-diagram title="Tres capas, fusionadas por nombre de archivo" summary="Cada aplicación resuelve complementos, habilidades, acciones y AGENTS.md desde la aplicación local primero, luego el paquete compartido y luego el marco predeterminado."
+{
+  "html": "<div class=\"layer\"><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">1 &middot; App local</span><small class=\"diagram-muted\"><code>apps/&lt;name&gt;/</code> &mdash; highest priority</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2 &middot; Workspace shared</span><small class=\"diagram-muted\"><code>packages/shared/</code> &mdash; the mid-layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">3 &middot; Framework default</span><small class=\"diagram-muted\"><code>@agent-native/core</code> &mdash; lowest</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box ok\">first match wins</div></div>",
+  "css": ".layer{display:flex;flex-direction:column;align-items:center;gap:6px}.layer .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 16px;width:320px}.layer .diagram-arrow{font-size:18px;line-height:1}.layer .diagram-box{margin-top:2px}"
+}
+```
+
+Cuando una aplicación necesita algo diferente, suelta un archivo local:
+
+| Cosa a anular                            | Archivo para crear dentro de la aplicación                         |
+| ---------------------------------------- | ------------------------------------------------------------------ |
+| Complemento de autenticación             | `apps/<name>/server/plugins/auth.ts`                               |
+| Complemento de chat de agente            | `apps/<name>/server/plugins/agent-chat.ts`                         |
+| Una habilidad específica                 | `apps/<name>/.agents/skills/<skill-name>/SKILL.md`                 |
+| Una acción específica                    | `apps/<name>/actions/<action-name>.ts`                             |
+| Instrucciones adicionales para el agente | `apps/<name>/AGENTS.md` (se fusiona con el espacio de trabajo uno) |
+
+Sin cableado, sin configuración. Cree el archivo y se hará cargo.
+
+## Editar comportamiento compartido {#editing-shared-behavior}
+
+Todo lo transversal que personalizas vive en `packages/shared/`. Exporte un `authPlugin` desde `src/server/index.ts` y cada aplicación lo retomará en la próxima recarga del desarrollador. Agregue una habilidad en `.agents/skills/` y el agente de cada aplicación la verá. Agregue una acción a `actions/` y cada agente de la aplicación podrá llamarla.
+
+Debido a que el paquete compartido es una dependencia de `workspace:*`, pnpm lo vincula simbólicamente al `node_modules/` de cada aplicación. Nunca lo creas ni lo publicas: las aplicaciones agrupan todo lo que necesitan en el momento de la compilación.
+
+## Recursos globales de tiempo de ejecución {#runtime-global-resources}
+
+Utilice `packages/shared` para los valores predeterminados a nivel de código que deberían incluirse con el repositorio: complementos, actions compartido, código React compartido, sistema de archivos `AGENTS.md` y sistema de archivos skills. Utilice los recursos del espacio de trabajo de Dispatch para el contexto global editable en tiempo de ejecución que los administradores quieran administrar sin cambiar el código.
+
+Los recursos de envío tienen el alcance **Todas las aplicaciones** (cada aplicación las hereda en tiempo de ejecución, sin copia ni paso de sincronización) o **Aplicaciones seleccionadas** (otorgados por aplicación para el contexto específico de la aplicación). Consulte [Workspace](/docs/workspace#global-resources) para obtener la tabla completa del modelo de recursos, las convenciones de ruta y el paquete de inicio recomendado.
+
+## Autenticación y RBAC {#auth-and-rbac}
+
+Cada aplicación nativa del agente ya viene con [Better Auth](/docs/authentication) más el sistema de organización integrado del marco. En un espacio de trabajo, lo obtienes de forma gratuita en cada aplicación, respaldada por la misma base de datos. Para conocer el modelo multiinquilino completo (organizaciones, roles, aislamiento de datos), consulte [Multi-Tenancy](/docs/multi-tenancy).
+
+Para reglas específicas de la empresa (dominios de lista permitida, aplicación de SSO, comprobaciones de funciones adicionales), exporte un `authPlugin` desde `packages/shared/src/server/index.ts`. Ahora todas las aplicaciones del espacio de trabajo aplican esas reglas.
+
+La organización activa fluye automáticamente: `session.orgId` → `AGENT_ORG_ID` → SQL alcance de fila, por lo que los datos etiquetados con `org_id` son invisibles para otras organizaciones, incluso para el agente. Consulte [Security & Data Scoping](/docs/security) para ver el modelo completo.
+
+## Servidores MCP compartidos {#shared-mcp}
+
+Las opciones recomendadas para compartir servidores MCP entre aplicaciones de espacio de trabajo, en orden de preferencia:
+
+1. **Recursos MCP del espacio de trabajo de distribución**: agregue recursos `mcp-servers/<name>.json` en Distribución en el alcance de **Todas las aplicaciones**. Cada aplicación en el espacio de trabajo hereda el servidor MCP en tiempo de ejecución sin editar ni volver a implementar archivos. Conceder a aplicaciones seleccionadas solo cuando el servidor sea específico de la aplicación. Los tokens viven en la bóveda de Dispatch; haga referencia a ellos desde el recurso JSON con `${keys.NAME}`.
+
+2. **Root `mcp.config.json`**: coloque un archivo en la raíz del espacio de trabajo y todas las aplicaciones del espacio de trabajo se conectarán a los mismos servidores MCP. Las aplicaciones individuales pueden anularse con su propio `mcp.config.json` (victorias de raíz de aplicación). Utilícelo para servidores MCP locales/sistema de archivos (`@modelcontextprotocol/server-filesystem`, `claude-in-chrome`, Playwright) que no necesitan credenciales de almacén por usuario.
+
+3. **Configuración UI (ámbito personal/orgánico)**: para servidores remotos HTTP MCP, los usuarios pueden agregarlos desde la configuración UI en el ámbito personal o de equipo (organización): sin ediciones de archivos, recargados en caliente en el agente en ejecución.
+
+Consulte [MCP Clients](/docs/mcp-clients) para conocer el esquema de configuración, las reglas de precedencia y la configuración del concentrador.
+
+## Variables de entorno compartidas {#shared-env}
+
+La raíz del espacio de trabajo `.env` se carga automáticamente en cada aplicación. Coloque las claves compartidas una vez en la raíz (`ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, `DATABASE_URL`, `BUILDER_PRIVATE_KEY`, etc.) y cada aplicación las recogerá. Las anulaciones por aplicación van en `apps/<name>/.env` y ganan en caso de conflicto.
+
+Para las credenciales de la aplicación en tiempo de ejecución, prefiera la bóveda de Dispatch a la edición manual de archivos `.env`. La bóveda tiene de forma predeterminada acceso a todas las aplicaciones, por lo que cada clave de bóveda guardada está disponible para todas las aplicaciones del espacio de trabajo y se puede enviar con `sync-vault-to-app`. Cambie la bóveda al modo manual solo cuando las aplicaciones necesiten concesiones explícitas por clave.
+
+```text
+my-company-platform/
+├── .env                           # shared: ANTHROPIC_API_KEY=... , A2A_SECRET=... , ...
+└── apps/
+    └── mail/
+        └── .env                   # optional overrides just for mail
+```
+
+Algunos flujos de incorporación tienen en cuenta el espacio de trabajo desde el primer momento:
+
+- **Builder `/cli-auth`**: al hacer clic en "Conectar Builder" desde cualquier aplicación, `BUILDER_PRIVATE_KEY` y sus amigos se escriben en la **raíz del espacio de trabajo** `.env`, por lo que todas las aplicaciones obtienen acceso al navegador a la vez.
+- **Ruta de configuración de Env-vars** (`POST /_agent-native/env-vars`): cuando está dentro de un espacio de trabajo, de forma predeterminada se escribe la raíz del espacio de trabajo `.env`. Pase `scope: "app"` en el cuerpo para anular una aplicación.
+
+## Credenciales compartidas {#shared-credentials}
+
+Las aplicaciones en el mismo espacio de trabajo apuntan al mismo `DATABASE_URL` de forma predeterminada, por lo que el almacenamiento de credenciales del marco puede hacer que una credencial esté disponible para cada aplicación sin configuración por aplicación. Utilice `@agent-native/core/credentials` directamente o agregue un asistente ligero en `packages/shared` si su espacio de trabajo desea una convención de nomenclatura más estricta.
+
+## Fichas de diseño compartidas {#design-tokens}
+
+El marco está en Tailwind v4. Agregue un archivo CSS compartido a `packages/shared` solo cuando el espacio de trabajo tenga tokens de marca reales para compartir, luego impórtelo desde el `app/global.css` de cada aplicación:
+
+```css
+@import "tailwindcss";
+@import "@my-company-platform/shared/styles/tokens.css";
+@source "./**/*.{ts,tsx}";
+
+:root {
+  --background: 0 0% 100%; /* ...brand tokens... */
+}
+.dark {
+  --background: 220 6% 6%; /* ... */
+}
+```
+
+Los colores de la marca, la tipografía, las escalas de espaciado y cualquier clase de componente compartido pueden residir en ese único archivo CSS. Actualízalo en `packages/shared` y cada aplicación cambiará de nombre en la próxima compilación.
+
+## Implementación {#deployment}
+
+Tiene dos opciones: **implementación unificada** (la opción predeterminada para espacios de trabajo) o implementación independiente por aplicación.
+
+### Implementación unificada (recomendado)
+
+Un comando crea todas las aplicaciones en el espacio de trabajo y las envía detrás de un único origen, una ruta por aplicación:
+
+```bash
+npx @agent-native/core@latest deploy
+# https://your-agents.com/mail/*       → apps/mail
+# https://your-agents.com/calendar/*   → apps/calendar
+# https://your-agents.com/forms/*      → apps/forms
+```
+
+Cada aplicación se crea con `APP_BASE_PATH=/<name>` y `VITE_APP_BASE_PATH=/<name>` y se emite a través del preajuste Nitro seleccionado. Cloudflare Pages es el valor predeterminado predeterminado y utiliza un trabajador despachador en `dist/_worker.js` más `_routes.json`. Netlify es compatible con `npx @agent-native/core@latest deploy --preset netlify`; emite funciones de aplicación bajo `.netlify/functions-internal/<app>-server` y genera redirecciones que dejan los activos estáticos sin forzar para que CDN entregue los archivos primero. Vercel es compatible con `npx @agent-native/core@latest deploy --preset vercel`; escribe un paquete raíz `.vercel/output` utilizando Build Output API de Vercel.
+
+```an-diagram title="Implementación unificada: un origen, una ruta por aplicación" summary="Cada aplicación se envía detrás de un único origen, por lo que las sesiones de inicio de sesión y la aplicación cruzada A2A son gratuitas."
+{
+  "html": "<div class=\"deploy\"><div class=\"diagram-box accent\">your-agents.com<br><small class=\"diagram-muted\">one DNS record &middot; one cert &middot; one CDN</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"deploy-apps\"><div class=\"diagram-box\">/mail/*</div><div class=\"diagram-box\">/calendar/*</div><div class=\"diagram-box\">/forms/*</div></div><div class=\"diagram-pill ok\">shared login cookie on the apex &bull; same-origin A2A, no CORS</div></div>",
+  "css": ".deploy{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.deploy .deploy-apps{display:flex;flex-direction:column;gap:8px}.deploy .diagram-arrow{font-size:24px}.deploy .diagram-pill{flex-basis:100%}"
+}
+```
+
+Estar en el **mismo origen** es donde reside la verdadera recompensa:
+
+- **Sesión de inicio de sesión compartida.** Better Auth establece su cookie en el dominio principal, por lo que iniciar sesión en cualquier aplicación lo registra en todas las aplicaciones. No hay baile SSO entre dominios.
+- **Zero-config cross-app A2A.** El etiquetado `@mail` de `@calendar` se convierte en una recuperación del mismo origen: sin firmas de CORS ni de JWT entre hermanos. El A2A externo todavía usa JWT como hoy.
+- **Un registro DNS, un certificado, un caché CDN.**
+
+Publicar el resultado de `dist/`:
+
+```bash
+wrangler pages deploy dist
+```
+
+Para Netlify:
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify --build-only
+```
+
+Para implementaciones de Vercel Git, configure el comando de compilación en:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel --build-only
+```
+
+### Rutas de aplicaciones públicas
+
+Las aplicaciones de Workspace son internas de forma predeterminada. Para un sitio público con páginas de administración de solo inicio de sesión, establezca una audiencia pública y proteja el prefijo de administrador en el `package.json` de esa aplicación:
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "audience": "public",
+      "protectedPaths": ["/admin"]
+    }
+  }
+}
+```
+
+Para aplicaciones en su mayoría internas con algunas páginas públicas, deje la audiencia interna y los prefijos de página de lista:
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "publicPaths": ["/", "/share"]
+    }
+  }
+}
+```
+
+Estas configuraciones solo afectan la navegación de páginas de solo lectura. Las herramientas del marco, el chat del agente, A2A, el acceso a la bóveda y los API arbitrarios permanecen autenticados a menos que la aplicación declare explícitamente prefijos públicos con `createAuthPlugin({ publicPaths: [...] })`.
+
+### Implementación independiente por aplicación
+
+¿Prefieres cada aplicación en su propio dominio (`mail.company.com`, `calendar.company.com`)? Cada aplicación en el espacio de trabajo sigue siendo implementable de forma independiente: `cd apps/mail && npx @agent-native/core@latest build` se comporta exactamente como un andamio independiente. Luego, el A2A entre aplicaciones pasa por la ruta estándar firmada por JWT con un `A2A_SECRET` compartido. El SSO de dominio cruzado entre aplicaciones implementadas por separado se maneja mediante la federación de identidades con Dispatch como centro; consulte [Cross-App SSO](/docs/cross-app-sso); la implementación unificada de origen único evita su necesidad.
+
+### Base de datos compartida, credenciales compartidas
+
+Independientemente de lo que elija, apunte cada aplicación al mismo `DATABASE_URL` para el estado entre aplicaciones listo para usar: un conjunto de cuentas de usuario, un conjunto de organizaciones, un conjunto de configuraciones compartidas. Si cada aplicación tiene su propia base de datos, el patrón del espacio de trabajo aún funciona; simplemente se pierde esa historia de estado compartido.
+
+El paquete compartido en sí nunca se implementa de forma independiente. Es un departamento de `workspace:*` que pnpm enlaza simbólicamente con el `node_modules/` de cada aplicación, por lo que cada aplicación agrupa de forma transparente lo que necesita en el momento de la compilación.
+
+## Fuera de alcance (por ahora) {#out-of-scope}
+
+El patrón del espacio de trabajo es intencionalmente estrecho. Algunas cosas que deliberadamente no maneja todavía:
+
+- **Bóveda de credenciales cifradas.** Prefiera la bóveda de Dispatch para las credenciales de la aplicación en tiempo de ejecución (consulte [Shared environment variables](#shared-env)). La ruta alternativa que no es la bóveda (credenciales compartidas escritas directamente en la tabla `settings` del marco) las almacena hoy como texto sin formato, por lo que debe rotarlas de manera responsable cuando confíe en ella.
+- **Publicación de código compartido en npm privado.** El paquete compartido es solo `workspace:*`; Es posible compartir varios repositorios a través de un registro privado, pero no mediante andamios.
+- **Biblioteca de componentes con opinión.** `packages/shared` es donde _usted_ coloca los componentes compartidos. El marco no fuerza a shadcn/ui ni a ningún otro sistema a ingresar en esa ranura.
+
+## Ver también {#see-also}
+
+- [Workspace](/docs/workspace): la capa de personalización (`AGENTS.md`, `LEARNINGS.md`, memoria personal, skills, agentes personalizados) que comparte cada aplicación en el espacio de trabajo.
+- [Workspace Governance](/docs/workspace-management): ramificación, CODEOWNERS, revisión de relaciones públicas en muchas aplicaciones en un solo repositorio.
+- [Multi-Tenancy](/docs/multi-tenancy): organizaciones, roles y aislamiento de datos por organización.
+- [Cross-App SSO](/docs/cross-app-sso): federación de identidades para implementaciones de dominios independientes.
+- [Dispatch](/docs/dispatch): el plano de control de tiempo de ejecución que normalmente se encuentra dentro de un espacio de trabajo de múltiples aplicaciones como bóveda de secretos, catálogo de integración y centro de aprobaciones.

@@ -1,0 +1,31 @@
+import { z } from "zod";
+
+import { defineAction } from "../../action.js";
+import { putUserSetting } from "../../settings/user-settings.js";
+import {
+  LOCALIZATION_SETTING_KEY,
+  normalizeLocalePreference,
+  type LocalizationPreference,
+} from "../shared.js";
+
+export default defineAction({
+  description:
+    "Set the current user's interface language preference to 'system' or a supported BCP-47 locale.",
+  schema: z.object({
+    locale: z
+      .string()
+      .describe("Language preference: 'system' or a supported BCP-47 locale."),
+  }),
+  run: async (args, ctx): Promise<LocalizationPreference> => {
+    if (!ctx?.userEmail) throw new Error("Not authenticated.");
+    const locale = normalizeLocalePreference(args.locale);
+    if (!locale) {
+      throw new Error(
+        "Unsupported locale. Use system, en-US, zh-CN, es-ES, fr-FR, de-DE, ja-JP, ko-KR, pt-BR, hi-IN, or ar-SA.",
+      );
+    }
+    const value: LocalizationPreference & Record<string, unknown> = { locale };
+    await putUserSetting(ctx.userEmail, LOCALIZATION_SETTING_KEY, value);
+    return value;
+  },
+});

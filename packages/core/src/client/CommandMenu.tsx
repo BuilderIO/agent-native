@@ -15,6 +15,13 @@
  *   </CommandMenu>
  */
 
+import {
+  IconBook2,
+  IconExternalLink,
+  IconSearch,
+  IconMessage,
+  IconHistory,
+} from "@tabler/icons-react";
 import React, {
   createContext,
   useCallback,
@@ -25,17 +32,11 @@ import React, {
   useState,
   type ReactNode,
 } from "react";
-import {
-  IconBook2,
-  IconExternalLink,
-  IconSearch,
-  IconMessage,
-  IconHistory,
-} from "@tabler/icons-react";
-import { sendToAgentChat } from "./agent-chat.js";
-import { cn } from "./utils.js";
-import { ChangelogDialog, useChangelogSeen } from "./changelog/Changelog.js";
+
 import { parseChangelog } from "../changelog/parse.js";
+import { sendToAgentChat } from "./agent-chat.js";
+import { ChangelogDialog, useChangelogSeen } from "./changelog/Changelog.js";
+import { cn } from "./utils.js";
 
 // ─── Context ────────────────────────────────────────────────────────────────
 
@@ -61,6 +62,22 @@ function useCommandMenuContext() {
  */
 export function openAgentSidebar() {
   window.dispatchEvent(new Event("agent-panel:open"));
+}
+
+export function openAgentSettings(
+  section?: string | { section?: string | null },
+) {
+  if (typeof window === "undefined") return;
+
+  const normalizedSection =
+    typeof section === "string" ? section : section?.section;
+
+  openAgentSidebar();
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:open-settings", {
+      detail: normalizedSection ? { section: normalizedSection } : undefined,
+    }),
+  );
 }
 
 export function focusAgentChat() {
@@ -163,7 +180,7 @@ function CommandShortcut({ children, className }: CommandShortcutProps) {
   return (
     <span
       className={cn(
-        "ml-auto text-xs tracking-widest text-muted-foreground",
+        "ms-auto text-xs tracking-widest text-muted-foreground",
         className,
       )}
     >
@@ -498,7 +515,7 @@ export function CommandMenu({
             >
               {/* Search input */}
               <div className="flex items-center border-b px-3">
-                <IconSearch className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                <IconSearch className="me-2 h-4 w-4 shrink-0 opacity-50" />
                 <input
                   ref={inputRef}
                   value={search}
@@ -538,7 +555,7 @@ export function CommandMenu({
                         <span>{changelogLabel}</span>
                         {changelogUnseen && (
                           <span
-                            className="ml-auto h-2 w-2 rounded-full bg-primary"
+                            className="ms-auto h-2 w-2 rounded-full bg-primary"
                             aria-label="New updates available"
                           />
                         )}
@@ -584,7 +601,7 @@ export function CommandMenu({
                           )}
                         </span>
                         {search.trim() && (
-                          <span className="ml-auto text-xs text-muted-foreground">
+                          <span className="ms-auto text-xs text-muted-foreground">
                             ↵
                           </span>
                         )}

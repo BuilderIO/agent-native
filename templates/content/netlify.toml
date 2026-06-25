@@ -1,17 +1,18 @@
 [build]
-  ignore = "node ./scripts/netlify-ignore-build.mjs content"
-  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter content build"
-  publish = "templates/content/dist"
-  functions = "templates/content/.netlify/functions-internal"
+ignore = "node ./scripts/netlify-ignore-build.mjs content"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter content build"
+publish = "templates/content/dist"
+functions = "templates/content/.netlify/functions-internal"
 
 [build.environment]
-  NITRO_PRESET = "netlify"
-  NPM_CONFIG_PRODUCTION = "false"
-  AGENT_RUN_SOFT_TIMEOUT_MS = "55000"
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+NITRO_PRESET = "netlify"
+NPM_CONFIG_PRODUCTION = "false"
+AGENT_RUN_SOFT_TIMEOUT_MS = "55000"
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
 # The framework does not impose a default agent-run timeout; if a template sets
 # AGENT_RUN_SOFT_TIMEOUT_MS, keep it below this function timeout so the hidden
 # auto-continuation path can hand off before Netlify kills the function.
 [functions."*"]
-  timeout = 75
+timeout = 75

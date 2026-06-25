@@ -15,7 +15,7 @@ A capture-everything app: screen recordings, meeting notes from your calendar, a
 }
 ```
 
-Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a normal Clips share link into an agent, and it can "hear" the transcript and "see" timestamped frames even when the underlying model cannot ingest raw video or audio.
+Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a normal Clips share link into an agent and it can "hear" the transcript as text and "see" timestamped screen frames as images — no raw video needed. Frame-viewing works in any image-capable agent (ChatGPT, Claude Code, Cursor, Codex); text-only web chats still get the full transcript and can take a frame you upload.
 
 ```an-diagram title="Capture, transcribe, reuse" summary="Three capture types land in one library; the agent transcribes, titles, and summarizes, then every transcript is searchable and shareable."
 {
@@ -68,6 +68,12 @@ Paste a normal public Clips share link into an agent. The share page advertises
 a compact agent context URL, and that context points to the transcript and frame
 APIs, so models that only accept text or still images can still understand what
 happened in the recording.
+
+Any agent that can fetch an image URL into its vision — ChatGPT, Claude Code,
+Cursor, Codex, and MCP-connected agents — reads the transcript and sees the
+frames. A few text-only web chats read the transcript but won't pull frame images
+in on their own; there, upload a key frame or open the clip in an image-capable
+agent.
 
 | Endpoint                                          | What agents get                                                                                                |
 | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |

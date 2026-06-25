@@ -1,7 +1,4 @@
-import { useMemo, useState } from "react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 import {
   IconCheck,
   IconChevronRight,
@@ -10,6 +7,10 @@ import {
   IconLink,
   IconPlugConnected,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
+
 import { DispatchShell } from "@/components/dispatch-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

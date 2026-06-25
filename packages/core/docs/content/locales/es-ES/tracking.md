@@ -1,0 +1,236 @@
+---
+title: "Seguimiento y análisis"
+description: "Análisis del lado del servidor con proveedores conectables: PostHog, Mixpanel, Amplitude o webhook personalizado"
+---
+
+# Seguimiento de análisis
+
+Una función, múltiples destinos. Llame a `track()` desde cualquier código del lado del servidor (actions, complementos, rutas del servidor) y el evento se distribuirá a todos los proveedores de análisis registrados. Sin dependencias de SDK, sin scripts del lado del cliente, sin bloqueos. El mismo `track()` también está disponible en [browser/app code](#client) y enruta a los mismos proveedores.
+
+Esto es análisis de _producto_: los eventos de su aplicación fluyen hacia PostHog/Mixpanel/Amplitude. Para conocer las métricas de _calidad del agente_ (seguimientos, costos, evaluaciones, comentarios) almacenadas en su propia base de datos, consulte [Observability](/docs/observability).
+
+```ts
+import { track } from "@agent-native/core/tracking";
+
+track(
+  "order.completed",
+  { total: 49.99, items: 3 },
+  { userId: "steve@builder.io" },
+);
+```
+
+```an-diagram title="Una llamada track(), cada proveedor" summary="Las personas que llaman al servidor y al cliente acceden al mismo registro, que distribuye cada evento a todos los proveedores activos en paralelo."
+{
+  "html": "<div class=\"trk\"><div class=\"diagram-col\"><div class=\"diagram-node\">Código del servidor<br><small class=\"diagram-muted\">actions &middot; plugins &middot; routes</small></div><div class=\"diagram-node\">Código del navegador<br><small class=\"diagram-muted\">POST /_agent-native/track</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Provider registry</span><small class=\"diagram-muted\">distribución, enviar y olvidar</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">PostHog</div><div class=\"diagram-box\">Mixpanel</div><div class=\"diagram-box\">Amplitude</div><div class=\"diagram-box\">Webhook</div></div></div>",
+  "css": ".trk{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.trk .diagram-col{display:flex;flex-direction:column;gap:8px}.trk .diagram-arrow{font-size:22px;line-height:1}.trk .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## Proveedores integrados {#built-in}
+
+Establezca una var de entorno y el proveedor se registre automáticamente al iniciar el servidor. No se requieren cambios de código.
+
+| Proveedor   | Variaciones de entorno                                                                              |
+| ----------- | --------------------------------------------------------------------------------------------------- |
+| Correo      | `POSTHOG_API_KEY` (obligatorio), `POSTHOG_HOST` (opcional, por defecto `https://us.i.posthog.com`)  |
+| Panel mixto | `MIXPANEL_TOKEN`                                                                                    |
+| Amplitud    | `AMPLITUDE_API_KEY`                                                                                 |
+| Webhook     | `TRACKING_WEBHOOK_URL` (obligatorio), `TRACKING_WEBHOOK_AUTH` (encabezado `Authorization` opcional) |
+
+Varios proveedores pueden estar activos simultáneamente. Cada evento es para todos ellos.
+
+## API {#api}
+
+### `track(name, properties?, meta?)` {#track}
+
+Activa un evento de análisis. Distribución en abanico para todos los proveedores registrados.
+
+```ts
+import { track } from "@agent-native/core/tracking";
+
+track(
+  "meal.logged",
+  { mealName: "Salad", calories: 350 },
+  { userId: "steve@builder.io" },
+);
+```
+
+### `identify(userId, traits?)` {#identify}
+
+Identificar un usuario con rasgos. Reenviado a proveedores que lo admiten (PostHog, Mixpanel, Amplitude, webhook).
+
+```ts
+import { identify } from "@agent-native/core/tracking";
+
+identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+```
+
+¿Necesita un backend personalizado, el registro de proveedores API o los componentes internos de procesamiento por lotes/singleton? Ver [Advanced: custom providers & internals](#advanced) al final.
+
+## Usar track() en plantillas {#templates}
+
+Llame a `track()` desde los controladores de acciones para registrar la actividad del usuario o agente:
+
+```ts
+// actions/create-project.ts
+import { defineAction } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Create a new project.",
+  schema: z.object({
+    name: z.string(),
+    template: z.string().optional(),
+  }),
+  run: async ({ name, template }, ctx) => {
+    const project = await db
+      .insert(projects)
+      .values({ name, template })
+      .returning();
+
+    track("project.created", { name, template }, { userId: ctx.userEmail });
+
+    return { ok: true, projectId: project[0].id };
+  },
+});
+```
+
+Las llamadas de seguimiento son activadas y olvidadas: regresan inmediatamente y nunca bloquean la respuesta a la acción.
+
+## Seguimiento del lado del cliente {#client}
+
+`track()` también funciona desde el código del navegador/aplicación. Importe el cliente gemelo de `@agent-native/core/client` y llámelo de la misma manera: envía el evento a la ruta del marco en `POST /_agent-native/track`, que lo reenvía a los **mismos** proveedores registrados del lado del servidor (PostHog, Mixpanel, Amplitude, webhook). No se envía ningún análisis SDK al navegador y no se exponen claves de proveedor en el lado del cliente.
+
+```an-api title="La ruta de seguimiento del cliente"
+{
+  "method": "POST",
+  "path": "/_agent-native/track",
+  "summary": "Reenviar un evento del navegador a los proveedores del lado del servidor registrados",
+  "auth": "Session required + same-origin/CSRF marker (set automatically by the client helper). Not an open analytics relay.",
+  "params": [
+    { "name": "name", "in": "body", "type": "string", "required": true, "description": "Event name. Capped at 200 characters." },
+    { "name": "properties", "in": "body", "type": "object", "description": "Event properties (~16KB cap). `source: \"client\"` and the active `org_id` are added server-side." }
+  ],
+  "description": "Identity is resolved **server-side** from the session — browser code never passes a `userId`. Fire-and-forget: never blocks the UI, never throws, swallows network errors. Oversized or malformed payloads are rejected."
+}
+```
+
+```ts
+import { track } from "@agent-native/core/client";
+
+// e.g. inside a click handler or effect
+track("checkout.completed", { total: 49.99, items: 3 });
+```
+
+Diferencias clave con respecto al [server `track()`](#track):
+
+- **Sin argumento de identidad.** El evento se atribuye en el lado del servidor al usuario que inició sesión (y a la organización activa, como `org_id` en `properties`). El código del navegador nunca pasa por un `userId`.
+- **`source: "client"`** se agrega a las propiedades de cada evento para que puedas diferenciar los eventos originados por el cliente de los del servidor.
+- **Dispara y olvida.** Nunca bloquea el UI, nunca lanza ni traga errores de red.
+- **Autenticado, solo de origen.** La ruta requiere una sesión y un marcador del mismo origen/CSRF (establecido automáticamente por el ayudante), por lo que no se puede utilizar como retransmisión de análisis abierta. `name` tiene un límite de 200 caracteres y `properties` de ~16 KB; se rechazan las cargas útiles de gran tamaño o con formato incorrecto.
+
+Esto es distinto de la telemetría interna del navegador del marco (`trackEvent()` / vistas de página automáticas; consulte [Browser defaults](#browser-defaults) a continuación), que impulsa el propio análisis de productos de Agent Native. Utilice `track()` para los eventos de análisis propios de su aplicación que deberían llegar a sus proveedores configurados.
+
+## Avanzado: proveedores personalizados e internos {#advanced}
+
+La mayoría de las aplicaciones solo necesitan `track()` / `identify()` y un proveedor integrado. El resto de la superficie (registro de proveedores personalizados, la interfaz `TrackingProvider`, componentes internos de procesamiento por lotes y la propia telemetría del navegador del marco) se encuentra a continuación.
+
+<details>
+<summary><strong>Registro de proveedor API, interfaz, componentes internos y valores predeterminados del navegador</strong></summary>
+
+### `registerTrackingProvider(provider)` {#register}
+
+Registre un proveedor personalizado para cualquier backend de análisis.
+
+```ts
+import { registerTrackingProvider } from "@agent-native/core/tracking";
+
+registerTrackingProvider({
+  name: "my-analytics",
+  track(event) {
+    // Send event to your backend
+    fetch("https://analytics.example.com/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(event),
+    }).catch(() => {});
+  },
+  identify(userId, traits) {
+    // Optional — link user identity to future events
+  },
+  flush() {
+    // Optional — called on graceful shutdown
+  },
+});
+```
+
+### `flushTracking()` {#flush}
+
+Elimine a todos los proveedores. Llame antes de salir del proceso para asegurarse de que se envíen los eventos pendientes.
+
+```ts
+import { flushTracking } from "@agent-native/core/tracking";
+
+await flushTracking();
+```
+
+### `unregisterTrackingProvider(name)` {#unregister}
+
+Eliminar un proveedor por nombre. Devuelve `true` si el proveedor fue encontrado y eliminado.
+
+### `listTrackingProviders()` {#list}
+
+Devuelve los nombres de todos los proveedores registrados.
+
+### La interfaz de TrackingProvider {#provider-interface}
+
+```ts
+interface TrackingProvider {
+  name: string;
+  track(event: TrackingEvent): void | Promise<void>;
+  identify?(
+    userId: string,
+    traits?: Record<string, unknown>,
+  ): void | Promise<void>;
+  flush?(): void | Promise<void>;
+}
+
+interface TrackingEvent {
+  name: string;
+  properties?: Record<string, unknown>;
+  timestamp?: string;
+  userId?: string;
+}
+```
+
+Solo se requieren `name` y `track`. `identify` y `flush` son opcionales: impleméntelos si su backend admite la identidad del usuario y la entrega por lotes.
+
+### Cómo funciona {#internals}
+
+- **HTTP por lotes**: los proveedores integrados ponen en cola los eventos y los vacían cada 10 segundos o cuando se acumulan 50 eventos, lo que ocurra primero. Esto minimiza las solicitudes salientes sin perder datos.
+- **Sin dependencias de SDK**: todos los proveedores integrados utilizan `fetch()` sin formato. Sin PostHog SDK, sin Mixpanel SDK, sin Amplitude SDK. Mantiene el marco liviano.
+- **Entrega con el mejor esfuerzo**: los errores del proveedor se detectan y registran. Una integración analítica fallida nunca bloquea a la persona que llama ni bloquea el manejo de solicitudes.
+- **Singleton global**: el registro utiliza una clave `Symbol.for` en `globalThis`, por lo que varias instancias de gráficos ESM (modo de desarrollo Vite + Nitro, enlaces simbólicos) comparten un conjunto de proveedores.
+
+### Valores predeterminados del navegador {#browser-defaults}
+
+Esto cubre la propia telemetría interna del marco, principalmente relevante para los contribuyentes del marco y los autores de plantillas avanzadas.
+
+Las raíces de la plantilla llaman a `configureTracking()` una vez al inicio. Los eventos del navegador enviados con `trackEvent()` incluyen automáticamente el contexto de la aplicación/plantilla más la conexión actual de LLM cuando la aplicación puede resolverlo:
+
+- `llm_connection`: etiqueta de proveedor normalizada, como `builder`, `anthropic`, `openai`, `google` o `none`
+- `llm_engine` — la identificación del motor, por ejemplo `builder` o `ai-sdk:openai`
+- `llm_model`: el modelo seleccionado/predeterminado cuando se conoce
+- `llm_connection_source` — `app_secrets`, `settings` o `env`
+- `llm_connection_configured`: si hay una conexión LLM disponible
+
+El marco también rastrea `builder connect clicked` desde los CTA de Connect Builder, y las rutas de conexión Builder del lado del servidor rastrean los eventos del ciclo de vida iniciados, exitosos o fallidos. El marco llama automáticamente a `configureTracking()`; no es necesario que lo llames en tu propio código de plantilla.
+
+</details>
+
+## ¿Qué sigue?
+
+- [**Actions**](/docs/actions): donde se originan la mayoría de las llamadas de seguimiento
+- [**Server Plugins**](/docs/server) — `registerBuiltinProviders()` se ejecuta en el complemento core-routes al inicio
+- [**Secrets**](/docs/security): administra claves API para proveedores de seguimiento

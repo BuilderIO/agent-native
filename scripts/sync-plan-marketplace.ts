@@ -128,9 +128,9 @@ function rewriteSkillFrontmatterName(source: string, name: string): string {
 }
 
 /**
- * Format JSON through Prettier so the committed bundle matches what `pnpm fmt`
- * would produce; otherwise the formatter would rewrite the files and break the
- * guard on the next run.
+ * Format JSON through Prettier so the committed bundle stays deterministic;
+ * `pnpm fmt` now verifies the result through oxfmt, and the marketplace guard
+ * should not be the first place drift appears.
  */
 async function jsonFile(rel: string, value: unknown): Promise<GeneratedFile> {
   const content = await prettier.format(JSON.stringify(value), {

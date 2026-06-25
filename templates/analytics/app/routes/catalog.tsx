@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconCheck,
   IconExternalLink,
@@ -10,7 +12,10 @@ import {
   IconPlugConnected,
   IconSparkles,
 } from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -121,6 +126,7 @@ function TemplateCard({
   onInstall: () => void;
   onOpen: (dashboardId: string) => void;
 }) {
+  const t = useT();
   const installedDashboard = template.installedDashboards.find(
     (dashboard) => !dashboard.archivedAt,
   );
@@ -143,12 +149,12 @@ function TemplateCard({
             {isDemo ? (
               <Badge className="border-cyan-400/60 bg-cyan-400/20 text-cyan-800 shadow-sm shadow-cyan-500/10 dark:text-cyan-100">
                 <IconSparkles className="mr-1 h-3 w-3" />
-                Demo
+                {t("catalog.demo")}
               </Badge>
             ) : null}
             {template.recommended && (
               <Badge variant="secondary" className="shrink-0">
-                Recommended
+                {t("catalog.recommended")}
               </Badge>
             )}
           </div>
@@ -158,7 +164,7 @@ function TemplateCard({
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline" className="gap-1.5">
             <IconLayoutDashboard className="h-3 w-3" />
-            {template.panelCount} panels
+            {t("catalog.panels", { count: String(template.panelCount) })}
           </Badge>
           {template.dataSources.map((source) => (
             <Badge
@@ -202,8 +208,10 @@ function TemplateCard({
           )}
           <span className="truncate">
             {isInstalled
-              ? `Installed as ${installedDashboard?.name}`
-              : `Installs as a private SQL dashboard`}
+              ? t("catalog.installedAs", {
+                  name: installedDashboard?.name ?? "",
+                })
+              : t("catalog.installsPrivateSqlDashboard")}
           </span>
         </div>
       </CardContent>
@@ -214,7 +222,7 @@ function TemplateCard({
             onClick={() => onOpen(installedDashboard.id)}
           >
             <IconExternalLink className="h-4 w-4" />
-            Open
+            {t("catalog.open")}
           </Button>
         ) : (
           <Button
@@ -227,7 +235,7 @@ function TemplateCard({
             ) : (
               <IconPackageImport className="h-4 w-4" />
             )}
-            {installing ? "Installing" : "Install"}
+            {installing ? t("catalog.installing") : t("catalog.install")}
           </Button>
         )}
       </CardFooter>
@@ -236,6 +244,7 @@ function TemplateCard({
 }
 
 export default function TemplateCatalogRoute() {
+  const t = useT();
   const [category, setCategory] =
     useState<(typeof CATEGORY_TABS)[number]>("Demo");
   const [installingIds, setInstallingIds] = useState<Set<string>>(new Set());
@@ -272,7 +281,10 @@ export default function TemplateCatalogRoute() {
         alreadyInstalled?: boolean;
       };
       if (result.dashboardId) {
-        toast.success(result.message ?? `Installed ${template.name}`);
+        toast.success(
+          result.message ??
+            t("catalog.installSuccess", { name: template.name }),
+        );
         navigate(
           dashboardPathForTemplate(template, result.dashboardId, {
             intro: isDemoTemplate(template) && !result.alreadyInstalled,
@@ -282,8 +294,11 @@ export default function TemplateCatalogRoute() {
     } catch (err) {
       toast.error(
         err instanceof Error
-          ? `Couldn't install ${template.name}: ${err.message}`
-          : `Couldn't install ${template.name}`,
+          ? t("catalog.installFailedWithMessage", {
+              name: template.name,
+              message: err.message,
+            })
+          : t("catalog.installFailed", { name: template.name }),
       );
     } finally {
       setInstallingIds((prev) => {
@@ -299,11 +314,17 @@ export default function TemplateCatalogRoute() {
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="max-w-2xl space-y-2">
           <p className="text-sm text-muted-foreground">
-            Source-controlled dashboards ready to install into your workspace.
+            {t("catalog.description")}
           </p>
           <div className="flex flex-wrap gap-2">
-            <Badge variant="secondary">{templates.length} templates</Badge>
-            <Badge variant="outline">{installedCount} installed</Badge>
+            <Badge variant="secondary">
+              {t("catalog.templatesCount", { count: String(templates.length) })}
+            </Badge>
+            <Badge variant="outline">
+              {t("catalog.installedCount", {
+                count: String(installedCount),
+              })}
+            </Badge>
           </div>
         </div>
         <Tabs
@@ -333,9 +354,11 @@ export default function TemplateCatalogRoute() {
           <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
             <IconLayoutDashboard className="h-8 w-8 text-muted-foreground" />
             <div>
-              <h2 className="text-base font-semibold">No templates found</h2>
+              <h2 className="text-base font-semibold">
+                {t("catalog.noTemplatesFound")}
+              </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Try a different catalog category.
+                {t("catalog.tryDifferentCategory")}
               </p>
             </div>
           </CardContent>

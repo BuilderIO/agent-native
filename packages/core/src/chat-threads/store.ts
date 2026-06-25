@@ -1,10 +1,17 @@
 import crypto from "node:crypto";
-import { getDbExec, intType } from "../db/client.js";
+
 import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   normalizeThreadTitle,
 } from "../agent/thread-data-builder.js";
+import { getDbExec, intType, isPostgres } from "../db/client.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { emitChatThreadChange } from "./emitter.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -51,7 +58,7 @@ async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await client.execute(`
+      const createSql = `
         CREATE TABLE IF NOT EXISTS chat_threads (
           id TEXT PRIMARY KEY,
           owner_email TEXT NOT NULL,
@@ -67,7 +74,66 @@ async function ensureTable(): Promise<void> {
           pinned_at ${intType()},
           archived_at ${intType()}
         )
-      `);
+      `;
+
+      if (isPostgres()) {
+        // Hot path: the `chat_threads` table and its indexes are virtually
+        // always already present in production. Issuing `CREATE TABLE`/
+        // `CREATE INDEX` still takes a lock that, in a fresh background-worker
+        // process behind a concurrent connection on the shared Neon DB, can
+        // block ~indefinitely (ACCESS EXCLUSIVE for CREATE TABLE; a write-
+        // blocking SHARE lock for CREATE INDEX). The ensure* wrappers probe
+        // `information_schema`/`pg_indexes` first (plain reads, no lock) and
+        // run DDL ONLY for what is actually missing, bounded by a transaction-
+        // scoped `lock_timeout`. If a swallowed lock-timeout leaves the schema
+        // still missing they RE-PROBE and THROW rather than letting init
+        // memoize success against absent schema. `chat_threads` is the
+        // unqualified name even though the table lives in `public`.
+        await ensureTableExists("chat_threads", createSql);
+        // Additive columns — guarded so the hot path (columns already present)
+        // skips the ACCESS EXCLUSIVE ALTER entirely.
+        for (const [col, type] of [
+          ["scope_type", "TEXT"],
+          ["scope_id", "TEXT"],
+          ["scope_label", "TEXT"],
+          ["pinned_at", intType()],
+          ["archived_at", intType()],
+        ] as const) {
+          await ensureColumnExists(
+            "chat_threads",
+            col,
+            `ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS ${col} ${type}`,
+          );
+        }
+        // Widen millisecond-timestamp columns that older deployments created as
+        // 32-bit `INTEGER`; on Postgres the `Date.now()` written on every turn
+        // overflows int4. No-op once widened / on fresh BIGINT databases.
+        await widenIntColumnsToBigInt("chat_threads", [
+          "created_at",
+          "updated_at",
+          "pinned_at",
+          "archived_at",
+        ]);
+        // Indexes for the hot read paths. Both the sidebar list and the
+        // scoped/per-resource list filter on owner_email (and optionally
+        // scope) and sort by updated_at. Probe pg_indexes first (no lock)
+        // and skip the SHARE-locking CREATE INDEX when already present.
+        await ensureIndexExists(
+          "chat_threads_owner_updated_idx",
+          `CREATE INDEX IF NOT EXISTS chat_threads_owner_updated_idx ON chat_threads (owner_email, updated_at)`,
+        );
+        await ensureIndexExists(
+          "chat_threads_scope_updated_idx",
+          `CREATE INDEX IF NOT EXISTS chat_threads_scope_updated_idx ON chat_threads (scope_type, scope_id, updated_at)`,
+        );
+        // One-time backfill of message_count for legacy rows written before
+        // the column was maintained.
+        await backfillLegacyMessageCounts(client);
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      await client.execute(createSql);
       // Additive migration for existing tables. Both SQLite and Postgres
       // accept `ALTER TABLE ADD COLUMN` and will raise when the column
       // already exists; the try/catch makes the call idempotent across
@@ -87,6 +153,15 @@ async function ensureTable(): Promise<void> {
           // Column already exists.
         }
       }
+      // Widen millisecond-timestamp columns that older deployments created as
+      // 32-bit `INTEGER`; on Postgres the `Date.now()` written on every turn
+      // overflows int4. No-op once widened / on fresh BIGINT databases.
+      await widenIntColumnsToBigInt("chat_threads", [
+        "created_at",
+        "updated_at",
+        "pinned_at",
+        "archived_at",
+      ]);
       // Indexes for the hot read paths. Both the sidebar list and the
       // scoped/per-resource list filter on owner_email (and optionally
       // scope) and sort by updated_at. Keep these dialect-agnostic (no

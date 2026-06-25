@@ -1,12 +1,14 @@
-import { type ReactNode } from "react";
 import { IconInfoCircle } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useSetPageTitle } from "./HeaderActions";
+import { type ReactNode } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+import { useSetPageTitle } from "./HeaderActions";
 
 export function PageShell({
   title,

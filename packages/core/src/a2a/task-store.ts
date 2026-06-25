@@ -1,5 +1,7 @@
 import crypto from "crypto";
-import { getDbExec, intType } from "../db/client.js";
+
+import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
 import type { Task, Message, TaskState, Artifact } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -8,7 +10,7 @@ async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await client.execute(`
+      const createSql = `
         CREATE TABLE IF NOT EXISTS a2a_tasks (
           id TEXT PRIMARY KEY,
           context_id TEXT,
@@ -21,7 +23,28 @@ async function ensureTable(): Promise<void> {
           created_at ${intType()} NOT NULL,
           updated_at ${intType()} NOT NULL
         )
-      `);
+      `;
+
+      if (isPostgres()) {
+        // PG-guard: probe information_schema before issuing DDL to avoid ACCESS
+        // EXCLUSIVE lock contention in fresh background-worker processes.
+        await ensureTableExists("a2a_tasks", createSql);
+        // Additive migration: owner_email column. Bound to the JWT-verified
+        // caller at task-creation time so handleGet / handleCancel can reject
+        // mismatched callers (the IDOR class fixed in PR #369). Existing rows
+        // have NULL owner_email and remain accessible to legacy callers via
+        // the legacy-token apiKeyEnv path; new rows are scoped from this point
+        // forward.
+        await ensureColumnExists(
+          "a2a_tasks",
+          "owner_email",
+          `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_email TEXT`,
+        );
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      await client.execute(createSql);
       // Additive migration: owner_email column. Bound to the JWT-verified
       // caller at task-creation time so handleGet / handleCancel can reject
       // mismatched callers (the IDOR class fixed in PR #369). Existing rows

@@ -11,8 +11,8 @@
  * site — keeps the transactional look-and-feel consistent.
  */
 
-import { renderEmail, emailStrong } from "./email-template.js";
 import { getAppName } from "./app-name.js";
+import { renderEmail, emailStrong } from "./email-template.js";
 
 export interface RenderedEmailMessage {
   subject: string;

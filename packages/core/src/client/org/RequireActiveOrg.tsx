@@ -1,4 +1,3 @@
-import { ReactNode, useState } from "react";
 import {
   IconAlertTriangle,
   IconBuilding,
@@ -6,6 +5,9 @@ import {
   IconUserPlus,
   IconAt,
 } from "@tabler/icons-react";
+import { ReactNode, useState } from "react";
+
+import { useT } from "../i18n.js";
 import {
   useAcceptInvitation,
   useCreateOrg,
@@ -46,10 +48,11 @@ export interface RequireActiveOrgProps {
  */
 export function RequireActiveOrg({
   children,
-  title = "Create your organization",
-  description = "This app organizes your content by team. Create an organization to continue — you can invite teammates afterward.",
+  title,
+  description,
   className,
 }: RequireActiveOrgProps) {
+  const t = useT();
   const { data: org, isLoading, isError, error, refetch } = useOrg();
 
   if (isLoading) return null;
@@ -61,7 +64,7 @@ export function RequireActiveOrg({
   if (isError) {
     return (
       <ErrorPane
-        message={(error as Error)?.message ?? "Couldn't load organization."}
+        message={(error as Error)?.message ?? t("org.loadErrorFallback")}
         onRetry={() => void refetch()}
         className={className}
       />
@@ -75,8 +78,8 @@ export function RequireActiveOrg({
       pendingInvitations={org?.pendingInvitations ?? []}
       domainMatches={org?.domainMatches ?? []}
       email={org?.email ?? ""}
-      title={title}
-      description={description}
+      title={title ?? t("org.createTitle")}
+      description={description ?? t("org.createDescription")}
       className={className}
     />
   );
@@ -91,6 +94,7 @@ function ErrorPane({
   onRetry: () => void;
   className?: string;
 }) {
+  const t = useT();
   return (
     <div
       className={
@@ -101,7 +105,7 @@ function ErrorPane({
       <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-lg">
         <div className="mb-4 flex items-center gap-2">
           <IconAlertTriangle className="h-5 w-5 text-muted-foreground" />
-          <h1 className="text-lg font-semibold">Couldn't load organization</h1>
+          <h1 className="text-lg font-semibold">{t("org.loadErrorTitle")}</h1>
         </div>
         <p className="mb-5 text-sm text-muted-foreground">{message}</p>
         <button
@@ -109,7 +113,7 @@ function ErrorPane({
           onClick={onRetry}
           className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
         >
-          Try again
+          {t("org.tryAgain")}
         </button>
       </div>
     </div>
@@ -136,6 +140,7 @@ function CreateOrgPane({
   description: string;
   className?: string;
 }) {
+  const t = useT();
   const createOrg = useCreateOrg();
   const acceptInvitation = useAcceptInvitation();
   const joinByDomain = useJoinByDomain();
@@ -169,8 +174,8 @@ function CreateOrgPane({
           <div className="mb-4">
             <div className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground">
               {domainMatches.length === 1
-                ? "Your organization"
-                : "Join your team"}
+                ? t("org.yourOrganization")
+                : t("org.joinYourTeam")}
             </div>
             <ul className="space-y-2">
               {domainMatches.map((match) => (
@@ -184,7 +189,7 @@ function CreateOrgPane({
                       {match.orgName}
                     </div>
                     <div className="truncate text-xs text-muted-foreground">
-                      Open to @{userDomain} emails
+                      {t("org.openToDomainEmails", { domain: userDomain })}
                     </div>
                   </div>
                   <button
@@ -196,7 +201,7 @@ function CreateOrgPane({
                     {joinByDomain.isPending ? (
                       <IconLoader2 className="h-3 w-3 animate-spin" />
                     ) : (
-                      `Join ${match.orgName}`
+                      t("org.joinOrg", { name: match.orgName })
                     )}
                   </button>
                 </li>
@@ -208,7 +213,7 @@ function CreateOrgPane({
         {hasInvites && (
           <div className="mb-4">
             <div className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-              Pending invitations
+              {t("org.pendingInvitations")}
             </div>
             <ul className="space-y-2">
               {pendingInvitations.map((inv) => (
@@ -222,7 +227,7 @@ function CreateOrgPane({
                       {inv.orgName}
                     </div>
                     <div className="truncate text-xs text-muted-foreground">
-                      from {inv.invitedBy}
+                      {t("org.invitedBy", { name: inv.invitedBy })}
                     </div>
                   </div>
                   <button
@@ -234,7 +239,7 @@ function CreateOrgPane({
                     {acceptInvitation.isPending ? (
                       <IconLoader2 className="h-3 w-3 animate-spin" />
                     ) : (
-                      "Accept"
+                      t("org.accept")
                     )}
                   </button>
                 </li>
@@ -251,7 +256,7 @@ function CreateOrgPane({
           >
             <div className="h-px flex-1 bg-border" />
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              or create a separate organization
+              {t("org.createSeparate")}
             </span>
             <div className="h-px flex-1 bg-border" />
           </button>
@@ -273,13 +278,13 @@ function CreateOrgPane({
           >
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-foreground">
-                Organization name
+                {t("org.organizationName")}
               </span>
               <input
                 autoFocus={!hasDomainMatches && !hasInvites}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Acme Inc."
+                placeholder={t("org.organizationPlaceholder")}
                 disabled={busy}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               />
@@ -308,7 +313,9 @@ function CreateOrgPane({
                   : "w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               }
             >
-              {createOrg.isPending ? "Creating…" : "Create organization"}
+              {createOrg.isPending
+                ? t("org.creating")
+                : t("org.createOrganization")}
             </button>
           </form>
         )}

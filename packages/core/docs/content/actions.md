@@ -329,6 +329,28 @@ export default defineAction({
 > [!WARNING]
 > Keep approvals rare. Each gated action is a hard stop in the agent loop. The default is **off**, and almost every action should leave it off. See [Human-in-the-Loop Approvals](/docs/human-approval) for the predicate API, the `approval_required` event, and the full flow.
 
+### Audit logging {#audit}
+
+Every mutating action is **audited automatically** — the framework records who ran it, when, from which surface, and (when it was the agent) which thread/turn, with credential-redacted inputs. Read-only (`GET`) actions are skipped. You don't write any code for this; it happens at the `defineAction` seam.
+
+Add an `audit` block only to _tune_ capture — most usefully to declare the resource the action changed so the change shows up in that resource's owner's trail:
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({ type: "recording", id: args.id }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+Other knobs: `audit: { onRead: true }` audits a sensitive read (secret access, bulk export); `audit: { enabled: false }` opts a noisy write out; `audit: { recordInputs: false }` skips capturing arguments. Read the trail back with the built-in `list-audit-events` / `get-audit-event` actions. Full details in [Audit Log](/docs/audit-log).
+
 ## Calling it from the UI {#ui}
 
 Two hooks, both in `@agent-native/core/client`. Types are inferred from your `defineAction` schemas — no manual type declarations.
@@ -553,6 +575,7 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 ## What's next
 
+- [**Audit Log**](/docs/audit-log) — the automatic who-changed-what trail around every action
 - [**Human-in-the-Loop Approvals**](/docs/human-approval) — the `needsApproval` gate in depth
 - [**Drop-in Agent**](/docs/drop-in-agent) — `useActionMutation` / `useActionQuery` in React
 - [**Context Awareness**](/docs/context-awareness) — the `view-screen` + `navigate` pattern in depth

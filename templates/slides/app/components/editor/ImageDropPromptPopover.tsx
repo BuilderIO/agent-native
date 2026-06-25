@@ -1,10 +1,11 @@
+import { appBasePath, sendToAgentChat, useT } from "@agent-native/core/client";
+import { IconLoader2, IconX } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { IconLoader2, IconX } from "@tabler/icons-react";
-import { appBasePath, sendToAgentChat } from "@agent-native/core/client";
-import { toast } from "@/hooks/use-toast";
+
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
 
 const POPOVER_WIDTH = 360;
 const POPOVER_MARGIN = 12;
@@ -40,6 +41,7 @@ export default function ImageDropPromptPopover({
   contextHint,
   onClose,
 }: ImageDropPromptPopoverProps) {
+  const t = useT();
   const [prompt, setPrompt] = useState("");
   const [uploading, setUploading] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -151,16 +153,14 @@ export default function ImageDropPromptPopover({
 
       onClose();
       toast({
-        title: "Sent to agent",
+        title: t("raw.sentToAgent"),
         description: file.name,
       });
     } catch (err) {
       toast({
-        title: "Image upload failed",
+        title: t("raw.imageUploadFailed"),
         description:
-          err instanceof Error
-            ? err.message
-            : "Something went wrong uploading this image.",
+          err instanceof Error ? err.message : t("raw.imageUploadGenericError"),
         variant: "destructive",
       });
     } finally {
@@ -172,13 +172,13 @@ export default function ImageDropPromptPopover({
     <div
       ref={panelRef}
       role="dialog"
-      aria-label="What should we do with this image?"
+      aria-label={t("raw.imagePromptTitle")}
       className="fixed z-[210] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60"
       style={{ width: POPOVER_WIDTH, ...computedPosition }}
     >
       <div className="flex items-start justify-between gap-2 px-3.5 pt-3 pb-2">
         <span className="text-sm font-medium text-foreground/90">
-          What should we do with this image?
+          {t("raw.imagePromptTitle")}
         </span>
         <button
           type="button"
@@ -219,7 +219,7 @@ export default function ImageDropPromptPopover({
               if (!uploading) void handleSubmit();
             }
           }}
-          placeholder="e.g. Use as the title-slide hero. Or: replace the headshot on slide 3."
+          placeholder={t("raw.imagePromptPlaceholder")}
           rows={3}
           disabled={uploading}
           className="resize-none text-sm"
@@ -243,10 +243,10 @@ export default function ImageDropPromptPopover({
             {uploading ? (
               <span className="inline-flex items-center gap-1.5">
                 <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                Uploading…
+                {t("raw.uploading")}
               </span>
             ) : (
-              "Send to agent"
+              t("raw.sendToAgent")
             )}
           </Button>
         </div>

@@ -296,6 +296,15 @@
   min-height: max(320px, 50vh);
 }
 
+/* Block fields stack multiple editors, so each surface uses a compact
+   min-height instead of the full-page max(320px, 50vh) — otherwise every field
+   reserves ~half the viewport and the gap between fields balloons. 6rem is the
+   Tailwind `min-h-24` step (~70% smaller than 320px). */
+.block-field-content .visual-editor-wrapper,
+.block-field-content .visual-editor-wrapper .notion-editor {
+  min-height: 6rem;
+}
+
 .notion-editor > *:first-child {
   margin-top: 0;
 }

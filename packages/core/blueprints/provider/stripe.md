@@ -79,7 +79,7 @@ The substrate lives in `@agent-native/core/provider-api`:
 
 ## Verify
 
-1. `agent-native typecheck` (or `tsc --noEmit`) passes.
+1. `agent-native typecheck` (or `tsgo --noEmit`) passes.
 2. With a placeholder `STRIPE_SECRET_KEY` set, ask the agent: "list my 5 most
    recent Stripe charges." Confirm it calls `provider-api-catalog` →
    (optionally) `provider-api-docs` → `provider-api-request` against

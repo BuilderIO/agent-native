@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { absoluteUrl } from "./json.js";
 
 const ORIGINAL_ENV = {

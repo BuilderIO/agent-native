@@ -1,0 +1,433 @@
+---
+title: "Mode fichier local"
+description: "Exécutez des applications natives d'agent avec Markdown, MDX et d'autres fichiers de dépôt locaux comme source de vérité, y compris des documents MDX de style Obsidian avec des composants personnalisés."
+---
+
+# Mode fichier local
+
+Le mode Fichier local permet à une application native d'agent d'attacher son UI et sa surface d'action normales
+directement vers les fichiers d'un dépôt ou d'un espace de travail. L'application ressemble toujours à une application hébergée
+produit, mais ses vues de liste, son éditeur et ses outils d'agent lisent et écrivent des fichiers locaux
+au lieu des enregistrements d'application basés sur SQL.
+
+La première implémentation se trouve dans le modèle de contenu : la barre latérale gauche est
+rempli à partir des fichiers `.md` et `.mdx` locaux, la sélection d'une page ouvre la norme
+Éditeur de contenu et enregistrement des écritures dans le fichier sélectionné. Les mêmes fichiers peuvent
+être également modifié par Codex, Claude Code, l'agent de la barre latérale Agent-Native ou un utilisateur normal
+éditeur.
+
+Pour le contenu, cela donne au produit l'impression d'être Obsidian open source pour MDX :
+vos documents vivent sous forme de fichiers, tandis que l'application ajoute un éditeur visuel, l'agent actions,
+copies partageables et riches composants interactifs MDX.
+
+Utilisez le mode fichier local lorsque vous souhaitez un workflow axé sur le dépôt :
+
+- un dépôt de documents avec `docs/*.mdx`
+- un blog avec `blog/*.mdx`
+- ressources telles que le positionnement, la messagerie ou les notes d'équipe dans `resources/*.md`
+- une base de connaissances personnelle de style Obsidian avec un éditeur MDX plus riche
+- documents nécessitant des blocs MDX personnalisés interactifs générés à partir du code React local
+- Artefacts d'application qui devraient être faciles à inspecter et à corriger pour les agents de codage
+
+Utilisez le mode base de données lorsque vous souhaitez bénéficier de l'expérience d'une application collaborative hébergée :
+partage multi-utilisateurs, autorisations basées sur SQL, commentaires, historique des versions et
+hébergement de production sans accès au système de fichiers local.
+
+## Le modèle mental
+
+Il existe deux modes de source de vérité :
+
+| Mode                 | Source de vérité                               | Idéal pour                                                                                                       |
+| -------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Mode base de données | Lignes SQL jusqu'à Drizzle                     | Applications hébergées, collaboration, partage, commentaires, historique des versions                            |
+| Mode fichier local   | Fichiers Repo déclarés par `agent-native.json` | Workflows locaux/de développement, révision de Git, modifications de l'agent de codage, contenu natif du fichier |
+
+Le UI et l'agent actions doivent conserver la même forme dans les deux modes. Un contenu
+l'éditeur édite toujours les documents ; la différence est de savoir si ces documents résolvent
+vers des lignes SQL ou des fichiers locaux.
+
+```an-diagram title="Mêmes actions, deux sources de vérité" summary="L'interface utilisateur et l'agent appellent des actions identiques dans les deux modes. La couche d'action décide si chaque appel est résolu en lignes SQL ou en fichiers de dépôt."
+{
+  "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">UI de contenu</div><div class=\"diagram-node\">Agent et actions applicatives<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">Mode base de données</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">hébergé · partage · commentaires · historique</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">revue Git · éditions agent de code</small></div></div></div>",
+  "css": ".diagram-mode{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mode .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mode .diagram-arrow{font-size:22px;line-height:1}.diagram-mode .resolve{display:flex;gap:12px;flex-wrap:wrap}.diagram-mode .diagram-panel{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
+}
+```
+
+## Exemple de dépôt
+
+Un espace de travail de contenu peut être aussi petit que ceci :
+
+```an-file-tree title="Un repo de workspace Content"
+{
+  "entries": [
+    { "path": "agent-native.json", "note": "Déclare quels dossiers sont des racines de contenu et leurs types" },
+    { "path": "docs/", "note": "Racine de contenu : affichée dans la barre latérale comme pages" },
+    { "path": "docs/getting-started.mdx" },
+    { "path": "docs/guides/custom-components.mdx" },
+    { "path": "blog/", "note": "Racine de contenu" },
+    { "path": "blog/launch-post.mdx" },
+    { "path": "resources/", "note": "Racine de contenu" },
+    { "path": "resources/messaging/positioning.md" },
+    { "path": "components/", "note": "PAS une racine de contenu : bibliothèque de composants de preview que MDX peut importer" },
+    { "path": "components/FrameworkTabs.tsx" },
+    { "path": "components/Callout.tsx" },
+    { "path": "extensions/", "note": "PAS une racine de contenu : bibliothèque locale d'extensions (widgets sandboxés)" },
+    { "path": "extensions/doc-status/extension.json" },
+    { "path": "extensions/doc-status/index.html" }
+  ]
+}
+```
+
+En mode fichier local, la barre latérale Contenu affiche les `docs/`, `blog/` et
+Arborescences `resources/` sous forme de pages. La sélection de `docs/getting-started.mdx` ouvre cela
+fichier dans l'éditeur de contenu standard ; l'édition dans le UI réécrit dans
+`docs/getting-started.mdx`.
+
+`components/` n'est pas une racine de contenu. Il s'agit d'une bibliothèque de composants en avant-première que MDX
+les fichiers peuvent être importés ou référencés. L'éditeur peut restituer des composants MDX locaux simples
+sans que vous ayez à cloner ou à dupliquer l'intégralité de l'application de contenu.
+
+`extensions/` n'est pas non plus une racine de contenu. Il s'agit d'une bibliothèque d'extensions locale :
+petits widgets en bac à sable qui peuvent s'afficher dans les emplacements d'application tandis que leur source reste dans
+le dépôt.
+
+## Installer le contenu dans un dépôt
+
+Pour un espace de travail de documents, de blog ou MDX existant, installez les fichiers locaux de contenu
+compétence :
+
+```bash
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+```
+
+Cela copie la compétence `content` dans les dossiers de compétences d'agent du dépôt et écrit
+ou met à jour `agent-native.json` avec les valeurs par défaut du contenu :
+
+- `mode: "local-files"` au niveau de l'espace de travail
+- `apps.content.mode: "local-files"`
+- racines de contenu pour `docs/`, `blog/`, `content/` et `resources/`
+- `components/` pour les composants locaux MDX
+- `extensions/` pour les widgets d'extension locale
+
+La compétence installée indique aux agents de codage d'utiliser le contenu actions
+(`list-documents`, `get-document`, `edit-document`, `update-document`,
+`share-local-file-document` et fichier de composant actions) lorsqu'une application de contenu locale
+ou le pont Agent Native Desktop les expose. Si aucun pont ne fonctionne, la compétence
+revient à des modifications de dépôt directes sécurisées tout en préservant le contenu, les importations, JSX,
+et MDX inconnu.
+
+## Configuration
+
+Ajoutez `agent-native.json` à la racine du dépôt ou de l'espace de travail :
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "content": {
+      "mode": "local-files",
+      "roots": [
+        {
+          "name": "Docs",
+          "path": "docs",
+          "kind": "docs",
+          "extensions": [".md", ".mdx"]
+        },
+        {
+          "name": "Blog",
+          "path": "blog",
+          "kind": "blog",
+          "extensions": [".md", ".mdx"]
+        },
+        {
+          "name": "Resources",
+          "path": "resources",
+          "kind": "resources",
+          "extensions": [".md", ".mdx"]
+        }
+      ],
+      "components": "components",
+      "extensions": "extensions",
+      "hide": ["**/_*.md", "**/_*.mdx"]
+    }
+  }
+}
+```
+
+Vous pouvez également activer les fichiers locaux avec `AGENT_NATIVE_MODE=local-files` ou
+`AGENT_NATIVE_DATA_MODE=local-files` ; le manifeste est préféré car il
+documente le contrat de dossier dans le dépôt lui-même.
+
+## Format de fichier de contenu
+
+Le contenu lit Markdown et MDX. Frontmatter contient les métadonnées de la page et le corps est
+le document modifiable :
+
+```mdx
+---
+title: "Commencer"
+icon: "sparkles"
+isFavorite: true
+updatedAt: "2026-06-12T20:00:00.000Z"
+---
+
+# Commencer
+
+Use <FrameworkTabs value="react" /> to show framework-specific code.
+```
+
+Le titre vient du frontmatter `title` lorsqu'il est présent, sinon du
+nom de fichier. L'éditeur conserve la source MDX qu'il ne peut pas encore modifier visuellement, donc
+Les agents de codage et les éditeurs de texte normaux restent des issues de secours sûres.
+
+## Composants MDX personnalisés
+
+Le contenu peut prévisualiser les composants locaux du dossier `components` configuré.
+Ceci est destiné aux composants MDX de style document tels que les onglets, les légendes, le package
+installez des extraits ou des blocs de code spécifiques au framework.
+
+Par exemple, ajoutez un composant interactif à côté de votre contenu :
+
+```tsx
+// components/ImpactCounter.tsx
+import { useState } from "react";
+
+export function ImpactCounter({
+  label = "points",
+  accent = "blue",
+  featured = false,
+}: {
+  label?: string;
+  accent?: "blue" | "green" | "purple";
+  featured?: boolean;
+}) {
+  const [count, setCount] = useState(3);
+  const accentClass =
+    accent === "green"
+      ? "border-green-300 bg-green-50"
+      : accent === "purple"
+        ? "border-purple-300 bg-purple-50"
+        : "border-blue-300 bg-blue-50";
+
+  return (
+    <div className={`rounded-md border p-4 ${accentClass}`}>
+      <div className="text-sm text-muted-foreground">Launch impact</div>
+      <div className="mt-1 text-3xl font-semibold">
+        {count} {label}
+      </div>
+      {featured ? <div className="mt-1 text-sm">Featured metric</div> : null}
+      <button
+        type="button"
+        className="mt-3 rounded border px-3 py-1 text-sm"
+        onClick={() => setCount((value) => value + 1)}
+      >
+        Add point
+      </button>
+    </div>
+  );
+}
+
+export const ImpactCounterInputs = {
+  label: {
+    type: "string",
+    label: "Metric label",
+    default: "points",
+  },
+  accent: {
+    type: "select",
+    label: "Accent",
+    options: ["blue", "green", "purple"],
+    default: "blue",
+  },
+  featured: {
+    type: "boolean",
+    label: "Featured",
+    default: false,
+  },
+};
+```
+
+Utilisez-le ensuite à partir de n'importe quel fichier MDX local :
+
+```mdx
+---
+title: "Notes de lancement"
+---
+
+# Notes de lancement
+
+<ImpactCounter label="wins" />
+```
+
+Le serveur de développement de contenu découvre les exportations nommées PascalCase et PascalCase par défaut
+exporte à partir de fichiers `.tsx`, `.jsx`, `.ts` et `.js` sous `components/`. Ceux
+les composants s'affichent dans l'éditeur et apparaissent dans le menu barre oblique sous
+**Composants locaux**. L'insertion d'une barre oblique crée une balise minimale telle que
+`<ImpactCounter />` ; ajoutez des accessoires dans la source MDX si nécessaire.
+
+L'exécution des composants est intentionnellement une fonctionnalité de pont de développement local/de bureau, et non
+accès simple au dossier du navigateur hébergé. Si vous ouvrez `content.agent-native.com`,
+choisissez **Fichiers locaux** et choisissez un dossier dans Chrome, l'application peut lire et écrire
+les fichiers `.md` et `.mdx` via le système de fichiers du navigateur Accédez à API, mais
+Chrome n'expose pas de chemin de dossier absolu à compiler par Vite
+`components/*.tsx`. Pour prévisualiser et recharger à chaud les composants React personnalisés, exécutez
+Contenu localement ou utilisez Agent Native Desktop pour que le pont local de confiance puisse
+enregistrez l'espace de travail sélectionné auprès du serveur de développement de contenu local. Dans ce mode,
+modifications des fichiers de composants existants, rechargement à chaud via Vite et ajout de ou
+la suppression des fichiers de composants recharge le registre des composants et le menu barre oblique.
+
+Les agents peuvent également travailler avec ces fichiers de composants enregistrés. Utiliser
+`list-local-component-files` pour trouver l'identifiant de l'espace de travail enregistré, puis
+`write-local-component-file` pour créer ou mettre à jour `.tsx`, `.jsx`, `.ts` ou
+Fichiers `.js` dans le dossier `components/` de l'espace de travail. Les fichiers MDX restent les
+source de vérité pour l'utilisation des composants ; les fichiers de composants restent un dépôt normal
+fichiers sources examinés avec Git.
+
+Si un composant exporte des métadonnées d'entrée, sélection du composant dans l'éditeur
+affiche un bouton d'édition dans le coin supérieur droit du composant. Types d'entrée pris en charge
+sont `string`, `textarea`, `number`, `boolean` et `select`. Le formulaire écrit
+revient à la balise MDX, les fichiers locaux restent donc la source de vérité. Le
+les métadonnées peuvent être exportées au format `ComponentNameInputs`, `ComponentNameConfig.inputs`,
+`Component.inputs` ou `agentNative.inputs`.
+
+Les balises de composants simples avec des accessoires littéraux peuvent être prévisualisées en ligne :
+
+```mdx
+<FrameworkTabs value="react" />
+
+<Callout type="warning">This setting affects production deploys.</Callout>
+```
+
+Les expressions complexes JSX sont conservées dans la source. Si l'éditeur ne peut pas en toute sécurité
+prévisualisez encore un accessoire de composant, il affiche un espace réservé d'avertissement plutôt que
+supprimer silencieusement des données.
+
+## Partage de fichiers locaux
+
+Les fichiers locaux ne sont pas partagés directement car les autres utilisateurs ne peuvent pas lire de chemin
+votre machine. Le bouton Partager de la barre d'outils Contenu crée ou actualise un
+copie sauvegardée dans la base de données du fichier sélectionné, accède à cette copie et ouvre le
+popover de partage normal. Le fichier local d'origine reste sous Fichiers locaux ; le
+la copie de la base de données apparaît sous Copies partagées en mode fichier local et utilise le
+modèle standard de partage de documents.
+
+## Extensions locales
+
+Le mode fichier local peut également charger des extensions sauvegardées en dépôt à partir du fichier configuré
+Dossier `extensions`. Chaque extension est un répertoire avec un `extension.json`
+manifeste et un fichier d'entrée HTML :
+
+```text
+extensions/
+  doc-status/
+    extension.json
+    index.html
+```
+
+```json
+{
+  "id": "doc-status",
+  "name": "Doc Status",
+  "description": "Shows metadata for the selected Content file.",
+  "entry": "index.html",
+  "slots": ["content.sidebar.bottom"],
+  "permissions": {
+    "appActions": ["list-documents"],
+    "extensionData": true
+  }
+}
+```
+
+`index.html` est le même format de corps d'extension Alpine/Tailwind utilisé par la normale
+extensions basées sur une base de données. Lorsque l'application de contenu détecte une extension locale qui
+déclare `content.sidebar.bottom`, il affiche cette extension en bas de
+la barre latérale Contenu. L'hôte transmet `window.slotContext` avec le
+ID du document, titre, métadonnées sources et si le contenu est en mode fichier local.
+
+Les extensions locales sont prévisualisées par l'application mais modifiées sous forme de fichiers. Les extensions
+la liste les affiche avec un badge de fichier local et la visionneuse pleine page renvoie à
+le fichier d'entrée. Extension actions basée sur SQL, telle que la mise à jour, la suppression, le partage et
+l'historique ne s'applique pas ; utilisez votre éditeur, le code Codex, le code Claude ou l'historique Git pour
+modifications de la source.
+
+Pour la version v1, les extensions locales sont intentionnellement conservatrices :
+
+- ils peuvent utiliser `extensionData` pour leur propre petit état d'exécution
+- ils ne peuvent appeler que les `appAction` répertoriés dans `extension.json`
+- Les assistants SQL bruts et les `extensionFetch` externes sont désactivés
+- les emplacements cibles sont déclarés dans `extension.json`, non installés via SQL
+
+Cela donne aux espaces de travail locaux une surface de plugin de type Obsidian sans laisser passer
+un fichier de dépôt arbitraire hérite de toutes les fonctionnalités d'une extension basée sur une base de données.
+
+## Comment les applications l'utilisent
+
+Le mode fichier local est implémenté via les assistants d'artefacts locaux du framework.
+Une application déclare les racines des types d'artefacts qu'elle possède, puis lit et écrit
+via la même surface d'action, son UI et son agent l'utilisent déjà.
+
+Pour le contenu, cela signifie :
+
+- `list-documents` répertorie les fichiers `.md` et `.mdx` configurés.
+- `get-document` lit un fichier local sélectionné.
+- `update-document` écrit le fichier local sélectionné.
+- `create-document` crée un nouveau fichier `.mdx` local dans le dossier sélectionné.
+- `delete-document` supprime le fichier local.
+- la recherche s'exécute sur les fichiers locaux configurés.
+
+Le déplacement, le renommage et la réorganisation des pages de fichiers locaux à partir du contenu UI ne sont pas autorisés
+pas encore pris en charge. Effectuer ces opérations dans l'espace de travail ou avec un agent de codage ; le
+La barre latérale de contenu reflétera l'arborescence de fichiers résultante.
+
+Le contrat de l'agent reste ainsi simple : l'agent peut continuer à utiliser Content actions,
+et ces actions décident si la cible est sauvegardée sur SQL ou sur fichier.
+
+D'autres applications peuvent adopter le même modèle au fil du temps. Une application Slides peut cartographier
+`slides/*.mdx` aux decks, une application Plans peut mapper `plans/*` aux documents de plan, et
+L'application Dashboards peut mapper `dashboards/*.mdx` aux tableaux de bord. Ceux spécifiques à l'application
+les dossiers sont des conventions superposées au même contrat d'artefact local.
+
+## Fichiers locaux vs exportation/importation
+
+Le contenu comporte deux flux de travail de fichiers différents :
+
+| Flux de travail                   | Que se passe-t-il                                                                                                                                                            |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Export/importation `/local-files` | Le mode base de données reste la source de vérité. Les fichiers constituent une surface de synchronisation explicite que vous exportez, modifiez, prévisualisez et importez. |
+| Mode fichier local                | Les fichiers sont la source de la vérité. La barre latérale de contenu et l'éditeur fonctionnent directement sur les fichiers locaux.                                        |
+
+Utilisez l'exportation/importation lorsque vous souhaitez examiner occasionnellement des fichiers dans un espace de travail hébergé.
+Utilisez le mode fichier local lorsque le dépôt lui-même est l'espace de travail.
+
+## Historique et collaboration
+
+Le mode fichier local s'appuie sur l'historique natif des fichiers :
+
+- valider les modifications importantes dans Git
+- utiliser les demandes d'extraction pour examen
+- laisser les agents de codage modifier directement les mêmes fichiers
+- utiliser les différences de fichiers normales pour comprendre les changements
+
+Le mode base de données reste le meilleur choix pour les fonctionnalités de collaboration hébergées telles que
+partage, commentaires, historique des versions soutenu par SQL et édition multi-utilisateurs en direct.
+
+La synchronisation du fournisseur peut être superposée à l'un ou l'autre mode. Par exemple, un dépôt de documents peut
+ajouter des actions qui extraient le contenu d'un CMS vers des fichiers MDX locaux ou poussent la sélection
+fichiers locaux vers ce CMS.
+
+## Sécurité de la production
+
+Le mode fichier local donne à l'application actions un accès direct en écriture à l'espace de travail configuré
+fichiers. Cela est approprié pour le développement local et les fichiers à locataire unique de confiance
+des ponts, mais ce n'est pas le modèle de sécurité de production par défaut.
+
+Lorsque `NODE_ENV=production`, le framework refuse le mode `local-files` sauf si vous
+définir :
+
+```bash
+AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION=true
+```
+
+Définissez cela uniquement pour un déploiement fiable à locataire unique où tous ceux qui peuvent l'utiliser
+l'application est autorisée à lire et à écrire les fichiers configurés. Pour un hébergement normal,
+Applications multi-utilisateurs, utilisez le mode base de données et le partage basé sur SQL.

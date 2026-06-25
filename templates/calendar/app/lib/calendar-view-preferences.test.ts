@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import type { CalendarEvent } from "@shared/api";
 import {
   DEFAULT_CALENDAR_VIEW_PREFERENCES,
   normalizeCalendarViewPreferences,
 } from "@shared/calendar-view-preferences";
+import { describe, expect, it } from "vitest";
+
 import { getEventDisplayColor } from "./event-colors";
-import type { CalendarEvent } from "@shared/api";
 
 const googleEvent: CalendarEvent = {
   id: "google-1",

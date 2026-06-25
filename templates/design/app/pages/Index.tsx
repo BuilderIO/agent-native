@@ -1,6 +1,9 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import { useNavigate, Link } from "react-router";
-import { nanoid } from "nanoid";
+import {
+  useActionQuery,
+  useActionMutation,
+  useT,
+} from "@agent-native/core/client";
+import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
 import {
   IconChecks,
   IconPlus,
@@ -13,18 +16,17 @@ import {
   IconX,
   IconPencil,
 } from "@tabler/icons-react";
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { nanoid } from "nanoid";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useNavigate, Link } from "react-router";
+
+import PromptPopover from "@/components/editor/PromptDialog";
+import type { UploadedFile } from "@/components/editor/PromptDialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,19 +37,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import PromptPopover from "@/components/editor/PromptDialog";
-import type { UploadedFile } from "@/components/editor/PromptDialog";
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
-import { useDesignSystems } from "@/hooks/use-design-systems";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useDesignSystems } from "@/hooks/use-design-systems";
 import {
   clearPendingGeneration,
   writePendingGeneration,
@@ -68,6 +73,7 @@ interface Design {
 }
 
 export default function Index() {
+  const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -372,13 +378,9 @@ export default function Index() {
   }, [renameId, renameDraft, queryClient, updateMutation]);
 
   const projectTypeBadge = (type: ProjectType) => {
-    const labels: Record<ProjectType, string> = {
-      prototype: "Prototype",
-      other: "Other",
-    };
     return (
       <Badge variant="secondary" className="text-[10px] font-medium">
-        {labels[type] ?? type}
+        {type === "prototype" ? t("home.prototype") : t("home.other")}
       </Badge>
     );
   };
@@ -393,24 +395,24 @@ export default function Index() {
     });
   };
 
-  useSetPageTitle("Designs");
+  useSetPageTitle(t("home.pageTitle"));
 
   useSetHeaderActions(
     <div className="flex items-center gap-3">
       {designs.length > 0 ? (
         <div className="relative">
-          <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
+          <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search designs..."
-            className="pl-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
+            placeholder={t("home.searchPlaceholder")}
+            className="ps-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
           />
         </div>
       ) : null}
       <Button size="sm" onClick={openNewDesign} className="cursor-pointer">
         <IconPlus className="w-3.5 h-3.5" />
-        New Design
+        {t("home.newDesign")}
       </Button>
     </div>,
   );
@@ -431,9 +433,8 @@ export default function Index() {
               <div className="-mt-4 mb-3 flex flex-wrap items-center justify-between gap-3 px-1 py-1 sm:-mt-6">
                 <div className="text-sm text-muted-foreground">
                   <span className="font-medium text-foreground">
-                    {selectedDesignCount}
-                  </span>{" "}
-                  selected
+                    {t("home.selected", { count: selectedDesignCount })}
+                  </span>
                 </div>
                 <div className="flex items-center gap-1">
                   <Tooltip>
@@ -444,8 +445,8 @@ export default function Index() {
                         onClick={toggleVisibleSelection}
                         aria-label={
                           allVisibleSelected
-                            ? "Clear visible selection"
-                            : "Select visible designs"
+                            ? t("home.clearVisibleSelection")
+                            : t("home.selectVisibleDesigns")
                         }
                         className="h-8 w-8 cursor-pointer"
                       >
@@ -454,8 +455,8 @@ export default function Index() {
                     </TooltipTrigger>
                     <TooltipContent>
                       {allVisibleSelected
-                        ? "Clear visible selection"
-                        : "Select visible designs"}
+                        ? t("home.clearVisibleSelection")
+                        : t("home.selectVisibleDesigns")}
                     </TooltipContent>
                   </Tooltip>
                   <Tooltip>
@@ -464,13 +465,13 @@ export default function Index() {
                         variant="ghost"
                         size="icon"
                         onClick={clearSelection}
-                        aria-label="Clear selection"
+                        aria-label={t("home.clearSelection")}
                         className="h-8 w-8 cursor-pointer"
                       >
                         <IconX className="w-4 h-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Clear selection</TooltipContent>
+                    <TooltipContent>{t("home.clearSelection")}</TooltipContent>
                   </Tooltip>
                   <Button
                     variant="destructive"
@@ -479,7 +480,7 @@ export default function Index() {
                     className="cursor-pointer"
                   >
                     <IconTrash className="w-3.5 h-3.5" />
-                    Delete
+                    {t("home.delete")}
                   </Button>
                 </div>
               </div>
@@ -489,7 +490,7 @@ export default function Index() {
               {/* New design card */}
               <button
                 onClick={openNewDesign}
-                className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-left cursor-pointer"
+                className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
               >
                 <div className="aspect-video flex items-center justify-center bg-muted/30">
                   <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
@@ -498,10 +499,10 @@ export default function Index() {
                 </div>
                 <div className="p-4">
                   <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
-                    New Design
+                    {t("home.newDesign")}
                   </h3>
                   <div className="text-xs text-muted-foreground/70 mt-1">
-                    Create a design project
+                    {t("home.createDesignProject")}
                   </div>
                 </div>
               </button>
@@ -540,7 +541,7 @@ export default function Index() {
                       {cardContent}
                     </Link>
                     <div
-                      className={`absolute left-2 top-2 z-10 transition-opacity ${
+                      className={`absolute start-2 top-2 z-10 transition-opacity ${
                         isSelected || isSelectingDesigns
                           ? "pointer-events-auto opacity-100"
                           : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
@@ -554,21 +555,27 @@ export default function Index() {
                               toggleDesignSelection(design.id)
                             }
                             onClick={(event) => event.stopPropagation()}
-                            aria-label={`Select ${design.title}`}
+                            aria-label={t("home.selectDesign", {
+                              title: design.title,
+                            })}
                             className="h-5 w-5 border-white/70 bg-black/65 text-white shadow-sm data-[state=checked]:border-[#609FF8] data-[state=checked]:bg-[#609FF8]"
                           />
                         </TooltipTrigger>
-                        <TooltipContent>{`Select ${design.title}`}</TooltipContent>
+                        <TooltipContent>
+                          {t("home.selectDesign", { title: design.title })}
+                        </TooltipContent>
                       </Tooltip>
                     </div>
                     {/* Three-dot menu */}
-                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                    <div className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
                             variant="ghost"
                             size="icon"
-                            aria-label={`Actions for ${design.title}`}
+                            aria-label={t("home.actionsForDesign", {
+                              title: design.title,
+                            })}
                             className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
                           >
                             <IconDots className="w-3.5 h-3.5 text-foreground/70" />
@@ -579,22 +586,22 @@ export default function Index() {
                             onClick={() => startRename(design)}
                             className="cursor-pointer"
                           >
-                            <IconPencil className="w-3.5 h-3.5 mr-2" />
-                            Rename
+                            <IconPencil className="w-3.5 h-3.5 me-2" />
+                            {t("home.rename")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => handleDuplicate(design.id)}
                             className="cursor-pointer"
                           >
-                            <IconCopy className="w-3.5 h-3.5 mr-2" />
-                            Duplicate
+                            <IconCopy className="w-3.5 h-3.5 me-2" />
+                            {t("home.duplicate")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => setDeleteId(design.id)}
                             className="text-red-400 focus:text-red-400 cursor-pointer"
                           >
-                            <IconTrash className="w-3.5 h-3.5 mr-2" />
-                            Delete
+                            <IconTrash className="w-3.5 h-3.5 me-2" />
+                            {t("home.delete")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -610,8 +617,8 @@ export default function Index() {
       <PromptPopover
         open={showNewPrompt}
         onOpenChange={handleNewPromptOpenChange}
-        title="New design"
-        placeholder="Describe what you want to build..."
+        title={t("home.newDesignLower")}
+        placeholder={t("home.describeBuild")}
         onSubmit={handleSubmitPrompt}
         anchorRef={anchorRef}
         designSystems={designSystems}
@@ -638,30 +645,34 @@ export default function Index() {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {bulkDeleteOpen
-                ? `Delete ${selectedDesignCount} ${
-                    selectedDesignCount === 1 ? "Design" : "Designs"
-                  }?`
-                : "Delete Design?"}
+                ? selectedDesignCount === 1
+                  ? t("home.deleteSingleDesignsTitle", {
+                      count: selectedDesignCount,
+                    })
+                  : t("home.deleteDesignsTitle", {
+                      count: selectedDesignCount,
+                    })
+                : t("home.deleteDesignTitle")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {bulkDeleteOpen
-                ? `This will permanently delete ${
-                    selectedDesignCount === 1
-                      ? "this design and all its files"
-                      : `these ${selectedDesignCount} designs and all their files`
-                  }. This action cannot be undone.`
-                : "This will permanently delete this design and all its files. This action cannot be undone."}
+                ? selectedDesignCount === 1
+                  ? t("home.deleteDesignDescription")
+                  : t("home.deleteDesignsDescription", {
+                      count: selectedDesignCount,
+                    })
+                : t("home.deleteDesignDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="cursor-pointer">
-              Cancel
+              {t("home.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={bulkDeleteOpen ? handleBulkDelete : handleDelete}
               className="bg-red-600 hover:bg-red-700 cursor-pointer"
             >
-              Delete
+              {t("home.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -676,7 +687,7 @@ export default function Index() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Rename design</AlertDialogTitle>
+            <AlertDialogTitle>{t("home.renameDesign")}</AlertDialogTitle>
           </AlertDialogHeader>
           <Input
             value={renameDraft}
@@ -688,19 +699,19 @@ export default function Index() {
                 commitRename();
               }
             }}
-            placeholder="Design name"
+            placeholder={t("home.designName")}
             className="h-9 text-sm"
           />
           <AlertDialogFooter>
             <AlertDialogCancel className="cursor-pointer">
-              Cancel
+              {t("home.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={commitRename}
               disabled={!renameDraft.trim()}
               className="cursor-pointer"
             >
-              Save
+              {t("home.save")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -742,6 +753,7 @@ function derivePromptTitle(prompt: string): string {
  * granting arbitrary design HTML access to the host origin.
  */
 function DesignThumbnail({ html }: { html: string | null }) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.25);
 
@@ -783,7 +795,7 @@ function DesignThumbnail({ html }: { html: string | null }) {
         loading="lazy"
         tabIndex={-1}
         aria-hidden
-        title="Design preview"
+        title={t("home.designPreview")}
         style={{
           width: `${NATURAL_WIDTH}px`,
           height: `${NATURAL_HEIGHT}px`,
@@ -823,24 +835,24 @@ function LoadingSkeleton() {
 // an empty composer. Keep these distinct enough that the four results would
 // all look meaningfully different — same approach as Phase 2 variant
 // generation in the design agent.
-const STARTER_PROMPTS: { label: string; prompt: string }[] = [
+const STARTER_PROMPTS: { labelKey: string; prompt: string }[] = [
   {
-    label: "SaaS landing page",
+    labelKey: "home.starterSaas",
     prompt:
       "A modern SaaS landing page with a dark theme, hero section, three feature cards, and a final CTA section.",
   },
   {
-    label: "Dashboard",
+    labelKey: "home.starterDashboard",
     prompt:
       "A clean analytics dashboard with a sidebar nav, four KPI tiles, a chart, and a recent-activity table.",
   },
   {
-    label: "Mobile app",
+    labelKey: "home.starterMobile",
     prompt:
       "A mobile app prototype shown on a phone frame, with a tab bar at the bottom and three list cards on the home screen.",
   },
   {
-    label: "Pricing page",
+    labelKey: "home.starterPricing",
     prompt:
       "A three-tier pricing page with a monthly/annual toggle, feature checklists, and a highlighted recommended tier.",
   },
@@ -853,26 +865,27 @@ function EmptyState({
   onCreateDesign: (e: React.MouseEvent<HTMLElement>) => void;
   onStarterPrompt: (prompt: string) => void;
 }) {
+  const t = useT();
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
         <IconPalette className="w-7 h-7 text-[#609FF8]" />
       </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
-        Create your first design
+        {t("home.createFirstDesign")}
       </h2>
       <p className="text-sm text-muted-foreground max-w-sm mb-6 leading-relaxed">
-        Pick a starting point or write your own prompt.
+        {t("home.pickStartingPoint")}
       </p>
       <div className="flex flex-wrap items-center justify-center gap-2 max-w-md mb-6">
         {STARTER_PROMPTS.map((s) => (
           <button
-            key={s.label}
+            key={s.labelKey}
             type="button"
             onClick={() => onStarterPrompt(s.prompt)}
             className="cursor-pointer rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground/80 hover:border-foreground/30 hover:text-foreground/95 transition-colors"
           >
-            {s.label}
+            {t(s.labelKey)}
           </button>
         ))}
       </div>
@@ -884,7 +897,7 @@ function EmptyState({
         className="cursor-pointer"
       >
         <IconPlus className="w-4 h-4" />
-        New Design
+        {t("home.newDesign")}
       </Button>
     </div>
   );

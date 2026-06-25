@@ -1,5 +1,4 @@
-import { BubbleMenu } from "@tiptap/react/menus";
-import type { Editor } from "@tiptap/react";
+import { useT } from "@agent-native/core/client";
 import {
   IconBold,
   IconItalic,
@@ -18,19 +17,23 @@ import {
   IconCheck,
   IconPencil,
 } from "@tabler/icons-react";
+import type { Editor } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
 import { useState } from "react";
-import { cn, shortcutLabel } from "@/lib/utils";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { getBrandPalette, setBrandPalette } from "./style-clipboard";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn, shortcutLabel } from "@/lib/utils";
+
+import { getBrandPalette, setBrandPalette } from "./style-clipboard";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyIcon = React.ComponentType<any>;
@@ -110,6 +113,7 @@ function ColorPicker({
   editor: Editor;
   onClose: () => void;
 }) {
+  const t = useT();
   const [palette, setPalette] = useState<string[]>(getBrandPalette);
   const [editMode, setEditMode] = useState(false);
   const [addingColor, setAddingColor] = useState(false);
@@ -144,7 +148,7 @@ function ColorPicker({
     <div className="w-[180px]">
       <div className="flex items-center justify-between mb-2">
         <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-          Brand Colors
+          {t("slideTextMenu.brandColors")}
         </span>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -160,7 +164,7 @@ function ColorPicker({
               <IconPencil size={11} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Edit palette</TooltipContent>
+          <TooltipContent>{t("slideTextMenu.editPalette")}</TooltipContent>
         </Tooltip>
       </div>
 
@@ -204,7 +208,7 @@ function ColorPicker({
                 <IconPlus size={10} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Add color</TooltipContent>
+            <TooltipContent>{t("slideTextMenu.addColor")}</TooltipContent>
           </Tooltip>
         )}
       </div>
@@ -219,7 +223,7 @@ function ColorPicker({
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground w-full"
         >
           <IconX size={11} />
-          Remove color
+          {t("slideTextMenu.removeColor")}
         </button>
       </div>
     </div>
@@ -227,6 +231,7 @@ function ColorPicker({
 }
 
 export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
+  const t = useT();
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [colorOpen, setColorOpen] = useState(false);
@@ -262,64 +267,64 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
   const buttons: (ButtonItem | DividerItem)[] = [
     {
       icon: IconBold,
-      title: "Bold",
+      title: t("slideTextMenu.bold"),
       action: () => editor.chain().focus().toggleBold().run(),
       isActive: () => editor.isActive("bold"),
     },
     {
       icon: IconItalic,
-      title: "Italic",
+      title: t("slideTextMenu.italic"),
       action: () => editor.chain().focus().toggleItalic().run(),
       isActive: () => editor.isActive("italic"),
     },
     {
       icon: IconStrikethrough,
-      title: "Strikethrough",
+      title: t("slideTextMenu.strikethrough"),
       action: () => editor.chain().focus().toggleStrike().run(),
       isActive: () => editor.isActive("strike"),
     },
     {
       icon: IconCode,
-      title: "Code",
+      title: t("slideTextMenu.code"),
       action: () => editor.chain().focus().toggleCode().run(),
       isActive: () => editor.isActive("code"),
     },
     { type: "divider" },
     {
       icon: IconH1,
-      title: "Heading 1",
+      title: t("slideTextMenu.heading1"),
       action: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
       isActive: () => editor.isActive("heading", { level: 1 }),
     },
     {
       icon: IconH2,
-      title: "Heading 2",
+      title: t("slideTextMenu.heading2"),
       action: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
       isActive: () => editor.isActive("heading", { level: 2 }),
     },
     {
       icon: IconH3,
-      title: "Heading 3",
+      title: t("slideTextMenu.heading3"),
       action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
       isActive: () => editor.isActive("heading", { level: 3 }),
     },
     { type: "divider" },
     {
       icon: IconList,
-      title: "Bullet List",
+      title: t("slideTextMenu.bulletList"),
       action: () => editor.chain().focus().toggleBulletList().run(),
       isActive: () => editor.isActive("bulletList"),
     },
     {
       icon: IconListNumbers,
-      title: "Ordered List",
+      title: t("slideTextMenu.orderedList"),
       action: () => editor.chain().focus().toggleOrderedList().run(),
       isActive: () => editor.isActive("orderedList"),
     },
     { type: "divider" },
     {
       icon: IconLink,
-      title: "Link",
+      title: t("slideTextMenu.link"),
       action: toggleLink,
       isActive: () => editor.isActive("link"),
     },
@@ -347,7 +352,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
                   setLinkUrl("");
                 }
               }}
-              placeholder="Paste URL..."
+              placeholder={t("slideTextMenu.pasteUrl")}
               className="w-48 bg-transparent text-foreground text-sm outline-none placeholder-muted-foreground/70 border-b border-border pb-0.5"
               autoFocus
             />
@@ -355,7 +360,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
               onClick={handleSetLink}
               className="text-xs text-[#609FF8] hover:text-[#7AB2FA] font-medium"
             >
-              Apply
+              {t("slideTextMenu.apply")}
             </button>
             <button
               onClick={() => {
@@ -364,7 +369,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
               }}
               className="text-xs text-muted-foreground hover:text-foreground"
             >
-              Cancel
+              {t("slideTextMenu.cancel")}
             </button>
           </div>
         ) : (
@@ -424,7 +429,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
                     </button>
                   </PopoverTrigger>
                 </TooltipTrigger>
-                <TooltipContent>Text color</TooltipContent>
+                <TooltipContent>{t("slideTextMenu.textColor")}</TooltipContent>
               </Tooltip>
               <PopoverContent
                 side="bottom"
@@ -437,8 +442,16 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
                   onClose={() => setColorOpen(false)}
                 />
                 <div className="mt-2 pt-2 border-t border-border flex gap-2 text-[10px] text-muted-foreground">
-                  <span>{shortcutLabel("cmd+alt+c")} copy style</span>
-                  <span>{shortcutLabel("cmd+alt+v")} paste style</span>
+                  <span>
+                    {t("slideTextMenu.copyStyleShortcut", {
+                      shortcut: shortcutLabel("cmd+alt+c"),
+                    })}
+                  </span>
+                  <span>
+                    {t("slideTextMenu.pasteStyleShortcut", {
+                      shortcut: shortcutLabel("cmd+alt+v"),
+                    })}
+                  </span>
                 </div>
               </PopoverContent>
             </Popover>
@@ -463,7 +476,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
                       <IconMessageCircle size={14} stroke={2} />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Comment</TooltipContent>
+                  <TooltipContent>{t("slideTextMenu.comment")}</TooltipContent>
                 </Tooltip>
               </>
             )}

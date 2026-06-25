@@ -1,5 +1,814 @@
 # @agent-native/core
 
+## 0.77.10
+
+### Patch Changes
+
+- 12545bc: Keep standalone scaffold installs stable when fresh Sentry transitive packages are published.
+
+## 0.77.9
+
+### Patch Changes
+
+- 3eeec7f: Generalize the `ensureTable()` DDL guard to ALL on-demand schema-init paths
+  (~36 stores: agent run-store, application-state, chat-threads, usage,
+  oauth-tokens, resources, observability, integrations, provider-api, mcp,
+  workspace-connections, extensions, audit, harness, a2a, notifications,
+  browser-sessions, auth/sessions, agent-teams run-queue, better-auth, and more).
+
+  Every `ensureTable` now probes `information_schema`/`pg_indexes` before issuing
+  `CREATE TABLE`/`ALTER TABLE ADD COLUMN`/`CREATE INDEX`, so the already-migrated
+  hot path takes NO `ACCESS EXCLUSIVE` lock on Postgres. Any DDL that must run is
+  wrapped in a transaction-scoped `SET LOCAL lock_timeout` (never leaks onto the
+  pooled connection), and a swallowed lock-timeout triggers a RE-PROBE: if the
+  schema is still missing it throws (so the per-store init memo rejects and retries)
+  rather than memoizing init success against absent schema. This fixes
+  background-function (durable agent-chat) workers hanging indefinitely on the
+  first-touch DDL lock of any table on shared Neon. Shared helpers live in
+  `db/ddl-guard.ts` (`ensureSchemaObject`/`ensureTableExists`/`ensureColumnExists`/
+  `ensureIndexExists`). SQLite (local dev) behavior is unchanged. CREATE SQL that
+  references `intType()` is built at runtime, not module scope.
+
+## 0.77.8
+
+### Patch Changes
+
+- 7dc2828: Guard on-demand `ensureTable()` schema-init so the already-migrated path takes no
+  `ACCESS EXCLUSIVE` lock on Postgres. The app-secrets (`app_secrets`) and `settings`
+  stores now probe `information_schema`/`pg_indexes` first (plain reads, no lock) and
+  issue `CREATE`/`ALTER`/`CREATE INDEX` only when something is actually missing; any
+  DDL that must run is wrapped in a transaction-scoped `SET LOCAL lock_timeout` so a
+  contended lock fails fast instead of hanging (and never leaks onto the pooled
+  connection). This fixes background-function workers hanging indefinitely on
+  first-touch schema DDL behind a concurrent connection on shared Neon — observed as
+  durable agent-chat workers stalling right after auth and never claiming the run.
+  SQLite (local dev) behavior is unchanged. Adds a shared `db/ddl-guard.ts` helper
+  (`pgTableExists`/`pgColumnExists`/`pgIndexExists`/`runGuardedDdl`). Also adds
+  diagnostic-only worker setup sub-stage breadcrumbs to localize such stalls.
+
+## 0.77.7
+
+### Patch Changes
+
+- e5bdcb3: Paginate the All Chats history client so older conversations can be loaded without truncating the history list.
+- e5bdcb3: Drop benign reasonless browser AbortError events from Sentry reporting.
+- e5bdcb3: Repair duplicate persisted chat message ids during thread normalization.
+- e5bdcb3: Ensure hosted template apps can inject Google Analytics from Netlify build-time configuration.
+- e5bdcb3: Normalize email casing when resolving shareable-resource ownership and user shares, and let resources opt into owner access across active-org drift.
+- e5bdcb3: Re-check current LLM connection status before a stale missing-credentials event can keep chat locked after reconnecting Builder, and prevent page chat surfaces from rendering sidebar settings in the main content area.
+- e5bdcb3: Allow browser Sentry initialization to build a DSN from Vite-exposed Sentry client key, project id, and ingest host env vars when runtime config injection is unavailable.
+
+## 0.77.6
+
+### Patch Changes
+
+- 1fab043: Localize shared extension sidebar chrome and changelog labels/dates.
+
+## 0.77.5
+
+### Patch Changes
+
+- 355be37: Add diagnostic-only worker-side progressive setup-stage diagnostics
+  (`worker_setup_step`) to localize where a durable background worker hangs between
+  `auth_passed` and `claimBackgroundRun`. For the background worker only (gated on
+  `isBackgroundWorker`, using the marker's early-available runId), emit the last
+  setup stage reached — `db_request_ctx`, `env_config`, `context_all`,
+  `action_tool_setup`, `owner_thread`, `prestart` — as the run's `diag_stage`, so a
+  worker that stalls leaves a breadcrumb at the stage it stopped in. Best-effort and
+  fire-and-forget; no control-flow change.
+
+## 0.77.4
+
+### Patch Changes
+
+- 71db1e0: Improve localization coverage by localizing framework error screens and docs UI surfaces, and add a baseline-aware i18n guard that fails on new raw visible UI strings.
+- 71db1e0: Localize shared feedback and docs block chrome while tightening the i18n raw-literal guard.
+- 71db1e0: Translate remaining Getting Started embedded docs copy and guard localized docs against newly copied English block strings.
+
+## 0.77.3
+
+### Patch Changes
+
+- 4c1e290: Add diagnostic-only pre-`startRun` setup-timing instrumentation to the agent-chat
+  handler. Captures wall-clock offsets from handler entry through the work done
+  before the agent loop starts — body parse, request prep, system-prompt build,
+  screen context, the parallel context-collection `Promise.all`, action/tool
+  conversion, and thread data — and emits them as a `setup_timings` run diagnostic
+  (readable via the run's `diag_stage`). No behavior change; best-effort and
+  fire-and-forget. It lets us localize which setup bucket dominates pre-run latency
+  on heavy apps — e.g. analytics, whose >25s setup currently exceeds the durable
+  claim grace — and runs on both the inline and background-worker paths, so the
+  breakdown can be measured with durable left OFF.
+
+## 0.77.2
+
+### Patch Changes
+
+- 6d04136: MCP Apps: render inline embeds in a nested child iframe instead of transplanting
+  the app document on hosts where transplant breaks. Transplant boots the app via
+  cross-origin dynamic `import()` inside the host's opaque-origin sandbox, which
+  strict hosts block (blank "Loading app").
+  - `ui/*` bridge hosts (Cursor, Codex) now render in a nested child iframe.
+  - ChatGPT now uses its controlled nested frame: `isChatGptSandboxHost` was
+    removed from `shouldTransplantAppDocument`, which had forced ChatGPT to
+    transplant and hang blank.
+
+  Claude keeps the transplant path; `embedMode: "transplant"` still forces it.
+
+## 0.77.1
+
+### Patch Changes
+
+- e3a084f: Durable background agent-chat: wait adaptively for a slow-but-alive worker to
+  claim a dispatched run, instead of abandoning it and recovering inline. The
+  foreground waits a base grace for the background worker to claim; heavy apps
+  (e.g. analytics) can take longer than that to build the system prompt and load
+  actions before claiming, so their worker lost the race every time and the
+  15-minute background budget went unused (observed in prod: the run stalls at
+  `auth_passed`, then recovers via `foreground_inline_recovery`).
+
+  The circuit-breaker now keeps polling past the base grace ONLY while the worker
+  is provably alive and still in setup — its `diag_stage` (parsed from the stored
+  JSON payload) is `auth_passed`/`worker_entered` but it has not claimed yet. A
+  dead handoff never records those stages, so it still recovers inline at the base
+  grace; a worker that recorded a pre-claim failure (`route_threw` / `worker_threw`
+  / `auth_failed`) recovers inline immediately. The extension is bounded by the
+  unclaimed-run reaper's own window, measured from the run's liveness
+  (`COALESCE(heartbeat_at, started_at)`), so the foreground always claims the run
+  inline just before `reapUnclaimedBackgroundRun` could fire — immune to dispatch
+  latency between insert and the start of polling. The claim itself still happens
+  right before the agent loop, so all existing fast-recovery and duplicate-delivery
+  guarantees are preserved.
+
+## 0.77.0
+
+### Minor Changes
+
+- dd40496: Add a `"none"` block `editSurface` so a registered block can render its `Read` view in edit mode with no data form and no corner edit (pencil) button — for blocks whose whole-block operations live in the editor chrome/menu rather than a generated or custom editor.
+- 2a03c35: Upgrade framework and template React Router support to v8 and require the v8 runtime baselines.
+
+### Patch Changes
+
+- 2a03c35: Animate the standard agent sidebar drawer when it opens and closes.
+- 2a03c35: Preserve signed Builder connect callback query parameters on mounted framework routes so docs and other app surfaces can complete Connect Builder flows reliably.
+- 2a03c35: Durable background diagnostics: preserve the background-function worker's last
+  `diag_stage` (`route_entered` / `auth_failed` / etc., or `none` if it never
+  reached the route) in the foreground circuit-breaker's
+  `foreground_inline_recovery` detail instead of overwriting it. This makes a
+  silent worker death diagnosable from `/runs/active` without reading the
+  unreadable Netlify background-function logs. `readBackgroundRunClaim` now also
+  returns `diagStage`.
+- 2a03c35: Durable background agent runs: add a foreground **circuit-breaker** so a dead
+  background worker can no longer break chat. A Netlify async background function
+  returns `202` the instant it enqueues the invocation, but the worker may never
+  execute — e.g. the generated function wrapper fails to import `./main.mjs` or
+  hand off to the Nitro `_process-run` route, so it never reaches
+  `claimBackgroundRun` and the run is reaped as "worker never claimed the run".
+  After a successful dispatch the foreground now polls briefly for the worker to
+  actually claim the run; if it doesn't within the grace window, the turn is
+  recovered **inline** (the same safe atomic-claim path used for a fast dispatch
+  failure), so a dead worker degrades to a working synchronous turn instead of a
+  reaped failure. Also harden the generated background-function wrapper to pass
+  Netlify's `context` through to the Nitro handler and wrap the handoff in
+  try/catch so a pre-route failure is logged loudly instead of silently swallowed
+  behind the async 202.
+- 2a03c35: Add a linkable API reference section for authenticated extension data routes to the Extensions docs.
+- 2a03c35: Keep note-only FileTree file rows inline without disclosure chevrons, truncating long notes and showing the hover tooltip only when the text is actually clipped.
+- 2a03c35: Link the first actions mention in Getting Started to the actions docs.
+- 2a03c35: Bundle an Arabic-capable OG image font so localized Arabic docs previews render real text instead of missing-glyph boxes.
+- 2a03c35: Show a New chat button on full-page Ask chat surfaces with visible conversation tabs after a conversation starts.
+- 2a03c35: Prevent default-closed agent sidebars from reopening because of stale global sidebar state.
+- 2a03c35: Add an `agentNative()` Vite plugin preset so app `vite.config.ts` files can use
+  Vite's native `defineConfig` while keeping Agent-Native framework defaults.
+- 2a03c35: Preserve first-touch referral attribution through email and Google OAuth signups, and make Postgres parameter conversion ignore question marks inside SQL literals.
+- 2a03c35: Stop showing previous scoped chats in the empty chat state.
+- 2a03c35: Let the agent composer model picker shrink to its content instead of forcing a tall popover.
+- 2a03c35: Make PR visual recap comments report screenshot failures explicitly and cache-bust embedded screenshot URLs per workflow run so GitHub does not reuse stale image proxy entries.
+
+## 0.76.14
+
+### Patch Changes
+
+- 64f90ca: Docs: add a "Durable Background Runs" page documenting the durable background
+  agent-chat system — the two-function model (`server` + `server-agent-background`),
+  what runs in the background worker and how it's gated, the dispatch lifecycle +
+  foreground circuit-breaker, and Netlify cost/tradeoffs.
+
+## 0.76.13
+
+### Patch Changes
+
+- d12772c: Durable background agent-chat: raise the foreground circuit-breaker's claim grace
+  from 8s to 15s (`BACKGROUND_CLAIM_GRACE_MS`). Heavy apps (observed on analytics
+  in prod) take longer than 8s to cold-start the background function and reach
+  `claimBackgroundRun`, so the foreground recovered inline every time — adding ~8s
+  latency per turn and never using the 15-minute background budget. 15s lets the
+  slow-but-alive workers win the claim while staying well within the foreground's
+  ~40s soft-timeout; a genuinely dead worker still falls back to inline.
+
+## 0.76.12
+
+### Patch Changes
+
+- 93292e4: Improve localization coverage by localizing framework error screens and docs UI surfaces, and add a baseline-aware i18n guard that fails on new raw visible UI strings.
+- 93292e4: Localize shared feedback and docs block chrome while tightening the i18n raw-literal guard.
+
+## 0.76.11
+
+### Patch Changes
+
+- b6701ee: Improve localization coverage by localizing framework error screens and docs UI surfaces, and add a baseline-aware i18n guard that fails on new raw visible UI strings.
+
+## 0.76.10
+
+### Patch Changes
+
+- 2be975e: Animate the standard agent sidebar drawer when it opens and closes.
+- 2be975e: Durable background diagnostics: preserve the background-function worker's last
+  `diag_stage` (`route_entered` / `auth_failed` / etc., or `none` if it never
+  reached the route) in the foreground circuit-breaker's
+  `foreground_inline_recovery` detail instead of overwriting it. This makes a
+  silent worker death diagnosable from `/runs/active` without reading the
+  unreadable Netlify background-function logs. `readBackgroundRunClaim` now also
+  returns `diagStage`.
+- 2be975e: Durable background agent runs: add a foreground **circuit-breaker** so a dead
+  background worker can no longer break chat. A Netlify async background function
+  returns `202` the instant it enqueues the invocation, but the worker may never
+  execute — e.g. the generated function wrapper fails to import `./main.mjs` or
+  hand off to the Nitro `_process-run` route, so it never reaches
+  `claimBackgroundRun` and the run is reaped as "worker never claimed the run".
+  After a successful dispatch the foreground now polls briefly for the worker to
+  actually claim the run; if it doesn't within the grace window, the turn is
+  recovered **inline** (the same safe atomic-claim path used for a fast dispatch
+  failure), so a dead worker degrades to a working synchronous turn instead of a
+  reaped failure. Also harden the generated background-function wrapper to pass
+  Netlify's `context` through to the Nitro handler and wrap the handoff in
+  try/catch so a pre-route failure is logged loudly instead of silently swallowed
+  behind the async 202.
+- 2be975e: Bundle an Arabic-capable OG image font so localized Arabic docs previews render real text instead of missing-glyph boxes.
+- 2be975e: Show a New chat button on full-page Ask chat surfaces with visible conversation tabs after a conversation starts.
+- 2be975e: Add an `agentNative()` Vite plugin preset so app `vite.config.ts` files can use
+  Vite's native `defineConfig` while keeping Agent-Native framework defaults.
+- 2be975e: Stop showing previous scoped chats in the empty chat state.
+- 2be975e: Let the agent composer model picker shrink to its content instead of forcing a tall popover.
+
+## 0.76.9
+
+### Patch Changes
+
+- bbbd01a: Durable background agent-chat: actually run the background worker. The
+  self-dispatch into the Netlify background function is cookieless (HMAC-only), so
+  the worker had no session and `resolveOwnerContext` threw 401 "Unauthenticated"
+  before it could even claim the run — every durable run died at the route
+  boundary (`route_threw`) and only completed via the foreground circuit-breaker's
+  inline recovery, never using the 15-minute background budget. The `_process-run`
+  route now resolves the owner securely from the run's chat thread
+  (`getRunOwnerEmail(runId)` — DB-derived from the HMAC-signed run row, not the
+  forgeable request body) and pre-seeds the owner context, so the background
+  worker runs with the correct authenticated owner and the full background budget.
+
+## 0.76.8
+
+### Patch Changes
+
+- fd78baa: Animate the standard agent sidebar drawer when it opens and closes.
+- fd78baa: Durable background diagnostics: preserve the background-function worker's last
+  `diag_stage` (`route_entered` / `auth_failed` / etc., or `none` if it never
+  reached the route) in the foreground circuit-breaker's
+  `foreground_inline_recovery` detail instead of overwriting it. This makes a
+  silent worker death diagnosable from `/runs/active` without reading the
+  unreadable Netlify background-function logs. `readBackgroundRunClaim` now also
+  returns `diagStage`.
+- fd78baa: Durable background agent runs: add a foreground **circuit-breaker** so a dead
+  background worker can no longer break chat. A Netlify async background function
+  returns `202` the instant it enqueues the invocation, but the worker may never
+  execute — e.g. the generated function wrapper fails to import `./main.mjs` or
+  hand off to the Nitro `_process-run` route, so it never reaches
+  `claimBackgroundRun` and the run is reaped as "worker never claimed the run".
+  After a successful dispatch the foreground now polls briefly for the worker to
+  actually claim the run; if it doesn't within the grace window, the turn is
+  recovered **inline** (the same safe atomic-claim path used for a fast dispatch
+  failure), so a dead worker degrades to a working synchronous turn instead of a
+  reaped failure. Also harden the generated background-function wrapper to pass
+  Netlify's `context` through to the Nitro handler and wrap the handoff in
+  try/catch so a pre-route failure is logged loudly instead of silently swallowed
+  behind the async 202.
+- fd78baa: Add an `agentNative()` Vite plugin preset so app `vite.config.ts` files can use
+  Vite's native `defineConfig` while keeping Agent-Native framework defaults.
+
+## 0.76.7
+
+### Patch Changes
+
+- dbb5cac: Durable background diagnostics: preserve the background-function worker's last
+  `diag_stage` (`route_entered` / `auth_failed` / etc., or `none` if it never
+  reached the route) in the foreground circuit-breaker's
+  `foreground_inline_recovery` detail instead of overwriting it. This makes a
+  silent worker death diagnosable from `/runs/active` without reading the
+  unreadable Netlify background-function logs. `readBackgroundRunClaim` now also
+  returns `diagStage`.
+
+## 0.76.6
+
+### Patch Changes
+
+- c294aaa: Expand localized UI coverage across core client surfaces, Dispatch chrome, scheduling controls, templates, and the docs site.
+- c294aaa: Document the authenticated extension data API and enforce extension sharing
+  roles server-side for direct `/_agent-native/extensions/data/*` calls.
+
+## 0.76.5
+
+### Patch Changes
+
+- ba634f4: Durable background agent runs: add a foreground **circuit-breaker** so a dead
+  background worker can no longer break chat. A Netlify async background function
+  returns `202` the instant it enqueues the invocation, but the worker may never
+  execute — e.g. the generated function wrapper fails to import `./main.mjs` or
+  hand off to the Nitro `_process-run` route, so it never reaches
+  `claimBackgroundRun` and the run is reaped as "worker never claimed the run".
+  After a successful dispatch the foreground now polls briefly for the worker to
+  actually claim the run; if it doesn't within the grace window, the turn is
+  recovered **inline** (the same safe atomic-claim path used for a fast dispatch
+  failure), so a dead worker degrades to a working synchronous turn instead of a
+  reaped failure. Also harden the generated background-function wrapper to pass
+  Netlify's `context` through to the Nitro handler and wrap the handoff in
+  try/catch so a pre-route failure is logged loudly instead of silently swallowed
+  behind the async 202.
+
+## 0.76.4
+
+### Patch Changes
+
+- 6067f27: Fix right-to-left (`ar-SA`) layout in shared framework chrome. Physical directional CSS in the agent panel, command menu, language picker, shadcn `ui/*` primitives, settings/composer/org/sharing/onboarding panels, and the agent-conversation/blocks/rich-markdown styles is converted to logical utilities (`ms`/`me`, `ps`/`pe`, `start`/`end`, `text-start`/`text-end`, `border-s`/`border-e`), and directional icons are mirrored with `rtl:-scale-x-100`. No change to left-to-right rendering (logical utilities are identical to physical in LTR).
+
+## 0.76.3
+
+### Patch Changes
+
+- 57e72bb: Correct stale "default-on" doc comments in `durable-background.ts` and
+  `deploy/build.ts` so they reflect that durable background agent runs are now
+  opt-in (default-off). Comment-only; no behavior change.
+
+## 0.76.2
+
+### Patch Changes
+
+- 93c06b0: Make durable background agent runs opt-in (default-off) again. Both the runtime
+  gate (`isFlagEnabled` in durable-background.ts) and the deploy-time `-background`
+  emit gate (`isDurableBackgroundDeployEnabled` in deploy/build.ts) now default to
+  OFF when `AGENT_CHAT_DURABLE_BACKGROUND` is unset; an app opts in only with an
+  explicit truthy value (`true`/`1`/`yes`/`on`). A premature fleet-wide default-on
+  caused real-user incidents (apps hit "Failed to dispatch background run" + chat
+  stalls) because the async background-function worker path is not yet proven
+  end-to-end and the deploy-time env opt-out is not reliably baked into a given
+  deploy. Re-enable default-on only after the 15-min background-function worker is
+  verified live in production.
+
+## 0.76.1
+
+### Patch Changes
+
+- 50f32ff: Make durable-background agent-chat worker failures diagnosable from the client
+  and harden recovery when the background worker never starts.
+
+  A durable-background run is dispatched into a Netlify `-background` function,
+  which acks asynchronously with a 202. If that worker then dies silently (its
+  logs are not readable from the build tooling), the run would just time out with
+  no clue why, and because dispatch already returned 202 the existing fast-fail
+  inline fallback never engaged — so the run errored opaquely.
+
+  Diagnostics (readable WITHOUT bg-fn logs). The `_process-run` worker pipeline
+  now records the last reached stage onto the run row (`agent_runs.diag_stage`, a
+  compact JSON `{stage,detail?,at}`) via the new best-effort `recordRunDiagnostic`:
+  route entered, HMAC auth pass/fail (recorded onto the run BEFORE the 401/503 is
+  returned, including whether `A2A_SECRET` is present in the bg-fn isolate),
+  worker entered (with the resolved `runsInBackgroundFunction` value), claim
+  win/lose, worker loop started, and any thrown error. `/runs/active?threadId=`
+  (and `listRunsForThread`) now surface `dispatchMode` and `diagStage`, so the
+  next prod run's death cause is readable straight from the client.
+
+  Recovery (covers "202 acked but worker never started"). A background-dispatched
+  run that is still unclaimed (`dispatch_mode = 'background'`, never flipped to
+  `background-processing`) past a tight 25s grace is reaped early and recoverably
+  with the new `background_worker_never_started` error code (the wide 90s window
+  only exists to protect a CLAIMED, cold-starting worker — an unclaimed run has no
+  worker to protect). The `/runs/active` read path attempts this recovery before
+  the generic stale reaper, so a silent worker death surfaces as a recoverable
+  error the client can re-drive instead of hanging for 90s.
+
+  Also fixes a latent gate: `/_agent-native/agent-chat/_process-run` now bypasses
+  the session-auth guard (mirroring the agent-teams processor). The self-dispatch
+  carries only an HMAC Bearer token and no session cookie, so without the bypass
+  the worker was 401'd before it could authenticate and claim the run.
+
+- 50f32ff: Tighten bundled visual plan wireframe guidance so agents use literal spacing,
+  pad root containers, and choose feature-cloud layouts for abundance-style
+  marketing sections.
+
+## 0.76.0
+
+### Minor Changes
+
+- 16356c2: Add framework localization support with shared i18n providers, locale preference actions, catalog loading helpers, guards, and docs.
+- 16356c2: Add a framework helper for opening the agent settings tab and standardize app settings access in Dispatch.
+
+## 0.75.5
+
+### Patch Changes
+
+- 25802f2: Durable background agent-chat runs now reach Netlify's 15-min async function via
+  the function's DEFAULT url (`/.netlify/functions/<name>`) with NO custom
+  `config.path` and NO catch-all patch — the doc-correct approach per the Netlify
+  docs.
+
+  Every Netlify function is reachable at `/.netlify/functions/<name>` by default;
+  a custom `config.path` REMOVES that default url. The build now emits the
+  background function into the scanned dir
+  (`.netlify/functions-internal/server-agent-background`, or per-app
+  `<app>-agent-background` for workspaces), sharing the same `main.mjs` bundle,
+  with `export const config = { background: true, ... }` and NO custom path. The
+  function therefore keeps its default url, and `background: true` makes any
+  invocation of that url asynchronous (immediate 202 ack, 15-min budget). The
+  Nitro `server` function's `/*` catch-all already excludes `/.netlify/*`, so the
+  default-url namespace is never shadowed by the synchronous function — there is
+  nothing to patch.
+
+  The function entry rewrites the incoming pathname to the framework
+  `_process-run` route (base-path-prefixed for workspaces) before delegating to
+  Nitro, preserving the method, all headers (the HMAC `Authorization: Bearer` the
+  plugin verifies), and the body. It also sets
+  `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true` at cold start so the
+  worker takes the 15-min soft-timeout. The foreground self-dispatch resolves the
+  function's default url on hosted Netlify (per-app name from
+  `AGENT_NATIVE_WORKSPACE_APP_ID`), and `fireInternalDispatch` strips the app base
+  path for `/.netlify/*` targets so the request reaches the host-root function
+  url. Off-Netlify (local dev, `netlify dev`, non-Netlify hosts), the foreground
+  dispatches to the framework process-run route, handled inline by the same
+  in-process catch-all.
+
+  This supersedes the earlier attempt that gave the function a custom
+  `config.path` (the framework route) plus a `server` `excludedPath` patch — that
+  custom path was not honored as a route in production (a probe of
+  `POST /_agent-native/agent-chat/_process-run` returned 404). The graceful inline
+  40s fallback on a dispatch fast-fail is unchanged.
+
+## 0.75.4
+
+### Patch Changes
+
+- dbfbe42: Preserve starter-only manifest fields when syncing builder-agent-native-starter from templates/chat.
+
+## 0.75.3
+
+### Patch Changes
+
+- 8a00851: Durable background agent-chat runs now reach Netlify's 15-min async function by
+  emitting the background function INTO the scanned functions dir with a real
+  `config.path`, and excluding that path from the Nitro `server` `/*` catch-all so
+  the match is unambiguous.
+
+  Grounded in the real Netlify build output: Nitro's `netlify` preset writes no
+  `netlify.toml` and no redirects — the `/*` catch-all is an in-code Functions API
+  v2 `config.path: "/*"` on `.netlify/functions-internal/server/server.mjs`.
+  Netlify scans exactly the configured `functionsDirectory`
+  (`.netlify/functions-internal`); `.netlify/functions/` is the build OUTPUT dir
+  (where `@netlify/build` later writes the zips + `manifest.json`) and is never
+  scanned. On CI, Netlify reads each scanned function's `export const config` to
+  build the manifest routes — so per-file `background`/`path` config is honored.
+
+  The build now emits the background function into
+  `.netlify/functions-internal/server-agent-background` (the scanned dir), sharing
+  the same `main.mjs` bundle, with `export const config = { background: true, path:
+"/_agent-native/agent-chat/_process-run" }`. It also appends that path to the
+  `server` function's `config.excludedPath`, so the `/*` catch-all no longer
+  matches the process-run route. Netlify evaluates serverless functions before
+  redirects, so a POST to the framework process-run route matches only the async
+  background function (immediate 202 ack, 15-min budget) — never the synchronous
+  `server` catch-all. The entry sets
+  `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true` at cold start and
+  normalizes the request path before delegating to Nitro, preserving the method,
+  all headers (the HMAC `Authorization: Bearer` the plugin verifies), and the body.
+
+  This supersedes the two earlier approaches that failed in production: emitting
+  into `functions-internal` with a `config.path` but WITHOUT excluding it from the
+  `/*` catch-all (both functions matched the path; the synchronous `server`
+  catch-all won, returning a sync 401 instead of a 202), and emitting a standalone
+  function into `.netlify/functions/` (never scanned, returned 404). The foreground
+  self-dispatch now always targets the framework process-run route on every host
+  via `resolveAgentChatProcessRunDispatchPath`. The graceful inline 40s fallback on
+  a dispatch fast-fail is unchanged.
+
+## 0.75.2
+
+### Patch Changes
+
+- 4b3543d: Durable background agent-chat runs now actually receive Netlify's 15-min async
+  budget by reaching a STANDALONE background function at its DIRECT url, bypassing
+  Nitro's synchronous `/*` catch-all.
+
+  The previous emit wrote the background function into `.netlify/functions-internal`
+  with a custom `config.path` of the `_process-run` route. A custom `config.path`
+  makes a function reachable ONLY at that path (not at its default function url),
+  `functions-internal` is not exposed at a default url, and Netlify routed
+  `/_agent-native/agent-chat/_process-run` to the synchronous Nitro `server`
+  catch-all instead — so the worker was capped at the ~60s wall and degraded to
+  40s-chunked runs (confirmed live: a POST to the process-run path returned a
+  synchronous 401 from the handler rather than a 202 async ack).
+
+  The build now emits a standalone function into the STANDARD
+  `.netlify/functions/server-agent-background` dir with `background: true` and NO
+  custom `path`, so Netlify exposes it at `/.netlify/functions/server-agent-background`
+  and invokes it asynchronously (immediate 202 ack, 15-min budget). Its entry sets
+  `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true` at cold start and rewrites
+  the incoming request path back to the `_process-run` route before delegating to
+  the Nitro handler, preserving the method, all headers (the HMAC
+  `Authorization: Bearer` the plugin verifies survives the rewrite), and the body.
+  The foreground self-dispatch (and server-driven continuation chunks) now target
+  that direct url on hosted Netlify via a shared `resolveAgentChatProcessRunDispatchPath`
+  helper, and stay on the framework route everywhere else. The graceful inline
+  40s fallback on a dispatch fast-fail is unchanged.
+
+## 0.75.1
+
+### Patch Changes
+
+- 98b89e2: Durable background agent-chat runs now actually receive Netlify's 15-min async
+  budget. The emitted `-background` function declared a custom `config.path` but
+  omitted `background: true`, so Netlify served it SYNCHRONOUSLY (~60s) — the
+  `config` object overrides the legacy `-background` filename convention — and the
+  durable worker was capped at the 60s wall (it degraded to 40s-chunked runs and
+  never used the 15-min budget). The emit now sets `background: true` (immediate
+  202 ack + 15-min execution) and force-marks the background runtime in the
+  function entry so the worker reliably takes the ~13-min soft-timeout regardless
+  of the deployed Lambda name. Root cause confirmed with a live prod routing probe
+  (POST to the process-run path returned a synchronous 401 from the handler
+  instead of a 202 async ack).
+
+## 0.75.0
+
+### Minor Changes
+
+- 1272755: Durable background agent-chat runs now complete cleanly instead of looping at
+  the 60s Netlify wall.
+  - The Netlify `-background` function (15-min async budget) is now emitted by
+    default. The deploy gates (`isDurableBackgroundDeployEnabled` in
+    `deploy/build.ts` and `deploy/workspace-deploy.ts`) are inverted to default-ON
+    to match the runtime gate — unset/empty means enabled; opt out with a falsy
+    `AGENT_CHAT_DURABLE_BACKGROUND` (`false`/`0`/`no`/`off`). This makes the chat
+    `_process-run` self-dispatch land on the real 15-min async function, so the
+    worker runs with its full budget (and likely fixes the app-specific dispatch
+    fast-fail, since the self-POST now hits an instant-202 async function).
+  - The run soft-timeout is now tied to the REAL function budget rather than
+    merely "I am the background worker." A new `isInBackgroundFunctionRuntime()`
+    guard (the Lambda function name ends in `-background`) gates the ~13-min
+    soft-timeout. A worker that lands on the regular ~60s function — or the
+    graceful inline fallback running in the foreground ~60s function — keeps the
+    ~40s soft-timeout and checkpoints before the hard wall instead of overshooting
+    and re-dispatching in a loop.
+  - Server-driven continuation stays on for every durable worker so a run survives
+    the client disconnecting (closed tab): a worker on the regular ~60s function (a
+    Netlify routing miss, or a non-Netlify host with no `-background` function)
+    self-chains 40s chunks, while a worker in a real `-background` function chains
+    ~13-min chunks. Only the per-chunk budget differs by function type; the
+    continuation is always server-driven.
+
+## 0.74.0
+
+### Minor Changes
+
+- 4a0d3c4: Durable background agent runs are robust again, and **on by default** for hosted apps.
+  - **Graceful inline fallback (the safety fix).** When the foreground turn can't
+    hand off to a background worker — the HMAC self-dispatch self-POST fails fast,
+    e.g. a connection error or a non-2xx returned within the settle window — the
+    agent-chat handler no longer breaks the chat with
+    `Failed to dispatch background run`. It now degrades to a normal synchronous
+    (inline) run, reusing the already-inserted run row. The run is claimed
+    atomically (`claimBackgroundRun`, a conditional `dispatch_mode: background →
+background-processing` UPDATE) before running inline, so the SQL atomic claim
+    is the single owner — a delayed background delivery that arrives afterward
+    loses the claim and no-ops, and the run can never double-execute. A dispatch
+    that _did_ land (so a worker already owns the run) still streams the worker's
+    events instead of running a second copy.
+  - **Default-on, safely.** `AGENT_CHAT_DURABLE_BACKGROUND` is now opt-out for
+    hosted apps: unset/empty/unknown counts as enabled; opt a specific app back
+    out with an explicit falsy value (`false`/`0`/`no`/`off`). The gate still
+    composes with the existing guards, so a run only goes durable when the runtime
+    is hosted/serverless **and** `A2A_SECRET` is configured — local dev and
+    unconfigured apps stay on the synchronous inline path unchanged. Default-on is
+    safe precisely because a failed dispatch degrades to a working inline run. The
+    Netlify 15-min `-background` function emit (`isDurableBackgroundDeployEnabled`)
+    remains opt-in until its path is separately verified; with it off, the
+    default-on baseline runs the worker through the standard function and
+    server-chains continuations.
+  - **More diagnosable dispatch errors.** Self-dispatch failures now log the
+    resolved base URL so a failure tied to which host the self-POST targets
+    (custom domain vs deploy URL) is visible in logs. The URL resolution order is
+    unchanged (it matches the working A2A/agent-teams self-dispatch paths).
+
+### Patch Changes
+
+- 4a0d3c4: Show numbered annotation markers in the annotated-code gutter, matching the diff
+  annotation affordance while preserving the hover popover behavior.
+- 4a0d3c4: Clarify Builder code-change handoff fallbacks when cloud agents are unavailable.
+
+## 0.73.0
+
+### Minor Changes
+
+- d684bbf: Durable background agent runs are now **on by default** for hosted apps. Previously the `AGENT_CHAT_DURABLE_BACKGROUND` flag was opt-in (off unless set truthy); it is now opt-out — unset means enabled, and an app disables it with an explicit falsy value (`AGENT_CHAT_DURABLE_BACKGROUND=false`).
+
+  The gate still composes with the existing guards, so a run only goes durable when the runtime is hosted/serverless **and** `A2A_SECRET` is configured — local dev and unconfigured apps stay on the synchronous inline path unchanged. Default-on uses the server-driven agnostic continuation path (verified in prod: long multi-step runs complete past the 40s soft-timeout with no thrash and no int4 overflow). The Netlify 15-min `-background` function emit (`isDurableBackgroundDeployEnabled`) remains opt-in until its path is separately verified.
+
+### Patch Changes
+
+- d684bbf: Clarify the Clips "agent-readable clips" docs so the "see and hear" promise is
+  accurate: frame-viewing works in any image-capable agent (ChatGPT, Claude Code,
+  Cursor, Codex, MCP-connected agents), while text-only web chats fall back to the
+  transcript and can take an uploaded frame. Verified empirically — ChatGPT fetches
+  the JPEG frame URLs and describes the screen; claude.ai's web chat reads the
+  transcript only. Docs-only copy change; the agent-context/frame APIs are
+  unchanged.
+- d684bbf: Add scaffold skill refresh commands for generated Agent Native apps and workspaces, plus public `@agent-native/skills` status/update forwarding.
+- d684bbf: Redesign the Google sign-in preflight notice on the onboarding/sign-in screen
+  to match the in-app connect popover: an amber warning-icon chip beside a bold
+  heading and muted body copy, with the close affordance moved to the top-right.
+  The `googleSignInNotice.body` already accepts a string array, so reassurance
+  like "It's safe to continue." now renders on its own line. The Continue /
+  Run-locally action buttons no longer wrap their labels (`white-space: nowrap`).
+  Purely presentational — the host-gating, Continue, and Run-locally behaviors are
+  unchanged.
+- d684bbf: Add a secondary hosted-app signup notice linking to the Agent-Native Terms and Privacy Policy.
+
+## 0.72.4
+
+### Patch Changes
+
+- 17b696f: Avoid credentialed cross-origin demo status checks from opaque embedded MCP app frames.
+- 17b696f: Mint a fresh MCP App embed session when cached host state contains an expired one-time embed ticket, and keep native MCP host shells alive so they can recover on refresh.
+- 17b696f: Handle asset picker selections from opaque MCP App parent frames and wait for native MCP host initialization before forwarding selected asset messages.
+- 17b696f: Inject per-request identity tokens for trusted first-party org-scoped remote MCP servers, preserving static headers for third-party remotes.
+- 17b696f: Bound MCP client connection and tools/list handshakes so stale org MCP servers do not stall dev-server startup after reloads.
+
+## 0.72.3
+
+### Patch Changes
+
+- 6605885: Add opt-in URL sync for durable chat threads and route chat-first templates (chat, assets, and Dispatch) through `/chat/:threadId` deep links.
+
+## 0.72.2
+
+### Patch Changes
+
+- cc21a1c: Build the audit-redaction test fixture from concatenated parts so Netlify's
+  secret scanner no longer flags a literal `sk-` token pattern and blocks the
+  deploy.
+
+## 0.72.1
+
+### Patch Changes
+
+- b2a5931: Fix `value "<ms epoch>" is out of range for type integer` aborting agent chat on
+  Postgres/Neon at the start of every turn.
+
+  The background-aware stale-run cutoff built SQL like
+  `COALESCE(heartbeat_at, started_at) >= (? - CASE WHEN dispatch_mode LIKE
+'background%' THEN 90000 ELSE 15000 END)` and bound `Date.now()` to the
+  parameter. Postgres infers an untyped parameter's type from its surrounding
+  expression, and because the `15000`/`90000` window literals are `int4`, it typed
+  the parameter as `int4` too — so a millisecond epoch like `1782295529106`
+  overflowed even though every column involved is already `BIGINT`. This is a
+  query-level type-inference bug, independent of column types, which is why the
+  `widenIntColumnsToBigInt()` shim could never fix it.
+
+  The cutoff now wraps the parameter in `CAST(? AS BIGINT)`, pinning it to int8 so
+  the subtraction stays 64-bit. SQLite treats `CAST(x AS BIGINT)` as INTEGER
+  affinity, so it is a no-op there. Fixes `tryClaimRunSlot`, `reapIfStale`,
+  `reapAllStaleRuns`, and `cleanupOldRuns`, which all share the cutoff.
+
+## 0.72.0
+
+### Minor Changes
+
+- 9a984f2: Add a framework audit log: a durable, complete, access-scoped, append-only record of who mutated what app data, when, from where, and — when it was the agent — in which run. Capture is automatic at the `defineAction` seam (default-on for mutating actions; read-only actions opt in via `audit.onRead`), with credential redaction, agent-vs-human actor attribution, and agent thread/turn linkage. Reads go through two new core actions every app inherits — `list-audit-events` and `get-audit-event` — scoped in SQL to the caller's identity and org. Stored in `agent_audit_log` (provider-agnostic), with a retention purge configurable via `AGENT_NATIVE_AUDIT_RETENTION_DAYS` (default 365) and a global kill switch `AGENT_NATIVE_AUDIT_ENABLED=false`. Distinct from observability (sampled telemetry) and tracking (fire-and-forget analytics).
+
+### Patch Changes
+
+- 9a984f2: Relax the default `Permissions-Policy` from `camera=()` to `camera=*` so media-capture UI is no longer blocked at the policy level. `camera=()` disabled the camera for the page **and every iframe inside it**, which broke same-page recording UI and the Clips browser extension's camera bubble (injected as a cross-origin iframe, so it can't be re-enabled per-frame). Microphone stays `self`, geolocation and wake-lock stay disabled, and the browser still gates actual camera/mic use behind a per-origin permission prompt — this only removes the policy-level block, not user consent.
+- 9a984f2: Fix a chat crash where the agent transcript could fail to render with
+  "MessageRepository(performOp/link): A message with the same id already exists in
+  the parent tree". Thread repositories whose message list contained a repeated id
+  (from optimistic+echo races, streaming reconnect replays, or multi-tab merges)
+  were imported into assistant-ui verbatim, and its `MessageRepository` throws on a
+  duplicate id. The import path now collapses duplicate ids to their most recent
+  copy before handing the repository to assistant-ui, so the throw can't occur. The
+  no-duplicate case is an exact no-op, leaving normal threads unchanged.
+- 9a984f2: Fix `value "<ms epoch>" is out of range for type integer` on long-lived
+  Postgres/Neon databases — most visibly, agent chat failing on **every** prompt.
+  Millisecond `Date.now()` timestamps are written into columns that, on databases
+  created before the Postgres BIGINT-compatibility shim, are physically 32-bit
+  `INTEGER` (int4, max 2,147,483,647); a millisecond epoch like `1782269273204`
+  overflows. The source had since switched to `BIGINT`, but `CREATE TABLE IF NOT
+EXISTS` can't re-type an existing column, so those databases kept the int4
+  column and writes kept failing (`insertRun()` runs at the start of every turn,
+  so the agent chat aborted as a `connection_error`).
+
+  Adds a `widenIntColumnsToBigInt()` helper (new module
+  `@agent-native/core/db/widen-columns`) that, on Postgres only, widens such
+  columns in place to `BIGINT` once via each store's existing `ensureTable()`
+  bootstrap. It is idempotent (only ALTERs columns still typed `integer`, so
+  already-bigint tables are never rewritten), non-destructive (int4 → int8
+  widening), and a no-op on SQLite. Applied to the millisecond-timestamp columns
+  of `agent_runs`, `agent_tool_ledger`, `chat_threads`, `application_state`,
+  `token_usage`, `settings`, `oauth_tokens`, `resources`, `sessions`, and
+  `custom_api_providers`. (`staged_datasets` already self-heals via its own
+  widener.)
+
+## 0.71.0
+
+### Minor Changes
+
+- 38266fc: Add opt-in durable background agent-chat runs (off by default, host-agnostic). Behind `AGENT_CHAT_DURABLE_BACKGROUND` (active only when hosted AND `A2A_SECRET` is set AND the flag is truthy), a long in-app agent-chat turn is routed through a server-driven background worker via the framework's portable self-dispatch instead of completing synchronously under the ~40s interactive soft-timeout: the foreground POST claims the run slot, inserts the run row, fires an HMAC-signed self-dispatch to a new `/_agent-native/agent-chat/_process-run` route, and returns the existing `subscribeToRun` SSE stream so the client streams the same events via the cross-isolate SQL-poll path with no client change. The background worker idempotently claims the run, runs the full multi-step loop to completion under a host-natural soft-timeout (`backgroundFunction` mode lifts the 40s clamp for that invocation only — the foreground/interactive clamp is unchanged), and chains a server-driven continuation if a chunk hits its budget unfinished. A background-aware stale window (`dispatch_mode`) prevents a cold-starting background run from being falsely reaped. With the flag off, the agent-chat run path is byte-for-byte the current synchronous behavior.
+
+  As a per-host optimization layered on the portable baseline, the Netlify deploy build emits a second function whose name ends in `-background` (re-exporting the same `main.mjs` handler bundle, with a `config.path` of the process-run route) so the `_process-run` POST runs on Netlify's async 15-minute budget and a long turn completes in one invocation; on that invocation the worker's soft-timeout is raised to ~13 min (`backgroundFunction` mode) instead of 40s. This emit is build-time gated on the same `AGENT_CHAT_DURABLE_BACKGROUND` flag for both the single-template (`deploy/build.ts`) and workspace (`deploy/workspace-deploy.ts`) deploy paths: when the flag is unset at build time the emit functions are never invoked, so the deploy output (functions, routing, config) is byte-identical to today and the default single-function deploy is unchanged.
+
+### Patch Changes
+
+- 38266fc: Move "Collapse sidebar" to the top of the agent panel's options menu (the `⋯` dropdown in the sidebar header), above All chats / Agent runs / Settings, with a separator below it. Makes the most common dismiss action the first item in the list.
+- 38266fc: Fix inline MCP App embeds being hard-killed on `resources/read`. The inline-embed kill switch was enforced inside the shared `resolveMcpAppResource` resolver, which also backs `resources/read` — so when a host read a `ui://` URI it already held (e.g. a cached descriptor) while embeds were disabled, it got a hard `-32603` instead of the shell. The switch is now enforced only at the advertisement/render sites (`tools/list` descriptor meta, `tools/call` result meta, `resources/list`), so disabled embeds are never advertised while `resources/read` still degrades gracefully to the served shell.
+
+## 0.70.3
+
+### Patch Changes
+
+- 3c80603: Document and regression-test that `useActionQuery` / `callAction` GET calls round-trip boolean and number params. Browser query params are serialized through `URLSearchParams`, which stringifies everything — so `useActionQuery("instrument-overview", { includeSeries: true, limit: 5 })` sends `includeSeries: "true"` / `limit: "5"`. Schema-aware coercion (added in 0.70.2) already restores native types before validation, but it was framed and tested only as a model-gateway concern. This adds an end-to-end regression test through the action route for the GET path and broadens the coercion doc comment so it is not narrowed to gateway-only and silently re-break browser GET calls. No runtime behavior change.
+
+## 0.70.2
+
+### Patch Changes
+
+- 2d36525: Add a sync helper for keeping Builder Agent Native Starter's standalone manifest aligned with the chat template scaffold output.
+
+## 0.70.1
+
+### Patch Changes
+
+- 8003c56: Coerce gateway-stringified tool arguments before action validation. Some model gateways (notably Builder's Gemini-backed gateway) hand structured tool-call arguments back as JSON strings — an array param arrives as `"[{...}]"`, a boolean as `"true"`. Standard Schema (zod) validation does not coerce, so these calls failed validation and the agent could thrash retrying different shapes (and hang). The validation wrapper now coerces a string value to the type its schema field declares (array/object via `JSON.parse`, boolean, number/integer) when — and only when — the schema expects a non-string type and the string parses cleanly to it; ambiguous or unparseable values are left untouched so the normal validation error still surfaces.
+- 8003c56: Composer model picker improvements. The picker now supports an optional secondary "image model" menu via a new `imageModelMenu` prop on `AgentChatSurface` / `AssistantChat` (opt-in; chat-only apps are unaffected) — apps that drive a separate generation model (e.g. Assets' image model) can surface it in the same dropdown so it's clear which model reasons about the request and which produces the output. The reasoning-effort list is now a collapsed-by-default accordion (matching the provider groups) instead of always-expanded, keeping the menu compact. Model catalog: the Builder gateway list now lists Opus 4.8 (was 4.7) and drops the retired GPT-5.1 Codex Mini entry.
+- 8003c56: Remove the setup/onboarding checklist that appeared above the agent chat (the
+  "Setup N of 5" panel with Connect an AI engine / image & video generation /
+  asset storage / email / GitHub steps) and its header "Setup" re-open button.
+  Setup is now surfaced in better places — the settings panel and per-feature
+  setup affordances — so the panel no longer takes up sidebar space in any app.
+- 8003c56: Feedback submissions now forward a `clientSurface` hint (web / electron / tauri)
+  alongside the existing page URL, so form owners can tell whether feedback came
+  from the Agent Native desktop app, a Tauri shell (e.g. Clips), or a browser.
+  Detection is exposed as a reusable `getClientSurface()` client helper and is
+  passed through as hidden metadata — it never appears as a visible form field.
+- 8003c56: Fix the "Sign in with Google" button getting stuck disabled when the OAuth
+  window is closed without finishing (e.g. to retry in a different browser
+  profile). The button was only ever re-enabled on an explicit OAuth error or
+  the 5-minute poll timeout, so a cancelled sign-in left the primary CTA greyed
+  out with no way to retry short of refreshing. The sign-in screen now re-enables
+  the button (and stops the pending exchange poll) when the window regains focus
+  or becomes visible again — mirroring the existing email-verification recovery.
+- 8003c56: Add observability and a safety valve for inline MCP App embeds, on top of the
+  Codex/Cursor transplant fix already shipped in 0.70.0.
+
+  When an inline embed cannot load in a host, the shell now reports a bounded,
+  structured diagnostic (stage, message, HTTP status, host, render mode, bridge
+  type) to a new CORS-open `POST /_agent-native/mcp/embed-error` route, which
+  forwards it to Sentry via `captureError` — so embed failures across Codex,
+  Cursor, ChatGPT, and Claude are inspectable instead of an opaque spinner. The
+  failure card also surfaces the specific cause (e.g. "Embedded app returned HTTP
+  500" / session-expired) and promotes "Open in new tab" to the primary action.
+
+  Adds a deploy-toggleable kill switch for inline MCP App embeds, **off by
+  default**. Set `AGENT_NATIVE_MCP_APPS_INLINE=1` to enable inline embeds for an
+  environment; while it is off, accounts listed in
+  `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` (comma/space separated) still get
+  them, so a fix can be verified in production before it reaches normal users.
+  When disabled, no `ui://` resource is advertised or referenced and tool results
+  fall back to their deep-link text — no skills/instructions change required.
+
+- 8003c56: Show a friendly "You're all set" confirmation page after authorizing an MCP
+  client whose redirect is a native deep link (cursor://, vscode://, …). Instead
+  of leaving the browser tab dangling on a blank page after the OS handed the code
+  to the app, the tab now shows a checkmark, a "return to your agent to continue"
+  message, and re-fires the deep link so the client still receives the code.
+  https/loopback callbacks keep the standard redirect.
+- 8003c56: Clarify the "Where should visual plans and recaps live?" install prompt: move
+  the "(recommended)" marker into the hosted option's label and tighten its
+  description to "100% free and open source. Supports comments, browser editor,
+  and sharing. Requires one-time browser sign-in."
+- 8003c56: When a hosted run is cut off mid-step and exhausts its in-invocation
+  continuation budget without finishing, the chat now ends with a loud,
+  unambiguous "stopped before finishing" terminal instead of a silent stall or a
+  misleading clean `done`. The terminal carries a machine-readable
+  `run_budget_exhausted` error code that is deliberately excluded from the
+  client's auto-recoverable allow-list, so the chain terminates rather than
+  looping another continuation into the same wall, and any half-streamed partial
+  text is cleared so the message stands alone.
+
 ## 0.70.0
 
 ### Minor Changes

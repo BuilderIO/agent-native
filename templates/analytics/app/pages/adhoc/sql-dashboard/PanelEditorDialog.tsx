@@ -1,16 +1,22 @@
+import {
+  PromptComposer,
+  useSendToAgentChat,
+  useT,
+} from "@agent-native/core/client";
+import { IconAlertTriangle, IconAlignLeft } from "@tabler/icons-react";
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
-import { useSendToAgentChat } from "@agent-native/core/client";
 import { toast } from "sonner";
+
+import { SqlEditor } from "@/components/SqlEditor";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
@@ -23,14 +29,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  IconAlertTriangle,
-  IconAlignLeft,
-  IconLoader2,
-} from "@tabler/icons-react";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
+
 import {
   clampDashboardColumns,
   clampPanelWidth,
@@ -41,21 +43,21 @@ import {
   type SqlPanel,
 } from "./types";
 
-const CHART_TYPES: { value: ChartType; label: string }[] = [
-  { value: "line", label: "Line" },
-  { value: "area", label: "Area" },
-  { value: "bar", label: "Bar" },
-  { value: "pie", label: "Pie" },
-  { value: "metric", label: "Metric" },
-  { value: "table", label: "Table" },
+const CHART_TYPES: { value: ChartType; labelKey: string }[] = [
+  { value: "line", labelKey: "panelEditor.chartTypeLine" },
+  { value: "area", labelKey: "panelEditor.chartTypeArea" },
+  { value: "bar", labelKey: "panelEditor.chartTypeBar" },
+  { value: "pie", labelKey: "panelEditor.chartTypePie" },
+  { value: "metric", labelKey: "panelEditor.chartTypeMetric" },
+  { value: "table", labelKey: "panelEditor.chartTypeTable" },
 ];
 
 const SOURCES: { value: DataSourceType; label: string }[] = [
   { value: "bigquery", label: "BigQuery" },
-  { value: "ga4", label: "Google Analytics" },
+  { value: "ga4", label: "Google Analytics" }, // i18n-ignore stable provider label
   { value: "amplitude", label: "Amplitude" },
-  { value: "first-party", label: "First-party Analytics" },
-  { value: "demo", label: "Demo Prometheus" },
+  { value: "first-party", label: "First-party Analytics" }, // i18n-ignore stable source label
+  { value: "demo", label: "Demo Prometheus" }, // i18n-ignore stable source label
   { value: "prometheus", label: "Prometheus" },
 ];
 
@@ -73,6 +75,8 @@ export interface PanelFormValues {
   title: string;
   chartType: ChartType;
   source: DataSourceType;
+  /** Legacy storage field retained for existing dashboards. Row widths are
+   *  now inferred from how many panels share the row. */
   width: number;
   /** Section panels only: number of grid columns the panels following this
    *  section should use. Ignored when `chartType` is not `"section"`. */
@@ -107,6 +111,7 @@ function panelToForm(panel: SqlPanel | null): PanelFormValues {
 function formToPanel(
   form: PanelFormValues,
   existing: SqlPanel | null,
+  untitledPanel: string,
 ): SqlPanel {
   const id = existing?.id ?? generatePanelId(form.title);
   const description = form.description.trim();
@@ -120,7 +125,7 @@ function formToPanel(
   const isSection = form.chartType === "section";
   return {
     id,
-    title: form.title.trim() || "Untitled panel",
+    title: form.title.trim() || untitledPanel,
     sql: form.sql,
     source: form.source,
     chartType: form.chartType,
@@ -172,10 +177,10 @@ function PanelEditorContent({
   dashboardId,
   existingPanelTitles,
 }: PanelEditorDialogProps) {
+  const t = useT();
   const [form, setForm] = useState<PanelFormValues>(() => panelToForm(panel));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState("");
   const [tab, setTab] = useState<"describe" | "manual">("describe");
   const { send, isGenerating } = useSendToAgentChat();
 
@@ -185,7 +190,6 @@ function PanelEditorContent({
       setForm(panelToForm(panel));
       setError(null);
       setSaving(false);
-      setPrompt("");
       // Editing an existing panel always goes straight to the manual form.
       setTab(panel ? "manual" : "describe");
     }
@@ -193,7 +197,6 @@ function PanelEditorContent({
 
   const isEdit = !!panel;
   const canSave = form.title.trim().length > 0 && form.sql.trim().length > 0;
-  const canGenerate = prompt.trim().length > 0 && !isGenerating;
   const canFormat = canFormatPanelSql(form.source);
 
   const handleSubmit = async () => {
@@ -201,24 +204,25 @@ function PanelEditorContent({
     setSaving(true);
     setError(null);
     try {
-      await onSave(formToPanel(form, panel));
+      await onSave(formToPanel(form, panel, t("panelEditor.untitledPanel")));
       onOpenChange(false);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Failed to save panel";
+        err instanceof Error ? err.message : t("panelEditor.failedToSavePanel");
       setError(message);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDescribe = () => {
-    if (!canGenerate) return;
+  const handleDescribe = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || isGenerating) return;
     const titlesLine = existingPanelTitles.length
       ? `Existing panels on this dashboard: ${existingPanelTitles.join(", ")}.`
       : "This dashboard has no panels yet.";
     send({
-      message: prompt.trim(),
+      message: trimmed,
       context:
         `The user wants to add a new panel to SQL dashboard "${dashboardId}". ${titlesLine} ` +
         `REAL_DATA_REQUIRED: before saving or answering, run at least one real data-source query action for this panel; \`data-source-status\`, \`list-data-dictionary\`, \`update-dashboard\`, and dry-run validation do not count as data queries. ` +
@@ -226,7 +230,8 @@ function PanelEditorContent({
         `If no source can answer, report the exact unavailable/error result instead of saving a panel with guessed schema or metrics. ` +
         `Use the \`update-dashboard\` action with ops=[{op:'insert', path:'/panels/-', value: <panel>}] ` +
         `to append, or an appropriate index to place the panel in the right spot. ` +
-        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'), width (number of grid columns to span, 1..6), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only — 1..6 grid columns for the panels following this section), config? }. ` +
+        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'), width (legacy integer 1..6; set to 1 unless editing existing data), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only - 1..6 max panels per row for panels following this section), config? }. ` +
+        `Visible layout auto-fits by row: one panel in a row spans the row, two split it, three split it into thirds, up to the section column limit. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
         `For first-party panels, sql is read-only SQL over analytics_events only; use source 'first-party' and do not call db-query for this datasource. ` +
         `For demo panels, sql uses the same Prometheus JSON descriptor shape as source 'prometheus': {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. ` +
@@ -238,7 +243,6 @@ function PanelEditorContent({
         `After the panel saves, call \`refresh-screen\` so the UI picks up the change.`,
       submit: true,
     });
-    setPrompt("");
     onOpenChange(false);
   };
 
@@ -249,7 +253,7 @@ function PanelEditorContent({
       setError(null);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Failed to format SQL";
+        err instanceof Error ? err.message : t("panelEditor.failedToFormatSql");
       setError(message);
       toast.error(message);
     }
@@ -258,18 +262,18 @@ function PanelEditorContent({
   const manualForm = (
     <div className="grid gap-4 py-2">
       <div className="grid gap-1.5">
-        <Label htmlFor="panel-title">Title</Label>
+        <Label htmlFor="panel-title">{t("panelEditor.title")}</Label>
         <Input
           id="panel-title"
           value={form.title}
           onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-          placeholder="e.g. Weekly signups"
+          placeholder={t("panelEditor.titlePlaceholder")}
         />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="grid gap-1.5">
-          <Label htmlFor="panel-chart-type">Chart type</Label>
+          <Label htmlFor="panel-chart-type">{t("panelEditor.chartType")}</Label>
           <Select
             value={form.chartType}
             onValueChange={(v: ChartType) =>
@@ -280,9 +284,9 @@ function PanelEditorContent({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {CHART_TYPES.map((t) => (
-                <SelectItem key={t.value} value={t.value}>
-                  {t.label}
+              {CHART_TYPES.map((chartType) => (
+                <SelectItem key={chartType.value} value={chartType.value}>
+                  {t(chartType.labelKey)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -290,7 +294,7 @@ function PanelEditorContent({
         </div>
 
         <div className="grid gap-1.5">
-          <Label htmlFor="panel-source">Source</Label>
+          <Label htmlFor="panel-source">{t("panelEditor.source")}</Label>
           <Select
             value={form.source}
             onValueChange={(v: DataSourceType) =>
@@ -310,11 +314,9 @@ function PanelEditorContent({
           </Select>
         </div>
 
-        <div className="grid gap-1.5">
-          <Label>
-            {form.chartType === "section" ? "Section columns" : "Span"}
-          </Label>
-          {form.chartType === "section" ? (
+        {form.chartType === "section" ? (
+          <div className="grid gap-1.5">
+            <Label>{t("panelEditor.sectionColumns")}</Label>
             <ToggleGroup
               type="single"
               value={String(form.columns)}
@@ -338,32 +340,8 @@ function PanelEditorContent({
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
-          ) : (
-            <ToggleGroup
-              type="single"
-              value={String(form.width)}
-              onValueChange={(v) => {
-                if (!v) return;
-                const next = clampPanelWidth(Number(v), MAX_DASHBOARD_COLUMNS);
-                setForm((f) => ({ ...f, width: next }));
-              }}
-              className="justify-start h-9"
-            >
-              {Array.from(
-                { length: MAX_DASHBOARD_COLUMNS },
-                (_, i) => i + 1,
-              ).map((n) => (
-                <ToggleGroupItem
-                  key={n}
-                  value={String(n)}
-                  className="h-9 w-9 px-0 text-xs"
-                >
-                  {n}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          )}
-        </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="grid gap-1.5">
@@ -379,34 +357,35 @@ function PanelEditorContent({
               className="h-7 px-2 text-xs"
             >
               <IconAlignLeft className="h-3.5 w-3.5 mr-1" />
-              Format
+              {t("panelEditor.format")}
             </Button>
           )}
         </div>
-        <Textarea
+        <SqlEditor
           id="panel-sql"
           value={form.sql}
           onChange={(e) => setForm((f) => ({ ...f, sql: e.target.value }))}
           rows={10}
-          spellCheck={false}
-          className="font-mono text-xs resize-y min-h-[200px]"
           placeholder="SELECT ..."
         />
         <p className="text-xs text-muted-foreground">
-          Use <code className="font-mono">{"{{varName}}"}</code> to interpolate
-          filter values.
+          {t("panelEditor.filterInterpolation", {
+            example: "{{varName}}",
+          })}
         </p>
       </div>
 
       <div className="grid gap-1.5">
-        <Label htmlFor="panel-description">Description (optional)</Label>
+        <Label htmlFor="panel-description">
+          {t("panelEditor.descriptionOptional")}
+        </Label>
         <Input
           id="panel-description"
           value={form.description}
           onChange={(e) =>
             setForm((f) => ({ ...f, description: e.target.value }))
           }
-          placeholder="Short description shown under the panel title"
+          placeholder={t("panelEditor.descriptionPlaceholder")}
         />
       </div>
 
@@ -435,14 +414,14 @@ function PanelEditorContent({
             onClick={() => onOpenChange(false)}
             disabled={saving}
           >
-            Cancel
+            {t("panelEditor.cancel")}
           </Button>
           <Button
             size="sm"
             onClick={handleSubmit}
             disabled={!canSave || saving}
           >
-            {saving ? "Saving..." : "Save changes"}
+            {saving ? t("panelEditor.saving") : t("panelEditor.saveChanges")}
           </Button>
         </EditorFooter>
       </>
@@ -452,36 +431,20 @@ function PanelEditorContent({
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as "describe" | "manual")}>
       <TabsList className="grid w-full grid-cols-2">
-        <TabsTrigger value="describe">Describe</TabsTrigger>
-        <TabsTrigger value="manual">Manual</TabsTrigger>
+        <TabsTrigger value="describe">{t("panelEditor.describe")}</TabsTrigger>
+        <TabsTrigger value="manual">{t("panelEditor.manual")}</TabsTrigger>
       </TabsList>
 
       <TabsContent value="describe" className="mt-4">
         <div className="grid gap-3">
-          <Label htmlFor="panel-prompt">What do you want to chart?</Label>
-          <Textarea
-            id="panel-prompt"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="e.g. Weekly signups by channel over the last 6 months, stacked area"
-            className="min-h-[140px] resize-y text-sm"
+          <Label>{t("panelEditor.whatToChart")}</Label>
+          <PromptComposer
             autoFocus
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                handleDescribe();
-              }
-            }}
+            disabled={isGenerating}
+            placeholder={t("panelEditor.promptPlaceholder")}
+            draftScope="analytics:add-panel"
+            onSubmit={handleDescribe}
           />
-          <p className="text-xs text-muted-foreground">
-            The agent will consult the data dictionary, write the SQL, and
-            append the panel. Press{" "}
-            <kbd className="px-1 rounded border bg-muted font-mono text-[10px]">
-              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-              +Enter
-            </kbd>{" "}
-            to submit.
-          </p>
         </div>
         <EditorFooter className="mt-4">
           <Button
@@ -490,17 +453,7 @@ function PanelEditorContent({
             onClick={() => onOpenChange(false)}
             disabled={isGenerating}
           >
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleDescribe} disabled={!canGenerate}>
-            {isGenerating ? (
-              <>
-                <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              "Generate"
-            )}
+            {t("panelEditor.cancel")}
           </Button>
         </EditorFooter>
       </TabsContent>
@@ -514,14 +467,14 @@ function PanelEditorContent({
             onClick={() => onOpenChange(false)}
             disabled={saving}
           >
-            Cancel
+            {t("panelEditor.cancel")}
           </Button>
           <Button
             size="sm"
             onClick={handleSubmit}
             disabled={!canSave || saving}
           >
-            {saving ? "Saving..." : "Add panel"}
+            {saving ? t("panelEditor.saving") : t("panelEditor.addPanel")}
           </Button>
         </EditorFooter>
       </TabsContent>
@@ -530,13 +483,14 @@ function PanelEditorContent({
 }
 
 export function PanelEditorDialog(props: PanelEditorDialogProps) {
+  const t = useT();
   if (!props.panel) return null;
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit panel</DialogTitle>
+          <DialogTitle>{t("panelEditor.editPanel")}</DialogTitle>
         </DialogHeader>
 
         <PanelEditorContent {...props} />
@@ -562,6 +516,7 @@ export function AddPanelPopover({
   align = "end",
   side = "bottom",
 }: AddPanelPopoverProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   return (
@@ -571,12 +526,12 @@ export function AddPanelPopover({
         align={align}
         side={side}
         sideOffset={8}
-        aria-label="Add panel"
+        aria-label={t("panelEditor.addPanel")}
         className="w-[calc(100vw-2rem)] sm:w-[640px] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto p-5"
       >
         <div className="mb-4">
           <h2 className="text-base font-semibold leading-none tracking-tight">
-            Add panel
+            {t("panelEditor.addPanel")}
           </h2>
         </div>
         <PanelEditorContent

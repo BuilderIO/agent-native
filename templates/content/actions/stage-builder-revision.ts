@@ -2,8 +2,9 @@ import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import type { ContentDatabaseResponse } from "../shared/api.js";
+
 import { getDb, schema } from "../server/db/index.js";
+import type { ContentDatabaseResponse } from "../shared/api.js";
 import {
   findOpenSourceChangeSet,
   getContentDatabaseSourceSnapshot,

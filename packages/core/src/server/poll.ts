@@ -14,7 +14,9 @@
  */
 
 import { EventEmitter } from "node:events";
+
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
+
 import {
   ACTION_CHANGE_MARKER_KEY,
   parseActionChangeMarker,

@@ -1,13 +1,14 @@
 import { defineAction } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
-import { z } from "zod";
 import {
   isLocalDocumentId,
   isContentLocalFileMode,
@@ -53,6 +54,107 @@ async function assertParentIsNotDescendant({
   }
 }
 
+async function clearBlockDatabaseOwnershipAfterParentChange({
+  db,
+  documentId,
+  ownerEmail,
+  parentId,
+  updatedAt,
+}: {
+  db: ReturnType<typeof getDb>;
+  documentId: string;
+  ownerEmail: string;
+  parentId: string | null;
+  updatedAt: string;
+}) {
+  const [database] = await db
+    .select({
+      id: schema.contentDatabases.id,
+      ownerDocumentId: schema.contentDatabases.ownerDocumentId,
+    })
+    .from(schema.contentDatabases)
+    .where(
+      and(
+        eq(schema.contentDatabases.documentId, documentId),
+        eq(schema.contentDatabases.ownerEmail, ownerEmail),
+      ),
+    );
+
+  if (!database?.ownerDocumentId || database.ownerDocumentId === parentId) {
+    return;
+  }
+
+  await assertAccess("document", database.ownerDocumentId, "editor");
+
+  await db
+    .update(schema.contentDatabases)
+    .set({
+      ownerDocumentId: null,
+      ownerBlockId: null,
+      updatedAt,
+    })
+    .where(
+      and(
+        eq(schema.contentDatabases.id, database.id),
+        eq(schema.contentDatabases.ownerEmail, ownerEmail),
+      ),
+    );
+}
+
+async function resolveSiblingPositionsAfterMove({
+  db,
+  ownerEmail,
+  id,
+  parentId,
+  position,
+}: {
+  db: ReturnType<typeof getDb>;
+  ownerEmail: string;
+  id: string;
+  parentId: string | null;
+  position: number;
+}) {
+  const siblings = await db
+    .select({
+      id: schema.documents.id,
+      position: schema.documents.position,
+      title: schema.documents.title,
+    })
+    .from(schema.documents)
+    .where(
+      parentId
+        ? and(
+            eq(schema.documents.ownerEmail, ownerEmail),
+            eq(schema.documents.parentId, parentId),
+          )
+        : and(
+            eq(schema.documents.ownerEmail, ownerEmail),
+            sql`parent_id IS NULL`,
+          ),
+    );
+  const siblingsWithoutActive = siblings
+    .filter((document) => document.id !== id)
+    .sort(
+      (a, b) =>
+        a.position - b.position ||
+        a.title.localeCompare(b.title) ||
+        a.id.localeCompare(b.id),
+    );
+  const nextIndex = Math.max(
+    0,
+    Math.min(position, siblingsWithoutActive.length),
+  );
+  siblingsWithoutActive.splice(nextIndex, 0, {
+    id,
+    position: nextIndex,
+    title: "",
+  });
+  return siblingsWithoutActive.map((document, index) => ({
+    id: document.id,
+    position: index,
+  }));
+}
+
 export default defineAction({
   description: "Move a document to a parent and/or position in the page tree.",
   schema: z.object({
@@ -92,8 +194,9 @@ export default defineAction({
     const ownerEmail = existing.ownerEmail as string;
     const db = getDb();
 
+    const updatedAt = new Date().toISOString();
     const updates: Record<string, unknown> = {
-      updatedAt: new Date().toISOString(),
+      updatedAt,
     };
 
     if (args.parentId !== undefined) {
@@ -116,8 +219,23 @@ export default defineAction({
       updates.parentId = args.parentId;
     }
 
+    const targetParentId =
+      args.parentId !== undefined ? args.parentId : existing.parentId;
+    const normalizedSiblingPositions =
+      args.position !== undefined
+        ? await resolveSiblingPositionsAfterMove({
+            db,
+            ownerEmail,
+            id,
+            parentId: targetParentId,
+            position: args.position,
+          })
+        : null;
+
     if (args.position !== undefined) {
-      updates.position = args.position;
+      updates.position =
+        normalizedSiblingPositions?.find((document) => document.id === id)
+          ?.position ?? args.position;
     } else if (args.parentId !== undefined) {
       const parentId = args.parentId;
       const maxPos = await db
@@ -146,6 +264,32 @@ export default defineAction({
           eq(schema.documents.ownerEmail, ownerEmail),
         ),
       );
+
+    if (args.parentId !== undefined) {
+      await clearBlockDatabaseOwnershipAfterParentChange({
+        db,
+        documentId: id,
+        ownerEmail,
+        parentId: args.parentId,
+        updatedAt,
+      });
+    }
+
+    if (normalizedSiblingPositions) {
+      await Promise.all(
+        normalizedSiblingPositions.map((document) =>
+          db
+            .update(schema.documents)
+            .set({ position: document.position })
+            .where(
+              and(
+                eq(schema.documents.id, document.id),
+                eq(schema.documents.ownerEmail, ownerEmail),
+              ),
+            ),
+        ),
+      );
+    }
 
     const [doc] = await db
       .select()

@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { useFormatters, useT } from "@agent-native/core/client";
 import {
   IconMessage,
   IconMoodSmile,
@@ -6,6 +6,8 @@ import {
   IconAt,
   IconBell,
 } from "@tabler/icons-react";
+import { Link } from "react-router";
+
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 export type NotificationKind = "comment" | "reaction" | "mention" | "share";
@@ -31,20 +33,6 @@ function initials(email: string | null): string {
   return (name || email).slice(0, 2).toUpperCase();
 }
 
-function formatTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const now = Date.now();
-    const delta = (now - d.getTime()) / 1000;
-    if (delta < 60) return "just now";
-    if (delta < 60 * 60) return `${Math.floor(delta / 60)}m ago`;
-    if (delta < 60 * 60 * 24) return `${Math.floor(delta / 3600)}h ago`;
-    return d.toLocaleDateString();
-  } catch {
-    return iso;
-  }
-}
-
 function KindIcon({ kind }: { kind: NotificationKind }) {
   const base = "size-4";
   if (kind === "comment")
@@ -58,11 +46,13 @@ function KindIcon({ kind }: { kind: NotificationKind }) {
 }
 
 export function NotificationsList({ items, onReply }: NotificationsListProps) {
+  const t = useT();
+  const { formatDate, formatRelativeTime } = useFormatters();
   if (!items.length) {
     return (
       <div className="text-center py-16 text-sm text-muted-foreground">
         <IconBell className="size-10 mx-auto mb-3 text-muted-foreground/50" />
-        You're all caught up.
+        {t("clipsFinalRaw.allCaughtUp")}
       </div>
     );
   }
@@ -80,16 +70,20 @@ export function NotificationsList({ items, onReply }: NotificationsListProps) {
             <div className="flex items-center gap-2 text-sm">
               <KindIcon kind={item.kind} />
               <span className="font-medium truncate">
-                {item.authorEmail ?? "Someone"}
+                {item.authorEmail ?? t("clipsFinalRaw.someone")}
               </span>
               <span className="text-muted-foreground">
-                {labelFor(item.kind)}
+                {labelFor(item.kind, t)}
               </span>
               <span className="text-muted-foreground truncate">
                 {item.recordingTitle}
               </span>
               <span className="text-muted-foreground/70 ml-auto flex-shrink-0">
-                {formatTime(item.createdAt)}
+                {formatNotificationTime(
+                  item.createdAt,
+                  formatDate,
+                  formatRelativeTime,
+                )}
               </span>
             </div>
             {item.preview ? (
@@ -102,14 +96,14 @@ export function NotificationsList({ items, onReply }: NotificationsListProps) {
                 to={`/r/${item.recordingId}`}
                 className="text-primary hover:underline"
               >
-                View
+                {t("clipsFinalRaw.view")}
               </Link>
               {item.kind === "comment" && onReply ? (
                 <button
                   className="text-primary hover:underline"
                   onClick={() => onReply(item)}
                 >
-                  Reply
+                  {t("clipsFinalRaw.reply")}
                 </button>
               ) : null}
             </div>
@@ -120,17 +114,36 @@ export function NotificationsList({ items, onReply }: NotificationsListProps) {
   );
 }
 
-function labelFor(kind: NotificationKind): string {
+function labelFor(kind: NotificationKind, t: ReturnType<typeof useT>): string {
   switch (kind) {
     case "comment":
-      return "commented on";
+      return t("clipsFinalRaw.commentedOn");
     case "reaction":
-      return "reacted to";
+      return t("clipsFinalRaw.reactedTo");
     case "mention":
-      return "mentioned you in";
+      return t("clipsFinalRaw.mentionedYouIn");
     case "share":
-      return "shared";
+      return t("clipsFinalRaw.shared");
     default:
       return "";
+  }
+}
+
+function formatNotificationTime(
+  iso: string,
+  formatDate: ReturnType<typeof useFormatters>["formatDate"],
+  formatRelativeTime: ReturnType<typeof useFormatters>["formatRelativeTime"],
+): string {
+  try {
+    const date = new Date(iso);
+    const delta = (date.getTime() - Date.now()) / 1000;
+    const abs = Math.abs(delta);
+    if (abs < 60) return formatRelativeTime(Math.round(delta), "second");
+    if (abs < 3600) return formatRelativeTime(Math.round(delta / 60), "minute");
+    if (abs < 86400)
+      return formatRelativeTime(Math.round(delta / 3600), "hour");
+    return formatDate(date);
+  } catch {
+    return iso;
   }
 }

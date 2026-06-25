@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
+
 import { describe, expect, it } from "vitest";
+
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
 import {
   isRegistryBlockTag,
@@ -39,6 +41,7 @@ describe("nfm registry blocks — inline round-trip", () => {
     expect(isRegistryBlockTag("Endpoint")).toBe(true);
     expect(isRegistryBlockTag("Checklist")).toBe(true);
     expect(isRegistryBlockTag("DataModel")).toBe(true);
+    expect(isRegistryBlockTag("InlineDatabase")).toBe(true);
     // Lowercase Notion container/atom tags must NOT be registry tags.
     expect(isRegistryBlockTag("callout")).toBe(false);
     expect(isRegistryBlockTag("details")).toBe(false);
@@ -187,6 +190,37 @@ describe("nfm registry blocks — inline round-trip", () => {
     const data = parsed?.data as { description?: string; method: string };
     expect(data.method).toBe("POST");
     expect(data.description).toContain("Creates a widget.");
+  });
+
+  it("round-trips inline database references byte-exact", async () => {
+    const raw = serializeRegistryBlockToMdx("inline-database", {
+      id: "inline-db-block-1",
+      data: {
+        databaseId: "db_123",
+        databaseDocumentId: "doc_db_123",
+        ownerBlockId: "inline-db-block-1",
+      },
+    });
+
+    expect(raw).toBe(
+      '<InlineDatabase id="inline-db-block-1" databaseId="db_123" databaseDocumentId="doc_db_123" ownerBlockId="inline-db-block-1" />',
+    );
+    expect(docToNfm(nfmToDoc(raw))).toBe(raw);
+
+    const parsed = await parseRegistryBlockData(raw);
+    expect(parsed?.type).toBe("inline-database");
+    expect(parsed?.base.id).toBe("inline-db-block-1");
+    expect(parsed?.data).toEqual({
+      databaseId: "db_123",
+      databaseDocumentId: "doc_db_123",
+      ownerBlockId: "inline-db-block-1",
+    });
+    expect(
+      serializeRegistryBlockToMdx(parsed!.type, {
+        ...parsed!.base,
+        data: parsed!.data,
+      }),
+    ).toBe(raw);
   });
 });
 

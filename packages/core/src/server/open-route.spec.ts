@@ -35,12 +35,12 @@ vi.mock("./embed-session.js", () => ({
   requestHasEmbedAuthMarker: (...a: any[]) => requestHasEmbedAuthMarker(...a),
 }));
 
-import { createOpenRouteHandler } from "./open-route.js";
 import {
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { createOpenRouteHandler } from "./open-route.js";
 
 /** Build a fake H3 event the open route understands. */
 function fakeEvent(url: string, method = "GET") {

@@ -1,7 +1,17 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { z } from "zod";
 
+import { IMAGE_QUALITY_TIERS, STYLE_STRENGTHS } from "../shared/api.js";
+
 const mediaTypeSchema = z.enum(["image", "video"]);
+const booleanParam = z.preprocess((value) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return value;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["", "0", "false", "no", "off"].includes(normalized)) return false;
+  return value;
+}, z.boolean());
 
 const schema = z.object({
   mediaType: mediaTypeSchema.default("image"),
@@ -17,6 +27,12 @@ const schema = z.object({
     .string()
     .optional()
     .describe("Optional asset library to open in the picker."),
+  libraryHint: z
+    .string()
+    .optional()
+    .describe(
+      "Brand, campaign, or use-case hint used to preselect the best-matching library when libraryId is omitted.",
+    ),
   aspectRatio: z
     .string()
     .optional()
@@ -32,15 +48,61 @@ const schema = z.object({
     .max(6)
     .default(3)
     .describe("Number of image candidates to generate in the picker."),
-  autoGenerate: z.coerce
-    .boolean()
+  candidateRunIds: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Generation run IDs to show as the candidate set when returning from a tool-generated batch.",
+    ),
+  autoGenerate: booleanParam
     .default(false)
     .describe(
       "When true and prompt is provided, generate candidates as soon as the picker opens.",
     ),
+  tier: z
+    .enum(IMAGE_QUALITY_TIERS)
+    .optional()
+    .describe("Optional image quality tier to use for auto-generation."),
+  styleStrength: z
+    .enum(STYLE_STRENGTHS)
+    .default("balanced")
+    .describe("How strongly to follow the library style during generation."),
+  includeLogo: booleanParam
+    .default(false)
+    .describe("Whether auto-generation should include the library logo."),
+  callerAppId: z
+    .string()
+    .optional()
+    .describe("Calling app id, for audit grouping, e.g. design."),
 });
 
 type OpenAssetPickerArgs = z.infer<typeof schema>;
+
+type ActionWithToolParameters = {
+  tool: { parameters?: { properties?: Record<string, any> } };
+};
+
+function allowStringifiedCountInToolSchema<T extends ActionWithToolParameters>(
+  action: T,
+): T {
+  const parameters = action.tool.parameters;
+  const count = parameters?.properties?.count;
+  if (count && typeof count === "object" && !Array.isArray(count)) {
+    parameters!.properties!.count = {
+      description: count.description,
+      default: count.default,
+      anyOf: [
+        count,
+        {
+          type: "string",
+          pattern: "^[1-6]$",
+          description: count.description,
+        },
+      ],
+    };
+  }
+  return action;
+}
 
 const FALLBACK_INSTRUCTIONS =
   'If the picker opens in a normal browser tab instead of inline, the user has two ways to choose: (1) click an asset — the picker auto-copies a short handoff summary they paste back into chat, or (2) just tell you which one in words (e.g. "use the second image"). Either way, continue with the chosen asset. In Codex, Claude Code, and other code-editor chats, do not expect MCP Apps to render inline; provide the asset link, and if the final answer needs an inline image preview, download the selected image URL locally and embed the absolute local file path because remote CDN markdown previews may not render there.';
@@ -51,16 +113,28 @@ function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   if (args.prompt?.trim()) params.set("prompt", args.prompt.trim());
   if (args.query?.trim()) params.set("q", args.query.trim());
   if (args.libraryId?.trim()) params.set("libraryId", args.libraryId.trim());
+  if (args.libraryHint?.trim()) {
+    params.set("libraryHint", args.libraryHint.trim());
+  }
   if (args.aspectRatio?.trim()) {
     params.set("aspectRatio", args.aspectRatio.trim());
   }
   if (args.presetId?.trim()) params.set("presetId", args.presetId.trim());
   if (args.count && args.count !== 3) params.set("count", String(args.count));
+  if (args.tier) params.set("tier", args.tier);
+  if (args.styleStrength && args.styleStrength !== "balanced") {
+    params.set("styleStrength", args.styleStrength);
+  }
+  if (args.includeLogo) params.set("includeLogo", "1");
+  if (args.callerAppId?.trim()) params.set("callerAppId", args.callerAppId);
+  for (const runId of args.candidateRunIds ?? []) {
+    if (runId.trim()) params.append("candidateRunIds", runId.trim());
+  }
   if (args.autoGenerate) params.set("autoGenerate", "1");
   return `/library?${params.toString()}`;
 }
 
-export default defineAction({
+const action = defineAction({
   description:
     'Open the image Library picker inline so a person can browse, search, generate, and select an image or video asset. When the user asks to create a specific image and choose the best one, pass prompt, autoGenerate: true, and count: 3 so the Library opens with generated candidates. If the host can only open a browser link (e.g. a CLI or code editor), surface that link: after the user picks, the page auto-copies a short paste-back summary — or the user can simply tell you which candidate they want (e.g. "use image A"). Use search-assets, generate-image, generate-video, and export-asset for unattended flows.',
   schema,
@@ -122,10 +196,18 @@ export default defineAction({
       query: args.query ?? null,
       prompt: args.prompt ?? null,
       libraryId: args.libraryId ?? null,
+      libraryHint: args.libraryHint ?? null,
       aspectRatio: args.aspectRatio ?? null,
       presetId: args.presetId ?? null,
       count: args.count,
+      tier: args.tier ?? null,
+      styleStrength: args.styleStrength,
+      includeLogo: args.includeLogo,
+      callerAppId: args.callerAppId ?? null,
+      candidateRunIds: args.candidateRunIds ?? [],
       autoGenerate: args.autoGenerate,
     };
   },
 });
+
+export default allowStringifiedCountInToolSchema(action);

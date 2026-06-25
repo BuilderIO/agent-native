@@ -1,8 +1,8 @@
+import { useActionMutation, useT } from "@agent-native/core/client";
+import { IconDots, IconTrash } from "@tabler/icons-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { IconDots, IconTrash } from "@tabler/icons-react";
-import { useActionMutation } from "@agent-native/core/client";
-import { Button } from "@/components/ui/button";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,6 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,17 +30,18 @@ export function DeleteRecordingMenu({
   recordingId,
   onDeleted,
 }: DeleteRecordingMenuProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const trashRecording = useActionMutation<any, { id: string }>(
     "trash-recording",
     {
       onSuccess: () => {
-        toast.success("Clip moved to trash");
+        toast.success(t("deleteRecordingMenu.movedToTrash"));
         setOpen(false);
         onDeleted?.();
       },
       onError: (err: any) =>
-        toast.error(err?.message ?? "Failed to delete clip"),
+        toast.error(err?.message ?? t("deleteRecordingMenu.deleteFailed")),
     },
   );
 
@@ -61,7 +63,7 @@ export function DeleteRecordingMenu({
             variant="ghost"
             size="icon"
             className="shrink-0"
-            aria-label="Clip options"
+            aria-label={t("deleteRecordingMenu.clipOptions")}
           >
             <IconDots className="h-4 w-4" />
           </Button>
@@ -75,21 +77,22 @@ export function DeleteRecordingMenu({
             className="text-destructive focus:text-destructive"
           >
             <IconTrash className="mr-2 h-4 w-4" />
-            Delete
+            {t("deleteRecordingMenu.delete")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Move this clip to trash?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {t("deleteRecordingMenu.moveTitle")}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            This removes the clip from your library. You can restore it from
-            Trash or delete it forever later.
+            {t("deleteRecordingMenu.moveDescription")}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={trashRecording.isPending}>
-            Cancel
+            {t("common.cancel")}
           </AlertDialogCancel>
           <AlertDialogAction
             disabled={trashRecording.isPending}
@@ -99,7 +102,9 @@ export function DeleteRecordingMenu({
             }}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
-            {trashRecording.isPending ? "Deleting..." : "Move to trash"}
+            {trashRecording.isPending
+              ? t("deleteRecordingMenu.deleting")
+              : t("deleteRecordingMenu.moveToTrash")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

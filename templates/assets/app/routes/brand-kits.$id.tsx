@@ -1,25 +1,10 @@
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import {
-  type Dispatch,
-  type DragEvent,
-  type ReactNode,
-  type SetStateAction,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import {
-  type QueryClient,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { toast } from "sonner";
 import {
   ShareButton,
   appBasePath,
   agentNativePath,
   getBrowserTabId,
   sendToAgentChat,
+  useT,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
@@ -42,34 +27,24 @@ import {
   IconVideo,
   IconX,
 } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  type QueryClient,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  type Dispatch,
+  type DragEvent,
+  type ReactNode,
+  type SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -80,13 +55,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  chunkAssetUploads,
-  getFailedUploadCount,
-  getSkippedDuplicateCount,
-  getUploadedAssetCount,
-  type AssetUploadResult,
-} from "@/lib/upload-results";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -95,19 +66,51 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
-import { assetMediaUrl } from "@/lib/asset-urls";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
+import { assetMediaUrl } from "@/lib/asset-urls";
 import { getLibraryCustomInstructions } from "@/lib/libraries";
+import {
+  chunkAssetUploads,
+  getFailedUploadCount,
+  getSkippedDuplicateCount,
+  getUploadedAssetCount,
+  type AssetUploadResult,
+} from "@/lib/upload-results";
+
 import {
   IMAGE_CATEGORIES,
   ASPECT_RATIOS,
@@ -354,6 +357,7 @@ function libraryTabFromValue(value: unknown): LibraryTab | null {
 }
 
 export default function LibraryPage() {
+  const t = useT();
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -645,10 +649,12 @@ export default function LibraryPage() {
         queryKey: ["app-state", "asset-variants"],
         refetchType: "active",
       });
-      toast.success("Saved to Generated.");
+      toast.success(t("brandKitDetail.savedToGenerated"));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not save candidate.",
+        error instanceof Error
+          ? error.message
+          : t("brandKitDetail.couldNotSaveCandidate"),
       );
     } finally {
       setCandidateSaving(key, false);
@@ -681,12 +687,12 @@ export default function LibraryPage() {
         queryKey: ["app-state", "asset-variants"],
         refetchType: "active",
       });
-      toast.success("Added to References.");
+      toast.success(t("brandKitDetail.addedToReferences"));
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Could not add asset to References.",
+          : t("brandKitDetail.couldNotAddToReferences"),
       );
     } finally {
       setReferencePromoting(key, false);
@@ -708,12 +714,12 @@ export default function LibraryPage() {
         queryKey: ["action", "get-library", { id: libraryId }],
         refetchType: "active",
       });
-      toast.success("Removed from References.");
+      toast.success(t("brandKitDetail.removedFromReferences"));
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Could not remove asset from References.",
+          : t("brandKitDetail.couldNotRemoveFromReferences"),
       );
     } finally {
       setReferencePromoting(key, false);
@@ -841,12 +847,14 @@ export default function LibraryPage() {
     setUploading(true);
     let keepPending = false;
     const toastId = toast.loading(
-      `Uploading ${selectedFiles.length} asset${selectedFiles.length === 1 ? "" : "s"}...`,
+      t("brandKitDetail.uploadProgress", { count: selectedFiles.length }),
       {
         description:
           uploadChunks.length > 1
-            ? `Processing in ${uploadChunks.length} batches.`
-            : "Processing previews and saving them to the brand kit.",
+            ? t("brandKitDetail.processingBatches", {
+                count: uploadChunks.length,
+              })
+            : t("brandKitDetail.processingPreviews"),
       },
     );
     try {
@@ -881,23 +889,35 @@ export default function LibraryPage() {
       }
       if (failedCount > 0) {
         toast.warning(
-          `Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}; ${failedCount} failed.`,
+          t("brandKitDetail.uploadedSomeFailed", {
+            uploaded: uploadedCount,
+            uploadedPlural: uploadedCount === 1 ? "" : "s",
+            failed: failedCount,
+          }),
           {
             id: toastId,
             description:
               skippedCount > 0
-                ? `Skipped ${skippedCount} duplicate${skippedCount === 1 ? "" : "s"}.`
+                ? t("brandKitDetail.skippedDuplicates", {
+                    count: skippedCount,
+                    plural: skippedCount === 1 ? "" : "s",
+                  })
                 : null,
           },
         );
       } else if (uploadedCount > 0 && skippedCount > 0) {
         toast.success(
-          `Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}; skipped ${skippedCount} duplicate${skippedCount === 1 ? "" : "s"}.`,
+          t("brandKitDetail.uploadedSkipped", {
+            uploaded: uploadedCount,
+            uploadedPlural: uploadedCount === 1 ? "" : "s",
+            skipped: skippedCount,
+            skippedPlural: skippedCount === 1 ? "" : "s",
+          }),
           { id: toastId, description: null },
         );
       } else if (uploadedCount > 0) {
         toast.success(
-          `Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}.`,
+          t("brandKitDetail.uploadedCount", { count: uploadedCount }),
           {
             id: toastId,
             description: null,
@@ -905,23 +925,22 @@ export default function LibraryPage() {
         );
       } else if (skippedCount > 0) {
         toast.warning(
-          `Skipped ${skippedCount} duplicate asset${
-            skippedCount === 1 ? "" : "s"
-          }.`,
+          t("brandKitDetail.skippedDuplicateAssets", { count: skippedCount }),
           {
             id: toastId,
-            description: "Already in this brand kit.",
+            description: t("brandKitDetail.alreadyInBrandKit"),
           },
         );
       } else {
-        toast.warning("No new assets were uploaded.", {
+        toast.warning(t("brandKitDetail.noNewAssetsUploaded"), {
           id: toastId,
           description: null,
         });
       }
       await refreshLibrary();
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Upload failed";
+      const message =
+        e instanceof Error ? e.message : t("brandKitDetail.uploadFailed");
       const indeterminate =
         /(?:\b408\b|\b504\b|timeout|timed out|network|failed to fetch|load failed)/i.test(
           message,
@@ -931,10 +950,9 @@ export default function LibraryPage() {
         setPendingUploads(
           pending.map((upload) => ({ ...upload, status: "checking" })),
         );
-        toast.warning("Upload is taking longer than expected.", {
+        toast.warning(t("brandKitDetail.uploadTakingLonger"), {
           id: toastId,
-          description:
-            "The server may still finish saving these assets. We will keep checking this brand kit.",
+          description: t("brandKitDetail.uploadMayFinish"),
         });
         void refreshLibrary();
         window.setTimeout(() => void refreshLibrary(), 4_000);
@@ -956,11 +974,13 @@ export default function LibraryPage() {
     if (!library || archiveLibrary.isPending) return;
     try {
       await archiveLibrary.mutateAsync({ id: library.id });
-      toast.success("Brand kit archived.");
+      toast.success(t("brandKitDetail.brandKitArchived"));
       navigate("/brand-kits");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not archive brand kit.",
+        error instanceof Error
+          ? error.message
+          : t("brandKitDetail.couldNotArchiveBrandKit"),
       );
     }
   }
@@ -971,13 +991,13 @@ export default function LibraryPage() {
       const copy = (await duplicateLibrary.mutateAsync({
         id: library.id,
       })) as any;
-      toast.success("Private brand kit copy created");
+      toast.success(t("brandKitDetail.privateCopyCreated"));
       navigate(`/brand-kits/${copy.id}`);
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Could not duplicate brand kit.",
+          : t("brandKitDetail.couldNotDuplicateBrandKit"),
       );
     }
   }
@@ -1013,7 +1033,7 @@ export default function LibraryPage() {
       "## Selected library",
       `Library: ${library.title} (${library.id})`,
       `Description: ${library.description || ""}`,
-      `Folder: ${activeFolderId && activeFolderId !== "all" ? folders.find((folder) => folder.id === activeFolderId)?.title : "All assets"}`,
+      `Folder: ${activeFolderId && activeFolderId !== "all" ? folders.find((folder) => folder.id === activeFolderId)?.title : "All assets"}`, // i18n-ignore: agent prompt context, not UI
       `References: ${references.length}`,
       `Saved assets: ${saved.length}`,
       `Style brief: ${JSON.stringify(library.styleBrief ?? {})}`,
@@ -1050,7 +1070,9 @@ export default function LibraryPage() {
           });
         },
         onError: (error: Error) => {
-          toast.error(error.message || "Could not prepare handoff.");
+          toast.error(
+            error.message || t("brandKitDetail.couldNotPrepareHandoff"),
+          );
         },
       },
     );
@@ -1059,10 +1081,11 @@ export default function LibraryPage() {
   function createHandoffFromRun(run: any) {
     const outputIds = outputAssetIds(run);
     if (!outputIds.length) {
-      toast.error("This run does not have generated assets to hand off.");
+      toast.error(t("brandKitDetail.runNoGeneratedAssets"));
       return;
     }
-    const prompt = run.originalPrompt || run.prompt || "Generated asset";
+    const prompt =
+      run.originalPrompt || run.prompt || t("brandKitDetail.generatedAsset");
     createSession.mutate(
       {
         libraryId,
@@ -1073,12 +1096,15 @@ export default function LibraryPage() {
         activeAssetId: outputIds[0],
         assetIds: outputIds,
         runIds: [run.id],
-        feedback: "Needs design refinement.",
+        feedback: t("brandKitDetail.needsDesignRefinement"),
       },
       {
-        onSuccess: () => toast.success("Handoff session created."),
+        onSuccess: () =>
+          toast.success(t("brandKitDetail.handoffSessionCreated")),
         onError: (error: Error) => {
-          toast.error(error.message || "Could not create handoff.");
+          toast.error(
+            error.message || t("brandKitDetail.couldNotCreateHandoff"),
+          );
         },
       },
     );
@@ -1087,7 +1113,7 @@ export default function LibraryPage() {
   if (!library) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
-        Loading brand kit...
+        {t("brandKitDetail.loadingBrandKit")}
       </div>
     );
   }
@@ -1112,14 +1138,13 @@ export default function LibraryPage() {
                 size="icon"
                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
                 onClick={() => setEditOpen(true)}
-                aria-label="Edit brand kit name and description"
+                aria-label={t("brandKitDetail.editBrandKit")}
               >
                 <IconPencil className="h-4 w-4" />
               </Button>
             </div>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              {library.description ||
-                "Upload, generate, describe, and organize reusable assets across agents."}
+              {library.description || t("brandKitDetail.defaultDescription")}
             </p>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap lg:shrink-0">
@@ -1139,7 +1164,11 @@ export default function LibraryPage() {
               ) : (
                 <IconUpload className="h-4 w-4" />
               )}
-              {uploading ? `Uploading ${pendingUploads.length}` : "Upload"}
+              {uploading
+                ? t("brandKitDetail.uploadingCount", {
+                    count: pendingUploads.length,
+                  })
+                : t("brandKitDetail.upload")}
             </Button>
             <Button
               variant="outline"
@@ -1147,7 +1176,7 @@ export default function LibraryPage() {
               onClick={() => setFolderOpen(true)}
             >
               <IconFolderPlus className="h-4 w-4" />
-              Folder
+              {t("brandKitDetail.folder")}
             </Button>
             <GeneratePopover
               open={generateOpen}
@@ -1161,7 +1190,7 @@ export default function LibraryPage() {
                 <Button
                   variant="outline"
                   size="icon"
-                  aria-label="Brand kit actions"
+                  aria-label={t("brandKitDetail.brandKitActions")}
                   disabled={
                     archiveLibrary.isPending || duplicateLibrary.isPending
                   }
@@ -1178,7 +1207,7 @@ export default function LibraryPage() {
                   }}
                 >
                   <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
-                  New folder
+                  {t("brandKitDetail.newFolder")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="xl:hidden" />
                 <DropdownMenuItem
@@ -1189,7 +1218,9 @@ export default function LibraryPage() {
                   }}
                 >
                   <IconCopy className="mr-2 h-4 w-4 shrink-0" />
-                  {duplicateLibrary.isPending ? "Duplicating..." : "Duplicate"}
+                  {duplicateLibrary.isPending
+                    ? t("brandKitDetail.duplicating")
+                    : t("brandKitDetail.duplicate")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -1199,7 +1230,7 @@ export default function LibraryPage() {
                   }}
                 >
                   <IconArchive className="mr-2 h-4 w-4 shrink-0" />
-                  Archive brand kit
+                  {t("brandKitDetail.archiveBrandKit")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1224,21 +1255,24 @@ export default function LibraryPage() {
       <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Archive this brand kit?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("brandKitDetail.archiveThisBrandKit")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the brand kit from the main Brand Kits list. Its
-              assets and generation history stay stored.
+              {t("brandKitDetail.archiveDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("brandKitDetail.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               disabled={archiveLibrary.isPending}
               onClick={() => {
                 void archiveCurrentLibrary();
               }}
             >
-              {archiveLibrary.isPending ? "Archiving..." : "Archive"}
+              {archiveLibrary.isPending
+                ? t("brandKitDetail.archiving")
+                : t("brandKitDetail.archive")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1290,7 +1324,7 @@ export default function LibraryPage() {
           <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-primary bg-primary/5 backdrop-blur-[1px]">
             <IconUpload className="h-10 w-10 text-primary" />
             <span className="text-base font-semibold text-primary">
-              Drop to upload
+              {t("brandKitDetail.dropToUpload")}
             </span>
           </div>
         )}
@@ -1304,9 +1338,13 @@ export default function LibraryPage() {
           className="space-y-4"
         >
           <TabsList>
-            <TabsTrigger value="assets">Assets</TabsTrigger>
-            <TabsTrigger value="runs">Runs</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
+            <TabsTrigger value="assets">
+              {t("brandKitDetail.assets")}
+            </TabsTrigger>
+            <TabsTrigger value="runs">{t("brandKitDetail.runs")}</TabsTrigger>
+            <TabsTrigger value="settings">
+              {t("brandKitDetail.settings")}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="assets" className="space-y-5">
@@ -1325,13 +1363,13 @@ export default function LibraryPage() {
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <FolderChip
                     active={activeFolderId === "all"}
-                    label="All assets"
+                    label={t("brandKitDetail.allAssets")}
                     count={libraryAssets.length}
                     onClick={() => setActiveFolderId("all")}
                   />
                   <FolderChip
                     active={activeFolderId === null}
-                    label="Unfiled"
+                    label={t("brandKitDetail.unfiled")}
                     count={unfiledCount}
                     onClick={() => setActiveFolderId(null)}
                   />
@@ -1355,13 +1393,13 @@ export default function LibraryPage() {
                     <Input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Search assets"
+                      placeholder={t("brandKitDetail.searchAssets")}
                       className="h-9 w-full pl-8 pr-8 sm:w-64"
                     />
                     {search && (
                       <button
                         type="button"
-                        aria-label="Clear search"
+                        aria-label={t("brandKitDetail.clearSearch")}
                         className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
                         onClick={() => setSearch("")}
                       >
@@ -1379,9 +1417,15 @@ export default function LibraryPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All media</SelectItem>
-                      <SelectItem value="image">Images</SelectItem>
-                      <SelectItem value="video">Videos</SelectItem>
+                      <SelectItem value="all">
+                        {t("brandKitDetail.allMedia")}
+                      </SelectItem>
+                      <SelectItem value="image">
+                        {t("brandKitDetail.images")}
+                      </SelectItem>
+                      <SelectItem value="video">
+                        {t("brandKitDetail.videos")}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1421,11 +1465,10 @@ export default function LibraryPage() {
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <h3 className="text-sm font-semibold">
-                          Handoff sessions
+                          {t("brandKitDetail.handoffSessions")}
                         </h3>
                         <p className="text-xs text-muted-foreground">
-                          Shared context for designers to continue a candidate
-                          without the original chat thread.
+                          {t("brandKitDetail.handoffSessionsDescription")}
                         </p>
                       </div>
                     </div>
@@ -1465,10 +1508,11 @@ export default function LibraryPage() {
             ) : (
               <div className="flex min-h-[260px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
                 <IconMessageCircle className="h-10 w-10 text-muted-foreground" />
-                <h3 className="mt-4 text-base font-semibold">No runs yet</h3>
+                <h3 className="mt-4 text-base font-semibold">
+                  {t("brandKitDetail.noRunsYet")}
+                </h3>
                 <p className="mt-2 max-w-md text-sm text-muted-foreground">
-                  Generate from this brand kit to capture prompt, output,
-                  references, and settings.
+                  {t("brandKitDetail.noRunsDescription")}
                 </p>
               </div>
             )}
@@ -1477,7 +1521,7 @@ export default function LibraryPage() {
           <TabsContent value="settings">
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
               <div className="space-y-4 rounded-lg border border-border p-4">
-                <Label>Style description</Label>
+                <Label>{t("brandKitDetail.styleDescription")}</Label>
                 <Textarea
                   value={styleDescriptionDraft}
                   onChange={(event) =>
@@ -1495,7 +1539,7 @@ export default function LibraryPage() {
                   className="min-h-40"
                 />
                 <Separator />
-                <Label>Custom instructions</Label>
+                <Label>{t("brandKitDetail.customInstructions")}</Label>
                 <Textarea
                   value={customInstructionsDraft}
                   onChange={(event) =>
@@ -1507,13 +1551,17 @@ export default function LibraryPage() {
                       customInstructions: customInstructionsDraft,
                     })
                   }
-                  placeholder="Preferences the agent should apply whenever it uses this brand kit."
+                  placeholder={t(
+                    "brandKitDetail.customInstructionsPlaceholder",
+                  )}
                   className="min-h-28"
                 />
                 <Separator />
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium">Palette</div>
+                    <div className="text-sm font-medium">
+                      {t("brandKitDetail.palette")}
+                    </div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {(library.styleBrief?.palette ?? []).map(
                         (color: string) => (
@@ -1540,14 +1588,14 @@ export default function LibraryPage() {
                           },
                         });
                       }}
-                      placeholder="#111827, #f8fafc, #2563eb"
+                      placeholder={"#111827, #f8fafc, #2563eb"}
                       className="mt-3 h-9 max-w-md text-xs"
                     />
                   </div>
                   <Button variant="outline" onClick={analyzeBrand}>
                     {library.settings?.brandAnalysis?.analyzedAt
-                      ? "Refresh brand"
-                      : "Analyze brand"}
+                      ? t("brandKitDetail.refreshBrand")
+                      : t("brandKitDetail.analyzeBrand")}
                   </Button>
                 </div>
               </div>
@@ -1557,10 +1605,11 @@ export default function LibraryPage() {
                   presets={generationPresets}
                 />
                 <div className="rounded-lg border border-border p-4">
-                  <h3 className="text-sm font-semibold">Agent usage</h3>
+                  <h3 className="text-sm font-semibold">
+                    {t("brandKitDetail.agentUsage")}
+                  </h3>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Other agents can call Assets over A2A with this brand kit
-                    ID.
+                    {t("brandKitDetail.agentUsageDescription")}
                   </p>
                   <code className="mt-3 block rounded-md bg-muted p-3 text-xs">
                     {library.id}
@@ -1612,7 +1661,7 @@ type LaneGalleryItem = {
   busy?: boolean;
   deleting?: boolean;
   preview: ReactNode;
-  thumbnail: ReactNode;
+  thumbnail: ReactNode; // i18n-ignore structural preview slot name
   menu?: ReactNode;
   primaryActions?: ReactNode;
   onToggle?: (checked: boolean) => void;
@@ -1631,6 +1680,7 @@ function RunCard({
   onCreateHandoff: () => void;
   rerunning?: boolean;
 }) {
+  const t = useT();
   const settings = (run.settingsUsed ?? {}) as Record<string, unknown>;
   const referenceSelection = (run.referenceSelection ?? {}) as Record<
     string,
@@ -1680,7 +1730,7 @@ function RunCard({
           </div>
           <div>
             <div className="text-xs font-medium text-muted-foreground">
-              Prompt
+              {t("brandKitDetail.prompt")}
             </div>
             <p className="mt-1 line-clamp-3 text-sm leading-relaxed text-foreground">
               {prompt}
@@ -1696,7 +1746,7 @@ function RunCard({
               onClick={onCreateHandoff}
             >
               <IconMessageCircle className="h-4 w-4" />
-              Handoff
+              {t("brandKitDetail.handoff")}
             </Button>
           ) : null}
           <Button
@@ -1708,20 +1758,23 @@ function RunCard({
           >
             <IconRefresh className="h-4 w-4" />
             {mediaType === "video" && run.status !== "completed"
-              ? "Refresh"
-              : "Rerun this"}
+              ? t("brandKitDetail.refresh")
+              : t("brandKitDetail.rerunThis")}
           </Button>
         </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <RunFact label="Model" value={String(settings.model ?? run.model)} />
         <RunFact
-          label="Aspect"
+          label={t("brandKitDetail.model")}
+          value={String(settings.model ?? run.model)}
+        />
+        <RunFact
+          label={t("brandKitDetail.aspect")}
           value={String(settings.aspectRatio ?? run.aspectRatio)}
         />
         <RunFact
-          label="Size"
+          label={t("brandKitDetail.size")}
           value={
             mediaType === "video"
               ? `${String(settings.durationSeconds ?? run.durationSeconds ?? "?")}s ${String(settings.resolution ?? run.resolution ?? run.imageSize)}`
@@ -1729,15 +1782,15 @@ function RunCard({
           }
         />
         <RunFact
-          label="Refs"
+          label={t("brandKitDetail.refs")}
           value={`${selectedReferenceIds.length} ${String(referenceSelection.mode ?? "selected")}`}
         />
         <RunFact
-          label="Grounding"
+          label={t("brandKitDetail.grounding")}
           value={String(settings.groundingMode ?? run.groundingMode)}
         />
         <RunFact
-          label="Categories"
+          label={t("brandKitDetail.categories")}
           value={categories.length ? categories.join(", ") : "auto"}
         />
       </div>
@@ -1745,7 +1798,7 @@ function RunCard({
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         <div className="rounded-md border bg-muted/20 p-3">
           <div className="text-xs font-medium text-muted-foreground">
-            Output
+            {t("brandKitDetail.output")}
           </div>
           {outputIds.length ? (
             <div className="mt-2 flex flex-wrap gap-2">
@@ -1768,24 +1821,26 @@ function RunCard({
             </div>
           ) : (
             <p className="mt-2 text-xs text-muted-foreground">
-              {run.error || "No output captured yet."}
+              {run.error || t("brandKitDetail.noOutputCaptured")}
             </p>
           )}
           {provider ? (
             <p className="mt-2 text-xs text-muted-foreground">
-              Provider: {String(provider)}
+              {t("brandKitDetail.providerLabel", {
+                provider: String(provider),
+              })}
             </p>
           ) : null}
         </div>
 
         <div className="rounded-md border bg-muted/20 p-3">
           <div className="text-xs font-medium text-muted-foreground">
-            References
+            {t("brandKitDetail.references")}
           </div>
           <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
             {selectedReferenceIds.length
               ? selectedReferenceIds.map(shortId).join(", ")
-              : "None selected"}
+              : t("brandKitDetail.noneSelected")}
           </p>
         </div>
       </div>
@@ -1793,7 +1848,7 @@ function RunCard({
       {run.compiledPrompt ? (
         <details className="mt-3 rounded-md border bg-background">
           <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground">
-            Compiled prompt
+            {t("brandKitDetail.compiledPrompt")}
           </summary>
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap border-t px-3 py-2 text-xs leading-relaxed text-muted-foreground">
             {run.compiledPrompt}
@@ -1881,6 +1936,7 @@ function SessionCard({
   continuing?: boolean;
   onContinue: () => void;
 }) {
+  const t = useT();
   const preset = presets.find((item) => item.id === session.presetId);
   const sessionItems = Array.isArray(session.items) ? session.items : [];
   const assetItems = sessionItems.filter((item: any) => item.assetId);
@@ -1893,7 +1949,9 @@ function SessionCard({
             <Badge variant="outline">{session.status}</Badge>
           </div>
           <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-            {session.feedbackSummary || session.brief || "No feedback yet."}
+            {session.feedbackSummary ||
+              session.brief ||
+              t("brandKitDetail.noFeedbackYet")}
           </p>
         </div>
         <Button
@@ -1907,7 +1965,7 @@ function SessionCard({
           ) : (
             <IconMessageCircle className="h-4 w-4" />
           )}
-          Continue
+          {t("brandKitDetail.continue")}
         </Button>
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -1920,7 +1978,7 @@ function SessionCard({
             }
           >
             {item.assetId === session.activeAssetId
-              ? `${item.label} active`
+              ? `${item.label} ${t("brandKitDetail.active")}`
               : item.label}
           </Badge>
         ))}
@@ -1929,7 +1987,9 @@ function SessionCard({
         ) : null}
         {!assetItems.length && session.activeAssetId ? (
           <Badge variant="outline">
-            active {shortId(session.activeAssetId)}
+            {t("brandKitDetail.activeAsset", {
+              id: shortId(session.activeAssetId),
+            })}
           </Badge>
         ) : null}
       </div>
@@ -1950,6 +2010,7 @@ function GeneratePopover({
   hasLogo: boolean;
   presets: any[];
 }) {
+  const t = useT();
   const [prompt, setPrompt] = useState("");
   const [mediaType, setMediaType] = useState<"image" | "video">("image");
   const [presetId, setPresetId] = useState("none");
@@ -1968,7 +2029,7 @@ function GeneratePopover({
       <PopoverTrigger asChild>
         <Button className="gap-2">
           <IconMessageCircle className="h-4 w-4" />
-          Generate
+          {t("brandKitDetail.generate")}
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -1977,7 +2038,9 @@ function GeneratePopover({
       >
         <div className="space-y-4">
           <div>
-            <div className="text-sm font-semibold">Generate with chat</div>
+            <div className="text-sm font-semibold">
+              {t("brandKitDetail.generateWithChat")}
+            </div>
           </div>
           {presets.length ? (
             <Select
@@ -1994,10 +2057,12 @@ function GeneratePopover({
               }}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Preset" />
+                <SelectValue placeholder={t("brandKitDetail.preset")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">No preset</SelectItem>
+                <SelectItem value="none">
+                  {t("brandKitDetail.noPreset")}
+                </SelectItem>
                 {presets.map((preset) => (
                   <SelectItem key={preset.id} value={preset.id}>
                     {preset.title}
@@ -2029,8 +2094,12 @@ function GeneratePopover({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="image">Image candidates</SelectItem>
-              <SelectItem value="video">Video candidate</SelectItem>
+              <SelectItem value="image">
+                {t("brandKitDetail.imageCandidates")}
+              </SelectItem>
+              <SelectItem value="video">
+                {t("brandKitDetail.videoCandidate")}
+              </SelectItem>
             </SelectContent>
           </Select>
           <Textarea
@@ -2039,8 +2108,8 @@ function GeneratePopover({
             onChange={(event) => setPrompt(event.target.value)}
             placeholder={
               mediaType === "video"
-                ? "Eight-second product reveal with slow camera push-in"
-                : "Blog hero for an article about cold-start latency"
+                ? t("brandKitDetail.videoPromptPlaceholder")
+                : t("brandKitDetail.imagePromptPlaceholder")
             }
             className="min-h-28 max-h-48 resize-none overflow-y-auto"
           />
@@ -2056,7 +2125,7 @@ function GeneratePopover({
                 <SelectContent>
                   {[1, 2, 3, 4].map((n) => (
                     <SelectItem key={n} value={String(n)}>
-                      {n} variants
+                      {t("brandKitDetail.variants", { count: n })}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -2154,7 +2223,7 @@ function GeneratePopover({
                 disabled={!hasLogo}
                 onCheckedChange={(checked) => setIncludeLogo(checked === true)}
               />
-              Composite canonical logo
+              {t("brandKitDetail.compositeCanonicalLogo")}
             </label>
           )}
           <Button
@@ -2175,7 +2244,7 @@ function GeneratePopover({
               })
             }
           >
-            Open chat
+            {t("brandKitDetail.openChat")}
           </Button>
         </div>
       </PopoverContent>
@@ -2190,6 +2259,7 @@ function GenerationPresetsPanel({
   libraryId: string;
   presets: any[];
 }) {
+  const t = useT();
   const createPreset = useActionMutation("create-generation-preset");
   const deletePreset = useActionMutation("delete-generation-preset");
   const [open, setOpen] = useState(false);
@@ -2199,7 +2269,7 @@ function GenerationPresetsPanel({
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
   const [promptTemplate, setPromptTemplate] = useState("");
   const [textPolicy, setTextPolicy] = useState(
-    "Prefer no embedded text. Keep any requested text short and readable.",
+    t("brandKitDetail.defaultTextPolicy"),
   );
 
   function reset() {
@@ -2207,9 +2277,7 @@ function GenerationPresetsPanel({
     setCategory("social");
     setAspectRatio("1:1");
     setPromptTemplate("");
-    setTextPolicy(
-      "Prefer no embedded text. Keep any requested text short and readable.",
-    );
+    setTextPolicy(t("brandKitDetail.defaultTextPolicy"));
   }
 
   function submit() {
@@ -2228,12 +2296,14 @@ function GenerationPresetsPanel({
       },
       {
         onSuccess: () => {
-          toast.success("Generation preset created.");
+          toast.success(t("brandKitDetail.generationPresetCreated"));
           reset();
           setOpen(false);
         },
         onError: (error: Error) => {
-          toast.error(error.message || "Could not create preset.");
+          toast.error(
+            error.message || t("brandKitDetail.couldNotCreatePreset"),
+          );
         },
       },
     );
@@ -2243,13 +2313,15 @@ function GenerationPresetsPanel({
     <div className="rounded-lg border border-border p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold">Generation presets</h3>
+          <h3 className="text-sm font-semibold">
+            {t("brandKitDetail.generationPresets")}
+          </h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Reusable deliverable rules for social images, heroes, and diagrams.
+            {t("brandKitDetail.generationPresetsDescription")}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-          New
+          {t("brandKitDetail.new")}
         </Button>
       </div>
       <div className="mt-3 space-y-2">
@@ -2273,7 +2345,7 @@ function GenerationPresetsPanel({
               variant="ghost"
               size="icon"
               className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-              aria-label={`Delete ${preset.title}`}
+              aria-label={`${t("brandKitDetail.delete")} ${preset.title}`}
               onClick={() => setConfirmPresetId(preset.id)}
             >
               <IconTrash className="h-4 w-4" />
@@ -2282,7 +2354,7 @@ function GenerationPresetsPanel({
         ))}
         {!presets.length ? (
           <p className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
-            No presets yet.
+            {t("brandKitDetail.noPresetsYet")}
           </p>
         ) : null}
       </div>
@@ -2295,14 +2367,15 @@ function GenerationPresetsPanel({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete generation preset?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("brandKitDetail.deleteGenerationPreset")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Existing runs keep their captured prompt and settings. New
-              generations will no longer offer this preset.
+              {t("brandKitDetail.deleteGenerationPresetDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("brandKitDetail.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={!confirmPresetId || deletePreset.isPending}
@@ -2314,16 +2387,21 @@ function GenerationPresetsPanel({
                   {
                     onSuccess: () => {
                       setConfirmPresetId(null);
-                      toast.success("Generation preset deleted.");
+                      toast.success(
+                        t("brandKitDetail.generationPresetDeleted"),
+                      );
                     },
                     onError: (error: Error) => {
-                      toast.error(error.message || "Could not delete preset.");
+                      toast.error(
+                        error.message ||
+                          t("brandKitDetail.couldNotDeletePreset"),
+                      );
                     },
                   },
                 );
               }}
             >
-              Delete
+              {t("brandKitDetail.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2332,25 +2410,24 @@ function GenerationPresetsPanel({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>New generation preset</DialogTitle>
+            <DialogTitle>{t("brandKitDetail.newGenerationPreset")}</DialogTitle>
             <DialogDescription>
-              Save the output format, aspect ratio, and text rules for repeated
-              image work.
+              {t("brandKitDetail.newGenerationPresetDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="preset-title">Name</Label>
+              <Label htmlFor="preset-title">{t("brandKitDetail.name")}</Label>
               <Input
                 id="preset-title"
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
-                placeholder="LinkedIn announcement"
+                placeholder={t("brandKitDetail.campaignLaunch")}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-2">
-                <Label>Category</Label>
+                <Label>{t("brandKitDetail.category")}</Label>
                 <Select
                   value={category}
                   onValueChange={(value) => setCategory(value as ImageCategory)}
@@ -2368,7 +2445,7 @@ function GenerationPresetsPanel({
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label>Aspect ratio</Label>
+                <Label>{t("brandKitDetail.aspectRatio")}</Label>
                 <Select
                   value={aspectRatio}
                   onValueChange={(value) =>
@@ -2389,16 +2466,22 @@ function GenerationPresetsPanel({
               </div>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="preset-template">Prompt template</Label>
+              <Label htmlFor="preset-template">
+                {t("brandKitDetail.promptTemplate")}
+              </Label>
               <Textarea
                 id="preset-template"
                 value={promptTemplate}
                 onChange={(event) => setPromptTemplate(event.target.value)}
-                placeholder="Create a social post visual about {{prompt}}..."
+                placeholder={t("brandKitDetail.promptTemplatePlaceholder", {
+                  prompt: "{{prompt}}",
+                })}
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="preset-text-policy">Text policy</Label>
+              <Label htmlFor="preset-text-policy">
+                {t("brandKitDetail.textPolicy")}
+              </Label>
               <Textarea
                 id="preset-text-policy"
                 value={textPolicy}
@@ -2408,10 +2491,10 @@ function GenerationPresetsPanel({
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
-              Cancel
+              {t("brandKitDetail.cancel")}
             </Button>
             <Button disabled={!title.trim()} onClick={submit}>
-              Create
+              {t("brandKitDetail.create")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2458,6 +2541,7 @@ function AssetPreview({
   asset: any;
   fit?: "cover" | "contain";
 }) {
+  const t = useT();
   const [sourceIndex, setSourceIndex] = useState(0);
   const [unavailable, setUnavailable] = useState(false);
   const sources = assetPreviewSources(asset, "thumbnail");
@@ -2483,7 +2567,7 @@ function AssetPreview({
           }
         />
         <div className="absolute bottom-2 left-2 rounded-md bg-background/90 px-2 py-1 text-[11px] font-medium text-foreground shadow-sm">
-          Video
+          {t("brandKitDetail.video")}
         </div>
       </div>
     );
@@ -2494,7 +2578,7 @@ function AssetPreview({
       <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-muted/40 text-muted-foreground">
         <IconPhoto className="h-6 w-6" />
         <span className="px-3 text-center text-xs font-medium">
-          Preview unavailable
+          {t("brandKitDetail.previewUnavailable")}
         </span>
       </div>
     );
@@ -2534,6 +2618,7 @@ function CandidateStage({
   savingCandidateKeys: Set<string>;
   onSaveCandidate: (slot: any) => void;
 }) {
+  const t = useT();
   const dismissSlot = useActionMutation("dismiss-variant-slots");
   const deleteAsset = useActionMutation("delete-asset");
   const queryClient = useQueryClient();
@@ -2565,10 +2650,12 @@ function CandidateStage({
         ]);
       }
       setDismissTarget(null);
-      toast.success("Dismissed candidate.");
+      toast.success(t("brandKitDetail.dismissedCandidate"));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not dismiss candidate.",
+        error instanceof Error
+          ? error.message
+          : t("brandKitDetail.couldNotDismissCandidate"),
       );
     }
   }
@@ -2580,18 +2667,20 @@ function CandidateStage({
     return {
       id: `slot:${slot.slotId}`,
       title: isFailed
-        ? "Failed candidate"
+        ? t("brandKitDetail.failedCandidate")
         : slot.status === "ready"
-          ? "Ready candidate"
-          : "Generating candidate",
-      subtitle: slot.slotId ? shortId(String(slot.slotId)) : "Live slot",
-      metadata: "Candidate",
+          ? t("brandKitDetail.readyCandidate")
+          : t("brandKitDetail.generatingCandidate"),
+      subtitle: slot.slotId
+        ? shortId(String(slot.slotId))
+        : t("brandKitDetail.liveSlot"),
+      metadata: t("brandKitDetail.candidate"),
       status: slot.status,
       mediaType: "image",
       href: slot.assetId ? `/asset/${slot.assetId}` : undefined,
       busy,
-      preview: <VariantPreview slot={slot} fit="contain" />,
-      thumbnail: <VariantPreview slot={slot} />,
+      preview: <VariantPreview slot={slot} fit="contain" />, // i18n-ignore structural preview slot name
+      thumbnail: <VariantPreview slot={slot} />, // i18n-ignore structural preview slot name
       menu: (
         <VariantActionsMenu slot={slot} libraryId={libraryId} busy={busy} />
       ),
@@ -2612,13 +2701,15 @@ function CandidateStage({
               onClick={() =>
                 setDismissTarget({
                   kind: "slot",
-                  title: isFailed ? "Failed candidate" : "Ready candidate",
+                  title: isFailed
+                    ? t("brandKitDetail.failedCandidate")
+                    : t("brandKitDetail.readyCandidate"),
                   slot,
                 })
               }
               disabled={busy || dismissing}
             >
-              Dismiss
+              {t("brandKitDetail.dismiss")}
             </Button>
           </div>
         ) : (
@@ -2629,13 +2720,15 @@ function CandidateStage({
             onClick={() =>
               setDismissTarget({
                 kind: "slot",
-                title: isFailed ? "Failed candidate" : "Generating candidate",
+                title: isFailed
+                  ? t("brandKitDetail.failedCandidate")
+                  : t("brandKitDetail.generatingCandidate"),
                 slot,
               })
             }
             disabled={busy || dismissing}
           >
-            Dismiss
+            {t("brandKitDetail.dismiss")}
           </Button>
         ),
     };
@@ -2650,16 +2743,16 @@ function CandidateStage({
       subtitle: assetLineageSourceText(asset) || assetCategoryLabel(asset),
       metadata:
         asset.mediaType === "video"
-          ? "Video"
+          ? t("brandKitDetail.video")
           : asset.mimeType?.startsWith("image/")
-            ? "Image"
-            : "Candidate",
+            ? t("brandKitDetail.image")
+            : t("brandKitDetail.candidate"),
       status: "candidate",
       mediaType: asset.mediaType === "video" ? "video" : "image",
       href: `/asset/${asset.id}`,
       busy,
-      preview: <AssetPreview asset={asset} fit="contain" />,
-      thumbnail: <AssetPreview asset={asset} />,
+      preview: <AssetPreview asset={asset} fit="contain" />, // i18n-ignore structural preview slot name
+      thumbnail: <AssetPreview asset={asset} />, // i18n-ignore structural preview slot name
       primaryActions: (
         <div className="grid grid-cols-2 gap-2">
           <CandidateSaveMenu
@@ -2684,7 +2777,7 @@ function CandidateStage({
             }
             disabled={busy || dismissing}
           >
-            Dismiss
+            {t("brandKitDetail.dismiss")}
           </Button>
         </div>
       ),
@@ -2734,14 +2827,20 @@ function CandidateStage({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Dismiss this candidate?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("brandKitDetail.dismissThisCandidate")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes {dismissTarget?.title ?? "this candidate"} from the
-              candidate stage. Saved library assets stay untouched.
+              {t("brandKitDetail.dismissCandidateDescription", {
+                title:
+                  dismissTarget?.title ?? t("brandKitDetail.thisCandidate"),
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={dismissing}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={dismissing}>
+              {t("brandKitDetail.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={dismissing}
@@ -2753,10 +2852,10 @@ function CandidateStage({
               {dismissing ? (
                 <>
                   <Spinner className="h-4 w-4" />
-                  Dismissing...
+                  {t("brandKitDetail.dismissing")}
                 </>
               ) : (
-                "Dismiss"
+                t("brandKitDetail.dismiss")
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -2767,11 +2866,13 @@ function CandidateStage({
         <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h3 className="truncate text-sm font-semibold">Candidates</h3>
+              <h3 className="truncate text-sm font-semibold">
+                {t("brandKitDetail.candidates")}
+              </h3>
               <Badge variant="outline">{items.length}</Badge>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Generation queue
+              {t("brandKitDetail.generationQueue")}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -2825,7 +2926,9 @@ function CandidateStage({
                         ? "border-primary ring-2 ring-primary/25"
                         : "border-border/80 hover:border-foreground/30",
                     ].join(" ")}
-                    aria-label={`Show ${item.title}`}
+                    aria-label={t("brandKitDetail.showItem", {
+                      title: item.title,
+                    })}
                     aria-pressed={active}
                   >
                     {item.thumbnail}
@@ -2856,7 +2959,7 @@ function CandidateStage({
                 {activeItem?.status ? (
                   <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
                     <div className="text-[10px] font-medium uppercase text-muted-foreground">
-                      Status
+                      {t("brandKitDetail.status")}
                     </div>
                     <div className="mt-0.5 truncate">{activeItem.status}</div>
                   </div>
@@ -2864,7 +2967,7 @@ function CandidateStage({
                 {activeItem?.metadata ? (
                   <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
                     <div className="text-[10px] font-medium uppercase text-muted-foreground">
-                      Type
+                      {t("brandKitDetail.type")}
                     </div>
                     <div className="mt-0.5 truncate">{activeItem.metadata}</div>
                   </div>
@@ -2876,7 +2979,7 @@ function CandidateStage({
             </div>
             {activeItem?.href ? (
               <Button asChild variant="outline" size="sm">
-                <Link to={activeItem.href}>Open</Link>
+                <Link to={activeItem.href}>{t("brandKitDetail.open")}</Link>
               </Button>
             ) : null}
           </aside>
@@ -2899,6 +3002,7 @@ function CandidateSaveMenu({
   disabled?: boolean;
   onSave: (folderId: string | null) => void;
 }) {
+  const t = useT();
   const createFolder = useActionMutation("create-folder");
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
@@ -2927,13 +3031,17 @@ function CandidateSaveMenu({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button size="sm" className="h-8 px-2 text-xs" disabled={disabled}>
-            {pending ? <Spinner className="h-3.5 w-3.5" /> : "Save to..."}
+            {pending ? (
+              <Spinner className="h-3.5 w-3.5" />
+            ) : (
+              t("brandKitDetail.saveTo")
+            )}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
           <DropdownMenuItem onSelect={() => onSave(null)}>
             <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-            Unfiled
+            {t("brandKitDetail.unfiled")}
           </DropdownMenuItem>
           {folders.map((folder) => (
             <DropdownMenuItem
@@ -2941,7 +3049,7 @@ function CandidateSaveMenu({
               onSelect={() => onSave(folder.id)}
             >
               <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-              Folder: {folder.title}
+              {t("brandKitDetail.folderLabel", { title: folder.title })}
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
@@ -2952,7 +3060,7 @@ function CandidateSaveMenu({
             }}
           >
             <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
-            New folder...
+            {t("brandKitDetail.newFolderEllipsis")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -2969,6 +3077,7 @@ function CandidateStageActions({
   detachedCandidates: any[];
   libraryId: string;
 }) {
+  const t = useT();
   const dismissSlots = useActionMutation("dismiss-variant-slots");
   const deleteAssets = useActionMutation("delete-assets");
   const queryClient = useQueryClient();
@@ -2978,8 +3087,14 @@ function CandidateStageActions({
   const detachedCount = detachedCandidates.length;
   const totalCount = slots.length + detachedCount;
   const isClearing = dismissSlots.isPending || deleteAssets.isPending;
-  const actionLabel = pending === "failed" ? "Dismiss failed" : "Clear all";
-  const busyLabel = pending === "failed" ? "Dismissing..." : "Clearing...";
+  const actionLabel =
+    pending === "failed"
+      ? t("brandKitDetail.dismissFailed")
+      : t("brandKitDetail.clearAll");
+  const busyLabel =
+    pending === "failed"
+      ? t("brandKitDetail.dismissing")
+      : t("brandKitDetail.clearing");
 
   async function handleClear(scope: "failed" | "all") {
     const slotAssetIds = slots
@@ -3025,16 +3140,20 @@ function CandidateStageActions({
       });
       if (scope === "failed") {
         toast.success(
-          `Dismissed ${failedCount} failed candidate${failedCount === 1 ? "" : "s"}.`,
+          t("brandKitDetail.dismissedFailedCandidates", {
+            count: failedCount,
+          }),
         );
       } else {
         toast.success(
-          `Cleared ${totalCount} candidate${totalCount === 1 ? "" : "s"}.`,
+          t("brandKitDetail.clearedCandidates", { count: totalCount }),
         );
       }
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not clear candidates.",
+        error instanceof Error
+          ? error.message
+          : t("brandKitDetail.couldNotClearCandidates"),
       );
     }
   }
@@ -3053,17 +3172,23 @@ function CandidateStageActions({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {pending === "failed"
-                ? `Dismiss ${failedCount} failed candidate${failedCount === 1 ? "" : "s"}?`
-                : `Clear ${totalCount} candidate${totalCount === 1 ? "" : "s"}?`}
+                ? t("brandKitDetail.dismissFailedCandidatesTitle", {
+                    count: failedCount,
+                  })
+                : t("brandKitDetail.clearCandidatesTitle", {
+                    count: totalCount,
+                  })}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pending === "failed"
-                ? "Removes failed live slots from the candidate stage. Ready candidates stay."
-                : "Clears the candidate stage and deletes unsaved generated candidates. Saved library assets stay untouched."}
+                ? t("brandKitDetail.dismissFailedDescription")
+                : t("brandKitDetail.clearCandidatesDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isClearing}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isClearing}>
+              {t("brandKitDetail.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={isClearing || pending === null}
@@ -3092,11 +3217,11 @@ function CandidateStageActions({
             variant="outline"
             size="sm"
             className="gap-2"
-            aria-label="Candidate actions"
+            aria-label={t("brandKitDetail.candidateActions")}
             disabled={isClearing}
           >
             <IconDotsVertical className="h-4 w-4" />
-            Clear
+            {t("brandKitDetail.clear")}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -3108,7 +3233,7 @@ function CandidateStageActions({
             }}
           >
             <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            Dismiss failed ({failedCount})
+            {t("brandKitDetail.dismissFailed")} ({failedCount})
           </DropdownMenuItem>
           <DropdownMenuItem
             className="text-destructive focus:bg-destructive/10 focus:text-destructive"
@@ -3119,7 +3244,7 @@ function CandidateStageActions({
             }}
           >
             <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            Clear all
+            {t("brandKitDetail.clearAll")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -3166,6 +3291,7 @@ function AssetSwimlaneBoard({
   onOptimisticDelete?: (ids: string[]) => void;
   onRestoreOptimisticDelete?: (ids: string[]) => void;
 }) {
+  const t = useT();
   const deleteAsset = useActionMutation("delete-asset");
   const deleteAssets = useActionMutation("delete-assets");
   const updateAsset = useActionMutation("update-asset");
@@ -3269,11 +3395,13 @@ function AssetSwimlaneBoard({
         {
           onSuccess: () => {
             finishDeleting(ids);
-            toast.success("Deleted asset.");
+            toast.success(t("brandKitDetail.deletedAsset"));
           },
           onError: (error) => {
             restoreAfterDeleteError(ids);
-            toast.error(error.message || "Could not delete asset.");
+            toast.error(
+              error.message || t("brandKitDetail.couldNotDeleteAsset"),
+            );
           },
         },
       );
@@ -3288,11 +3416,13 @@ function AssetSwimlaneBoard({
         onSuccess: (result: any) => {
           finishDeleting(ids);
           const count = Number(result?.deletedCount ?? ids.length);
-          toast.success(`Deleted ${count} asset${count === 1 ? "" : "s"}.`);
+          toast.success(t("brandKitDetail.deletedAssets", { count }));
         },
         onError: (error) => {
           restoreAfterDeleteError(ids);
-          toast.error(error.message || "Could not delete selected assets.");
+          toast.error(
+            error.message || t("brandKitDetail.couldNotDeleteSelectedAssets"),
+          );
         },
       },
     );
@@ -3347,16 +3477,20 @@ function AssetSwimlaneBoard({
       }
       toast.success(
         enabled
-          ? `Added ${assetList.length} asset${assetList.length === 1 ? "" : "s"} to References.`
-          : `Removed ${assetList.length} asset${assetList.length === 1 ? "" : "s"} from References.`,
+          ? t("brandKitDetail.addedAssetsToReferences", {
+              count: assetList.length,
+            })
+          : t("brandKitDetail.removedAssetsFromReferences", {
+              count: assetList.length,
+            }),
       );
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
           : enabled
-            ? "Could not add selected assets to References."
-            : "Could not remove selected assets from References.",
+            ? t("brandKitDetail.couldNotAddSelectedToReferences")
+            : t("brandKitDetail.couldNotRemoveSelectedFromReferences"),
       );
       return;
     } finally {
@@ -3369,12 +3503,16 @@ function AssetSwimlaneBoard({
     return {
       id: `upload:${upload.id}`,
       title: upload.name,
-      subtitle: isChecking ? "Checking upload" : "Uploading",
-      status: isChecking ? "Checking" : "Uploading",
+      subtitle: isChecking
+        ? t("brandKitDetail.checkingUpload")
+        : t("brandKitDetail.uploading"),
+      status: isChecking
+        ? t("brandKitDetail.checking")
+        : t("brandKitDetail.uploading"),
       mediaType: upload.mediaType,
       busy: true,
-      preview: <PendingUploadPreview upload={upload} fit="contain" />,
-      thumbnail: <PendingUploadPreview upload={upload} />,
+      preview: <PendingUploadPreview upload={upload} fit="contain" />, // i18n-ignore structural preview slot name
+      thumbnail: <PendingUploadPreview upload={upload} />, // i18n-ignore structural preview slot name
     };
   }
 
@@ -3411,18 +3549,20 @@ function AssetSwimlaneBoard({
       subtitle: sourceText || categoryLabel || asset.status,
       metadata:
         asset.mediaType === "video"
-          ? "Video"
+          ? t("brandKitDetail.video")
           : asset.mimeType?.startsWith("image/")
-            ? "Image"
-            : asset.mimeType || "Asset",
-      status: isReference ? "Reference" : "Saved",
+            ? t("brandKitDetail.image")
+            : asset.mimeType || t("brandKitDetail.asset"),
+      status: isReference
+        ? t("brandKitDetail.reference")
+        : t("brandKitDetail.saved"),
       mediaType: asset.mediaType === "video" ? "video" : "image",
       href: `/asset/${asset.id}`,
       selected: selectedIds.has(asset.id),
       deleting: deletingIds.has(asset.id),
       busy,
-      preview: <AssetPreview asset={asset} fit="contain" />,
-      thumbnail: <AssetPreview asset={asset} />,
+      preview: <AssetPreview asset={asset} fit="contain" />, // i18n-ignore structural preview slot name
+      thumbnail: <AssetPreview asset={asset} />, // i18n-ignore structural preview slot name
       onToggle: (checked) => toggleAsset(asset.id, checked),
       menu: (
         <AssetActionsMenu
@@ -3451,7 +3591,11 @@ function AssetSwimlaneBoard({
                 onClick={onSave}
                 disabled={busy}
               >
-                {saving ? <Spinner className="h-3.5 w-3.5" /> : "Save"}
+                {saving ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  t("brandKitDetail.save")
+                )}
               </Button>
             ) : null}
             {canMoveToReferences ? (
@@ -3463,12 +3607,12 @@ function AssetSwimlaneBoard({
                 }
                 onClick={onMoveToReferences}
                 disabled={busy}
-                title="Add to References"
+                title={t("brandKitDetail.addToReferences")}
               >
                 {promoting ? (
                   <Spinner className="h-3.5 w-3.5" />
                 ) : (
-                  "Add to References"
+                  t("brandKitDetail.addToReferences")
                 )}
               </Button>
             ) : null}
@@ -3481,12 +3625,12 @@ function AssetSwimlaneBoard({
                 }
                 onClick={onRemoveFromReferences}
                 disabled={busy}
-                title="Remove from References"
+                title={t("brandKitDetail.removeFromReferences")}
               >
                 {promoting ? (
                   <Spinner className="h-3.5 w-3.5" />
                 ) : (
-                  "Remove from References"
+                  t("brandKitDetail.removeFromReferences")
                 )}
               </Button>
             ) : null}
@@ -3521,10 +3665,10 @@ function AssetSwimlaneBoard({
         <div className="flex min-h-[280px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center">
           <IconSearch className="h-9 w-9 text-muted-foreground" />
           <span className="mt-4 text-base font-semibold">
-            No assets match this view
+            {t("brandKitDetail.noAssetsMatch")}
           </span>
           <span className="mt-2 max-w-md text-sm text-muted-foreground">
-            Try All assets, a different folder, or a broader search.
+            {t("brandKitDetail.noAssetsMatchDescription")}
           </span>
         </div>
       );
@@ -3543,10 +3687,11 @@ function AssetSwimlaneBoard({
         className="flex min-h-[360px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center"
       >
         <IconPhotoPlus className="h-10 w-10 text-muted-foreground" />
-        <span className="mt-4 text-base font-semibold">Add assets</span>
+        <span className="mt-4 text-base font-semibold">
+          {t("brandKitDetail.addAssets")}
+        </span>
         <span className="mt-2 max-w-md text-sm text-muted-foreground">
-          Upload source material or generate candidates, then mark only the
-          assets that should guide future generations as references.
+          {t("brandKitDetail.addAssetsDescription")}
         </span>
       </button>
     );
@@ -3564,17 +3709,19 @@ function AssetSwimlaneBoard({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {confirmDeleteIds.length > 1
-                ? `Delete ${confirmDeleteIds.length} assets?`
-                : "Delete asset?"}
+                ? t("brandKitDetail.deleteAssetsTitle", {
+                    count: confirmDeleteIds.length,
+                  })
+                : t("brandKitDetail.deleteAssetsTitle", { count: 1 })}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmDeleteIds.length > 1
-                ? "This permanently removes the selected assets from the brand kit. To stop using an asset as a reference but keep it, use Remove from References instead."
-                : "This permanently removes the asset from the brand kit. To keep it in the library but stop using it as a reference, use Remove from References instead."}
+                ? t("brandKitDetail.deleteManyDescription")
+                : t("brandKitDetail.deleteOneDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("brandKitDetail.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={!confirmDeleteIds.length || deleting}
@@ -3583,7 +3730,7 @@ function AssetSwimlaneBoard({
                 handleDeleteConfirmed();
               }}
             >
-              Delete
+              {t("brandKitDetail.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -3596,15 +3743,20 @@ function AssetSwimlaneBoard({
               checked={allSelected}
               disabled={!boardAssets.length || deleting}
               onCheckedChange={(checked) => toggleAll(checked === true)}
-              aria-label="Select all visible assets"
+              aria-label={t("brandKitDetail.selectAllVisibleAssets")}
             />
-            {allSelected ? "Deselect all" : "Select all"}
+            {allSelected
+              ? t("brandKitDetail.deselectAll")
+              : t("brandKitDetail.selectAll")}
           </label>
           <span className="text-xs text-muted-foreground">
-            {boardAssets.length} visible asset
-            {boardAssets.length === 1 ? "" : "s"}
+            {t("brandKitDetail.visibleAssets", {
+              count: boardAssets.length,
+            })}
             {referenceAssets.length > 0
-              ? ` · ${referenceAssets.length} reference${referenceAssets.length === 1 ? "" : "s"}`
+              ? ` · ${t("brandKitDetail.referenceCount", {
+                  count: referenceAssets.length,
+                })}`
               : ""}
           </span>
           {selectedCount > 0 ? (
@@ -3614,7 +3766,7 @@ function AssetSwimlaneBoard({
               size="sm"
               onClick={() => onSelectedIdsChange(new Set())}
             >
-              Clear
+              {t("brandKitDetail.clear")}
             </Button>
           ) : null}
         </div>
@@ -3635,8 +3787,9 @@ function AssetSwimlaneBoard({
             <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
               <Spinner className="h-4 w-4" />
               <span className="truncate">
-                Deleting {pendingDeleteCount} asset
-                {pendingDeleteCount === 1 ? "" : "s"}...
+                {t("brandKitDetail.deletingAssets", {
+                  count: pendingDeleteCount,
+                })}
               </span>
             </div>
           ) : (
@@ -3644,15 +3797,20 @@ function AssetSwimlaneBoard({
               <Checkbox
                 checked={allSelected}
                 onCheckedChange={(checked) => toggleAll(checked === true)}
-                aria-label="Select all assets in this board"
+                aria-label={t("brandKitDetail.selectAllAssetsBoard")}
               />
               <span className="truncate">
                 {selectedCount > 0
-                  ? `${selectedCount} selected`
-                  : `${boardAssets.length} asset${boardAssets.length === 1 ? "" : "s"}`}
+                  ? t("brandKitDetail.selectedCount", { count: selectedCount })
+                  : t("brandKitDetail.boardAssetCount", {
+                      count: boardAssets.length,
+                    })}
               </span>
               <span className="hidden text-xs text-muted-foreground sm:inline">
-                {referenceAssets.length} references · {savedAssets.length} saved
+                {t("brandKitDetail.referencesSavedCounts", {
+                  references: referenceAssets.length,
+                  saved: savedAssets.length,
+                })}
               </span>
             </div>
           )}
@@ -3673,7 +3831,7 @@ function AssetSwimlaneBoard({
                   ) : (
                     <IconPhotoPlus className="h-4 w-4" />
                   )}
-                  Add to References
+                  {t("brandKitDetail.addToReferences")}
                 </Button>
               ) : null}
               {selectedReferenceAssets.length > 0 ? (
@@ -3691,7 +3849,7 @@ function AssetSwimlaneBoard({
                   ) : (
                     <IconX className="h-4 w-4" />
                   )}
-                  Remove from References
+                  {t("brandKitDetail.removeFromReferences")}
                 </Button>
               ) : null}
               <Button
@@ -3700,7 +3858,7 @@ function AssetSwimlaneBoard({
                 size="sm"
                 onClick={() => onSelectedIdsChange(new Set())}
               >
-                Clear
+                {t("brandKitDetail.clear")}
               </Button>
               <Button
                 type="button"
@@ -3716,7 +3874,7 @@ function AssetSwimlaneBoard({
                 ) : (
                   <IconTrash className="h-4 w-4" />
                 )}
-                Delete
+                {t("brandKitDetail.delete")}
               </Button>
             </div>
           ) : null}
@@ -3727,37 +3885,41 @@ function AssetSwimlaneBoard({
         <AssetCardsView items={visibleGalleryItems} />
       ) : (
         <SwimLane
-          title={scope === "references" ? "References" : "Library"}
+          title={
+            scope === "references"
+              ? t("brandKitDetail.references")
+              : t("brandKitDetail.library")
+          }
           eyebrow={
             scope === "references"
-              ? "Assets currently marked for generation reference."
-              : "Saved assets in this filtered view. Mark the ones that should guide future generations."
+              ? t("brandKitDetail.referencesEyebrow")
+              : t("brandKitDetail.libraryEyebrow")
           }
           items={visibleGalleryItems}
           action={
             <Button variant="outline" size="sm" onClick={onUploadClick}>
-              Add
+              {t("brandKitDetail.add")}
             </Button>
           }
           empty={
             scope === "references" && assets.length > 0 ? (
               <LaneActionEmpty
-                title="No references in this view"
-                body="Switch back to all assets and mark the keepers as references."
+                title={t("brandKitDetail.noReferencesTitle")}
+                body={t("brandKitDetail.noReferencesBody")}
                 onClick={() => onScopeChange("all")}
-                action="Show all"
+                action={t("brandKitDetail.showAll")}
               />
             ) : hideEmptyLanes ? (
               <LaneActionEmpty
-                title="No assets match this view"
-                body="Try All assets, a different folder, or a broader search."
+                title={t("brandKitDetail.noAssetsMatch")}
+                body={t("brandKitDetail.noAssetsMatchDescription")}
                 onClick={() => onScopeChange("all")}
-                action="Show all"
+                action={t("brandKitDetail.showAll")}
               />
             ) : (
               <LaneDropTarget
-                title="Drop assets here"
-                body="Upload source material, generated exports, logos, products, or style boards."
+                title={t("brandKitDetail.dropAssetsHere")}
+                body={t("brandKitDetail.dropAssetsBody")}
                 onClick={onUploadClick}
                 onDrop={onDrop}
               />
@@ -3776,6 +3938,7 @@ function AssetViewModeToggle({
   value: AssetViewMode;
   onChange: (mode: AssetViewMode) => void;
 }) {
+  const t = useT();
   const options: Array<{
     value: AssetViewMode;
     label: string;
@@ -3783,12 +3946,12 @@ function AssetViewModeToggle({
   }> = [
     {
       value: "lanes",
-      label: "Lanes",
+      label: t("brandKitDetail.lanes"),
       icon: <IconLayoutBottombar className="h-4 w-4" />,
     },
     {
       value: "cards",
-      label: "Cards",
+      label: t("brandKitDetail.cards"),
       icon: <IconLayoutGrid className="h-4 w-4" />,
     },
   ];
@@ -3797,7 +3960,7 @@ function AssetViewModeToggle({
     <TooltipProvider delayDuration={150}>
       <div
         role="group"
-        aria-label="Asset view"
+        aria-label={t("brandKitDetail.assetView")}
         className="inline-flex shrink-0 gap-1 rounded-md border border-border bg-muted/20 p-1"
       >
         {options.map((option) => {
@@ -3814,14 +3977,20 @@ function AssetViewModeToggle({
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
                   ].join(" ")}
-                  aria-label={`${option.label} view`}
+                  aria-label={t("brandKitDetail.viewModeLabel", {
+                    label: option.label,
+                  })}
                   aria-pressed={active}
-                  title={`${option.label} view`}
+                  title={t("brandKitDetail.viewModeLabel", {
+                    label: option.label,
+                  })}
                 >
                   {option.icon}
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">{option.label} view</TooltipContent>
+              <TooltipContent side="bottom">
+                {t("brandKitDetail.viewModeLabel", { label: option.label })}
+              </TooltipContent>
             </Tooltip>
           );
         })}
@@ -3841,19 +4010,24 @@ function AssetScopeToggle({
   allCount: number;
   referenceCount: number;
 }) {
+  const t = useT();
   const options: Array<{
     value: AssetLibraryScope;
     label: string;
     count: number;
   }> = [
-    { value: "all", label: "All", count: allCount },
-    { value: "references", label: "References", count: referenceCount },
+    { value: "all", label: t("brandKitDetail.all"), count: allCount },
+    {
+      value: "references",
+      label: t("brandKitDetail.references"),
+      count: referenceCount,
+    },
   ];
 
   return (
     <div
       role="group"
-      aria-label="Asset scope"
+      aria-label={t("brandKitDetail.assetScope")}
       className="inline-flex shrink-0 gap-1 rounded-md border border-border bg-muted/20 p-1"
     >
       {options.map((option) => {
@@ -3890,10 +4064,11 @@ function AssetScopeToggle({
 }
 
 function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
+  const t = useT();
   if (!items.length) {
     return (
       <div className="flex min-h-[220px] items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center text-sm text-muted-foreground">
-        No assets to show.
+        {t("brandKitDetail.noAssetsToShow")}
       </div>
     );
   }
@@ -3925,7 +4100,9 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
                   onCheckedChange={(checked) =>
                     item.onToggle?.(checked === true)
                   }
-                  aria-label={`Select ${item.title}`}
+                  aria-label={t("brandKitDetail.selectItem", {
+                    title: item.title,
+                  })}
                   className="border-background bg-background/90 shadow-sm"
                 />
               ) : null}
@@ -3977,6 +4154,7 @@ function SwimLane({
   action?: ReactNode;
   empty: ReactNode;
 }) {
+  const t = useT();
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const itemIds = items.map((item) => item.id).join("\n");
   const activeItem =
@@ -4048,7 +4226,9 @@ function SwimLane({
                           : "border-border/80 hover:border-foreground/30",
                         item.deleting ? "opacity-60" : "",
                       ].join(" ")}
-                      aria-label={`Show ${item.title}`}
+                      aria-label={t("brandKitDetail.showItem", {
+                        title: item.title,
+                      })}
                       aria-pressed={active}
                     >
                       {item.thumbnail}
@@ -4087,7 +4267,9 @@ function SwimLane({
                       onCheckedChange={(checked) =>
                         activeItem.onToggle?.(checked === true)
                       }
-                      aria-label={`Select ${activeItem.title}`}
+                      aria-label={t("brandKitDetail.selectItem", {
+                        title: activeItem.title,
+                      })}
                       className="mt-0.5"
                     />
                   ) : null}
@@ -4106,7 +4288,7 @@ function SwimLane({
                   {activeItem.status ? (
                     <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
                       <div className="text-[10px] font-medium uppercase text-muted-foreground">
-                        Status
+                        {t("brandKitDetail.status")}
                       </div>
                       <div className="mt-0.5 truncate">{activeItem.status}</div>
                     </div>
@@ -4114,7 +4296,7 @@ function SwimLane({
                   {activeItem.metadata ? (
                     <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
                       <div className="text-[10px] font-medium uppercase text-muted-foreground">
-                        Type
+                        {t("brandKitDetail.type")}
                       </div>
                       <div className="mt-0.5 truncate">
                         {activeItem.metadata}
@@ -4131,7 +4313,7 @@ function SwimLane({
           <div className="flex shrink-0 items-center gap-2">
             {activeItem?.href ? (
               <Button asChild variant="outline" size="sm" className="flex-1">
-                <Link to={activeItem.href}>Open</Link>
+                <Link to={activeItem.href}>{t("brandKitDetail.open")}</Link>
               </Button>
             ) : null}
             {action ? <div className="shrink-0">{action}</div> : null}
@@ -4207,6 +4389,7 @@ function PendingUploadPreview({
   upload: PendingUpload;
   fit?: "cover" | "contain";
 }) {
+  const t = useT();
   const isChecking = upload.status === "checking";
   return (
     <div
@@ -4218,7 +4401,9 @@ function PendingUploadPreview({
       <div className="flex flex-col items-center gap-2 text-muted-foreground">
         <Spinner className={fit === "contain" ? "h-6 w-6" : "h-4 w-4"} />
         <span className="text-xs font-medium">
-          {isChecking ? "Checking" : "Uploading"}
+          {isChecking
+            ? t("brandKitDetail.checking")
+            : t("brandKitDetail.uploading")}
         </span>
       </div>
     </div>
@@ -4242,6 +4427,7 @@ function AssetActionsMenu({
   onMoveToReferences?: () => void;
   onRemoveFromReferences?: () => void;
 }) {
+  const t = useT();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -4250,7 +4436,7 @@ function AssetActionsMenu({
           variant="secondary"
           size="icon"
           className="h-8 w-8 shadow-sm"
-          aria-label="Asset actions"
+          aria-label={t("brandKitDetail.assetActions")}
           disabled={busy}
         >
           <IconDotsVertical className="h-4 w-4" />
@@ -4258,7 +4444,9 @@ function AssetActionsMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem asChild>
-          <Link to={`/asset/${asset.id}`}>View details</Link>
+          <Link to={`/asset/${asset.id}`}>
+            {t("brandKitDetail.viewDetails")}
+          </Link>
         </DropdownMenuItem>
         {onMoveToReferences ? (
           <DropdownMenuItem
@@ -4268,7 +4456,7 @@ function AssetActionsMenu({
             }}
           >
             <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-            Add to References
+            {t("brandKitDetail.addToReferences")}
           </DropdownMenuItem>
         ) : null}
         {onRemoveFromReferences ? (
@@ -4279,13 +4467,13 @@ function AssetActionsMenu({
             }}
           >
             <IconX className="mr-2 h-4 w-4 shrink-0" />
-            Remove from References
+            {t("brandKitDetail.removeFromReferences")}
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-            Move to
+            {t("brandKitDetail.moveTo")}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
             <DropdownMenuItem
@@ -4296,7 +4484,7 @@ function AssetActionsMenu({
                 })
               }
             >
-              Unfiled
+              {t("brandKitDetail.unfiled")}
             </DropdownMenuItem>
             {folders.map((folder) => (
               <DropdownMenuItem
@@ -4319,7 +4507,7 @@ function AssetActionsMenu({
           onSelect={onDelete}
         >
           <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-          Delete
+          {t("brandKitDetail.delete")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -4333,6 +4521,7 @@ function VariantPreview({
   slot: any;
   fit?: "cover" | "contain";
 }) {
+  const t = useT();
   const [sourceIndex, setSourceIndex] = useState(0);
   const [previewUnavailable, setPreviewUnavailable] = useState(false);
   const previewSources = assetPreviewSources(slot, "thumbnail");
@@ -4370,7 +4559,7 @@ function VariantPreview({
         </div>
       ) : previewUnavailable ? (
         <div className="p-4 text-center text-xs text-muted-foreground">
-          Preview unavailable
+          {t("brandKitDetail.previewUnavailable")}
         </div>
       ) : (
         <IconPhoto className="h-8 w-8 animate-pulse text-muted-foreground" />
@@ -4390,11 +4579,14 @@ function VariantActionsMenu({
   busy?: boolean;
   onMoveToReferences?: () => void;
 }) {
+  const t = useT();
   const dismissSlot = useActionMutation("dismiss-variant-slots");
   const queryClient = useQueryClient();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const isFailed = slot.status === "failed";
-  const label = isFailed ? "Dismiss" : "Delete";
+  const label = isFailed
+    ? t("brandKitDetail.dismiss")
+    : t("brandKitDetail.delete");
 
   return (
     <>
@@ -4405,7 +4597,7 @@ function VariantActionsMenu({
             variant="secondary"
             size="icon"
             className="h-8 w-8 shadow-sm"
-            aria-label="Candidate actions"
+            aria-label={t("brandKitDetail.candidateActions")}
             disabled={busy || dismissSlot.isPending}
           >
             <IconDotsVertical className="h-4 w-4" />
@@ -4420,7 +4612,7 @@ function VariantActionsMenu({
               }}
             >
               <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-              Add to References
+              {t("brandKitDetail.addToReferences")}
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuItem
@@ -4445,17 +4637,19 @@ function VariantActionsMenu({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {isFailed ? "Dismiss this slot?" : "Delete candidate?"}
+              {isFailed
+                ? t("brandKitDetail.dismissThisSlot")
+                : t("brandKitDetail.deleteCandidate")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {isFailed
-                ? "Removes this failed slot from the live candidates panel."
-                : "Removes this candidate from the brand kit and clears its slot."}
+                ? t("brandKitDetail.dismissSlotDescription")
+                : t("brandKitDetail.deleteCandidateDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={dismissSlot.isPending}>
-              Cancel
+              {t("brandKitDetail.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -4478,7 +4672,8 @@ function VariantActionsMenu({
                     },
                     onError: (error) =>
                       toast.error(
-                        error.message || "Could not clear candidate.",
+                        error.message ||
+                          t("brandKitDetail.couldNotClearCandidate"),
                       ),
                   },
                 );
@@ -4487,7 +4682,9 @@ function VariantActionsMenu({
               {dismissSlot.isPending ? (
                 <>
                   <Spinner className="h-4 w-4" />
-                  {isFailed ? "Dismissing..." : "Deleting..."}
+                  {isFailed
+                    ? t("brandKitDetail.dismissing")
+                    : t("brandKitDetail.deleting")}
                 </>
               ) : (
                 label
@@ -4501,6 +4698,7 @@ function VariantActionsMenu({
 }
 
 function PendingUploadLaneTile({ upload }: { upload: PendingUpload }) {
+  const t = useT();
   const isChecking = upload.status === "checking";
   return (
     <div className="w-[144px] shrink-0 overflow-hidden rounded-md border border-dashed border-border bg-background sm:w-[156px]">
@@ -4508,7 +4706,9 @@ function PendingUploadLaneTile({ upload }: { upload: PendingUpload }) {
         <div className="flex flex-col items-center gap-2 text-muted-foreground">
           <Spinner className="h-5 w-5" />
           <span className="text-xs font-medium">
-            {isChecking ? "Checking" : "Uploading"}
+            {isChecking
+              ? t("brandKitDetail.checking")
+              : t("brandKitDetail.uploading")}
           </span>
         </div>
       </div>
@@ -4551,6 +4751,7 @@ function AssetLaneTile({
   onSave?: () => void;
   onMoveToReferences?: () => void;
 }) {
+  const t = useT();
   const displayTitle = assetDisplayTitle(asset);
   const sourceText = assetLineageSourceText(asset);
   const canMoveToReferences = Boolean(onMoveToReferences);
@@ -4573,7 +4774,7 @@ function AssetLaneTile({
         <Checkbox
           checked={selected}
           onCheckedChange={(checked) => onToggle(checked === true)}
-          aria-label={`Select ${displayTitle}`}
+          aria-label={t("brandKitDetail.selectItem", { title: displayTitle })}
           className={[
             "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
             selected ? "sm:opacity-100" : "",
@@ -4588,7 +4789,7 @@ function AssetLaneTile({
               variant="secondary"
               size="icon"
               className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-              aria-label="Asset actions"
+              aria-label={t("brandKitDetail.assetActions")}
               disabled={busy}
             >
               <IconDotsVertical className="h-4 w-4" />
@@ -4596,7 +4797,9 @@ function AssetLaneTile({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem asChild>
-              <Link to={`/asset/${asset.id}`}>View details</Link>
+              <Link to={`/asset/${asset.id}`}>
+                {t("brandKitDetail.viewDetails")}
+              </Link>
             </DropdownMenuItem>
             {canMoveToReferences ? (
               <DropdownMenuItem
@@ -4606,13 +4809,13 @@ function AssetLaneTile({
                 }}
               >
                 <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-                Add to References
+                {t("brandKitDetail.addToReferences")}
               </DropdownMenuItem>
             ) : null}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-                Move to
+                {t("brandKitDetail.moveTo")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuItem
@@ -4623,7 +4826,7 @@ function AssetLaneTile({
                     })
                   }
                 >
-                  Unfiled
+                  {t("brandKitDetail.unfiled")}
                 </DropdownMenuItem>
                 {folders.map((folder) => (
                   <DropdownMenuItem
@@ -4646,7 +4849,7 @@ function AssetLaneTile({
               onSelect={onDelete}
             >
               <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-              Delete
+              {t("brandKitDetail.delete")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -4699,7 +4902,11 @@ function AssetLaneTile({
                 onClick={onSave}
                 disabled={busy}
               >
-                {saving ? <Spinner className="h-3.5 w-3.5" /> : "Save"}
+                {saving ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  t("brandKitDetail.save")
+                )}
               </Button>
             ) : null}
             {canMoveToReferences ? (
@@ -4711,12 +4918,12 @@ function AssetLaneTile({
                 }
                 onClick={onMoveToReferences}
                 disabled={busy}
-                title="Add to References"
+                title={t("brandKitDetail.addToReferences")}
               >
                 {promoting ? (
                   <Spinner className="h-3.5 w-3.5" />
                 ) : (
-                  "Add to References"
+                  t("brandKitDetail.addToReferences")
                 )}
               </Button>
             ) : null}
@@ -4742,6 +4949,7 @@ function VariantLaneTile({
   saving?: boolean;
   promoting?: boolean;
 }) {
+  const t = useT();
   const dismissSlot = useActionMutation("dismiss-variant-slots");
   const queryClient = useQueryClient();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -4750,7 +4958,9 @@ function VariantLaneTile({
   const previewSources = assetPreviewSources(slot, "thumbnail");
   const previewSourcesKey = previewSources.join("\n");
   const isFailed = slot.status === "failed";
-  const label = isFailed ? "Dismiss" : "Delete";
+  const label = isFailed
+    ? t("brandKitDetail.dismiss")
+    : t("brandKitDetail.delete");
   const busy = saving || promoting || dismissSlot.isPending;
   const previewSrc = previewSources[sourceIndex];
 
@@ -4772,7 +4982,7 @@ function VariantLaneTile({
               variant="secondary"
               size="icon"
               className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-              aria-label="Candidate actions"
+              aria-label={t("brandKitDetail.candidateActions")}
               disabled={busy}
             >
               <IconDotsVertical className="h-4 w-4" />
@@ -4787,7 +4997,7 @@ function VariantLaneTile({
                 }}
               >
                 <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-                Add to References
+                {t("brandKitDetail.addToReferences")}
               </DropdownMenuItem>
             ) : null}
             <DropdownMenuItem
@@ -4813,17 +5023,19 @@ function VariantLaneTile({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {isFailed ? "Dismiss this slot?" : "Delete candidate?"}
+              {isFailed
+                ? t("brandKitDetail.dismissThisSlot")
+                : t("brandKitDetail.deleteCandidate")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {isFailed
-                ? "Removes this failed slot from the live candidates panel."
-                : "Removes this candidate from the brand kit and clears its slot."}
+                ? t("brandKitDetail.dismissSlotDescription")
+                : t("brandKitDetail.deleteCandidateDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={dismissSlot.isPending}>
-              Cancel
+              {t("brandKitDetail.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -4846,7 +5058,8 @@ function VariantLaneTile({
                     },
                     onError: (error) =>
                       toast.error(
-                        error.message || "Could not clear candidate.",
+                        error.message ||
+                          t("brandKitDetail.couldNotClearCandidate"),
                       ),
                   },
                 );
@@ -4855,7 +5068,9 @@ function VariantLaneTile({
               {dismissSlot.isPending ? (
                 <>
                   <Spinner className="h-4 w-4" />
-                  {isFailed ? "Dismissing..." : "Deleting..."}
+                  {isFailed
+                    ? t("brandKitDetail.dismissing")
+                    : t("brandKitDetail.deleting")}
                 </>
               ) : (
                 label
@@ -4886,7 +5101,7 @@ function VariantLaneTile({
           </div>
         ) : previewUnavailable ? (
           <div className="p-4 text-center text-xs text-muted-foreground">
-            Preview unavailable
+            {t("brandKitDetail.previewUnavailable")}
           </div>
         ) : (
           <IconPhoto className="h-8 w-8 animate-pulse text-muted-foreground" />
@@ -4894,10 +5109,14 @@ function VariantLaneTile({
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/90 to-transparent px-2 pb-2 pt-8">
           <div className="flex items-center justify-between gap-2">
             <span className="truncate text-xs font-medium">
-              {slot.status === "ready" ? "Ready candidate" : "Generating"}
+              {slot.status === "ready"
+                ? t("brandKitDetail.readyCandidate")
+                : t("brandKitDetail.generating")}
             </span>
             <span className="shrink-0 text-[10px] text-muted-foreground">
-              {slot.slotId ? shortId(String(slot.slotId)) : "slot"}
+              {slot.slotId
+                ? shortId(String(slot.slotId))
+                : t("brandKitDetail.slot")}
             </span>
           </div>
         </div>
@@ -4917,7 +5136,11 @@ function VariantLaneTile({
               onClick={onSave}
               disabled={busy}
             >
-              {saving ? <Spinner className="h-3.5 w-3.5" /> : "Save"}
+              {saving ? (
+                <Spinner className="h-3.5 w-3.5" />
+              ) : (
+                t("brandKitDetail.save")
+              )}
             </Button>
             {onMoveToReferences ? (
               <Button
@@ -4926,12 +5149,12 @@ function VariantLaneTile({
                 className="h-8 px-2 text-xs"
                 onClick={onMoveToReferences}
                 disabled={busy}
-                title="Add to References"
+                title={t("brandKitDetail.addToReferences")}
               >
                 {promoting ? (
                   <Spinner className="h-3.5 w-3.5" />
                 ) : (
-                  "Add to References"
+                  t("brandKitDetail.addToReferences")
                 )}
               </Button>
             ) : null}
@@ -4953,6 +5176,7 @@ function CreateFolderDialog({
   onSubmit: (title: string) => void | Promise<void>;
   pending?: boolean;
 }) {
+  const t = useT();
   const [title, setTitle] = useState("");
   async function submit() {
     const trimmed = title.trim();
@@ -4962,7 +5186,9 @@ function CreateFolderDialog({
       setTitle("");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not create folder",
+        error instanceof Error
+          ? error.message
+          : t("brandKitDetail.couldNotCreateFolder"),
       );
     }
   }
@@ -4970,14 +5196,13 @@ function CreateFolderDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>New folder</DialogTitle>
+          <DialogTitle>{t("brandKitDetail.newFolder")}</DialogTitle>
           <DialogDescription>
-            Group uploaded and generated assets for a campaign, channel, or
-            reusable collection.
+            {t("brandKitDetail.newFolderDescription")}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          <Label htmlFor="folder-title">Name</Label>
+          <Label htmlFor="folder-title">{t("brandKitDetail.name")}</Label>
           <Input
             id="folder-title"
             value={title}
@@ -4988,13 +5213,13 @@ function CreateFolderDialog({
                 void submit();
               }
             }}
-            placeholder="Campaign launch"
+            placeholder={t("brandKitDetail.campaignLaunch")}
             autoFocus
           />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("brandKitDetail.cancel")}
           </Button>
           <Button
             disabled={!title.trim() || pending}
@@ -5002,7 +5227,7 @@ function CreateFolderDialog({
               void submit();
             }}
           >
-            Create
+            {t("brandKitDetail.create")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -5017,14 +5242,21 @@ function LiveCandidatesActions({
   slots: any[];
   libraryId: string;
 }) {
+  const t = useT();
   const dismissSlots = useActionMutation("dismiss-variant-slots");
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<"failed" | "all" | null>(null);
   const failedCount = slots.filter((s) => s.status === "failed").length;
   const hasFailed = failedCount > 0;
   const isClearing = dismissSlots.isPending;
-  const actionLabel = pending === "failed" ? "Dismiss failed" : "Clear all";
-  const busyLabel = pending === "failed" ? "Dismissing..." : "Clearing...";
+  const actionLabel =
+    pending === "failed"
+      ? t("brandKitDetail.dismissFailed")
+      : t("brandKitDetail.clearAll");
+  const busyLabel =
+    pending === "failed"
+      ? t("brandKitDetail.dismissing")
+      : t("brandKitDetail.clearing");
 
   return (
     <>
@@ -5038,17 +5270,21 @@ function LiveCandidatesActions({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {pending === "failed"
-                ? `Dismiss ${failedCount} failed ${failedCount === 1 ? "slot" : "slots"}?`
-                : "Clear all live candidates?"}
+                ? t("brandKitDetail.dismissFailedSlotsTitle", {
+                    count: failedCount,
+                  })
+                : t("brandKitDetail.clearLiveCandidates")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pending === "failed"
-                ? "Removes every failed slot from the panel. Successful candidates stay."
-                : "Clears the live candidates panel and deletes any unsaved candidate rows."}
+                ? t("brandKitDetail.dismissFailedSlotsDescription")
+                : t("brandKitDetail.clearLiveCandidatesDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isClearing}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isClearing}>
+              {t("brandKitDetail.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={isClearing || pending === null}
@@ -5077,7 +5313,8 @@ function LiveCandidatesActions({
                     },
                     onError: (error) =>
                       toast.error(
-                        error.message || "Could not clear live candidates.",
+                        error.message ||
+                          t("brandKitDetail.couldNotClearLiveCandidates"),
                       ),
                   },
                 );
@@ -5103,11 +5340,11 @@ function LiveCandidatesActions({
             variant="outline"
             size="sm"
             className="gap-2"
-            aria-label="Live candidates actions"
+            aria-label={t("brandKitDetail.liveCandidatesActions")}
             disabled={isClearing}
           >
             <IconDotsVertical className="h-4 w-4" />
-            Clear
+            {t("brandKitDetail.clear")}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -5119,7 +5356,7 @@ function LiveCandidatesActions({
             }}
           >
             <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            Dismiss failed ({failedCount})
+            {t("brandKitDetail.dismissFailed")} ({failedCount})
           </DropdownMenuItem>
           <DropdownMenuItem
             className="text-destructive focus:bg-destructive/10 focus:text-destructive"
@@ -5130,7 +5367,7 @@ function LiveCandidatesActions({
             }}
           >
             <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            Clear all
+            {t("brandKitDetail.clearAll")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

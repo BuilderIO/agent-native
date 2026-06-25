@@ -1,0 +1,348 @@
+---
+title: "展開"
+description: "Nitro プリセット (Node.js、Vercel、Netlify、Cloudflare、AWS など) を使用して、エージェント ネイティブ アプリを任意のプラットフォームにデプロイします。"
+---
+
+# 展開
+
+エージェント ネイティブ アプリは内部で [Nitro](https://nitro.build) を使用します。つまり、プリセットを設定するだけで、設定を変更することなくあらゆるプラットフォームに展開できます。
+
+## 展開する前に: 永続データベースを選択する {#persistent-database}
+
+デプロイされたすべてのアプリには、永続的な SQL データベースが必要です。ローカル開発では、エージェントネイティブは `data/app.db` の SQLite ファイルにフォールバックします。これはマシンでは便利ですが、ファイルシステムがリセットされる可能性のあるコンテナ、プレビュー、またはサーバーレス環境では耐久性がありません。
+
+アプリを運用環境に昇格させる前に、デプロイプロバイダーで `DATABASE_URL` を設定します。エージェントネイティブはスキーマとクエリに Drizzle を使用するため、データ層は Drizzle 互換の SQL バックエンド間で移植可能であり、フレームワークは URL から方言を自動検出します。アダプターのリストと方言の詳細については、[Database](/docs/database#production) を参照してください。
+
+データベース プロバイダーが Turso/libSQL などの別のトークンを必要とする場合にのみ、`DATABASE_AUTH_TOKEN` を使用してください。ワークスペースの場合、すべてのアプリはデフォルトでルート `DATABASE_URL` を継承します。 1 つのアプリが別のデータベースを使用する必要がある場合は、`<APP_NAME>_DATABASE_URL` を設定します。
+
+## ワークスペースの展開: 1 つのオリジン、多数のアプリ {#workspace-deploy}
+
+プロジェクトが [workspace](/docs/multi-app-workspace) の場合、1 つのコマンドでプロジェクト内のすべてのアプリを単一のオリジンに配布できます。
+
+```bash
+npx @agent-native/core@latest deploy
+# https://your-agents.com/mail/*       → apps/mail
+# https://your-agents.com/calendar/*   → apps/calendar
+# https://your-agents.com/forms/*      → apps/forms
+```
+
+各アプリは `APP_BASE_PATH=/<name>` および `VITE_APP_BASE_PATH=/<name>` で構築され、ターゲットの Nitro プリセット用にパッケージ化されます。 Cloudflare Pages がデフォルトのプリセットで、`dist/_worker.js` で生成されたディスパッチャー ワーカーを使用します。 Netlify は、`.netlify/functions-internal/<app>-server` のアプリごとに 1 つの関数と生成されたリダイレクトを使用します。 Vercel は、ビルド出力 API を使用して、ワークスペース レベルの `.vercel/output` を書き込みます。
+
+```an-diagram title="1 つのオリジンで多数のアプリ" summary="各ワークスペース アプリは独自のベース パスを使用して構築され、単一オリジンのパス プレフィックスの下にマウントされます。そのため、ログインとクロスアプリ A2A は同じオリジンで無料です。"
+{
+  "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">設定不要のクロスアプリA2A</span></div></div>",
+  "css": ".diagram-ws{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-ws .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-ws .diagram-row{display:flex;align-items:center;gap:8px}.diagram-ws .wins{display:flex;flex-direction:column;gap:8px;align-items:flex-start}"
+}
+```
+
+同一オリジンのデプロイにより、無料で 2 つの大きなメリットが得られます:
+
+- **共有ログイン セッション** — 任意のアプリにログインすると、すべてのアプリがログインします。
+- **ゼロ構成クロスアプリ A2A** — メールからの `@calendar` のタグ付けは同一オリジンフェッチです。兄弟間での CORS、JWT 署名は禁止です。
+
+次のコマンドを使用して出力を公開します。
+
+```bash
+wrangler pages deploy dist
+```
+
+Netlify 統合デプロイの場合は、Netlify プリセットを使用します。
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+Vercel 統合デプロイの場合は、Vercel プリセットを使用します。
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+プロバイダーのビルド コマンドを構成する場合は、`--build-only` と同じコマンドを使用します。 Vercel は `npx @agent-native/core@latest deploy --preset vercel --build-only` を実行する必要があります。このコマンドは `.vercel/output` を直接書き込むため、ワークスペースのルーティングに `vercel.json` は必要ありません。
+
+ホストされたワークスペース ビルドには、デプロイ プロバイダー環境で `A2A_SECRET` が必要です。
+これにより、Slack、インバウンド webhooks、およびクロスアプリ A2A が署名を通じて作業を再開します
+バックグラウンドプロセッサ。ローカルの `--build-only` アーティファクト チェックは、これなしでも実行されます。
+
+アプリごとの独立したデプロイは引き続きサポートされています。スタンドアロンの足場と同様に `cd apps/<name> && npx @agent-native/core@latest build` のみです。
+
+## 仕組み {#how-it-works}
+
+`npx @agent-native/core@latest build` を実行すると、Nitro はクライアント SPA とサーバー API の両方を `.output/` に構築します。
+
+```an-file-tree title="ビルド出力"
+{
+  "entries": [
+    { "path": ".output/", "note": "自己完結: どの環境にもコピーして実行可能" },
+    { "path": ".output/public/", "note": "ビルド済み SPA（静的 assets）" },
+    { "path": ".output/server/index.mjs", "note": "サーバー entry point" },
+    { "path": ".output/server/chunks/", "note": "サーバーコード chunks" }
+  ]
+}
+```
+
+出力は自己完結型です。`.output/` を任意の環境にコピーして実行します。
+
+```an-diagram title="構築してデプロイする" summary="1 つのソース ツリーは Nitro プリセットにビルドされます。同じ自己完結型出力が Node、Vercel、Netlify、Cloudflare、AWS、または Deno で実行されます。すべてのインスタンスは同じ永続 DATABASE_URL を指します。"
+{
+  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>アプリソース</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>永続DATABASE_URL<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
+  "css": ".diagram-deploy{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-deploy .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-deploy .diagram-arrow{font-size:22px;line-height:1}.diagram-deploy .diagram-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}"
+}
+```
+
+## プリセットの設定 {#setting-the-preset}
+
+デフォルトでは、Nitro は Node.js 用にビルドされます。別のプラットフォームをターゲットにするには、`vite.config.ts` でプリセットを設定します。
+
+```ts
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+または、ビルド時に `NITRO_PRESET` 環境変数を使用します。
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+```
+
+## Node.js (デフォルト) {#nodejs}
+
+デフォルトのプリセット。ビルドして実行します:
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+`PORT` を設定してリッスン ポートを構成します (デフォルト: `3000`)。
+
+運用環境の展開には、現在の Node.js LTS ラインを使用します。 2026 年 5 月の時点で、
+は Node.js 24 です。 Node.js 20 は 2026 年 4 月 30 日にサポート終了となり、廃止されました
+アップストリームのセキュリティ アップデートを受け取ります。
+
+### ドッカー {#docker}
+
+```dockerfile
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+# data/ はランタイムで作成される SQLite ディレクトリです。dev DB を prod にコピーしないでください。
+# 運用環境の場合、DATABASE_URL をホストされた Postgres インスタンスまたは Turso インスタンスに設定します。
+RUN mkdir -p /app/data
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+## ヴェルセル {#vercel}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+Vercel CLI または git Push 経由でデプロイします。
+
+```bash
+vercel deploy
+```
+
+ワークスペースの場合、すべてのアプリを 1 つの Vercel Build Output API バンドルにビルドします。
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+Vercel Git デプロイメントの場合、ビルド コマンドを次のように設定します。
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel --build-only
+```
+
+ワークスペース ビルドは、各アプリの Nitro `vercel` 出力をルート `.vercel/output` にコピーし、各関数に独自のマウント パス環境を与え、`/<app-id>` でアプリを提供するルート構成を書き込みます。
+
+## Netlify {#netlify}
+
+Nitro `netlify` プリセットはうまく機能し、実際に、外部 Postgres (Neon) と通信するテンプレートの場合、Cloudflare Pages よりもはるかに高速なコールド スタート (~200 ミリ秒 TTFB 対 ~9 秒) を実現しました。 `vite.config.ts` でプリセットを設定します:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
+});
+```
+
+…またはビルド時に `NITRO_PRESET=netlify` を設定します。
+
+ワークスペースの場合、次のコマンドを実行して、1 つの Netlify サイトからすべてのアプリをデプロイします。
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+ワークスペース ビルドは、`dist/_workspace_static/` の下に静的アセットを書き込み、アセットを強制的にリダイレクトせずに各アプリを独自の Netlify 関数にルーティングします。そのため、サーバー関数がアプリのルートを処理する前に、`/mail/assets/...` のようなファイルが静的に提供されます。
+
+## Cloudflare ページ {#cloudflare-pages}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
+});
+```
+
+## AWS ラムダ {#aws-lambda}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
+});
+```
+
+## デノデプロイ {#deno-deploy}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
+});
+```
+
+## 環境変数 {#environment-variables}
+
+### ビルド / ランタイム {#env-runtime}
+
+| 変数                        | 説明                                                                                                                                                                                |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                      | サーバー ポート (Node.js のみ)                                                                                                                                                      |
+| `NITRO_PRESET`              | ビルド時にビルド プリセットをオーバーライドする                                                                                                                                     |
+| `APP_BASE_PATH`             | プレフィックス (例: `/mail`) の下でアプリをマウントします。 `npx @agent-native/core@latest deploy` によって自動的に設定されます。スタンドアロンの場合は未設定のままにしておきます。 |
+| `AGENT_PROD_CODE_EXECUTION` | オプションの実稼働コード実行モード: `off` (デフォルト)、`sandboxed`、または `trusted`。 [Production Code Execution](#production-code-execution) を参照してください。                |
+
+データベース接続変数 (`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、アプリごとの `<APP_NAME>_DATABASE_URL`) は [Database](/docs/database#production) に存在します。
+
+### 本番環境では必須 {#env-required-prod}
+
+これらは、アプリを実際の本番環境にプロモートする前に設定する必要があります。欠損値がある場合は、フェールクローズされる (フレームワークが開始を拒否する/リクエストの処理を拒否する) か、大音量の警告とともに弱い動作に戻ります。
+
+| 変数                     | 説明                                                                                                                                                                                                                                                                                                        |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`     | 32 文字以上のランダムな文字列。署名セッション Cookie AND は、`OAUTH_STATE_SECRET` および `SECRETS_ENCRYPTION_KEY` のフォールバック HMAC です。必須: 運用環境に存在しない場合、フレームワークは起動時にスローされます。                                                                                      |
+| `BETTER_AUTH_URL`        | このアプリの公開元 (例: `https://mail.example.com`)。 Cookie ドメインと OAuth リダイレクト構築に使用されます。                                                                                                                                                                                              |
+| `ANTHROPIC_API_KEY`      | 組み込み実稼働エージェントの API キー。 **マルチテナント展開**では、ユーザーがユーザーごとのキーを持っていない場合、フレームワークはこれへのフォールバックを拒否します。つまり、自分のキーを持参する必要があります。シングルテナントの自己ホスト型インストールでは、これをグローバル キーとして使用します。 |
+| `OAUTH_STATE_SECRET`     | OAuth 状態エンベロープ用の専用 HMAC キー (Google、Atlassian、Zoom)。設定を解除すると `BETTER_AUTH_SECRET` に戻りますが、一方を回転させてももう一方が無効にならないように、専用の値を使用することをお勧めします。 `openssl rand -hex 32` 経由で生成します。                                                  |
+| `A2A_SECRET`             | アプリ間 A2A JSON ～ RPC の共有 HMAC。これがないと、本番環境ではすべての A2A エンドポイントと `/_agent-native/integrations/process-task` 自己起動エンドポイントは 503 を返します。                                                                                                                          |
+| `SECRETS_ENCRYPTION_KEY` | 暗号化された保存シークレット ボールトの AES-256-GCM キー。 `BETTER_AUTH_SECRET` にフォールバックします。両方が設定されていない場合、本番環境でハード障害が発生します。                                                                                                                                      |
+
+### 認証とアイデンティティ {#env-auth}
+
+OAuth プロバイダー資格情報 (Google、GitHub)、静的 MCP ベアラー フォールバック (`ACCESS_TOKEN` / `ACCESS_TOKENS`)、および電子メール検証の切り替えについては、[Authentication](/docs/authentication) に記載されています。選択した認証モードごとに設定します。
+
+### インバウンド Webhooks {#env-webhooks}
+
+各メッセージング統合には、本番環境で独自の署名シークレットが必要です (シークレットが欠落している場合、ハンドラーは偽造リクエストでフェールクローズされます)。統合ごとの変数は、[Messaging](/docs/messaging) および [Security](/docs/security) にリストされています。ローカル開発のみの場合、`AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` は「警告して受け入れる」に戻ります。本番環境では決して設定しないでください。
+
+### セキュリティ構成 (オプトイン) {#security-config}
+
+デフォルトは厳密です。いくつかのオプトイン フラグにより​​動作が緩和されます (デバッグ スタック トレース、未検証の webhooks、ワークスペース スコープのキー フォールバック、MCP ハブのマルチ組織スイッチ、ランタイム環境変数の書き込み)。これらは、セキュリティのトレードオフとともに [Security](/docs/security) に文書化されています。特にリラックスしたパスが必要な場合を除き、設定しないでください。
+
+### ワークスペース .env の継承 {#env-inheritance}
+
+ワークスペース内では、ルート `.env` がすべてのアプリに自動的にロードされるため、`ANTHROPIC_API_KEY`、`A2A_SECRET`、`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET` などの共有キーを設定する必要があるのは 1 回だけです。アプリごとの `apps/<name>/.env` が競合に勝ちます。
+
+### 強力な秘密の生成 {#env-generate-secrets}
+
+「32 文字以上のランダム」とマークされたシークレット (`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET`、`A2A_SECRET`、`SECRETS_ENCRYPTION_KEY`) については、次のコマンドを使用して新しい値を生成します。
+
+```bash
+openssl rand -hex 32
+```
+
+すべてのインスタンスの環境変数を置き換えて再デプロイすることで、エンベロープをローテーションします。古いキーで署名されたセッション/OAuth 状態エンベロープは無効になるため、ユーザーは再度サインインする必要がある場合があります。
+
+## 本番エージェント ツール {#production-agent-tools}
+
+運用エージェントは、アプリの登録済み actions とフレームワーク ツールを次のサイトから取得します
+エージェント チャット プラグイン。 raw DB
+ツールのスコープは認証されたユーザー/組織に限定されますが、アプリ所有者は範囲を狭めることができます
+展開にもっと独自性を持たせる必要がある場合に浮上します:
+
+```ts
+// server/plugins/agent-chat.ts
+export default createAgentChatPlugin({
+  // Default: "write" (also true)
+  databaseTools: "read", // "write" | "read" | "off"
+  extensionTools: false,
+});
+```
+
+- `databaseTools: "write"` — デフォルト。 `db-schema`、`db-query`、
+  `db-exec`、および `db-patch`。書き込みの範囲は現在のユーザー/組織に限定されます。
+  スキーマの変更はブロックされます。
+- `databaseTools: "read"` — `db-schema` および `db-query` のみを登録します。エージェント
+  SQL を使用してデータを検査しますが、書き込みには型付きアプリ actions を使用する必要があります。
+- `databaseTools: "off"` または `false` — 生のデータベース ツールを
+  エージェント サーフェスのため、アプリの actions が唯一のデータ アクセス パスになります。
+- `extensionTools: false` — フレームワーク拡張管理 actions を削除し、
+  次のようなアプリに対するプロンプト ガイダンス (`create-extension`、`update-extension` など)
+  エージェントがサンドボックス化されたミニアプリを作成することを望まない。
+
+## 本番コードの実行 {#production-code-execution}
+
+デフォルトでは、実稼働エージェントはコード実行ツールなしで実行されます。アプリ actions、データベース ツール、MCP ツール、ブラウザ/セッション ツール、その他の登録されたフレームワーク ツールを呼び出すことはできますが、シェルやファイルシステムにはアクセスできません。
+
+ノード互換のデプロイメントでは、エージェント チャット プラグインまたは環境オーバーライドを通じて実稼働コードの実行を選択できます。
+
+```ts
+// server/plugins/agent-chat.ts
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+使用可能なモードは次のとおりです:
+
+- `off` — デフォルト。コード実行ツールは実稼働環境に登録されていません。
+- `sandboxed` — `run-code`、スクラブされた環境を備えた分離された Node.js JavaScript ランナー、新しい一時ディレクトリ、出力/時間制限、ローカルホスト ブリッジを、`provider-api-request`、`provider-api-docs`、`provider-api-catalog`、`web-request` などの許可リストに登録された登録ツール、およびリソースにバックアップされたワークスペースに登録します。 `workspaceRead` / `workspaceWrite` で使用されるファイル ブリッジ。
+- `trusted` — `run-code` と完全なコーディング ツール レジストリ (`bash`、`read`、`edit`、`write`) を登録します。これは、ホストへの完全なシェル アクセスが意図的に行われるシングル テナントまたはオペレータ制御の展開にのみ使用してください。
+
+コードを変更せずに特定のデプロイメントのプラグイン オプションをオーバーライドするには、`AGENT_PROD_CODE_EXECUTION=sandboxed` または `AGENT_PROD_CODE_EXECUTION=trusted` を設定します。 `AGENT_PROD_CODE_EXECUTION=off` は、プラグイン オプションで有効になっている場合でもコードの実行を強制的にオフにします。
+
+`run-code` サンドボックスはプロセス レベルの分離であり、OS コンテナーではありません。子プロセス環境からアプリのシークレットを削除し、利用可能な場合はノードのアクセス許可モデルを使用しますが、送信ネットワークはノード自体によってブロックされません。認証された呼び出しは、ツールが公開するブリッジ ヘルパーを経由する必要があります。
+
+## 本番環境での UI の更新 {#updating-ui-in-production}
+
+エージェント ネイティブの中核機能の 1 つは、エージェントがアプリのソース コード (コンポーネント、ルート、スタイル、actions) を変更できることです。ローカル開発中は、エージェントがファイルシステムに完全にアクセスできるため、これはシームレスに機能します。
+
+[production code execution](#production-code-execution) をオフにした標準的な運用環境では、エージェントはアプリ ツール (actions、データベース、MCP) にはアクセスできますが、ファイル システムにはアクセスできません。つまり、エージェントはデータの読み取りと書き込み、actions の実行、および外部サービスとの対話が可能ですが、React コンポーネントを編集したり、デプロイされたインスタンスに新しいルートを追加したりすることはできません。
+
+### Builder.io: 本番環境でのビジュアル編集 {#builderio}
+
+[Builder.io](https://www.builder.io) は、エージェントが運用環境でアプリの UI を変更できる機能を保持するマネージド クラウド環境を提供することで、この問題を解決します。リポジトリを Builder.io に接続し、UI の変更を直接要求します。再デプロイは必要ありません。
+
+**仕組み:**
+
+1. エージェントネイティブ リポジトリを Builder.io に接続します
+2. Builder.io は、エージェント、ビジュアル編集、リアルタイム コラボレーションを備えたクラウド フレームを提供します
+3. エージェントに UI 変更を行うよう促します。コンポーネント、ルート、スタイルはライブで編集されます
+4. 変更はリポジトリにコミットされます
+
+埋め込みエージェント パネルとクラウド フレーム オプションの詳細については、[Frames](/docs/frames) を参照してください。
+
+## マルチインスタンスの展開 {#multi-instance}
+
+エージェント ネイティブ アプリは、Drizzle 経由ですべての状態を SQL に保存し、[polling](/docs/key-concepts#polling-sync) 経由で UI をデータベースと同期します。ファイル システムの状態、スティッキー セッション、メモリ内キャッシュはありません。つまり、マルチインスタンスおよびサーバーレスのデプロイメントはすぐに機能し、すべてのインスタンスを同じ `DATABASE_URL` にポイントすると、それらは自動的に収束します。 [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) および [Portability](/docs/key-concepts#hosting-agnostic) を参照してください。

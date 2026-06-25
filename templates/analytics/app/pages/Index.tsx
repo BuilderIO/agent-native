@@ -1,6 +1,6 @@
+import { callAction } from "@agent-native/core/client";
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
-import { callAction } from "@agent-native/core/client";
 
 export default function Index() {
   const navigate = useNavigate();

@@ -1,0 +1,281 @@
+---
+title: "Skills指南"
+description: "skills 如何在代理原生中工作：框架 skills、域 skills 以及创建自定义 skills。"
+---
+
+# Skills指南
+
+Skills 是 Markdown 文件，可让代理深入了解特定模式和工作流程。
+
+## skills是什么 {#what-are-skills}
+
+Skills 位于 `.agents/skills/<name>/SKILL.md`，包含针对代理的详细指导。每项技能都专注于一个问题 - 如何存储数据、如何同步状态、如何将工作委托给代理聊天。
+
+每个技能的 frontmatter `name` 和 `description` 总是被注入到系统提示符的 skills 块中，以便代理知道 skills 存在什么。当代理确定技能与任务相关时，会按需加载完整的技能主体（也通过 `docs-search` 显示）。这就是为什么保持描述简短且特定于触发器很重要：描述是代理在决定是否加载其余部分之前读取的唯一内容。
+
+```an-diagram title="渐进式披露" summary="只有每个技能的名称+描述始终处于上下文中。当任务匹配时，全身会按需加载。"
+{
+  "html": "<div class=\"sk-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">始终在系统提示中</span><div class=\"sk-list\"><span class=\"diagram-pill\">storing-data &mdash; <small class=\"diagram-muted\">add data models&hellip;</small></span><span class=\"diagram-pill\">real-time-sync &mdash; <small class=\"diagram-muted\">wire polling&hellip;</small></span><span class=\"diagram-pill\">create-skill &mdash; <small class=\"diagram-muted\">add a skill&hellip;</small></span></div><small class=\"diagram-muted\">just name + description (cheap)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><small class=\"diagram-muted\">task matches a description</small><span class=\"diagram-pill accent\">load on demand</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Full <code>SKILL.md</code> body<br><small class=\"diagram-muted\">规则、代码、应该做和不要做</small></div></div>",
+  "css": ".sk-flow{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.sk-flow .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:240px}.sk-flow .sk-list{display:flex;flex-direction:column;gap:6px}.sk-flow .center{display:flex;flex-direction:column;align-items:center;gap:6px}.sk-flow .diagram-arrow{font-size:22px}"
+}
+```
+
+## 框架skills {#framework-skills}
+
+这些是与 **默认模板** 捆绑在一起的 skills。任何给定应用程序中可用的确切集合取决于您构建的模板 - 检查该模板的 `.agents/skills/` 目录以了解它实际提供的内容。
+
+| 技能                   | 何时使用                                      |
+| ---------------------- | --------------------------------------------- |
+| `storing-data`         | 添加数据模型，读/写配置或状态                 |
+| `real-time-sync`       | 接线轮询同步，调试UI不更新                    |
+| `delegate-to-agent`    | 将 AI 工作从 UI 或 actions 委托给代理         |
+| `actions`              | 创建或运行代理actions                         |
+| `self-modifying-code`  | 编辑应用源、组件或样式                        |
+| `create-skill`         | 为代理添加新的 skills                         |
+| `capture-learnings`    | 记录更正和模式                                |
+| `frontend-design`      | 构建或设计任何 Web UI、组件或页面的样式       |
+| `adding-a-feature`     | 四个区域清单：UI、actions、skills、应用状态   |
+| `internationalization` | 更新本地化的 UI 副本、语言目录和 RTL 安全样式 |
+| `shadcn-ui`            | 使用 shadcn/ui 原语和组件                     |
+| `security`             | 身份验证、访问控制和秘密处理                  |
+| `real-time-collab`     | 多用户协作编辑                                |
+| `agent-engines`        | 交换或配置底层代理引擎                        |
+| `notifications`        | 应用内和推送通知模式                          |
+| `progress`             | 跟踪和显示后台任务进度                        |
+| `inline-embeds`        | 在代理聊天中嵌入应用程序或 iframe             |
+
+`context-awareness` 和 `a2a-protocol` 是框架级 skills，位于存储库根目录的 `.agents/skills/` 目录中 - 请参阅每个模板自己的 `.agents/skills/` 了解其继承的内容。
+
+## 域名skills {#domain-skills}
+
+模板包括特定于其域的 skills。它们位于相同的 `.agents/skills/` 目录中，但涵盖了特定于模板的模式。请参阅每个模板的 `.agents/skills/` 目录以获取完整列表；代表性样本：
+
+- **邮件模板** — `email-drafts`、`draft-queue`
+- **表单模板** — `form-building`、`form-publishing`、`form-responses`
+- **分析模板** — `adhoc-analysis`、`bigquery`、`cross-source-analysis`、`dashboard-management`、`data-querying`、`provider-api`、`gong`、`hubspot`、`prometheus`
+- **幻灯片模板** — `create-deck`、`deck-management`、`design-systems`、`slide-editing`、`slide-images`
+
+域 skills 遵循与框架 skills 相同的格式。它们对代理需要遵循的特定模板的模式进行编码。
+
+## 应用程序支持的 skills {#app-backed-skills}
+
+应用程序支持的 skills 将代理本机应用程序打包为技能市场工件。该捆绑包可以包含代理指令、导出的 skills、MCP 连接器元数据、托管/本地启动指令和 UI 表面（例如 MCP 应用程序）。
+
+> **完整详细信息如下：** [App-backed skills — full details](#app-backed-skills-full) 中介绍了应用程序支持的 skills 的机制（清单格式、CLI 命令、市场适配器、自动更新哈希）。
+
+## 创建自定义 skills {#creating-skills}
+
+在以下情况下创建技能：
+
+- 代理应该重复遵循一个模式
+- 工作流程需要分步指导
+- 您想要从模板中构建文件
+
+在以下情况下不要创建技能：
+
+- 该指导已存在于另一项技能中 - 请扩展它
+- 该指导是一次性的 - 将其放入 `AGENTS.md` 或工作区内存中
+
+## 技能格式 {#skill-format}
+
+每个技能都是一个 Markdown 文件，其 frontmatter 为 YAML：
+
+```an-annotated-code title="SKILL.md 的剖析"
+{
+  "filename": ".agents/skills/project-imports/SKILL.md",
+  "language": "markdown",
+  "code": "---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import",
+  "annotations": [
+    { "lines": "2", "label": "发现钥匙", "note": "The `name` matches the folder; it is how the skill is invoked as `/project-imports`." },
+    { "lines": "3-5", "label": "触发器", "note": "这个 `description` 是始终处于上下文中的**唯一**文本。准确地说明该技能“何时”应用。" },
+    { "lines": "9-14", "label": "规则第一", "note": "Lead with the hard rule and the why; the agent reads the body only once the task matches." },
+    { "lines": "27-30", "label": "交联", "note": "指出相关技能，以便代理可以将它们链接起来，而不是重新得出指导。" }
+  ]
+}
+```
+
+frontmatter `name` 和 `description` 由代理的工具系统用于技能发现。描述应说明技能何时触发——具体说明具体情况。
+
+将文件保存在 `.agents/skills/my-skill/SKILL.md`。目录名称应与 frontmatter 中的 `name` 匹配。
+
+> **另请参阅：** [Writing Agent Instructions](/docs/writing-agent-instructions) 了解如何措辞技能描述、应用渐进式披露以及保持 `AGENTS.md` 的精简。两个页面均使用 `project-imports` 技能作为运行示例。
+
+## 技能范围：运行时与开发 {#skill-scope}
+
+可选的 `scope` frontmatter 字段控制技能适用于哪个代理：
+
+| `scope`   | 由运行时代理加载？ | 用于                                                       |
+| --------- | ------------------ | ---------------------------------------------------------- |
+| `both`    | 是（默认）         | Skills 对于应用内代理有用。当省略 `scope` 时，这是默认值。 |
+| `runtime` | 是                 | Skills 仅适用于应用内运行时代理。                          |
+| `dev`     | 否                 | Skills 仅适用于人类的编码代理（例如 Claude 代码）。        |
+
+```markdown
+---
+name: release-checklist
+description: >-
+  Steps for cutting a release. Use when preparing or publishing a new version.
+scope: dev
+---
+```
+
+当 `scope` 不存在（或设置为无法识别的值）时，它默认为 `both`，因此每个现有技能都会在运行时加载 - 该字段完全向后兼容。 `scope: dev` 技能对于任何地方的运行时代理都是不可见的：它被排除在注入系统提示符的 skills 块和 `docs-search` 结果之外。
+
+### 向您的编码代理公开仅限开发的技能 {#dev-only-skills}
+
+代理本机运行时从 `.agents/skills/` 读取 skills。 Claude 代码独立从 `.claude/skills/` 读取 skills。要使编码代理可用但对运行时代理隐藏的技能：
+
+- 将其标记为 `.agents/skills/<name>/SKILL.md` 中的 `scope: dev`，以便运行时代理永远不会加载它，和/或
+- 将技能放置或镜像到 `.claude/skills/<name>/SKILL.md` 下，以便 Claude 代码拾取它。
+
+这取代了依赖 Claude 代码仅读取 `.claude/skills` 的旧技巧 - `scope: dev` 使开发与运行时分割成为一流的显式选择。
+
+```an-diagram title="哪个代理加载哪个技能" summary="范围决定应用程序内运行时代理是否看到技能。开发技能仅对您的编码代理可见。"
+{
+"html": "<div class=\"sc-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill\">.agents/skills/</span><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: both</span><small class=\"diagram-muted\">default</small></div><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: runtime</span></div><div class=\"sc-row\"><span class=\"diagram-pill warn\">scope: dev</span></div></div><div class=\"sc-targets\"><div class=\"diagram-box\">Runtime agent<br><small class=\"diagram-muted\">reads <code>both</code> + <code>runtime</code></small></div><div class=\"diagram-box\">编码 Agent<br><small class=\"diagram-muted\">Claude Code reads <code>.claude/skills/</code> + <code>dev</code></small></div></div></div>",
+"css": ".sc-grid{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}.sc-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.sc-grid .sc-row{display:flex;align-items:center;gap:8px}.sc-grid .sc-targets{display:flex;flex-direction:column;gap:10px}"
+}
+
+```
+
+> **另请参阅：** [Writing Agent Instructions](/docs/writing-agent-instructions) 了解如何措辞技能描述、应用渐进式披露以及保持 `AGENTS.md` 精简。
+
+## Skills vs AGENTS.md {#skills-vs-agents-md}
+
+> **AGENTS.md** — 概述。列出所有脚本，描述数据模型，解释应用程序架构。代理首先阅读此内容以了解应用程序。
+>
+> **Skills** — 深入研究。每项技能都侧重于一种模式，并包含详细规则、代码示例和“注意事项”列表。当代理需要遵循特定模式时，它会读取这些内容。
+
+`AGENTS.md` 告诉代理应用程序的用途。 Skills 告诉代理*如何*正确地做特定的事情。两者都是必需的 - `AGENTS.md` 用于定向，skills 用于执行。
+
+## Skills 与内存 {#skills-vs-memory}
+
+> **Skills** — 编写的、可重复使用的操作指南。适用于每个用户，在任务匹配时按需调用。
+>
+> **内存 (`LEARNINGS.md` / `memory/MEMORY.md`)** — 共享项目学习和每轮都会加载的个人结构化内存。
+
+如果这些知识适用于在应用程序中工作的*每个人*（“总是更喜欢 CTE 而不是子查询”），那么它就是一项技能或共享的 `LEARNINGS.md`。如果它是关于*这个特定用户*（“史蒂夫喜欢简洁的答案”），它就属于 `memory/MEMORY.md`。完整治疗请参见[Workspace Memory](/docs/workspace#memory)。
+
+---
+
+# 高级
+
+## 应用程序支持的 skills — 完整详细信息 {#app-backed-skills-full}
+
+应用程序支持的 skills 将代理本机应用程序打包为技能市场工件。
+捆绑包可以包含代理指令、导出的 skills、MCP 连接器
+元数据、托管/本地启动说明和 UI 界面，例如 MCP 应用程序。
+
+每个应用程序支持的技能都以应用程序根目录中的 `agent-native.app-skill.json` 开头：
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "assets",
+  "hosted": {
+    "url": "https://assets.agent-native.com",
+    "mcpUrl": "https://assets.agent-native.com/_agent-native/mcp"
+  },
+  "mcp": { "serverName": "agent-native-assets" },
+  "skills": [
+    {
+      "path": ".agents/skills/asset-generation",
+      "visibility": "both",
+      "exportAs": "assets"
+    }
+  ]
+}
+```
+
+技能可见性控制运送的内容：
+
+| 可见度     | 含义                                 |
+| ---------- | ------------------------------------ |
+| `internal` | 由应用自己的代理使用，不导出到市场。 |
+| `exported` | 导出到市场，但应用内部不需要。       |
+| `both`     | 内部使用并导出。                     |
+
+Hosted 是默认安装路径。本地启动是明确的定制，
+离线工作，或隐私敏感的使用。
+
+```bash
+# 愉快的路径：导出的指令加上托管的 MCP 连接器。
+npx @agent-native/core@latest skills add visual-plan
+npx @agent-native/core@latest skills add assets
+
+# 回购优先内容 docs/blog/MDX 编辑。
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+
+# Vercel/open技能CLI：仅导出指令，无MCP配置。
+npx skills@latest add BuilderIO/agent-native --skill assets
+
+# 为本地代理客户端注册托管 MCP 连接器。
+npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
+
+# 实现并运行可编辑的本地源。
+npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
+
+# 构建市场适配器：Codex 插件、Claude 市场、Vercel 技能、
+# plain/Claude技能和MCP配置。
+npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
+
+# 使用 Vercel/open 技能 CLI 安装本地导出的包。
+npx skills@latest add ./dist/assets-skill --skill assets -a codex -y
+
+# 添加生成的 Claude Code 市场，然后安装其 Assets 插件。
+claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace
+claude plugin install agent-native-assets@agent-native-apps
+```
+
+对技能文件保密。清单应包含仅 URL 连接器
+元数据； OAuth/设备设置发生在 MCP 主机中或通过应用程序的正常设置
+设置流程。
+
+Vercel Labs `skills` 适配器是便携式 `skills/<name>/SKILL.md` 捆绑包
+适用于 `npx skills@latest add ...`，但原始 `skills` CLI 仅安装说明。
+它不运行存储库定义的安装后脚本或注册 MCP 连接器。
+将 Agent Native CLI 保留为本地代理的默认文档路径，因为它
+还注册 MCP 连接器。 `BuilderIO/agent-native`是真正的GitHub
+Vercel/open Skills CLI 的存储库源； `skills.sh` 是一个发现，并且
+排行榜目录，而不是npm风格的包命名空间。
+
+Claude 代码市场适配器写入
+`adapters/claude-marketplace/.claude-plugin/marketplace.json` 加一个嵌套
+包含 `skills/<name>/SKILL.md` 和 `.mcp.json` 的插件目录。在Claude
+编码，添加市场，安装`agent-native-assets@agent-native-apps`，
+重新加载插件，然后从 `/mcp` 验证仅限 URL 的 MCP 连接器。
+
+生成的插件清单设置为自动更新：Claude 代码
+市场入口集 `autoUpdate: true`（带有 commit-SHA 版本控制）和
+Codex 插件 `version` 嵌入捆绑的 skills 和 MCP 的内容哈希
+端点，因此安装的插件无需重新打包即可获取技能更改。
+计划应用程序以这种方式发布为存储库根目录中的可随时添加的市场 —
+请参阅 [Plan plugin & marketplace](/docs/plan-plugin) 以了解端到端安装
+和自动更新流程。
+
+对于通过通用CLI而不是安装复制的skills的用户
+插件市场，使用CLI新鲜度命令：
+
+```bash
+npx @agent-native/core@latest skills status visual-plan
+npx @agent-native/core@latest skills update visual-plan
+```
+
+`skills update` 扫描已知的 Codex/Claude 项目和用户技能文件夹，进行比较
+将文件夹哈希复制到最新的捆绑技能，并重写旧文件夹
+地点。新复制的 Agent Native skills 包括 `agent-native-skill.json`
+标记，以便将来的状态输出可以识别源和哈希值。
+
+生成的 Agent Native 应用程序和工作区还包括框架提供的
+`.agents/skills` 下的 skills（或 `packages/shared/.agents/skills` 中的
+工作区）。使用以下命令从当前/最新的 CLI 刷新那些支架 skills：
+
+```bash
+npm run skills:update
+# 或者，不依赖本地包脚本：
+npx @agent-native/core@latest skills update scaffold --project
+```
+
+`AGENTS.md` 和 `.agents/skills` 保持规范。更新命令还可以修复
+Claude 兼容性链接（`CLAUDE.md` 和 `.claude/skills`），因此 Claude 代码可见
+相同的说明，无需维护第二个副本。

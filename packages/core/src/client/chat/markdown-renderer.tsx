@@ -2,6 +2,12 @@
 // HighlightedCodeBlock wrapper, and the markdownComponents/markdownUrlTransform
 // used by every markdown render path in AssistantChat.
 
+import {
+  useThread,
+  useMessageRuntime,
+  useMessagePartText,
+} from "@assistant-ui/react";
+import { IconPlus, IconExternalLink } from "@tabler/icons-react";
 import React, {
   useState,
   useEffect,
@@ -9,15 +15,12 @@ import React, {
   useMemo,
   useRef,
 } from "react";
-import {
-  useThread,
-  useMessageRuntime,
-  useMessagePartText,
-} from "@assistant-ui/react";
 // react-markdown + remark-gfm type imports only — loaded lazily below.
 import type { default as ReactMarkdownType } from "react-markdown";
 import type { defaultUrlTransform as DefaultUrlTransformType } from "react-markdown";
 import type remarkGfmType from "remark-gfm";
+
+import { splitMarkdownBlocks } from "../../shared/markdown-block-split.js";
 import {
   initialSmoothStreamingGraphemeCount,
   SMOOTH_STREAMING_COMMIT_INTERVAL_MS,
@@ -25,15 +28,13 @@ import {
   smoothStreamingRevealCount,
   splitStreamingTextGraphemes,
 } from "../../shared/streaming-text-smoothing.js";
-import { splitMarkdownBlocks } from "../../shared/markdown-block-split.js";
-import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
-import { IframeEmbed, parseEmbedBody } from "../IframeEmbed.js";
-import { cn } from "../utils.js";
 import {
   NEW_CHAT_ACTION_HREF,
   BUILDER_SPACE_SETTINGS_URL,
 } from "../error-format.js";
-import { IconPlus, IconExternalLink } from "@tabler/icons-react";
+import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
+import { IframeEmbed, parseEmbedBody } from "../IframeEmbed.js";
+import { cn } from "../utils.js";
 
 // ─── Lazy markdown loader ────────────────────────────────────────────────────
 // react-markdown + remark-gfm are deferred so they stay off the critical path

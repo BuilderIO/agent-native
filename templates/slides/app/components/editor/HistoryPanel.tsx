@@ -1,11 +1,12 @@
-import { useMemo, useState, type RefObject } from "react";
+import { useT } from "@agent-native/core/client";
 import {
   IconArrowLeft,
   IconHistory,
   IconLoader2,
   IconRestore,
 } from "@tabler/icons-react";
-import type { Slide } from "@/context/DeckContext";
+import { useMemo, useState, type RefObject } from "react";
+
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -18,13 +19,15 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { toast } from "@/hooks/use-toast";
+import type { Slide } from "@/context/DeckContext";
 import {
   useDeckVersion,
   useDeckVersions,
   useRestoreDeckVersion,
 } from "@/hooks/use-deck-versions";
+import { toast } from "@/hooks/use-toast";
 import type { AspectRatio } from "@/lib/aspect-ratios";
+
 import type { DeckVersionSummary } from "../../../shared/api";
 
 interface HistoryPanelProps {
@@ -35,23 +38,28 @@ interface HistoryPanelProps {
   anchorRef?: RefObject<HTMLButtonElement | null>;
 }
 
-function formatRelativeTime(dateStr: string): string {
+type Translate = ReturnType<typeof useT>;
+
+function formatRelativeTime(dateStr: string, translate: Translate): string {
   const then = new Date(dateStr).getTime();
-  if (!Number.isFinite(then)) return "Unknown time";
+  if (!Number.isFinite(then)) return translate("history.unknownTime");
   const diffMs = Date.now() - then;
   const diffMin = Math.floor(diffMs / 60_000);
   const diffHr = Math.floor(diffMs / 3_600_000);
   const diffDay = Math.floor(diffMs / 86_400_000);
 
-  if (diffMin < 1) return "Just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
-  if (diffDay < 7) return `${diffDay}d ago`;
+  if (diffMin < 1) return translate("history.justNow");
+  if (diffMin < 60) return translate("history.minutesAgo", { count: diffMin });
+  if (diffHr < 24) return translate("history.hoursAgo", { count: diffHr });
+  if (diffDay < 7) return translate("history.daysAgo", { count: diffDay });
   return new Date(dateStr).toLocaleDateString();
 }
 
-function slideLabel(version: Pick<DeckVersionSummary, "slideCount">): string {
-  return `${version.slideCount} slide${version.slideCount === 1 ? "" : "s"}`;
+function slideLabel(
+  version: Pick<DeckVersionSummary, "slideCount">,
+  translate: Translate,
+): string {
+  return translate("history.slideCount", { count: version.slideCount });
 }
 
 function normalizeSlides(slides: DeckVersionSummary["slidePreviews"]): string {
@@ -67,6 +75,7 @@ export default function HistoryPanel({
   onOpenChange,
   canRestore = true,
 }: HistoryPanelProps) {
+  const t = useT();
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
     null,
   );
@@ -99,17 +108,17 @@ export default function HistoryPanel({
         versionId: selectedVersionId,
       });
       toast({
-        title: "Version restored",
-        description: "The deck was rolled back to the selected snapshot.",
+        title: t("history.versionRestored"),
+        description: t("history.versionRestoredDescription"),
       });
       handleClose(false);
     } catch (error) {
       toast({
-        title: "Restore failed",
+        title: t("history.restoreFailed"),
         description:
           error instanceof Error
             ? error.message
-            : "Could not restore this deck version.",
+            : t("history.restoreFailedDescription"),
         variant: "destructive",
       });
     }
@@ -127,17 +136,17 @@ export default function HistoryPanel({
                 className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
               >
                 <IconArrowLeft size={15} />
-                <span>Back to saved versions</span>
+                <span>{t("history.backToSavedVersions")}</span>
               </button>
             ) : (
               <>
                 <IconHistory size={16} className="text-[#609FF8]" />
-                <span>Saved versions</span>
+                <span>{t("history.savedVersions")}</span>
               </>
             )}
           </SheetTitle>
           <SheetDescription className="sr-only">
-            Browse saved deck versions and restore a previous snapshot.
+            {t("history.description")}
           </SheetDescription>
         </SheetHeader>
 
@@ -154,12 +163,12 @@ export default function HistoryPanel({
               ) : (
                 <>
                   <p className="truncate text-sm font-medium">
-                    {selectedVersion?.title || "Untitled"}
+                    {selectedVersion?.title || t("history.untitled")}
                   </p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {selectedVersion
-                      ? `${new Date(selectedVersion.createdAt).toLocaleString()} · ${slideLabel(selectedVersion)}`
-                      : "Snapshot unavailable"}
+                      ? `${new Date(selectedVersion.createdAt).toLocaleString()} · ${slideLabel(selectedVersion, t)}`
+                      : t("history.snapshotUnavailable")}
                   </p>
                 </>
               )}
@@ -187,13 +196,13 @@ export default function HistoryPanel({
                         className="border border-border bg-black"
                       />
                       <p className="mt-1.5 truncate text-[11px] text-muted-foreground">
-                        Slide {index + 1}
+                        {t("history.slideNumber", { number: index + 1 })}
                       </p>
                     </div>
                   ))
                 ) : (
                   <div className="col-span-full py-12 text-center text-xs text-muted-foreground">
-                    No slides in this snapshot.
+                    {t("history.noSlidesInSnapshot")}
                   </div>
                 )}
               </div>
@@ -212,7 +221,7 @@ export default function HistoryPanel({
                   ) : (
                     <IconRestore size={15} className="mr-1.5" />
                   )}
-                  Restore this version
+                  {t("history.restoreThisVersion")}
                 </Button>
               </div>
             ) : null}
@@ -241,14 +250,14 @@ export default function HistoryPanel({
                         <div className="min-w-0 flex-1">
                           <div className="flex min-w-0 items-center gap-2">
                             <p className="truncate text-sm font-medium">
-                              {version.title || "Untitled"}
+                              {version.title || t("history.untitled")}
                             </p>
                             <span className="flex-shrink-0 text-[10px] text-muted-foreground">
-                              {slideLabel(version)}
+                              {slideLabel(version, t)}
                             </span>
                           </div>
                           <p className="mt-0.5 text-[11px] text-muted-foreground">
-                            {formatRelativeTime(version.createdAt)}
+                            {formatRelativeTime(version.createdAt, t)}
                             {version.label ? ` · ${version.label}` : ""}
                           </p>
                           {preview ? (
@@ -268,9 +277,11 @@ export default function HistoryPanel({
                   size={24}
                   className="mx-auto mb-3 text-muted-foreground/60"
                 />
-                <p className="text-sm font-medium">No saved versions yet</p>
+                <p className="text-sm font-medium">
+                  {t("history.noSavedVersions")}
+                </p>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Versions are saved automatically before future deck edits.
+                  {t("history.noSavedVersionsDescription")}
                 </p>
               </div>
             )}

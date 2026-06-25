@@ -1,11 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
 import type { ActionEntry } from "../agent/production-agent.js";
-import { closeDbExec } from "../db/client.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+import { closeDbExec, getDbExec } from "../db/client.js";
 import { createAgentNativeEmbeddedPlugin } from "./embedded.js";
+import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -116,6 +118,13 @@ describe("embedded Agent-Native host fixture", () => {
   });
 
   it("mounts host auth, managed SQL routes, actions, browser sessions, and extensions", async () => {
+    let currentUser = {
+      userId: "host-user-1",
+      email: "alice@host.test",
+      name: "Alice Host",
+      orgId: "host-org-1",
+      orgRole: "admin",
+    };
     const actions: Record<string, ActionEntry> = {
       "host-echo": {
         tool: {
@@ -135,13 +144,7 @@ describe("embedded Agent-Native host fixture", () => {
     const nitroApp = createNitroApp();
     const plugin = createAgentNativeEmbeddedPlugin({
       databaseUrl: `file:${join(tempDir, "embedded.db")}`,
-      auth: async () => ({
-        userId: "host-user-1",
-        email: "alice@host.test",
-        name: "Alice Host",
-        orgId: "host-org-1",
-        orgRole: "admin",
-      }),
+      auth: async () => currentUser,
       actions,
       agentChat: {
         appId: "embedded-fixture",
@@ -238,6 +241,20 @@ describe("embedded Agent-Native host fixture", () => {
     const extensionId = (created.body as { id: string }).id;
 
     await expect(
+      dispatch(nitroApp, `/_agent-native/extensions/${extensionId}`, {
+        method: "PUT",
+        headers: { "X-Agent-Native-CSRF": "1" },
+        body: { visibility: "org" },
+      }),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        id: extensionId,
+        visibility: "org",
+      },
+    });
+
+    await expect(
       dispatch(
         nitroApp,
         `/_agent-native/extensions/data/${extensionId}/notes`,
@@ -275,5 +292,247 @@ describe("embedded Agent-Native host fixture", () => {
         data: JSON.stringify({ text: "Shared org note" }),
       }),
     ]);
+
+    currentUser = {
+      userId: "host-user-2",
+      email: "viewer@host.test",
+      name: "Viewer Host",
+      orgId: "host-org-1",
+      orgRole: "member",
+    };
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes?scope=org`,
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: [
+        expect.objectContaining({
+          id: "content-1",
+          data: JSON.stringify({ text: "Shared org note" }),
+        }),
+      ],
+    });
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes`,
+        {
+          method: "POST",
+          headers: { "X-Agent-Native-CSRF": "1" },
+          body: {
+            id: "viewer-write",
+            scope: "org",
+            data: { text: "Should be rejected" },
+          },
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 403,
+      body: {
+        error: expect.stringContaining("Requires editor role"),
+      },
+    });
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes/content-1?scope=org`,
+        {
+          method: "DELETE",
+          headers: { "X-Agent-Native-CSRF": "1" },
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 403,
+      body: {
+        error: expect.stringContaining("Requires editor role"),
+      },
+    });
+
+    const afterViewerDelete = await dispatch(
+      nitroApp,
+      `/_agent-native/extensions/data/${extensionId}/notes?scope=org`,
+    );
+    expect(afterViewerDelete.status).toBe(200);
+    expect(afterViewerDelete.body).toEqual([
+      expect.objectContaining({
+        id: "content-1",
+        data: JSON.stringify({ text: "Shared org note" }),
+      }),
+    ]);
+
+    await getDbExec().execute({
+      sql: `INSERT INTO tool_shares (id, resource_id, principal_type, principal_id, role, created_by, created_at)
+        VALUES (?, ?, 'user', ?, 'editor', ?, datetime('now'))`,
+      args: [
+        "embedded-extension-editor-share",
+        extensionId,
+        "editor@host.test",
+        "alice@host.test",
+      ],
+    });
+    currentUser = {
+      userId: "host-user-3",
+      email: "editor@host.test",
+      name: "Editor Host",
+      orgId: "host-org-1",
+      orgRole: "member",
+    };
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes`,
+        {
+          method: "POST",
+          headers: { "X-Agent-Native-CSRF": "1" },
+          body: {
+            id: "editor-write",
+            scope: "org",
+            data: { text: "Editor write" },
+          },
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        id: "editor-write",
+        extensionId,
+        scope: "org",
+        orgId: "host-org-1",
+      },
+    });
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes/editor-write?scope=org`,
+        {
+          method: "DELETE",
+          headers: { "X-Agent-Native-CSRF": "1" },
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: { ok: true },
+    });
+
+    await getDbExec().execute({
+      sql: `INSERT INTO tool_shares (id, resource_id, principal_type, principal_id, role, created_by, created_at)
+        VALUES (?, ?, 'user', ?, 'admin', ?, datetime('now'))`,
+      args: [
+        "embedded-extension-admin-share",
+        extensionId,
+        "admin@host.test",
+        "alice@host.test",
+      ],
+    });
+    currentUser = {
+      userId: "host-user-4",
+      email: "admin@host.test",
+      name: "Admin Host",
+      orgId: "host-org-1",
+      orgRole: "member",
+    };
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes`,
+        {
+          method: "POST",
+          headers: { "X-Agent-Native-CSRF": "1" },
+          body: {
+            id: "admin-write",
+            scope: "org",
+            data: { text: "Admin write" },
+          },
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        id: "admin-write",
+        extensionId,
+        scope: "org",
+      },
+    });
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes/admin-write?scope=org`,
+        {
+          method: "DELETE",
+          headers: { "X-Agent-Native-CSRF": "1" },
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: { ok: true },
+    });
+
+    currentUser = {
+      userId: "host-user-5",
+      email: "stranger@other.test",
+      name: "Stranger Host",
+      orgId: "other-org-1",
+      orgRole: "member",
+    };
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes?scope=org`,
+      ),
+    ).resolves.toMatchObject({
+      status: 404,
+      body: { error: "Extension not found" },
+    });
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes`,
+        {
+          method: "POST",
+          headers: { "X-Agent-Native-CSRF": "1" },
+          body: {
+            id: "stranger-write",
+            scope: "org",
+            data: { text: "Should be rejected" },
+          },
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 404,
+      body: { error: "Extension not found" },
+    });
+
+    currentUser = {
+      userId: "host-user-1",
+      email: "alice@host.test",
+      name: "Alice Host",
+      orgId: "host-org-1",
+      orgRole: "admin",
+    };
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes/content-1?scope=org`,
+        {
+          method: "DELETE",
+          headers: { "X-Agent-Native-CSRF": "1" },
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: { ok: true },
+    });
   });
 });

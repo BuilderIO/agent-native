@@ -1,0 +1,231 @@
+---
+title: "通知"
+description: "具有可插入通道的应用内通知 - 收件箱、Webhook 或自定义"
+---
+
+# 通知
+
+一个功能，多个目的地。从任何服务器端代码（操作、自动化、插件）调用 `notify()`，事件就会出现在用户的应用内收件箱中，并分发到每个注册的频道。附带一个响铃下拉 UI 组件，主机模板将其放入其标头中。
+
+通知是进入应用程序响铃收件箱的单向警报（加上 Webhook 扇出）。要通过 Slack/电子邮件/Telegram/WhatsApp 与您的代理*交谈*，请参阅 [Messaging](/docs/messaging)。
+
+```ts
+import { notify } from "@agent-native/core/notifications";
+
+await notify(
+  { severity: "info", title: "Booking confirmed", body: "Jane at 3pm" },
+  { owner: "steve@builder.io" },
+);
+```
+
+```an-diagram title="一个电话，多个目的地" summary="notify() 始终写入所有者范围的收件箱行，并行扇出到每个注册通道（尽最大努力），然后在事件总线上发出 notification.sent。"
+{
+  "html": "<div class=\"diagram-notify\"><div class=\"diagram-node\">notify(input, { owner })<br><small class=\"diagram-muted\">any server code &middot; action, automation, plugin</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel fan\" data-rough><div class=\"fan-row\"><span class=\"diagram-pill accent\">inbox</span><div class=\"diagram-box\" data-rough>notifications table &rarr; bell UI<br><small class=\"diagram-muted\">always on &middot; owner-scoped</small></div></div><div class=\"fan-row\"><span class=\"diagram-pill\">webhook</span><div class=\"diagram-box\" data-rough>POST JSON to NOTIFICATIONS_WEBHOOK_URL<br><small class=\"diagram-muted\">best-effort</small></div></div><div class=\"fan-row\"><span class=\"diagram-pill\">custom</span><div class=\"diagram-box\" data-rough>registerNotificationChannel(...)<br><small class=\"diagram-muted\">best-effort &middot; runs in parallel</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">notification.sent</span><small class=\"diagram-muted\">event bus &middot; automations can chain</small></div></div>",
+  "css": ".diagram-notify{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-notify .fan{display:flex;flex-direction:column;gap:10px;padding:14px}.diagram-notify .fan-row{display:flex;align-items:center;gap:10px}.diagram-notify .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-notify .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## 严重性 {#severities}
+
+| 严重性     | 用于                   |
+| ---------- | ---------------------- |
+| `info`     | 确认、进度里程碑、FYI  |
+| `warning`  | 用户应该尽快查看的内容 |
+| `critical` | 需要立即关注           |
+
+严重性驱动下拉列表中的徽章样式，并传递到渠道，以便它们可以根据紧急情况进行分支。
+
+## 内置频道 {#channels}
+
+| 频道      | 交付                                | 需要                                               |
+| --------- | ----------------------------------- | -------------------------------------------------- |
+| `inbox`   | 持久化到`notifications`表；驱动铃UI | 始终开启 - 原语的一部分。                          |
+| `webhook` | POST JSON 到已配置的 URL            | `NOTIFICATIONS_WEBHOOK_URL` 环境变量在启动时设置。 |
+
+Webhook 通道根据所有者的临时 [secrets](/docs/security) 解析 URL 和 `NOTIFICATIONS_WEBHOOK_AUTH` 中的 `${keys.NAME}` 引用，因此原始值永远不会进入代理的上下文。强制执行每键 URL 允许列表 - 自动化 `web-request` 工具使用相同的规则。
+
+```an-diagram title="渠道和严重性" summary="收件箱始终打开； webhook 需要一个环境变量；自定义频道在启动时注册。严重性驱动徽章样式并传递到每个渠道。"
+{
+  "html": "<div class=\"diagram-channels\"><div class=\"diagram-panel col\" data-rough><strong>Channels</strong><div class=\"diagram-box\" data-rough>inbox<br><small class=\"diagram-muted\">always on &mdash; part of the primitive</small></div><div class=\"diagram-box\" data-rough>webhook<br><small class=\"diagram-muted\">needs NOTIFICATIONS_WEBHOOK_URL</small></div><div class=\"diagram-box\" data-rough>custom<br><small class=\"diagram-muted\">registerNotificationChannel()</small></div></div><div class=\"diagram-panel col\" data-rough><strong>严重程度决定徽章</strong><div class=\"sev-row\"><span class=\"diagram-pill\">info</span><span class=\"diagram-muted\">确认和 FYI</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">warning</span><span class=\"diagram-muted\">look at soon</span></div><div class=\"sev-row\"><span class=\"diagram-pill accent\">critical</span><span class=\"diagram-muted\">needs immediate attention</span></div></div></div>",
+  "css": ".diagram-channels{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}.diagram-channels .col{display:flex;flex-direction:column;gap:10px;padding:14px;min-width:240px}.diagram-channels .sev-row{display:flex;align-items:center;gap:10px}"
+}
+```
+
+## API {#api}
+
+### `notify(input, meta)` {#notify}
+
+发出通知。除非明确排除，否则始终保留在收件箱中；其他注册通道会尽力并行运行。
+
+```ts
+await notify(
+  {
+    severity: "critical",
+    title: "Database offline",
+    body: "Primary dropped connections",
+    metadata: { runbookUrl: "https://runbooks/db-offline" },
+    channels: ["inbox", "webhook"], // optional allowlist; omit to run all
+  },
+  { owner: "ops@company.com" },
+);
+```
+
+`meta.owner` 是必需的 - 限制通知的范围，以便只有用户在铃声中看到它。
+
+### `registerNotificationChannel(channel)` {#register}
+
+从任何服务器插件注册自定义通道。
+
+```ts
+import { registerNotificationChannel } from "@agent-native/core/notifications";
+
+registerNotificationChannel({
+  name: "slack-ops",
+  async deliver(input, meta) {
+    await fetch(process.env.OPS_SLACK_WEBHOOK!, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: `*${input.severity.toUpperCase()}* — ${input.title}\n${input.body ?? ""}`,
+        owner: meta.owner,
+      }),
+    });
+  },
+});
+```
+
+频道名称是唯一的 - 重新注册会替换之前的频道。 `deliver()` 是尽力而为；抛出错误会记录错误，但不会阻止其他通道或收件箱行。
+
+### 列出和阅读 {#read}
+
+```ts
+import {
+  listNotifications,
+  countUnread,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotification,
+} from "@agent-native/core/notifications";
+
+const rows = await listNotifications("steve@builder.io", {
+  unreadOnly: true,
+  limit: 50,
+});
+const unread = await countUnread("steve@builder.io");
+await markNotificationRead(rows[0].id, "steve@builder.io");
+await markAllNotificationsRead("steve@builder.io");
+await deleteNotification(rows[0].id, "steve@builder.io");
+```
+
+每个函数都是所有者范围的 - 没有跨用户读取，没有跨用户写入。
+
+## NotificationChannel 接口 {#channel-interface}
+
+```ts
+interface NotificationChannel {
+  name: string;
+  deliver(
+    input: NotificationInput,
+    meta: NotificationMeta,
+  ): void | Promise<void>;
+}
+
+interface NotificationInput {
+  severity: "info" | "warning" | "critical";
+  title: string;
+  body?: string;
+  metadata?: Record<string, unknown>;
+  channels?: string[];
+}
+
+interface NotificationMeta {
+  owner: string;
+}
+```
+
+## HTTP API {#http}
+
+通过 core-routes 插件安装在 `/_agent-native/notifications/*`。所有路由的范围仅限于经过身份验证的会话的电子邮件。
+
+| 方法     | 路径                                                |
+| -------- | --------------------------------------------------- |
+| `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
+| `GET`    | `/_agent-native/notifications/count`                |
+| `POST`   | `/_agent-native/notifications/:id/read`             |
+| `POST`   | `/_agent-native/notifications/read-all`             |
+| `DELETE` | `/_agent-native/notifications/:id`                  |
+
+```an-api title="列出通知" summary="The route behind listNotifications() — scoped to the authenticated session's email."
+{
+  "method": "GET",
+  "path": "/_agent-native/notifications?unread=true&limit=50",
+  "summary": "列出当前用户的最近通知",
+  "auth": "Authenticated session; results are scoped to the session's email.",
+  "params": [
+    { "name": "unread", "in": "query", "type": "boolean", "required": false, "description": "When true, returns only unread notifications." },
+    { "name": "limit", "in": "query", "type": "number", "required": false, "description": "Max rows to return." }
+  ],
+  "responses": [
+    { "status": "200", "description": "Owner-scoped notification rows, newest first." }
+  ]
+}
+```
+
+## UI组件 {#ui}
+
+```tsx
+import { NotificationsBell } from "@agent-native/core/client/notifications";
+
+export function HeaderBar() {
+  return (
+    <header className="flex items-center gap-2">
+      {/* … */}
+      <NotificationsBell browserNotifications />
+    </header>
+  );
+}
+```
+
+带有未读徽章的响铃图标。单击可打开最近通知的下拉列表。使用 shadcn 语义标记，适应主机模板的浅色/深色主题。
+
+传递 `browserNotifications` 来为每个新的未读项目触发系统 `new Notification(...)` 弹出窗口 - 当用户的选项卡位于后台时很有用。下拉菜单会呈现“启用”提示，直到用户授予权限；通过通知 `tag` 字段防止每个 ID 重复。
+
+## 代理工具 {#agent-tools}
+
+每个模板中都会注册一个 `manage-notifications` 工具。 `action`参数选择操作：
+
+| 行动   | 参数                                                                    | 目的                             |
+| ------ | ----------------------------------------------------------------------- | -------------------------------- |
+| `send` | `severity`（必填）、`title`（必填）、`body`、`metadataJson`、`channels` | 向用户的收件箱和注册频道发送通知 |
+| `list` | `unreadOnly`、`limit`（最多 200 个，默认 20 个）                        | 列出上下文的最近通知             |
+
+自动化（请参阅 [Automations](/docs/automations)）可以通过其主体中的 `action=send` 调用 `manage-notifications` - 这是将外部事件转变为用户可见警报的规范模式。
+
+## 事件总线 {#event-bus}
+
+每次成功交付都会在 [event bus](/docs/automations#event-bus) 上发出 `notification.sent`：
+
+```json
+{
+  "notificationId": "n-123",
+  "severity": "critical",
+  "title": "DB offline",
+  "body": "Primary dropped connections",
+  "deliveredChannels": ["inbox", "webhook"]
+}
+```
+
+自动化可以将其串联起来——例如*“如果触发重要通知，也会立即寻呼。”*
+
+## 它是如何工作的 {#internals}
+
+- **所有者范围** — 每行都有一个 `owner` 列；每个查询都会对其进行过滤；每个路由都使用经过身份验证的会话的电子邮件。用户永远不会看到彼此的通知。
+- **轮询集成** - 每个突变都会调用 `recordChange()`，因此使用 [`useDbSync`](/docs/client) 的模板会自动失效，无需任何额外的接线。
+- **尽力扇出** — 捕获并记录通道错误；一个失败的通道不会阻止其他通道或收件箱写入。
+- **即发即忘** — `notify()` 在收件箱写入完成后返回；自定义通道在后台运行。
+
+## 下一步是什么
+
+- [**Automations**](/docs/automations) — `notify()` 最常见的调用者
+- [**Security**](/docs/security) — 为 Webhook 通道提供支持的 `${keys.NAME}` 替代
+- [**Server plugins**](/docs/server) — 启动时注册自定义通道

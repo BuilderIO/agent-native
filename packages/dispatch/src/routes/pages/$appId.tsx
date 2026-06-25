@@ -1,3 +1,9 @@
+import { useActionQuery, appPath, useT } from "@agent-native/core/client";
+import {
+  IconArrowLeft,
+  IconArrowUpRight,
+  IconClockHour4,
+} from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
 import {
   Link,
@@ -7,16 +13,11 @@ import {
   type ClientLoaderFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
-import { useActionQuery, appPath } from "@agent-native/core/client";
-import {
-  IconArrowLeft,
-  IconArrowUpRight,
-  IconClockHour4,
-} from "@tabler/icons-react";
+
 import { DispatchShell } from "@/components/dispatch-shell";
-import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { resolveServerCatchAllTarget } from "@/lib/catch-all-target";
 import {
   workspaceAppHref,
@@ -93,6 +94,7 @@ export async function clientLoader({
 }
 
 export default function WorkspaceAppCatchAllRoute() {
+  const t = useT();
   const { appId } = useParams();
   const { data: apps = [], isLoading } = useActionQuery(
     "list-workspace-apps",
@@ -127,14 +129,14 @@ export default function WorkspaceAppCatchAllRoute() {
 
   return (
     <DispatchShell
-      title={app?.name || "Page not found"}
-      description="This route is not in the workspace app list yet."
+      title={app?.name || t("dispatch.pages.pageNotFound")}
+      description={t("dispatch.pages.pageNotFoundDescription")}
     >
       <div className="max-w-2xl rounded-lg border bg-card p-5">
         <Button asChild size="sm" variant="ghost" className="-ml-2 mb-4">
           <Link to={appPath("/overview")}>
             <IconArrowLeft size={15} className="mr-1.5" />
-            Overview
+            {t("dispatch.nav.overview")}
           </Link>
         </Button>
 
@@ -149,23 +151,23 @@ export default function WorkspaceAppCatchAllRoute() {
                 className="gap-1 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
               >
                 <IconClockHour4 size={12} />
-                Building
+                {t("dispatch.pages.building")}
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">
-              This app is being created. It will be available at{" "}
+              {t("dispatch.pages.appBuildingPrefix")}{" "}
               <span className="font-mono text-foreground">{app.path}</span>{" "}
-              after its branch is merged and the workspace deploy finishes.
+              {t("dispatch.pages.appBuildingSuffix")}
             </p>
             {app.branchName ? (
               <p className="text-xs text-muted-foreground">
-                Branch: {app.branchName}
+                {t("dispatch.pages.branch", { branch: app.branchName })}
               </p>
             ) : null}
             {app.builderUrl ? (
               <Button asChild>
                 <a href={app.builderUrl} target="_blank" rel="noreferrer">
-                  Open Builder branch
+                  {t("dispatch.pages.openBuilderBranch")}
                   <IconArrowUpRight size={15} className="ml-1.5" />
                 </a>
               </Button>
@@ -174,14 +176,16 @@ export default function WorkspaceAppCatchAllRoute() {
         ) : (
           <div className="space-y-3">
             <h2 className="text-base font-semibold text-foreground">
-              Page not found
+              {t("dispatch.pages.pageNotFound")}
             </h2>
             <p className="text-sm text-muted-foreground">
               <span className="font-mono text-foreground">/{appId}</span> isn't
-              a Dispatch tab or a workspace app in this workspace.
+              {t("dispatch.pages.notDispatchOrWorkspaceApp")}
             </p>
             <Button asChild>
-              <Link to={appPath("/apps")}>Browse apps</Link>
+              <Link to={appPath("/apps")}>
+                {t("dispatch.pages.browseApps")}
+              </Link>
             </Button>
           </div>
         )}

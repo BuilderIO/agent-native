@@ -1,10 +1,11 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+
+import type { AgentChatAttachment } from "../agent/types.js";
 import {
   preUploadAttachments,
   preUploadImageAttachments,
   isFileUploadProviderConfigured,
 } from "./pre-upload-attachments.js";
-import type { AgentChatAttachment } from "../agent/types.js";
 
 const uploadFileMock = vi.hoisted(() => vi.fn());
 const getActiveProviderMock = vi.hoisted(() => vi.fn());

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   buildAssistantMessage,
   buildRepositoryFromCodeAgentTranscript,
@@ -904,6 +905,60 @@ describe("normalizeThreadRepository", () => {
         message: expect.objectContaining({ id: "assistant-1" }),
       }),
     ]);
+  });
+
+  it("deduplicates message ids while keeping the latest message payload", () => {
+    const normalized = normalizeThreadRepository({
+      headId: "missing-head",
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "old prompt" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [{ type: "text", text: "answer" }],
+            status: { type: "complete", reason: "stop" },
+          },
+          parentId: "user-1",
+        },
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "newer prompt" }],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    expect(normalized.messages.map((entry: any) => entry.message.id)).toEqual([
+      "user-1",
+      "assistant-1",
+    ]);
+    expect(normalized.messages[0]).toEqual(
+      expect.objectContaining({
+        parentId: null,
+        message: expect.objectContaining({
+          id: "user-1",
+          content: [{ type: "text", text: "newer prompt" }],
+        }),
+      }),
+    );
+    expect(normalized.messages[1]).toEqual(
+      expect.objectContaining({
+        parentId: "user-1",
+        message: expect.objectContaining({ id: "assistant-1" }),
+      }),
+    );
+    expect(normalized.headId).toBe("assistant-1");
   });
 
   it("deduplicates persisted assistant tool call ids", () => {

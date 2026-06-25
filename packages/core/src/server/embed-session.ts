@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+
 import type { H3Event } from "h3";
 import {
   getCookie,
@@ -7,15 +8,17 @@ import {
   setCookie,
   setResponseHeader,
 } from "h3";
-import { getDbExec, intType } from "../db/client.js";
-import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
+
+import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { ensureTableExists } from "../db/ddl-guard.js";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
   EMBED_TARGET_HEADER,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 
 const TOKEN_KIND = "agent-native-embed-session";
 const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60;
@@ -101,8 +104,10 @@ export type ResolvedEmbedSession = {
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
-      await client.execute(`
+      // Build the CREATE SQL here (not at module scope) so intType() runs at
+      // RUNTIME, not import time — a module-scope call breaks any consumer whose
+      // db/client mock doesn't stub intType (e.g. db-admin specs).
+      const embedTicketsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_native_embed_tickets (
           ticket_hash TEXT PRIMARY KEY,
           owner_email TEXT NOT NULL,
@@ -113,7 +118,19 @@ async function ensureTable(): Promise<void> {
           expires_at ${intType()} NOT NULL,
           consumed_at ${intType()}
         )
-      `);
+      `;
+      if (isPostgres()) {
+        // PG guard: probe → guarded DDL → re-probe; skips lock on already-migrated path
+        await ensureTableExists(
+          "agent_native_embed_tickets",
+          embedTicketsCreateSql,
+        );
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      const client = getDbExec();
+      await client.execute(embedTicketsCreateSql);
     })().catch((err) => {
       _initPromise = undefined;
       throw err;

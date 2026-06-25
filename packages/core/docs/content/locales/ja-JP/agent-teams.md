@@ -1,0 +1,171 @@
+---
+title: "エージェント チーム"
+description: "メイン エージェントは、独自のスレッドで実行され、チャット内でインラインのライブ プレビュー チップとして表示されるサブエージェントに作業を委任します。"
+---
+
+# エージェント チーム
+
+エージェント チャットは **オーケストレーター** であり、モノリスではありません。メイン エージェントが、「このメールを私の声で書く」、「BigQuery 分析を実行する」、「この PR をレビューする」など、スペシャリストが担当する方が適切なタスクに到達すると、独自のスレッド、ツール、コンテキストでサブエージェントが生成されます。サブエージェントは、メイン チャットにインラインのライブ プレビュー **チップ**として表示されます。クリックすると、会話全体がタブとして開きます。
+
+これにより、メイン スレッドの焦点が維持され、サブエージェントが並行して実行できるようになり、委任された作業のクリーンな監査証跡が得られます。
+
+エージェント チームはコアの実行マネージャー上で実行されます。イベントはストリーミングおよび持続し、中止は SQL を通じて伝播し、タスクはサーバーレス コールド スタート後も存続します。
+
+## メンタルモデル {#mental-model}
+
+- **メイン チャット** — オーケストレーター。代表の皆さん、リクエストを読みます。重労働自体を行うことはほとんどありません。
+- **サブエージェント** — 独自のスレッド、独自のシステム プロンプト、独自のツール セットで実行されます。それぞれは、[workspace](/docs/workspace) の「カスタム エージェント」プロファイルにマッピングされます。
+- **チップ** — メイン チャットにインラインで表示される豊富なプレビュー カードで、サブエージェントの現在のステップ、ストリーミング出力、および最終的な概要が表示されます。デフォルトでは折りたたまれています。クリックすると会話全体が展開されます。
+- **双方向メッセージング** — メイン エージェントは実行中のサブエージェントにフォローアップを送信できます。サブエージェントは、曖昧な点に達した場合にメッセージを返すことができます。
+
+サブエージェントの状態は `application_state` SQL テーブル (`agent-task:<taskId>` の下) に保持されるため、タスクはサーバーレス コールド スタート後も存続し、複数のプロセスにわたって動作します。
+
+```an-diagram title="オーケストレーターとスペシャリスト" summary="メイン チャットは、独自のスレッドで実行され、インライン チップとして報告されるサブエージェントに委任します。"
+{
+  "html": "<div class=\"at-orc\"><div class=\"diagram-card main\"><span class=\"diagram-pill accent\">メインチャット</span><small class=\"diagram-muted\">orchestrator &mdash; reads your request, delegates</small></div><div class=\"at-fan\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"at-subs\"><div class=\"diagram-box\">コードレビュー<br><small class=\"diagram-muted\">own thread &amp; prompt</small></div><div class=\"diagram-box\">BigQuery分析<br><small class=\"diagram-muted\">own tools</small></div><div class=\"diagram-box\">音声でメール<br><small class=\"diagram-muted\">own context</small></div></div></div><div class=\"diagram-pill\">each appears inline as a live chip &#8635;</div></div>",
+  "css": ".at-orc{display:flex;flex-direction:column;align-items:center;gap:12px}.at-orc .diagram-card{padding:14px 18px;display:flex;flex-direction:column;gap:4px;align-items:center}.at-orc .at-fan{display:flex;flex-direction:column;align-items:center;gap:8px}.at-orc .diagram-arrow{font-size:22px}.at-orc .at-subs{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.at-orc .diagram-box{text-align:center}"
+}
+```
+
+## サブエージェントをいつ生成するか {#when-to-spawn}
+
+タスクが発生した場合:
+
+- 別の **システム プロンプト** (専門家の音声またはトーン、例: 「コード レビュー」) が必要です。
+- メインコンテキストを汚染する**長時間実行**のツールチェーンが存在します。
+- メイン エージェントが実行している他の作業と**並行して**実行できます。
+- 既にカスタム エージェント プロファイルを持っている **別のチーム** によって所有されています。
+
+簡単な 1 回限りの作業のために生成しないでください。アクションを直接呼び出してください。
+
+## サブエージェントの呼び出し {#invoking}
+
+サブエージェントを開始する 3 つの方法 (最も明示的なものから順に):
+
+### 1. `@mention` カスタム エージェント {#mention}
+
+ユーザーがチャット コンポーザーに `@agent-name` と入力します。ワークスペースのサブエージェントのドロップダウンが表示されます。 1 つを選択するとチップが挿入されます。送信時に、メイン エージェントはメッセージをそのサブエージェントに委任します。
+
+カスタム エージェントは、`agents/<slug>.md` (YAML フロントマターを含む Markdown ファイル) のワークスペースに存在します。形式については、[Custom Agents](/docs/workspace#custom-agents) を参照してください。
+
+### 2.メインエージェントは自動的に委任します {#auto-delegate}
+
+フレームワークはメイン エージェントに `agent-teams` ツールを提供します。モデルは、タスクが登録されたサブエージェント プロファイルに適合すると判断すると、`action: "spawn"` とオプションの `agent` パラメーターを使用してツールを呼び出し、`agents/*.md` からプロファイルを指定します。チップが現れます。サブエージェントが実行されます。メイン エージェントは待機 (または並行して続行) し、サブエージェントが終了したときに結果を組み込みます。
+
+完全な `agent-teams` アクション セットは次のとおりです:
+
+| アクション    | 目的                                             |
+| ------------- | ------------------------------------------------ |
+| `spawn`       | 新しいサブエージェント タスクを開始する          |
+| `status`      | 実行中のサブエージェントの進行状況を確認する     |
+| `read-result` | 完成したサブエージェントの出力を取得する         |
+| `send`        | 実行中のサブエージェントにメッセージを送信します |
+| `list`        | 現在のユーザーのすべてのタスクを表示             |
+
+### 3.プログラムによるスポーン {#programmatic-spawn}
+
+フレームワークレベルの統合の場合は、`@agent-native/core/server` の `spawnTask()` を使用します。
+
+```ts
+import { spawnTask } from "@agent-native/core/server";
+
+const task = await spawnTask({
+  description: "Draft an outreach email to this lead",
+  instructions: "Match Steve's voice from memory/MEMORY.md.",
+  ownerEmail: user.email,
+  systemPrompt: mailAgentSystemPrompt,
+  actions: mailActions,
+  // Pass either apiKey or engine — engine takes precedence.
+  apiKey: process.env.ANTHROPIC_API_KEY, // optional if engine is provided
+  parentSend: emit, // streaming sender for the parent chat response
+});
+```
+
+ほとんどのアプリ コードはこれを直接呼び出しません。フレームワークは、`@mentions` および `agent-teams` ツールの内部でこれを呼び出します。新しいエントリ ポイント (サブエージェントとして実行されるバックグラウンド ジョブを開始するボタンなど) を接続する場合にのみ、`spawnTask()` にアクセスしてください。
+
+## タスクのライフサイクル {#lifecycle}
+
+```an-diagram title="spawnTask() の機能" summary="各スポーンはスレッドを作成し、状態を SQL に保持し、チップ イベントを完了までストリーミングします。"
+{
+  "html": "<div class=\"at-life\"><div class=\"diagram-box\"><code>spawnTask()</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">create thread</span><small class=\"diagram-muted\">new row in <code>chat_threads</code>, description as first message</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">persist state</span><small class=\"diagram-muted\"><code>agent-task:&lt;id&gt;</code> &rarr; <code>application_state</code>, status=running</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">stream</span><small class=\"diagram-muted\"><code>agent_task_started</code> &rarr; chip appears; <code>agent_task_step</code> &rarr; chip updates live</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">complete</span><small class=\"diagram-muted\">status=completed, write summary + preview, emit <code>agent_task_done</code></small></div></div>",
+  "css": ".at-life{display:flex;flex-direction:column;align-items:stretch;gap:6px;max-width:560px}.at-life .diagram-card{display:flex;flex-direction:column;gap:3px;padding:10px 14px}.at-life .diagram-box{align-self:flex-start}.at-life .diagram-arrow{font-size:18px;align-self:center}"
+}
+```
+
+親エージェントはいつでも、`sendToTask(taskId, message)` 経由でサブエージェントを再開してフォローアップできます。サブエージェントにエラーが発生した場合、`markTaskErrored(taskId, reason)` は失敗を記録し、ユーザーに表示します。
+
+双方向メッセージングは永続的です。実行中のサブエージェントに対する親のフォローアップは次のとおりです。
+タスクのライフサイクルを通じて配信されます。サブエージェントが
+現在のステップでは、キューに入れられたままにして安全な場所で適用される必要があります
+継続ポイント。サブエージェントは、説明が必要な場合にメッセージを返信することもできます
+目に見えないようにブロックする代わりに。
+
+## タスク状態の読み取り {#reading-state}
+
+サーバー コードまたは他の actions から:
+
+```ts
+import { getTask, listTasks } from "@agent-native/core/server";
+
+const task = await getTask(taskId); // single task
+const tasks = await listTasks(); // all tasks for the user (sorted newest first)
+```
+
+`AgentTask` キー フィールド:
+
+```ts
+interface AgentTask {
+  taskId: string;
+  threadId: string;
+  description: string;
+  status: "running" | "completed" | "errored";
+  preview: string; // short one-liner for the chip
+  summary: string; // full summary once completed
+  currentStep: string; // latest step label (updated while running)
+  createdAt: number;
+  // Additional fields: parentThreadId, name, updatedAt, startedAt,
+  // completedAt, runId, error
+}
+```
+
+## カスタム エージェント プロファイル {#profiles}
+
+サブエージェントはカスタム エージェント プロファイルにマップされます。ワークスペース内の `agents/<slug>.md` にある Markdown ファイルは、`@mention` ドロップダウンに表示され、委任ターゲットとして機能します。 [Workspace — Custom Agents](/docs/workspace#custom-agents) は完全なフォーマット (フロントマター、`tools`、`delegate-default`、モデル オーバーライド) を所有します。
+
+## 委任デプスガード {#depth-guard}
+
+サブエージェントはサブエージェントを生成する可能性がありますが、これは暴走/コストのリスクです。制限のない委任の連鎖が無限に広がる可能性があります。このフレームワークは、ツールレベルの保護とは独立して、**委任の深さのハードキャップ**をサーバー側で強制します。
+
+トップレベルのチャットは深さ `0` です。それが生成するサブエージェントの深さは `1` です。そのサブエージェントはもう一度出現する可能性があります (深さ `2`)。深さ `3` サブエージェントを作成するスポーンは **拒否**されます。デフォルトの上限は **2** です。
+
+```an-diagram title="委任深度ガード (デフォルトのキャップ 2)" summary="各レベルはキャップに達するまでさらに深くスポーンする可能性があります。それを超えたスポーンはサーバー側で拒否されます。"
+{
+  "html": "<div class=\"at-depth\"><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 0</span><strong>トップレベルチャット</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 1</span><strong>サブエージェント</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card warn\"><span class=\"diagram-pill warn\">depth 2</span><strong>サブエージェント's sub-agent</strong><small class=\"diagram-muted\">at the cap &mdash; may NOT spawn</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">depth 3</span><strong>Refused</strong><small class=\"diagram-muted\">server-side error</small></div></div>",
+  "css": ".at-depth{display:flex;flex-direction:column;gap:8px}.at-depth .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.at-depth .rung-1,.at-depth .diagram-card:nth-child(2){margin-inline-start:24px}.at-depth .diagram-card:nth-child(3){margin-inline-start:48px}.at-depth .diagram-card:nth-child(4){margin-inline-start:72px}"
+}
+```
+
+強制はアンビエントです。各サブエージェントは、自身の深さを記録する `AsyncLocalStorage` 内で実行されるため、その実行から推移的に到達した `spawnTask` は、親の深さを読み取り、上限に達すると拒否します。たとえ `agent-teams` ツールが、それを持っているはずのないサブエージェントに渡されたとしてもです。この決定は、純粋で単体テスト可能な `evaluateSubagentDepth(parentDepth)` として公開されます。生成を拒否すると、明確なエラーが返されます: _「委任の深さの制限に達しました (最大 N)。別のサブエージェントを生成できません。」_
+
+### キャップの構成 {#depth-guard-config}
+
+`AGENT_NATIVE_MAX_SUBAGENT_DEPTH` を使用してデプロイ時にデフォルトをオーバーライドします。
+
+| 値           | 効果                                                                                                                                                      |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _(未設定)_   | `2` のデフォルトの上限。                                                                                                                                  |
+| `0`          | **サブエージェントは生成されません** - 最上位エージェントがすべての作業を行います。                                                                       |
+| `1`…`16`     | これだけのレベルの委任。                                                                                                                                  |
+| 無効 / `>16` | 非整数/負の/NaN 値は `2` にフォールバックします。 `16` より上のものはすべて `16` に固定されるため、タイプミスによってガードが無効になることはありません。 |
+
+```bash
+AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # サブエージェントは許可されますが、サブ代理はできません
+```
+
+サブエージェントが上限以下の場合、フレームワークはランタイム コンテキストに行を挿入し、サブエージェントがどの程度の深さにいるのか、さらに委任できるかどうかを通知します。これにより、モデルは予算を適切に消費します。
+
+## 次は何ですか
+
+- [**Workspace — Custom Agents**](/docs/workspace#custom-agents) — プロファイル形式
+- [**A2A Protocol**](/docs/a2a-protocol) — 「サブエージェント」が完全に別のアプリ内に存在する場合
+- [**Actions**](/docs/actions) — サブエージェントが呼び出すツール

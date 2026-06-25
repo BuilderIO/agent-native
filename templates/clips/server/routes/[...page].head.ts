@@ -1,4 +1,5 @@
 import { defineEventHandler, getRequestURL, setResponseHeader } from "h3";
+
 import { MEDIA_CAPTURE_PERMISSIONS_POLICY } from "../lib/media-permissions.js";
 
 export default defineEventHandler((event) => {

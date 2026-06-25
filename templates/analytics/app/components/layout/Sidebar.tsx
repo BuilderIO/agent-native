@@ -1,22 +1,6 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
-import { useTheme } from "next-themes";
-import { cn, shortcutModifierLabel } from "@/lib/utils";
-import { useAuth } from "@/components/auth/AuthProvider";
-import { toast } from "sonner";
-import {
-  useQuery,
-  useQueryClient,
-  type QueryClient,
-  type QueryKey,
-} from "@tanstack/react-query";
 import {
   IconChartBar,
-  IconLogout,
   IconChevronDown,
-  IconSun,
-  IconMoon,
-  IconInfoCircle,
   IconTrash,
   IconDots,
   IconLoader2,
@@ -39,7 +23,19 @@ import {
   IconEye,
   IconEyeOff,
 } from "@tabler/icons-react";
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type QueryKey,
+} from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
+
 import { getIdToken } from "@/lib/auth";
+import { cn, shortcutModifierLabel } from "@/lib/utils";
 import {
   dashboards,
   hideDashboard,
@@ -57,25 +53,20 @@ type SidebarDashboard = {
   visibility?: Visibility;
 };
 import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-  TooltipProvider,
-} from "@/components/ui/tooltip";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Switch } from "@/components/ui/switch";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+  DevDatabaseLink,
+  FeedbackButton,
+  LanguagePicker,
+  appApiPath,
+  callAction,
+  appPath,
+  navigateWithAgentChatViewTransition,
+  useActionMutation,
+  useChangeVersions,
+  useT,
+} from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -86,27 +77,33 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Skeleton } from "@/components/ui/skeleton";
-import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appApiPath,
-  callAction,
-  appPath,
-  navigateWithAgentChatViewTransition,
-  useActionMutation,
-  useChangeVersions,
-} from "@agent-native/core/client";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { NewDashboardDialog } from "./NewDashboardDialog";
-import { NewAnalysisDialog } from "./NewAnalysisDialog";
-import { useUserPref } from "@/hooks/use-user-pref";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
 import {
   useDashboardViews,
   useDeleteDashboardView,
   type DashboardView,
 } from "@/hooks/use-dashboard-views";
+import { useUserPref } from "@/hooks/use-user-pref";
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
 import {
   analysisDetailPrefetchKey,
@@ -114,6 +111,9 @@ import {
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
 import type { ResourceAccess } from "@/lib/resource-access";
+
+import { NewAnalysisDialog } from "./NewAnalysisDialog";
+import { NewDashboardDialog } from "./NewDashboardDialog";
 
 type AnalysisHiddenFilter = "visible" | "hidden";
 
@@ -144,9 +144,8 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 const bottomItems = [
-  { icon: IconUsers, label: "Team", href: "/team" },
-  { icon: IconSettings, label: "Settings", href: "/settings" },
-  { icon: IconInfoCircle, label: "About", href: "/about" },
+  { icon: IconUsers, labelKey: "navigation.team", href: "/team" },
+  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
 function getStoredBoolean(key: string, fallback: boolean): boolean {
@@ -229,6 +228,8 @@ function SidebarSectionSettingsPopover({
   showHidden?: boolean;
   onShowHiddenChange?: (value: boolean) => void;
 }) {
+  const t = useT();
+  const settingsLabel = t("sidebar.sectionSettings", { label });
   return (
     <Popover>
       <Tooltip>
@@ -237,13 +238,13 @@ function SidebarSectionSettingsPopover({
             <button
               type="button"
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100"
-              aria-label={`${label} settings`}
+              aria-label={settingsLabel}
             >
               <IconSettings className="h-3.5 w-3.5" />
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent side="right">{`${label} settings`}</TooltipContent>
+        <TooltipContent side="right">{settingsLabel}</TooltipContent>
       </Tooltip>
       <PopoverContent side="right" align="start" className="w-60 p-2">
         <div className="px-2 pb-2">
@@ -252,7 +253,7 @@ function SidebarSectionSettingsPopover({
         <div className="grid gap-3">
           <div className="grid gap-1.5">
             <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Sort by
+              {t("sidebar.sortBy")}
             </p>
             <ToggleGroup
               type="single"
@@ -270,24 +271,24 @@ function SidebarSectionSettingsPopover({
             >
               <ToggleGroupItem
                 value="most-used"
-                aria-label="Sort by most used"
+                aria-label={t("sidebar.sortMostUsed")}
                 className="h-7 px-2 text-[11px]"
               >
-                Used
+                {t("sidebar.used")}
               </ToggleGroupItem>
               <ToggleGroupItem
                 value="alphabetical"
-                aria-label="Sort alphabetically"
+                aria-label={t("sidebar.sortAlphabetically")}
                 className="h-7 px-2 text-[11px]"
               >
-                A-Z
+                {t("sidebar.alphabetical")}
               </ToggleGroupItem>
               <ToggleGroupItem
                 value="manual"
-                aria-label="Sort manually"
+                aria-label={t("sidebar.sortManually")}
                 className="h-7 px-2 text-[11px]"
               >
-                Manual
+                {t("sidebar.manual")}
               </ToggleGroupItem>
             </ToggleGroup>
           </div>
@@ -296,12 +297,14 @@ function SidebarSectionSettingsPopover({
               htmlFor={`${label.toLowerCase()}-shared-filter`}
               className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-xs text-foreground hover:bg-sidebar-accent/60"
             >
-              <span className="min-w-0 truncate">Org shared only</span>
+              <span className="min-w-0 truncate">
+                {t("sidebar.orgSharedOnly")}
+              </span>
               <Switch
                 id={`${label.toLowerCase()}-shared-filter`}
                 checked={sharedOnly}
                 onCheckedChange={onSharedOnlyChange}
-                aria-label={`${label} org shared only`}
+                aria-label={`${label} ${t("sidebar.orgSharedOnly")}`}
               />
             </label>
             {onShowHiddenChange && showHidden !== undefined && (
@@ -309,12 +312,14 @@ function SidebarSectionSettingsPopover({
                 htmlFor={`${label.toLowerCase()}-hidden-filter`}
                 className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-xs text-foreground hover:bg-sidebar-accent/60"
               >
-                <span className="min-w-0 truncate">Hidden analyses</span>
+                <span className="min-w-0 truncate">
+                  {t("sidebar.hiddenAnalyses")}
+                </span>
                 <Switch
                   id={`${label.toLowerCase()}-hidden-filter`}
                   checked={showHidden}
                   onCheckedChange={onShowHiddenChange}
-                  aria-label={`${label} hidden analyses`}
+                  aria-label={`${label} ${t("sidebar.hiddenAnalyses")}`}
                 />
               </label>
             )}
@@ -371,6 +376,7 @@ function SortableRow({
   onSetVisibility?: (visibility: Visibility) => Promise<void> | void;
   children?: React.ReactNode;
 }) {
+  const t = useT();
   const {
     attributes,
     listeners,
@@ -408,11 +414,14 @@ function SortableRow({
       setRenameValue(name);
       toast.error(
         e instanceof Error
-          ? `Couldn't rename ${name}: ${e.message}`
-          : `Couldn't rename ${name}`,
+          ? t("sidebar.renameFailedWithMessage", {
+              name,
+              message: e.message,
+            })
+          : t("sidebar.renameFailed", { name }),
       );
     }
-  }, [name, onRename, renameValue]);
+  }, [name, onRename, renameValue, t]);
 
   const runDelete = useCallback(async () => {
     setMenuOpen(false);
@@ -422,11 +431,14 @@ function SortableRow({
     } catch (e) {
       toast.error(
         e instanceof Error
-          ? `Couldn't delete ${name}: ${e.message}`
-          : `Couldn't delete ${name}`,
+          ? t("sidebar.deleteFailedWithMessage", {
+              name,
+              message: e.message,
+            })
+          : t("sidebar.deleteFailed", { name }),
       );
     }
-  }, [name, onDelete]);
+  }, [name, onDelete, t]);
 
   const runArchive = useCallback(async () => {
     setMenuOpen(false);
@@ -436,11 +448,14 @@ function SortableRow({
     } catch (e) {
       toast.error(
         e instanceof Error
-          ? `Couldn't archive ${name}: ${e.message}`
-          : `Couldn't archive ${name}`,
+          ? t("sidebar.archiveFailedWithMessage", {
+              name,
+              message: e.message,
+            })
+          : t("sidebar.archiveFailed", { name }),
       );
     }
-  }, [name, onArchive]);
+  }, [name, onArchive, t]);
 
   const runHide = useCallback(async () => {
     setMenuOpen(false);
@@ -450,11 +465,14 @@ function SortableRow({
     } catch (e) {
       toast.error(
         e instanceof Error
-          ? `Couldn't hide ${name}: ${e.message}`
-          : `Couldn't hide ${name}`,
+          ? t("sidebar.hideFailedWithMessage", {
+              name,
+              message: e.message,
+            })
+          : t("sidebar.hideFailed", { name }),
       );
     }
-  }, [name, onHide]);
+  }, [name, onHide, t]);
 
   const runUnhide = useCallback(async () => {
     setMenuOpen(false);
@@ -464,11 +482,14 @@ function SortableRow({
     } catch (e) {
       toast.error(
         e instanceof Error
-          ? `Couldn't unhide ${name}: ${e.message}`
-          : `Couldn't unhide ${name}`,
+          ? t("sidebar.unhideFailedWithMessage", {
+              name,
+              message: e.message,
+            })
+          : t("sidebar.unhideFailed", { name }),
       );
     }
-  }, [name, onUnhide]);
+  }, [name, onUnhide, t]);
 
   const runSetVisibility = useCallback(
     async (visibility: Visibility) => {
@@ -479,29 +500,31 @@ function SortableRow({
       } catch (e) {
         toast.error(
           e instanceof Error
-            ? `Couldn't update visibility: ${e.message}`
-            : "Couldn't update visibility",
+            ? t("sidebar.updateVisibilityFailedWithMessage", {
+                message: e.message,
+              })
+            : t("sidebar.updateVisibilityFailed"),
         );
       }
     },
-    [onSetVisibility],
+    [onSetVisibility, t],
   );
 
   const copyLink = useCallback(() => {
     const url = window.location.origin + href;
     navigator.clipboard.writeText(url).then(
-      () => toast.success("Link copied"),
-      () => toast.error("Couldn't copy link"),
+      () => toast.success(t("sidebar.linkCopied")),
+      () => toast.error(t("sidebar.copyLinkFailed")),
     );
     setMenuOpen(false);
-  }, [href]);
+  }, [href, t]);
 
   return (
     <div ref={setNodeRef} style={style} className="group/item relative min-w-0">
       <button
         type="button"
-        className="absolute -left-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
-        aria-label={`Drag ${name}`}
+        className="absolute -start-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
+        aria-label={t("sidebar.dragItem", { name })}
         {...attributes}
         {...listeners}
       >
@@ -528,7 +551,7 @@ function SortableRow({
                 setIsRenaming(false);
               }
             }}
-            className="min-w-0 flex-1 bg-transparent px-2 py-1.5 pr-12 text-xs outline-none"
+            className="min-w-0 flex-1 bg-transparent px-2 py-1.5 pe-12 text-xs outline-none"
           />
         ) : (
           <Tooltip>
@@ -538,7 +561,7 @@ function SortableRow({
                 onFocus={onPrefetch}
                 onMouseEnter={onPrefetch}
                 onTouchStart={onPrefetch}
-                className="min-w-0 flex-1 px-2 py-1.5 pr-12 text-xs transition-[padding] md:pr-2 md:group-hover/item:pr-12 md:group-focus-within/item:pr-12"
+                className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-xs transition-[padding] md:pe-2 md:group-hover/item:pe-12 md:group-focus-within/item:pe-12"
               >
                 <span className="block truncate">{name}</span>
               </Link>
@@ -546,7 +569,7 @@ function SortableRow({
             <TooltipContent side="right">{name}</TooltipContent>
           </Tooltip>
         )}
-        <div className="pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/item:opacity-100 md:group-focus-within/item:opacity-100">
+        <div className="pointer-events-none absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/item:opacity-100 md:group-focus-within/item:opacity-100">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -558,13 +581,15 @@ function SortableRow({
                     ? "text-yellow-500"
                     : "text-muted-foreground/50 hover:text-yellow-500",
                 )}
-                aria-label={isFav ? "Unfavorite" : "Favorite"}
+                aria-label={
+                  isFav ? t("sidebar.unfavorite") : t("sidebar.favorite")
+                }
               >
                 <IconStar className={cn("h-3 w-3", isFav && "fill-current")} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              {isFav ? "Unfavorite" : "Favorite"}
+              {isFav ? t("sidebar.unfavorite") : t("sidebar.favorite")}
             </TooltipContent>
           </Tooltip>
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
@@ -574,13 +599,15 @@ function SortableRow({
                   <button
                     type="button"
                     className="pointer-events-auto rounded p-0.5 text-muted-foreground/50 transition-colors hover:text-foreground"
-                    aria-label={`${name} actions`}
+                    aria-label={t("sidebar.itemActions", { name })}
                   >
                     <IconDots className="h-3 w-3" />
                   </button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent side="right">{`${name} actions`}</TooltipContent>
+              <TooltipContent side="right">
+                {t("sidebar.itemActions", { name })}
+              </TooltipContent>
             </Tooltip>
             <DropdownMenuContent side="right" align="start" className="w-44">
               <DropdownMenuItem
@@ -589,8 +616,8 @@ function SortableRow({
                   setIsRenaming(true);
                 }}
               >
-                <IconPencil className="mr-2 h-3.5 w-3.5" />
-                Rename
+                <IconPencil className="me-2 h-3.5 w-3.5" />
+                {t("sidebar.rename")}
               </DropdownMenuItem>
               {onSetVisibility && visibility !== undefined && (
                 <DropdownMenuItem
@@ -602,16 +629,18 @@ function SortableRow({
                   }}
                 >
                   {visibility === "private" ? (
-                    <IconBuilding className="mr-2 h-3.5 w-3.5" />
+                    <IconBuilding className="me-2 h-3.5 w-3.5" />
                   ) : (
-                    <IconLock className="mr-2 h-3.5 w-3.5" />
+                    <IconLock className="me-2 h-3.5 w-3.5" />
                   )}
-                  {visibility === "private" ? "Share with org" : "Make private"}
+                  {visibility === "private"
+                    ? t("sidebar.shareWithOrg")
+                    : t("sidebar.makePrivate")}
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem onSelect={copyLink}>
-                <IconLink className="mr-2 h-3.5 w-3.5" />
-                Copy link
+                <IconLink className="me-2 h-3.5 w-3.5" />
+                {t("sidebar.copyLink")}
               </DropdownMenuItem>
               {onUnhide && hidden ? (
                 <DropdownMenuItem
@@ -620,8 +649,8 @@ function SortableRow({
                     void runUnhide();
                   }}
                 >
-                  <IconEye className="mr-2 h-3.5 w-3.5" />
-                  Unhide
+                  <IconEye className="me-2 h-3.5 w-3.5" />
+                  {t("sidebar.unhide")}
                 </DropdownMenuItem>
               ) : onHide ? (
                 <DropdownMenuItem
@@ -630,8 +659,8 @@ function SortableRow({
                     void runHide();
                   }}
                 >
-                  <IconEyeOff className="mr-2 h-3.5 w-3.5" />
-                  Hide
+                  <IconEyeOff className="me-2 h-3.5 w-3.5" />
+                  {t("sidebar.hide")}
                 </DropdownMenuItem>
               ) : null}
               <DropdownMenuSeparator />
@@ -643,8 +672,8 @@ function SortableRow({
                       void runArchive();
                     }}
                   >
-                    <IconArchive className="mr-2 h-3.5 w-3.5" />
-                    Archive
+                    <IconArchive className="me-2 h-3.5 w-3.5" />
+                    {t("sidebar.archive")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -655,8 +684,8 @@ function SortableRow({
                     }}
                     className="text-destructive focus:text-destructive"
                   >
-                    <IconTrash className="mr-2 h-3.5 w-3.5" />
-                    Delete permanently
+                    <IconTrash className="me-2 h-3.5 w-3.5" />
+                    {t("sidebar.deletePermanently")}
                   </DropdownMenuItem>
                 </>
               ) : (
@@ -668,8 +697,8 @@ function SortableRow({
                   }}
                   className="text-destructive focus:text-destructive"
                 >
-                  <IconTrash className="mr-2 h-3.5 w-3.5" />
-                  Delete
+                  <IconTrash className="me-2 h-3.5 w-3.5" />
+                  {t("sidebar.delete")}
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
@@ -680,22 +709,21 @@ function SortableRow({
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("sidebar.deletePermanentlyTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently deletes &ldquo;{name}&rdquo; and cannot be
-              undone.
-              {onArchive
-                ? " To keep it recoverable, choose Archive instead."
-                : ""}
+              {t("sidebar.deletePermanentlyDescription", { name })}
+              {onArchive ? t("sidebar.deletePermanentlyArchiveHint") : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => void runDelete()}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Delete permanently
+              {t("sidebar.deletePermanently")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -735,6 +763,7 @@ function SortableDashboardItem({
   ) => Promise<void>;
 }) {
   const href = `/dashboards/${d.id}`;
+  const t = useT();
   const { mutateAsync: deleteView } = useDeleteDashboardView();
   const [deletingViewId, setDeletingViewId] = useState<string | null>(null);
 
@@ -790,7 +819,7 @@ function SortableDashboardItem({
       }
     >
       {isActive && allSubviews.length > 0 && (
-        <div className="ml-6 mt-0.5 space-y-0.5">
+        <div className="ms-6 mt-0.5 space-y-0.5">
           {allSubviews.map((sv) => {
             const currentSearch = new URLSearchParams(location.search);
             const svUrl = new URL(sv.href, window.location.origin);
@@ -806,7 +835,7 @@ function SortableDashboardItem({
               <div
                 key={sv.id}
                 className={cn(
-                  "group/sv flex items-center gap-1 rounded-md pr-1 transition-all",
+                  "group/sv flex items-center gap-1 rounded-md pe-1 transition-all",
                   isSubviewActive
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground/70 hover:bg-sidebar-accent/50 hover:text-primary",
@@ -846,8 +875,8 @@ function SortableDashboardItem({
                       </TooltipTrigger>
                       <TooltipContent side="right">
                         {favoriteIds.has(`view:${d.id}:${sv.id}`)
-                          ? "Unfavorite"
-                          : "Favorite"}
+                          ? t("sidebar.unfavorite")
+                          : t("sidebar.favorite")}
                       </TooltipContent>
                     </Tooltip>
                     <Popover
@@ -864,7 +893,9 @@ function SortableDashboardItem({
                             </button>
                           </PopoverTrigger>
                         </TooltipTrigger>
-                        <TooltipContent side="right">{`Delete ${sv.name}`}</TooltipContent>
+                        <TooltipContent side="right">
+                          {t("sidebar.deleteView", { name: sv.name })}
+                        </TooltipContent>
                       </Tooltip>
                       <PopoverContent
                         className="w-56 p-3"
@@ -872,7 +903,7 @@ function SortableDashboardItem({
                         align="start"
                       >
                         <p className="text-sm mb-3">
-                          Delete view <strong>{sv.name}</strong>?
+                          {t("sidebar.deleteView", { name: sv.name })}
                         </p>
                         <div className="flex gap-2">
                           <button
@@ -889,8 +920,10 @@ function SortableDashboardItem({
                                 setDeletingViewId(sv.id);
                                 toast.error(
                                   err instanceof Error
-                                    ? `Couldn't delete view: ${err.message}`
-                                    : "Couldn't delete view",
+                                    ? t("sidebar.deleteViewFailedWithMessage", {
+                                        message: err.message,
+                                      })
+                                    : t("sidebar.deleteViewFailed"),
                                 );
                               }
                             }}
@@ -899,14 +932,16 @@ function SortableDashboardItem({
                             {isDeleting && (
                               <IconLoader2 className="h-3 w-3 animate-spin" />
                             )}
-                            {isDeleting ? "Deleting..." : "Delete"}
+                            {isDeleting
+                              ? t("sidebar.deleting")
+                              : t("sidebar.delete")}
                           </button>
                           <button
                             disabled={isDeleting}
                             onClick={() => setDeletingViewId(null)}
                             className="flex-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/50 transition-colors disabled:opacity-60"
                           >
-                            Cancel
+                            {t("sidebar.cancel")}
                           </button>
                         </div>
                       </PopoverContent>
@@ -991,7 +1026,9 @@ type SqlDashboardListItem = {
   visibility?: Visibility;
 };
 
-async function fetchSqlDashboards(): Promise<SqlDashboardListItem[]> {
+async function fetchSqlDashboards(
+  t: (key: string) => string,
+): Promise<SqlDashboardListItem[]> {
   try {
     const rows = await callAction("list-sql-dashboards", {}, { method: "GET" });
     return (Array.isArray(rows) ? rows : [])
@@ -1001,7 +1038,7 @@ async function fetchSqlDashboards(): Promise<SqlDashboardListItem[]> {
         name:
           typeof d.name === "string" && d.name.trim().length > 0
             ? d.name
-            : "Untitled dashboard",
+            : t("sidebar.untitledDashboard"),
         visibility:
           d.visibility === "org" || d.visibility === "public"
             ? (d.visibility as Visibility)
@@ -1013,6 +1050,7 @@ async function fetchSqlDashboards(): Promise<SqlDashboardListItem[]> {
 }
 
 async function fetchSidebarAnalyses(
+  t: (key: string) => string,
   hidden: AnalysisHiddenFilter = "visible",
 ): Promise<
   {
@@ -1037,7 +1075,7 @@ async function fetchSidebarAnalyses(
         name:
           typeof a.name === "string" && a.name.trim().length > 0
             ? a.name
-            : "Untitled analysis",
+            : t("sidebar.untitledAnalysis"),
         visibility:
           a.visibility === "org" || a.visibility === "public"
             ? a.visibility
@@ -1069,6 +1107,7 @@ type PrefetchedSqlDashboard = {
 
 async function fetchSqlDashboardForPrefetch(
   id: string,
+  t: (key: string) => string,
 ): Promise<PrefetchedSqlDashboard | null> {
   try {
     const data: any = await callAction(
@@ -1083,7 +1122,7 @@ async function fetchSqlDashboardForPrefetch(
         name:
           typeof data.name === "string" && data.name.trim().length > 0
             ? data.name
-            : "Untitled Dashboard",
+            : t("sidebar.untitledDashboard"),
         description: data.description,
         filters: data.filters,
         variables: data.variables,
@@ -1132,22 +1171,14 @@ function restoreQuerySnapshots<T>(
   }
 }
 
-function persistThemePreference(theme: "light" | "dark") {
-  fetch(appApiPath("/api/theme"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ theme }),
-  }).catch(() => {});
-}
-
 // --- Sidebar ---
 
 export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const t = useT();
   const queryClient = useQueryClient();
-  const { resolvedTheme, setTheme } = useTheme();
+  const { setTheme } = useTheme();
 
   const [dashOpen, setDashOpen] = useState(() =>
     getStoredBoolean(DASHBOARDS_OPEN_KEY, true),
@@ -1167,8 +1198,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     useState<SidebarSortMode>(() => getStoredSortMode(ANALYSIS_SORT_MODE_KEY));
   const popularity = usePopularity();
 
-  const light = resolvedTheme === "light";
-
   useEffect(() => {
     if (typeof window !== "undefined" && window.localStorage.getItem("theme")) {
       return;
@@ -1182,7 +1211,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       })
       .catch(() => {});
   }, [setTheme]);
-  const [logoutOpen, setLogoutOpen] = useState(false);
   const { mutateAsync: renameDashboard } =
     useActionMutation("rename-dashboard");
   const { mutateAsync: renameAnalysis } = useActionMutation("rename-analysis");
@@ -1282,14 +1310,14 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const { data: sqlDashboards = [], isLoading: sqlDashboardsLoading } =
     useQuery({
       queryKey: ["sql-dashboards-sidebar", dashboardsSync],
-      queryFn: fetchSqlDashboards,
+      queryFn: () => fetchSqlDashboards(t),
       staleTime: 30_000,
       placeholderData: (prev) => prev,
     });
 
   const { data: analysesList = [], isLoading: analysesLoading } = useQuery({
     queryKey: ["analyses-sidebar", analysesSync, analysisHiddenFilter],
-    queryFn: () => fetchSidebarAnalyses(analysisHiddenFilter),
+    queryFn: () => fetchSidebarAnalyses(t, analysisHiddenFilter),
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   });
@@ -1365,13 +1393,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       void queryClient.prefetchQuery({
         queryKey,
         queryFn: async () => ({
-          data: await fetchSqlDashboardForPrefetch(d.id),
+          data: await fetchSqlDashboardForPrefetch(d.id, t),
           syncVersion: dashboardsSync,
         }),
         staleTime: cached?.syncVersion === dashboardsSync ? 30_000 : 0,
       });
     },
-    [dashboardsSync, queryClient],
+    [dashboardsSync, queryClient, t],
   );
 
   const prefetchAnalysis = useCallback(
@@ -1504,13 +1532,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         await archiveDashboardMut({ id: d.id, archived: true });
         queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
         queryClient.invalidateQueries({ queryKey: activeKey });
-        toast.success(`Archived "${d.name}"`);
+        toast.success(t("sidebar.archivedName", { name: d.name }));
       } catch (err) {
         restoreQuerySnapshots(queryClient, prevActive);
         throw err;
       }
     },
-    [queryClient, archiveDashboardMut],
+    [queryClient, archiveDashboardMut, t],
   );
 
   const handleDashboardRename = useCallback(
@@ -1603,15 +1631,15 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         queryClient.invalidateQueries({ queryKey });
         toast.success(
           visibility === "org"
-            ? `"${d.name}" shared with org`
-            : `"${d.name}" made private`,
+            ? t("sidebar.nameSharedWithOrg", { name: d.name })
+            : t("sidebar.nameMadePrivate", { name: d.name }),
         );
       } catch (err) {
         restoreQuerySnapshots(queryClient, prev);
         throw err;
       }
     },
-    [queryClient, setResourceVisibility],
+    [queryClient, setResourceVisibility, t],
   );
 
   const handleAnalysisSetVisibility = useCallback(
@@ -1644,8 +1672,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         queryClient.invalidateQueries({ queryKey: listKey });
         toast.success(
           visibility === "org"
-            ? `"${a.name}" shared with org`
-            : `"${a.name}" made private`,
+            ? t("sidebar.nameSharedWithOrg", { name: a.name })
+            : t("sidebar.nameMadePrivate", { name: a.name }),
         );
       } catch (err) {
         restoreQuerySnapshots(queryClient, prevSidebar);
@@ -1653,7 +1681,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         throw err;
       }
     },
-    [queryClient, setResourceVisibility],
+    [queryClient, setResourceVisibility, t],
   );
 
   const handleAnalysisRename = useCallback(
@@ -1719,13 +1747,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         await hideAnalysisMut({ id: a.id, hidden: true });
         queryClient.invalidateQueries({ queryKey: sidebarKey });
         queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
-        toast.success(`"${a.name}" hidden`);
+        toast.success(t("sidebar.nameHidden", { name: a.name }));
       } catch (err) {
         restoreQuerySnapshots(queryClient, prev);
         throw err;
       }
     },
-    [queryClient, hideAnalysisMut],
+    [queryClient, hideAnalysisMut, t],
   );
 
   const handleAnalysisUnhide = useCallback(
@@ -1742,13 +1770,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         await hideAnalysisMut({ id: a.id, hidden: false });
         queryClient.invalidateQueries({ queryKey: sidebarKey });
         queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
-        toast.success(`"${a.name}" unhidden`);
+        toast.success(t("sidebar.nameUnhidden", { name: a.name }));
       } catch (err) {
         restoreQuerySnapshots(queryClient, prev);
         throw err;
       }
     },
-    [queryClient, hideAnalysisMut],
+    [queryClient, hideAnalysisMut, t],
   );
 
   const sensors = useSensors(
@@ -1842,7 +1870,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       {!mobile && (
         <div
           onMouseDown={handleResizeStart}
-          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 z-10"
+          className="absolute end-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 z-10"
         />
       )}
       <div className="flex h-12 shrink-0 items-center border-b border-border px-4 lg:px-6">
@@ -1859,7 +1887,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             aria-hidden="true"
             className="hidden h-5 w-auto shrink-0 dark:block"
           />
-          <span className="text-lg font-bold tracking-tight">Analytics</span>
+          <span className="text-lg font-bold tracking-tight">
+            {t("navigation.brand")}
+          </span>
         </Link>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
@@ -1887,7 +1917,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             )}
           >
             <IconMessageCircle className="h-4 w-4" />
-            Ask
+            {t("navigation.ask")}
           </Link>
 
           {/* Overview link */}
@@ -1901,7 +1931,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             )}
           >
             <IconHome className="h-4 w-4" />
-            Overview
+            {t("navigation.overview")}
           </Link>
 
           {/* Data Sources link */}
@@ -1915,7 +1945,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             )}
           >
             <IconDatabase className="h-4 w-4" />
-            Data Sources
+            {t("navigation.dataSources")}
           </Link>
 
           {/* Data Dictionary link */}
@@ -1929,7 +1959,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             )}
           >
             <IconBook2 className="h-4 w-4" />
-            Data Dictionary
+            {t("navigation.dataDictionary")}
           </Link>
 
           {/* Catalog link */}
@@ -1943,11 +1973,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             )}
           >
             <IconTemplate className="h-4 w-4" />
-            Catalog
+            {t("navigation.templateCatalog")}
           </Link>
 
           {/* Dashboards section */}
-          <div className="group/section space-y-1">
+          <div className="group/section min-w-0 space-y-1">
             <div
               className={cn(
                 "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
@@ -1959,14 +1989,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <button
                 type="button"
                 onClick={toggleDashOpen}
-                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
+                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-start"
                 aria-expanded={dashOpen}
               >
                 <IconChartBar className="h-4 w-4 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">Dashboards</span>
+                <span className="min-w-0 flex-1 truncate">
+                  {t("navigation.dashboards")}
+                </span>
               </button>
               <SidebarSectionSettingsPopover
-                label="Dashboards"
+                label={t("navigation.dashboards")}
                 sortMode={dashboardSortMode}
                 onSortModeChange={setDashboardSortMode}
                 sharedOnly={dashFilter === "org"}
@@ -1977,9 +2009,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <button
                 type="button"
                 onClick={toggleDashOpen}
-                className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+                className="me-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
                 aria-label={
-                  dashOpen ? "Collapse dashboards" : "Expand dashboards"
+                  dashOpen
+                    ? t("sidebar.collapseDashboards")
+                    : t("sidebar.expandDashboards")
                 }
               >
                 <IconChevronDown
@@ -2001,7 +2035,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                   items={displayedDashboards.map((d) => d.id)}
                   strategy={verticalListSortingStrategy}
                 >
-                  <div className="ml-4 min-w-0 space-y-0.5">
+                  <div className="ms-4 min-w-0 space-y-0.5">
                     {displayedDashboards.map((d) => (
                       <SortableDashboardItem
                         key={d.id}
@@ -2024,8 +2058,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                         className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
                       >
                         {dashShowAll
-                          ? "Show less"
-                          : `Show ${filteredDashboards.length - SIDEBAR_PREVIEW_COUNT} more`}
+                          ? t("sidebar.showLess")
+                          : t("sidebar.showMore", {
+                              count:
+                                filteredDashboards.length -
+                                SIDEBAR_PREVIEW_COUNT,
+                            })}
                       </button>
                     )}
                     {sqlDashboardsLoading &&
@@ -2050,7 +2088,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           </div>
 
           {/* Analyses section */}
-          <div className="group/section space-y-1">
+          <div className="group/section min-w-0 space-y-1">
             <div
               className={cn(
                 "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
@@ -2062,14 +2100,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <button
                 type="button"
                 onClick={toggleAnalysesOpen}
-                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
+                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-start"
                 aria-expanded={analysesOpen}
               >
                 <IconReportAnalytics className="h-4 w-4 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">Analyses</span>
+                <span className="min-w-0 flex-1 truncate">
+                  {t("navigation.analyses")}
+                </span>
               </button>
               <SidebarSectionSettingsPopover
-                label="Analyses"
+                label={t("navigation.analyses")}
                 sortMode={analysisSortMode}
                 onSortModeChange={setAnalysisSortMode}
                 sharedOnly={analysisFilter === "org"}
@@ -2084,9 +2124,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <button
                 type="button"
                 onClick={toggleAnalysesOpen}
-                className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+                className="me-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
                 aria-label={
-                  analysesOpen ? "Collapse analyses" : "Expand analyses"
+                  analysesOpen
+                    ? t("sidebar.collapseAnalyses")
+                    : t("sidebar.expandAnalyses")
                 }
               >
                 <IconChevronDown
@@ -2108,7 +2150,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                   items={displayedAnalyses.map((a) => a.id)}
                   strategy={verticalListSortingStrategy}
                 >
-                  <div className="ml-4 min-w-0 space-y-0.5">
+                  <div className="ms-4 min-w-0 space-y-0.5">
                     {displayedAnalyses.map((a) => (
                       <SortableRow
                         key={a.id}
@@ -2145,8 +2187,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                         className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
                       >
                         {analysesShowAll
-                          ? "Show less"
-                          : `Show ${filteredAnalyses.length - SIDEBAR_PREVIEW_COUNT} more`}
+                          ? t("sidebar.showLess")
+                          : t("sidebar.showMore", {
+                              count:
+                                filteredAnalyses.length - SIDEBAR_PREVIEW_COUNT,
+                            })}
                       </button>
                     )}
                     {analysesLoading &&
@@ -2165,7 +2210,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       ))}
                     {!analysesLoading && sortedAnalyses.length === 0 && (
                       <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
-                        No analyses yet
+                        {t("sidebar.noAnalysesYet")}
                       </p>
                     )}
                     <NewAnalysisDialog />
@@ -2193,7 +2238,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                   )}
                 >
                   <Icon className="h-4 w-4" />
-                  {item.label}
+                  {t(item.labelKey)}
                 </Link>
               );
             })}
@@ -2218,75 +2263,25 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                             new CustomEvent("analytics:open-command-palette"),
                           )
                         }
-                        aria-label="Search"
+                        aria-label={t("sidebar.search")}
                         className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
                       >
                         <IconSearch className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top">
-                      <p>Search ({shortcutModifierLabel()}+K)</p>
+                      <p>
+                        {t("sidebar.searchShortcut", {
+                          shortcut: `${shortcutModifierLabel()}+K`,
+                        })}
+                      </p>
                     </TooltipContent>
                   </Tooltip>
-                  <Popover open={logoutOpen} onOpenChange={setLogoutOpen}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <PopoverTrigger asChild>
-                          <button className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50">
-                            <IconLogout className="h-4 w-4" />
-                          </button>
-                        </PopoverTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        <p>Sign Out</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <PopoverContent
-                      className="w-48 p-3"
-                      side="top"
-                      align="start"
-                    >
-                      <p className="text-sm mb-3">Sign out?</p>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            setLogoutOpen(false);
-                            logout();
-                          }}
-                          className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
-                        >
-                          Yes
-                        </button>
-                        <button
-                          onClick={() => setLogoutOpen(false)}
-                          className="flex-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/50 transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => {
-                          const next = light ? "dark" : "light";
-                          setTheme(next);
-                          persistThemePreference(next);
-                        }}
-                        className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
-                      >
-                        {light ? (
-                          <IconMoon className="h-4 w-4" />
-                        ) : (
-                          <IconSun className="h-4 w-4" />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <p>{light ? "Dark mode" : "Light mode"}</p>
-                    </TooltipContent>
-                  </Tooltip>
+                  <LanguagePicker
+                    variant="icon"
+                    label={t("settings.languageLabel")}
+                    className="[&_[role=combobox]]:rounded-lg [&_[role=combobox]]:border-0 [&_[role=combobox]]:bg-transparent [&_[role=combobox]]:text-muted-foreground [&_[role=combobox]]:hover:bg-sidebar-accent/50 [&_[role=combobox]]:hover:text-primary"
+                  />
                 </div>
               </div>
             </TooltipProvider>

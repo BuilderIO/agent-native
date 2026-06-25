@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getOnboardingHtml } from "./onboarding-html.js";
-import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
+
+import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
+import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
+import { getOnboardingHtml } from "./onboarding-html.js";
 
 describe("getOnboardingHtml", () => {
   afterEach(() => {
@@ -129,6 +131,90 @@ describe("getOnboardingHtml", () => {
       "body: JSON.stringify({ email: email, password: pass })",
     );
     expect(html).toContain("password: document.getElementById('l-pass').value");
+  });
+
+  it("captures first-touch attribution on the standalone auth page", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).toContain("function __anCaptureSignupAttribution()");
+    expect(html).toContain("localStorage.getItem('an_attribution')");
+    expect(html).toContain("document.cookie = 'an_ft='");
+    expect(html).toContain("'utm_source'");
+    expect(html).toContain("var returnPath = __anNormalizeReturnPath");
+    expect(html).toContain("__anExternalReferrerHost(document.referrer || '')");
+  });
+
+  it("omits hosted terms and privacy links on unhosted email signup", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).not.toContain("https://www.agent-native.com/terms");
+    expect(html).not.toContain("https://www.agent-native.com/privacy");
+    expect(html).toContain(".legal-note");
+  });
+
+  it("shows a secondary terms and privacy notice on hosted email signup", () => {
+    const html = getOnboardingHtml({
+      requestHost: "calendar.agent-native.com",
+    });
+
+    expect(html).toContain('data-i18n="legalPrefix"');
+    expect(html).toContain('href="https://www.agent-native.com/terms"');
+    expect(html).toContain('data-i18n="legalTerms">Terms</a>');
+    expect(html).toContain(
+      'href="https://www.agent-native.com/privacy" target="_blank" rel="noreferrer"',
+    );
+    expect(html).toContain('data-i18n="legalPrivacy">Privacy Policy</a>');
+    expect(html).toContain(".legal-note");
+  });
+
+  it("renders a locale picker that shares the app locale preference", () => {
+    const html = getOnboardingHtml({
+      requestHost: "forms.agent-native.com",
+    });
+
+    expect(html).toContain('id="auth-locale-trigger"');
+    expect(html).toContain('id="auth-locale-menu"');
+    expect(html).toContain(
+      `var __AN_AUTH_LOCALE_STORAGE_KEY = "${LOCALE_STORAGE_KEY}"`,
+    );
+    expect(html).toContain('data-locale-value="es-ES"');
+    expect(html).toContain("Español (Spanish)");
+    expect(html).toContain('data-i18n="createAccount"');
+    expect(html).toContain("Crear cuenta");
+    expect(html).toContain("function __anApplyAuthLocale");
+    expect(html).toContain("function __anSetAuthLocaleMenuOpen");
+    expect(html).toContain("root.setAttribute('dir', meta.dir || 'ltr')");
+  });
+
+  it("localizes built-in Forms auth marketing copy from the locale picker", () => {
+    const html = getOnboardingHtml({
+      requestHost: "forms.agent-native.com",
+    });
+
+    expect(html).toContain('data-marketing-field="tagline"');
+    expect(html).toContain('data-marketing-feature-index="0"');
+    expect(html).toContain("你的 AI 代理与你一起构建、发布和分析表单。");
+    expect(html).toContain("用一句话创建完整表单");
+    expect(html).toContain("function __anApplyAuthMarketingCopy");
+    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "forms"');
+  });
+
+  it("shows configured terms and privacy links on custom email signup", () => {
+    const html = getOnboardingHtml({
+      signupLegalNotice: {
+        termsUrl: "https://example.com/legal/terms",
+        privacyUrl: "https://example.com/legal/privacy",
+        termsLabel: "Service Terms",
+        privacyLabel: "Privacy Notice",
+      },
+    });
+
+    expect(html).toContain(
+      '<a href="https://example.com/legal/terms" target="_blank" rel="noreferrer">Service Terms</a>',
+    );
+    expect(html).toContain(
+      '<a href="https://example.com/legal/privacy" target="_blank" rel="noreferrer">Privacy Notice</a>',
+    );
   });
 
   it("normalizes sign-in return targets before redirect and preserves hashes", () => {

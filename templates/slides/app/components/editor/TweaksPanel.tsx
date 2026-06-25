@@ -1,10 +1,11 @@
 import { IconX } from "@tabler/icons-react";
-import type { TweakDefinition } from "@/lib/design-systems";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { TweakDefinition } from "@/lib/design-systems";
 
 interface TweaksPanelProps {
   tweaks: TweakDefinition[];

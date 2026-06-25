@@ -14,9 +14,10 @@ import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import { assertValidFields } from "../server/lib/validate-fields.js";
 import { applyFieldOps } from "../server/lib/merge-fields.js";
+import { assertValidFields } from "../server/lib/validate-fields.js";
 import type { FormField } from "../shared/types.js";
 
 const fieldOpSchema = z.union([

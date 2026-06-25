@@ -1,0 +1,129 @@
+---
+title: "Adaptadores CLI"
+description: "Brinde al agente acceso estructurado a cualquier herramienta CLI (gh, ffmpeg, stripe) a través de una interfaz de adaptador estándar, una de las dos uniones de adaptador cubiertas en la guía de adaptadores."
+---
+
+# Adaptadores CLI
+
+> **Dónde encaja:** Los adaptadores CLI son una de las dos costuras del adaptador en el
+> . La guía canónica es [Adapters](/docs/sandbox-adapters), que
+> cubre tanto esta unión como la unión sandbox `run-code`, incluida la unión compartida
+> restricción de borde/sin servidor. Esta página es la referencia rápida para el lado CLI.
+
+Un adaptador CLI incluye una única herramienta de línea de comandos (`gh`, `ffmpeg`, `stripe`, `aws`) para que el agente pueda descubrirla, comprobar si está instalada y ejecutarla con un resultado stdout/stderr/código de salida consistente. Sin esta unión, cada script reinventa cómo invocar un CLI y analizar su salida.
+
+```an-diagram title="Adaptador CLI → registro → superficie de acción" summary="ShellCliAdapter envuelve un binario; CliRegistry recopila adaptadores para su descubrimiento; defineAction expone una llamada en la superficie de acción agente + UI."
+{
+  "html": "<div class=\"diagram-cli\"><div class=\"diagram-node\" data-rough>gh · ffmpeg · stripe<br><small class=\"diagram-muted\">command-line tools</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>ShellCliAdapter<br><small class=\"diagram-muted\">isAvailable · execute</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>CliRegistry<br><small class=\"diagram-muted\">describe() for discovery</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">defineAction</div></div>",
+  "css": ".diagram-cli{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-cli .diagram-arrow{font-size:22px;line-height:1}.diagram-cli .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## La interfaz {#the-interface}
+
+Cada adaptador CLI implementa `CliAdapter`:
+
+```ts
+import type { CliAdapter, CliResult } from "@agent-native/core/adapters/cli";
+
+interface CliAdapter {
+  name: string; // "gh", "stripe", "ffmpeg"
+  description: string; // What the agent sees during discovery
+  isAvailable(): Promise<boolean>;
+  execute(args: string[]): Promise<CliResult>;
+}
+
+interface CliResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+```
+
+## Adaptador ShellCli {#shell-adapter}
+
+Para la mayoría de los CLI no necesita una clase personalizada: `ShellCliAdapter` envuelve cualquier binario con valores predeterminados razonables:
+
+```ts
+import { ShellCliAdapter } from "@agent-native/core/adapters/cli";
+
+const gh = new ShellCliAdapter({
+  command: "gh",
+  description: "GitHub CLI — manage repos, PRs, issues, and releases",
+});
+
+const ffmpeg = new ShellCliAdapter({
+  command: "ffmpeg",
+  description: "Audio/video processing and transcoding",
+  timeoutMs: 120_000, // 2 min for long encodes
+  env: { STRIPE_API_KEY: process.env.STRIPE_SECRET_KEY! },
+});
+```
+
+Opciones: `command` (obligatorio), `description` (obligatorio), `name` (predeterminado en `command`), `env` (fusionado con `process.env`), `cwd` (predeterminado en `process.cwd()`) y `timeoutMs` (predeterminado en `30000`).
+
+Para autenticación personalizada, análisis de salida o procesamiento previo/posterior, implemente `CliAdapter` directamente en lugar de usar `ShellCliAdapter`.
+
+## Registro {#registry}
+
+`CliRegistry` recopila adaptadores para que el agente pueda descubrir qué hay disponible en tiempo de ejecución:
+
+```ts
+import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
+
+const cliRegistry = new CliRegistry();
+cliRegistry.register(
+  new ShellCliAdapter({ command: "gh", description: "GitHub CLI" }),
+);
+
+cliRegistry.list(); // all registered
+await cliRegistry.listAvailable(); // only installed
+await cliRegistry.describe(); // [{ name, description, available }] for discovery
+
+const gh = cliRegistry.get("gh");
+const result = await gh?.execute(["pr", "list", "--json", "title,url"]);
+```
+
+## Usando desde actions {#from-actions}
+
+Envuelva una llamada CLI en `defineAction` para exponerla en la superficie de acción: se requiere `defineAction` cuando el código se ejecuta dentro de la superficie de acción del servidor; de lo contrario, utilice un adaptador directamente en un archivo `scripts/`. Nunca llames a `process.exit` en una acción; arroja un error en su lugar.
+
+```ts
+// actions/list-prs.ts
+import { defineAction } from "@agent-native/core/action";
+import { ShellCliAdapter } from "@agent-native/core/adapters/cli";
+import { z } from "zod";
+
+const gh = new ShellCliAdapter({ command: "gh", description: "GitHub CLI" });
+
+export default defineAction({
+  description: "List open pull requests via the GitHub CLI.",
+  schema: z.object({}),
+  async run() {
+    if (!(await gh.isAvailable())) {
+      throw new Error("GitHub CLI not installed. Run: brew install gh");
+    }
+    const result = await gh.execute([
+      "pr",
+      "list",
+      "--json",
+      "title,url,state",
+      "--limit",
+      "10",
+    ]);
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr || "gh pr list failed");
+    }
+    return JSON.parse(result.stdout);
+  },
+});
+```
+
+## Perímetro y sin servidor {#edge-serverless}
+
+Los adaptadores CLI usan `node:child_process`, que no existe en tiempos de ejecución de borde/trabajador (Cloudflare Workers, Netlify Edge Functions). Ejecute tareas y puntos finales del adaptador CLI en un entorno Node.js estándar. Esta restricción se comparte con la unión de la zona de pruebas; consulte la discusión completa en [Adapters](/docs/sandbox-adapters#edge-serverless).
+
+## ¿Qué sigue?
+
+- [**Adapters**](/docs/sandbox-adapters): la guía canónica para ambas costuras adaptadoras.
+- [**Actions**](/docs/actions): la superficie de acción en la que normalmente se envuelven los adaptadores CLI.

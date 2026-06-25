@@ -1,43 +1,7 @@
 // Owns: tool-payload formatting helpers, ToolCallDisplay, ToolCallFallback,
 // and ReconnectStreamMessage used by AssistantChat.
 
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  useRef,
-} from "react";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
-import type { ActionChatUIConfig } from "../../action-ui.js";
-import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
-import type { ContentPart } from "../sse-event-processor.js";
-import { humanizeToolName } from "../tool-display.js";
-import {
-  BashCell,
-  EditCell,
-  WriteCell,
-  FilesChangedSummary,
-} from "../tool-cells/index.js";
-import { AgentTaskCard } from "../AgentTaskCard.js";
-import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
-import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
-import { writeClipboardText } from "../clipboard.js";
-import { cn } from "../utils.js";
-import { resolveToolRenderer } from "./tool-render-registry.js";
-import {
-  isBuiltinDataWidgetActionRenderer,
-  resolveBuiltinActionChatRenderer,
-  resolveBuiltinFallbackToolRenderer,
-} from "./widgets/builtin-tool-renderers.js";
-import {
-  SmoothMarkdownText,
-  HighlightedCodeBlock,
-  markdownComponents,
-  markdownModule,
-  remarkGfmFn,
-  markdownUrlTransform,
-} from "./markdown-renderer.js";
 import {
   IconLoader2,
   IconCircleX,
@@ -51,6 +15,43 @@ import {
   IconShieldCheck,
   IconX,
 } from "@tabler/icons-react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
+
+import type { ActionChatUIConfig } from "../../action-ui.js";
+import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { AgentTaskCard } from "../AgentTaskCard.js";
+import { writeClipboardText } from "../clipboard.js";
+import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
+import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+import type { ContentPart } from "../sse-event-processor.js";
+import {
+  BashCell,
+  EditCell,
+  WriteCell,
+  FilesChangedSummary,
+} from "../tool-cells/index.js";
+import { humanizeToolName } from "../tool-display.js";
+import { cn } from "../utils.js";
+import {
+  SmoothMarkdownText,
+  HighlightedCodeBlock,
+  markdownComponents,
+  markdownModule,
+  remarkGfmFn,
+  markdownUrlTransform,
+} from "./markdown-renderer.js";
+import { resolveToolRenderer } from "./tool-render-registry.js";
+import {
+  isBuiltinDataWidgetActionRenderer,
+  resolveBuiltinActionChatRenderer,
+  resolveBuiltinFallbackToolRenderer,
+} from "./widgets/builtin-tool-renderers.js";
 
 // Exported so AssistantChatInner can provide a context value.
 export const ChatRunningContext = React.createContext(false);

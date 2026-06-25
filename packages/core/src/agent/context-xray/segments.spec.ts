@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import type { EngineMessage } from "../engine/types.js";
 import { computeSegments } from "./segments.js";
 

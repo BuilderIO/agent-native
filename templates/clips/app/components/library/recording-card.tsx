@@ -1,5 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useFormatters, useT } from "@agent-native/core/client";
 import {
   IconDots,
   IconLock,
@@ -14,7 +13,11 @@ import {
   IconCheck,
   IconAlertTriangle,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useCallback, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+
+import { EditableRecordingTitle } from "@/components/editable-recording-title";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -23,32 +26,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import type { RecordingSummary } from "@/hooks/use-library";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
-import { EditableRecordingTitle } from "@/components/editable-recording-title";
+import type { RecordingSummary } from "@/hooks/use-library";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
+import { cn } from "@/lib/utils";
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-function formatRelative(iso: string): string {
-  const date = new Date(iso);
-  const now = Date.now();
-  const diff = (date.getTime() - now) / 1000;
-  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-  const abs = Math.abs(diff);
-  if (abs < 60) return rtf.format(Math.round(diff), "second");
-  if (abs < 3600) return rtf.format(Math.round(diff / 60), "minute");
-  if (abs < 86400) return rtf.format(Math.round(diff / 3600), "hour");
-  if (abs < 604800) return rtf.format(Math.round(diff / 86400), "day");
-  if (abs < 2629800) return rtf.format(Math.round(diff / 604800), "week");
-  if (abs < 31557600) return rtf.format(Math.round(diff / 2629800), "month");
-  return rtf.format(Math.round(diff / 31557600), "year");
 }
 
 function PrivacyIcon({
@@ -91,16 +78,25 @@ export function RecordingCard({
   canRenameTitle = false,
 }: RecordingCardProps) {
   const navigate = useNavigate();
+  const t = useT();
+  const { formatDate, formatRelativeTime } = useFormatters();
   const [hovered, setHovered] = useState(false);
 
   const duration = useMemo(
     () => formatDuration(recording.durationMs),
     [recording.durationMs],
   );
-  const relative = useMemo(
-    () => formatRelative(recording.createdAt),
-    [recording.createdAt],
-  );
+  const relative = useMemo(() => {
+    const date = new Date(recording.createdAt);
+    const diff = (date.getTime() - Date.now()) / 1000;
+    const abs = Math.abs(diff);
+    if (abs < 60) return formatRelativeTime(Math.round(diff), "second");
+    if (abs < 3600) return formatRelativeTime(Math.round(diff / 60), "minute");
+    if (abs < 86400) return formatRelativeTime(Math.round(diff / 3600), "hour");
+    if (abs < 604800)
+      return formatRelativeTime(Math.round(diff / 86400), "day");
+    return formatDate(date);
+  }, [formatDate, formatRelativeTime, recording.createdAt]);
   const waitingForStorage = isStorageSetupFailureReason(
     recording.failureReason,
   );
@@ -121,13 +117,29 @@ export function RecordingCard({
     return (local || "?").slice(0, 2).toUpperCase();
   }, [recording.ownerEmail]);
 
-  const handleOpen = useCallback(() => {
-    if (selectionMode) {
-      onToggleSelect?.(recording.id);
-    } else {
-      navigate(`/r/${recording.id}`);
-    }
-  }, [navigate, onToggleSelect, recording.id, selectionMode]);
+  const recordingPath = `/r/${recording.id}`;
+
+  const handleOpen = useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      const shouldOpenNewTab =
+        event.button === 1 ||
+        (event.button === 0 && (event.metaKey || event.ctrlKey));
+
+      if (shouldOpenNewTab) {
+        event.preventDefault();
+        event.stopPropagation();
+        window.open(recordingPath, "_blank", "noopener,noreferrer");
+        return;
+      }
+
+      if (selectionMode) {
+        onToggleSelect?.(recording.id);
+      } else {
+        navigate(recordingPath);
+      }
+    },
+    [navigate, onToggleSelect, recording.id, recordingPath, selectionMode],
+  );
 
   const handleCheckbox = useCallback(
     (e: React.MouseEvent) => {
@@ -149,6 +161,7 @@ export function RecordingCard({
     <div
       role="article"
       onClick={handleOpen}
+      onAuxClick={handleOpen}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       className={cn(
@@ -186,7 +199,7 @@ export function RecordingCard({
         </div>
 
         {/* Duration badge */}
-        <div className="absolute bottom-2 right-2 rounded bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-white tabular-nums">
+        <div className="absolute bottom-2 end-2 rounded bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-white tabular-nums">
           {duration}
         </div>
 
@@ -194,7 +207,7 @@ export function RecordingCard({
         {(selectionMode || hovered || selected) && (
           <div
             onClick={handleCheckbox}
-            className="absolute top-2 left-2 flex h-5 w-5 items-center justify-center rounded bg-background/90 border border-border"
+            className="absolute top-2 start-2 flex h-5 w-5 items-center justify-center rounded bg-background/90 border border-border"
           >
             <Checkbox
               checked={selected}
@@ -207,7 +220,7 @@ export function RecordingCard({
 
         {/* Status pill for non-ready recordings */}
         {recording.status !== "ready" && (
-          <div className="absolute top-2 right-2 rounded-full bg-black/80 px-2 py-0.5 text-[10px] font-medium text-white uppercase tracking-wide">
+          <div className="absolute top-2 end-2 rounded-full bg-black/80 px-2 py-0.5 text-[10px] font-medium text-white uppercase tracking-wide">
             {waitingForStorage ? "storage" : recording.status}
           </div>
         )}
@@ -215,7 +228,7 @@ export function RecordingCard({
         {(recording.status === "failed" || waitingForStorage) && (
           <div
             className={cn(
-              "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2 text-left shadow-sm backdrop-blur",
+              "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2 text-start shadow-sm backdrop-blur",
               waitingForStorage ? "border-primary/30" : "border-destructive/30",
             )}
           >
@@ -229,17 +242,18 @@ export function RecordingCard({
               <div className="min-w-0 flex-1">
                 <div className="text-[11px] font-medium text-foreground">
                   {waitingForStorage
-                    ? "Waiting for storage"
+                    ? t("clipsFinalRaw.waitingForStorage")
                     : nativeUploadPaused
-                      ? "Saved locally"
-                      : "Upload failed"}
+                      ? t("clipsFinalRaw.savedLocally")
+                      : t("clipsFinalRaw.uploadFailed")}
                 </div>
                 <div className="line-clamp-2 text-[10px] leading-snug text-muted-foreground">
                   {waitingForStorage
-                    ? "Open to connect storage and finish saving."
+                    ? t("clipsFinalRaw.connectStorageToFinish")
                     : nativeUploadPaused
-                      ? "Retry from the Clips menu; no need to re-record."
-                      : (recording.failureReason ?? "Remove this failed clip.")}
+                      ? t("clipsFinalRaw.retryFromClipsMenu")
+                      : (recording.failureReason ??
+                        t("clipsFinalRaw.removeFailedClip"))}
                 </div>
               </div>
               {!waitingForStorage && (
@@ -248,7 +262,7 @@ export function RecordingCard({
                   onClick={handleRemoveFailed}
                   className="rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground hover:bg-accent"
                 >
-                  Remove
+                  {t("clipsFinalRaw.remove")}
                 </button>
               )}
             </div>
@@ -266,7 +280,7 @@ export function RecordingCard({
               canEdit={canRenameTitle}
               displayTitle={
                 isDefaultTitle(recording.title)
-                  ? "Untitled Clip"
+                  ? t("editableTitle.untitled")
                   : recording.title
               }
               showPendingSkeleton={isDefaultTitle(recording.title)}
@@ -282,7 +296,9 @@ export function RecordingCard({
               <span className="capitalize">{recording.visibility}</span>
               <span>•</span>
               <span>
-                {recording.viewCount} view{recording.viewCount === 1 ? "" : "s"}
+                {t("clipsFinalRaw.viewsCount", {
+                  count: recording.viewCount,
+                })}
               </span>
               <span>•</span>
               <span>{relative}</span>
@@ -293,7 +309,7 @@ export function RecordingCard({
             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
               <button
                 className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-label="Recording menu"
+                aria-label={t("clipsFinalRaw.recordingMenu")}
               >
                 <IconDots className="h-4 w-4" />
               </button>
@@ -303,34 +319,39 @@ export function RecordingCard({
               onClick={(e) => e.stopPropagation()}
             >
               <DropdownMenuItem onSelect={() => onShare?.(recording)}>
-                <IconShare className="h-4 w-4 mr-2" /> Share
+                <IconShare className="h-4 w-4 me-2" />{" "}
+                {t("recordingPage.share")}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onMove?.(recording)}>
-                <IconFolder className="h-4 w-4 mr-2" /> Move to folder
+                <IconFolder className="h-4 w-4 me-2" />{" "}
+                {t("clipsFinalRaw.moveToFolder")}
               </DropdownMenuItem>
               {onRename ? (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => onRename(recording)}>
-                    <IconEdit className="h-4 w-4 mr-2" /> Rename
+                    <IconEdit className="h-4 w-4 me-2" />{" "}
+                    {t("folderTree.rename")}
                   </DropdownMenuItem>
                 </>
               ) : null}
               <DropdownMenuSeparator />
               {recording.archivedAt ? (
                 <DropdownMenuItem onSelect={() => onArchive?.(recording)}>
-                  <IconCheck className="h-4 w-4 mr-2" /> Unarchive
+                  <IconCheck className="h-4 w-4 me-2" />{" "}
+                  {t("clipsFinalRaw.unarchive")}
                 </DropdownMenuItem>
               ) : (
                 <DropdownMenuItem onSelect={() => onArchive?.(recording)}>
-                  <IconArchive className="h-4 w-4 mr-2" /> Archive
+                  <IconArchive className="h-4 w-4 me-2" />{" "}
+                  {t("navigation.archive")}
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem
                 onSelect={() => onTrash?.(recording)}
                 className="text-destructive focus:text-destructive"
               >
-                <IconTrash className="h-4 w-4 mr-2" /> Delete
+                <IconTrash className="h-4 w-4 me-2" /> {t("folderTree.delete")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -347,7 +368,7 @@ export function RecordingCard({
             {recording.ownerEmail}
           </span>
           {recording.tags.length > 0 && (
-            <div className="ml-auto flex items-center gap-1 truncate">
+            <div className="ms-auto flex items-center gap-1 truncate">
               {recording.tags.slice(0, 2).map((t) => (
                 <span
                   key={t}

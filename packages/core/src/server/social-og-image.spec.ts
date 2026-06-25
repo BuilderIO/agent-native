@@ -1,12 +1,18 @@
 import { existsSync } from "node:fs";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  OG_ARABIC_FONT_FAMILY,
+  OG_FONT_FAMILY,
+  resolveOgFontFiles,
+} from "./og-fonts.js";
 import {
   agentNativeOgImageResponseHeaders,
   isResvgRuntimeUnavailableError,
   renderAgentNativeOgImageSvg,
   resolveAgentNativeOgImageAppName,
 } from "./social-og-image.js";
-import { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
 
 describe("social OG image", () => {
   afterEach(() => {
@@ -22,6 +28,11 @@ describe("social OG image", () => {
       expect(file.endsWith(".ttf")).toBe(true);
       expect(existsSync(file)).toBe(true);
     }
+    expect(fontFiles).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("NotoNaskhArabic-Variable.ttf"),
+      ]),
+    );
   });
 
   it("renders the title with the bundled font and a Bold-resolving weight", () => {
@@ -38,6 +49,18 @@ describe("social OG image", () => {
     expect(svg).not.toContain('font-weight="850"');
   });
 
+  it("renders Arabic titles with a bundled RTL font", () => {
+    const svg = renderAgentNativeOgImageSvg({
+      title: "الخطوات الأولى",
+      accentText: "Agent-Native Docs",
+    });
+    expect(svg).toContain("الخطوات الأولى");
+    expect(svg).toContain(OG_ARABIC_FONT_FAMILY);
+    expect(svg).toContain('x="1120"');
+    expect(svg).toContain('text-anchor="end" direction="rtl"');
+    expect(svg).toContain('unicode-bidi="plaintext"');
+  });
+
   it("places accent text below wrapped title lines", () => {
     const svg = renderAgentNativeOgImageSvg({
       title: "Workspace Connections For Multi App Provider Grants",
@@ -47,7 +70,7 @@ describe("social OG image", () => {
       /<text x="80" y="(\d+)"[\s\S]*?<tspan x="80" dy="0">[\s\S]*?<\/tspan><tspan x="80" dy="(\d+)">[\s\S]*?<\/tspan><\/text>/,
     );
     const accentMatch = svg.match(
-      /<text x="84" y="(\d+)"[\s\S]*?>Agent-Native Docs<\/text>/,
+      /<text x="84" y="(\d+)"[\s\S]*?<tspan x="84" dy="0">Agent-Native Docs<\/tspan><\/text>/,
     );
 
     expect(titleMatch).not.toBeNull();

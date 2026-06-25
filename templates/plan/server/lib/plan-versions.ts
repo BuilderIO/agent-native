@@ -1,6 +1,5 @@
 import { and, asc, desc, eq } from "drizzle-orm";
-import { getDb, schema } from "../db/index.js";
-import { parsePlanContent } from "../plan-content.js";
+
 import type {
   Plan,
   PlanAuthor,
@@ -8,6 +7,8 @@ import type {
   PlanVersionSnapshot,
   PlanVersionSummary,
 } from "../../shared/types.js";
+import { getDb, schema } from "../db/index.js";
+import { parsePlanContent } from "../plan-content.js";
 
 const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
 

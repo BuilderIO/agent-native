@@ -13,6 +13,8 @@
  * the authenticated player route).
  */
 
+import { getSession, signShortLivedToken } from "@agent-native/core/server";
+import { asc, eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getHeader,
@@ -23,17 +25,16 @@ import {
   setCookie,
   type H3Event,
 } from "h3";
-import { asc, eq } from "drizzle-orm";
-import { getSession, signShortLivedToken } from "@agent-native/core/server";
-import { getDb, schema } from "../../db/index.js";
-import { parseSpaceIds } from "../../lib/recordings.js";
-import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
-import { verifySharePassword } from "../../lib/share-password.js";
+
 import { buildAgentApiUrls } from "../../../shared/agent-context.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../../../shared/transcript-segments.js";
+import { getDb, schema } from "../../db/index.js";
+import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
+import { parseSpaceIds, sameOwnerEmail } from "../../lib/recordings.js";
+import { verifySharePassword } from "../../lib/share-password.js";
 
 function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
@@ -141,7 +142,7 @@ export default defineEventHandler(async (event) => {
 
   const session = await getSession(event).catch(() => null);
   const viewerIsOwner = Boolean(
-    session?.email && session.email === rec.ownerEmail,
+    session?.email && sameOwnerEmail(session.email, rec.ownerEmail),
   );
 
   if (rec.visibility !== "public" && !viewerIsOwner) {

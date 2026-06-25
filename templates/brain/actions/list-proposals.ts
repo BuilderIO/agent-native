@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
+import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { accessFilter } from "@agent-native/core/sharing";
+
 import { getDb, schema } from "../server/db/index.js";
 import { serializeProposal } from "../server/lib/brain.js";
 

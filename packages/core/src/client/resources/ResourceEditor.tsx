@@ -1,3 +1,7 @@
+import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
 import React, {
   useState,
   useRef,
@@ -5,14 +9,8 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
-import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import Link from "@tiptap/extension-link";
 import { Markdown } from "tiptap-markdown";
-import { cn } from "../utils.js";
-import { agentNativePath } from "../api-path.js";
-import type { Resource } from "./use-resources.js";
+
 import {
   type ParsedFrontmatter,
   getRemoteAgentIdFromPath,
@@ -23,11 +21,14 @@ import {
   parseFrontmatter,
   serializeFrontmatter,
 } from "../../resources/metadata.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { cn } from "../utils.js";
+import type { Resource } from "./use-resources.js";
 
 export interface ResourceEditorProps {
   resource: Resource;

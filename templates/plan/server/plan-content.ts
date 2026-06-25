@@ -144,9 +144,10 @@ function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
           : `unknown-block-${Math.random().toString(36).slice(2, 9)}`;
       const errorSummary = singleResult.success
         ? "Block data was missing"
-        : String(
-            singleResult.error?.issues?.[0]?.message ?? "Parse error",
-          ).slice(0, 200);
+        : summarizePlanBlockValidationIssues(
+            singleResult.error?.issues,
+            originalType,
+          );
       return {
         id: blockId,
         type: "callout",
@@ -161,6 +162,55 @@ function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
     });
 
   return sanitizePlanContent({ ...envelope, blocks: salvaged });
+}
+
+function summarizePlanBlockValidationIssues(
+  issues: unknown,
+  originalType: string,
+): string {
+  if (!Array.isArray(issues) || issues.length === 0) return "Parse error";
+
+  const lines = issues
+    .slice(0, 4)
+    .map((issue) => {
+      if (!issue || typeof issue !== "object") return null;
+      const record = issue as { message?: unknown; path?: unknown };
+      const message =
+        typeof record.message === "string" && record.message.trim()
+          ? record.message.trim()
+          : "Invalid input";
+      const path = formatValidationPath(record.path);
+      return path ? `${path}: ${message}` : message;
+    })
+    .filter(Boolean) as string[];
+
+  const summary = lines.join("\n").slice(0, 800) || "Parse error";
+  const hint = validationHintForIssues(issues, originalType);
+  return hint ? `${summary}\n\n${hint}` : summary;
+}
+
+function formatValidationPath(path: unknown): string {
+  if (!Array.isArray(path) || path.length === 0) return "";
+  const parts = path
+    .filter((part) => typeof part === "string" || typeof part === "number")
+    .map(String);
+  if (parts.length >= 2 && parts[0] === "blocks" && parts[1] === "0") {
+    parts.splice(0, 2);
+  }
+  return parts.length > 0 ? parts.join(".") : "block";
+}
+
+function validationHintForIssues(issues: unknown[], originalType: string) {
+  if (originalType !== "tabs") return "";
+  const serialized = JSON.stringify(issues);
+  if (
+    serialized.includes('"line"') ||
+    serialized.includes('"lines"') ||
+    serialized.includes("annotations")
+  ) {
+    return 'Hint: nested diff and annotated-code annotations use `lines`, e.g. { lines: "3" }, not `line`.';
+  }
+  return "Hint: each tab needs an id, label, and recursively valid child blocks.";
 }
 
 export function serializePlanContent(content: PlanContentInput): string {
@@ -424,6 +474,17 @@ function sanitizeMaybeBlocks(blocks: unknown) {
         sanitizeMaybeBlocks((tab as Record<string, unknown>).blocks);
       }
     }
+    // `columns` is the recommended before/after recap primitive and nests child
+    // blocks (commonly wireframes). It must recurse like `tabs` does — otherwise
+    // a nested wireframe authored as a full HTML document never gets its
+    // scaffold stripped and the whole columns block degrades to an "Unsupported
+    // block" card at validation time.
+    if (record.type === "columns" && data && Array.isArray(data.columns)) {
+      for (const column of data.columns) {
+        if (!column || typeof column !== "object") continue;
+        sanitizeMaybeBlocks((column as Record<string, unknown>).blocks);
+      }
+    }
   }
 }
 
@@ -454,9 +515,29 @@ function preSanitizePlanContentInput(input: unknown): unknown {
   return content;
 }
 
+/**
+ * Coerce a full HTML document into a bounded fragment. Wireframe, custom-html,
+ * and diagram blocks must be bounded fragments (the renderer owns the
+ * surrounding document, theme, and styling), so the schema rejects any value
+ * carrying document scaffolding. Agents frequently author one of these blocks
+ * as a standalone page anyway; rather than degrade the whole block to an
+ * "Unsupported block" card, drop the scaffold and keep the body content. The
+ * `<head>` is removed wholesale because its `<style>`/`<meta>`/`<link>` are
+ * renderer-owned and stripped elsewhere regardless. Fragments without
+ * scaffolding pass through untouched.
+ */
+function stripDocumentScaffold(value: string): string {
+  if (!/<!doctype|<\s*\/?\s*(?:html|head|body)\b/i.test(value)) return value;
+  return value
+    .replace(/<!doctype[^>]*>/gi, "")
+    .replace(/<head\b[^>]*>[\s\S]*?<\/\s*head\s*>/gi, "")
+    .replace(/<\/?\s*(?:html|head|body)\b[^>]*>/gi, "")
+    .trim();
+}
+
 /** Strip the dangerous surface from a stored custom-html / css string. */
 export function sanitizeCustomHtml(value: string): string {
-  let out = value;
+  let out = stripDocumentScaffold(value);
   // Iterate element-stripping so nested / sequential cases collapse fully.
   for (let i = 0; i < 4; i += 1) {
     const next = out.replace(FORBIDDEN_ELEMENT, "");
@@ -479,7 +560,7 @@ export function sanitizeCustomHtml(value: string): string {
 }
 
 export function sanitizeDiagramHtml(value: string): string {
-  let out = value;
+  let out = stripDocumentScaffold(value);
   for (let i = 0; i < 4; i += 1) {
     const next = out.replace(DIAGRAM_FORBIDDEN_ELEMENT, "");
     if (next === out) break;
@@ -611,6 +692,18 @@ function sanitizeBlock(block: PlanBlock): PlanBlock {
         tabs: block.data.tabs.map((tab) => ({
           ...tab,
           blocks: tab.blocks.map(sanitizeBlock),
+        })),
+      },
+    };
+  }
+  if (block.type === "columns") {
+    return {
+      ...block,
+      data: {
+        ...block.data,
+        columns: block.data.columns.map((column) => ({
+          ...column,
+          blocks: column.blocks.map(sanitizeBlock),
         })),
       },
     };

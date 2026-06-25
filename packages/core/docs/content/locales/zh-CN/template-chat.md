@@ -1,0 +1,129 @@
+---
+title: "聊天模板"
+description: "一个最小的聊天优先代理本机应用程序：持久的聊天线程、actions、应用程序状态、实时同步、身份验证以及添加您自己的 UI 的空间。"
+---
+
+# 聊天模板
+
+聊天是基本的代理本机应用程序起点。它为您提供了一个干净的 ChatGPT 风格的 shell，聊天位于中心，线程列表位于左侧，标准应用程序导航、身份验证、实时同步、actions 和一个示例操作。当您想要一个无需提交域模板即可构建的真正的浏览器应用程序时，请从这里开始。
+
+如果您想要最小的仅操作运行时且没有浏览器 UI，请从 [Pure-Agent Apps](/docs/pure-agent-apps) 开始。如果您想要成品域产品形状，请从 [Calendar](/docs/template-calendar)、[Mail](/docs/template-mail)、[Content](/docs/template-content)、[Forms](/docs/template-forms)、[Analytics](/docs/template-analytics) 或其他域模板开始。
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>我能帮什么？</h1><p class='wf-muted' style='margin:10px 0 0'>聊任何事情。添加 actions、组件、页面、任务或你自己的后端。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>给代理发消息...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+}
+```
+
+## 里面有什么 {#whats-in-it}
+
+- 使用框架聊天界面和持久聊天线程在 `/` 上进行**全页聊天**。
+- **应用侧边栏中的话题列表**，以便用户可以创建、重新打开、重命名、固定和存档聊天。
+- **代理聊天插件**已预先配置，因此一旦设置了代理凭据，聊天就会与内置的应用程序代理循环进行对话。
+- **Auth** 通过更好的身份验证 - 登录、注册、会话、组织。相同的流程在本地和生产中运行；在开发中，电子邮件验证被跳过。
+- **Actions 目录**，包含一个示例 (`actions/hello.ts`) 以及标准 `view-screen` 和 `navigate` actions。
+- **框架的核心表**，用于应用程序状态、设置、会话、资源、聊天线程、运行历史记录和其他运行时状态。
+- **实时同步** (`useDbSync`) 已连接，因此当代理写入 SQL 时，UI 会自动刷新。
+- **AGENTS.md** 包含用于添加 actions、路线、skills 和应用程序状态的聊天优先指南。
+
+## 其中*不*有什么 {#not-in-it}
+
+- 没有域表或种子数据。
+- 没有仪表板、列表、图表、表单或提供商集成。
+- 除了示例存根之外，没有特定于域的 actions。
+
+这就是重点。聊天是您自己的代理的一个薄而有用的默认外壳，而不是一个假装通用的领域产品。
+
+```an-diagram title="Chat shell 中包含哪些内容" summary="框架标准运行时上的精简聊天界面（操作、持久线程、实时同步和身份验证），有空间添加您自己的 UI。"
+{
+  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">线程列表<br><small class=\"diagram-muted\">创建 · 重新打开 · 固定 · 归档</small></div><div class=\"diagram-node\">整页聊天<br><small class=\"diagram-muted\">/ 上的框架聊天界面</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">核心 SQL 表<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">实时同步 &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">登录 · 组织 · 会话</small></div></div></div>",
+  "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## 何时采摘 {#when-to-pick}
+
+- **您想要一个用户可以立即交谈的基本应用程序**，然后使用 actions 和 UI 进行扩展。
+- **您有一个无头应用程序，需要聊天**作为第一个浏览器界面。
+- **您希望将自己的代理后端插入熟悉的聊天 UI**，同时保持 Agent-Native 的 actions、状态、身份验证和部署形状。
+- \*\*您正在构建一个与域模板不匹配的自定义内部工具原型。
+
+## 脚手架 {#scaffolding}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --template chat
+cd my-chat-app
+pnpm install
+pnpm dev
+```
+
+或者从没有 UI 开始，然后添加聊天界面：
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+从那里，将聊天模板的 `/` 路由和侧边栏线程列表复制到您的应用程序中，或者构建聊天应用程序并将 actions 从无头代理移动到其 `actions/` 目录中。关键不变量保持不变：actions 是聊天的共享界面，UI、HTTP、MCP、A2A 和 CLI。
+
+## 要检查的第一个代码 {#first-code}
+
+- `actions/hello.ts` 是代理可以调用的启动行为。更换它或
+  在其旁边添加 actions。
+- `app/routes/_index.tsx` 渲染全页聊天界面。调整
+  建议、空状态、作曲家或周围布局。
+- `AGENTS.md` 告诉内置代理如何在此应用程序内工作。
+
+```an-file-tree title="Chat 模板布局"
+{
+  "entries": [
+    { "path": "actions/hello.ts", "note": "一个示例 action；替换它或在旁边添加 actions" },
+    { "path": "actions/view-screen.ts", "note": "代理读取的标准上下文 action" },
+    { "path": "actions/navigate.ts", "note": "标准导航 action" },
+    { "path": "app/routes/_index.tsx", "note": "渲染整页 chat 界面；编辑建议、空状态和 composer" },
+    { "path": "AGENTS.md", "note": "内置代理读取的以 chat 为先的指南" }
+  ]
+}
+```
+
+聊天页面故意变薄：
+
+```tsx
+// app/routes/_index.tsx
+import { AgentChatSurface } from "@agent-native/core/client";
+
+export default function ChatRoute() {
+  return (
+    <AgentChatSurface
+      mode="page"
+      suggestions={[
+        "What can you do?",
+        "Help me customize this chat app",
+        "Show me the actions and pages I can add",
+      ]}
+    />
+  );
+}
+```
+
+## 使用您自己的代理后端 {#own-agent-backend}
+
+该模板默认使用内置的应用程序代理循环。要连接自定义后端，请交换代理聊天插件后面的聊天运行时，而不是重写 UI。聊天路由应该在共享聊天界面周围保留一个薄渲染器；后端选择属于服务器插件/运行时适配器。
+
+当您的模型编排已经存在于其他地方，但您仍然想要一个具有身份验证、线程、actions、UI 状态和可部署页面的应用程序时，请使用此选项。
+
+## 首次编辑 {#first-edits}
+
+搭好脚手架后，询问代理：
+
+> 添加 `notes` 的数据模型。注释有 ID、标题、正文和所有者。在 `/notes` 渲染笔记页面，添加创建/列出 actions，并保持聊天能够创建笔记。
+
+代理应添加 Drizzle 架构、actions、路线、导航和说明。然后您可以使用 UI 或聊天中的注释功能。
+
+## 下一步是什么
+
+- [**Getting Started**](/docs) — 在无头、聊天和域模板之间进行选择
+- [**Agent Surfaces**](/docs/agent-surfaces) — 无头、聊天、嵌入式和完整应用模式
+- [**Actions**](/docs/actions) - 操作系统聊天和 UI 都调用
+- [**Native 聊天界面**](/docs/native-chat-ui) — 聊天界面基元和运行时选项
+- [**Pure-Agent Apps**](/docs/pure-agent-apps) - 仅限操作的应用程序，稍后可以发展为聊天

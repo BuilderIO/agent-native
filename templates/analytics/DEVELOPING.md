@@ -4,7 +4,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 
 ## Tech Stack
 
-- **Frontend**: React 18 + React Router 6 (SPA) + TypeScript + Vite + TailwindCSS 3
+- **Frontend**: React 19 + React Router 8 (SPA) + TypeScript + Vite + TailwindCSS 3
 - **Backend**: Nitro (via @agent-native/core) — file-based API routing
 - **Database**: Drizzle ORM over portable SQL (`DATABASE_URL`; local dev defaults to SQLite)
 - **Testing**: Vitest

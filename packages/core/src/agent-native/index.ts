@@ -1,9 +1,9 @@
-import type { DiscoveredAgent } from "../server/agent-discovery.js";
 import type {
   AgentInvocationResult,
   AgentInvocationRuntime,
   InvokeAgentOptions,
 } from "../a2a/invoke.js";
+import type { DiscoveredAgent } from "../server/agent-discovery.js";
 
 type DiscoverAgents = (selfAppId?: string) => Promise<DiscoveredAgent[]>;
 type InvokeAgent = (

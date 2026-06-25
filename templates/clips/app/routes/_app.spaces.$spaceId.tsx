@@ -1,14 +1,18 @@
+import { useT } from "@agent-native/core/client";
 import { useMemo } from "react";
 import { useParams } from "react-router";
-import { LibraryGrid } from "@/components/library/library-grid";
+
 import { FolderTree, type FolderNode } from "@/components/library/folder-tree";
+import { LibraryGrid } from "@/components/library/library-grid";
 import { useFolders, useSpaces, useOrganizations } from "@/hooks/use-library";
+import enMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: "Space · Clips" }];
+  return [{ title: enMessages.clipsFinalRaw.spacePageTitle }];
 }
 
 export default function SpaceRoute() {
+  const t = useT();
   const { spaceId } = useParams<{ spaceId: string }>();
   const { data: organizations } = useOrganizations();
   const currentOrganizationId =
@@ -45,16 +49,16 @@ export default function SpaceRoute() {
             >
               {(space as any)?.iconEmoji ??
                 (space as any)?.name?.slice(0, 1).toUpperCase() ??
-                "S"}
+                t("navigation.space").slice(0, 1)}
             </div>
             <span className="text-xs font-semibold text-foreground truncate">
-              {(space as any)?.name ?? "Space"}
+              {(space as any)?.name ?? t("navigation.space")}
             </span>
           </div>
         </div>
         <div className="mt-2">
           <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Folders
+            {t("navigation.folders")}
           </div>
           <FolderTree
             folders={folderList}
@@ -71,7 +75,7 @@ export default function SpaceRoute() {
           spaceId={spaceId}
           folderId={null}
           emptyKind="space"
-          title={(space as any)?.name ?? "Space"}
+          title={(space as any)?.name ?? t("navigation.space")}
         />
       </div>
     </div>

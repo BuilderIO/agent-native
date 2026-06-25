@@ -1,8 +1,9 @@
 import { type ReactNode } from "react";
-import DocsSidebar from "./DocsSidebar";
-import TableOfContents from "./TableOfContents";
-import MobileDocsNav from "./MobileDocsNav";
+
 import DocsPrevNext from "./DocsPrevNext";
+import DocsSidebar from "./DocsSidebar";
+import MobileDocsNav from "./MobileDocsNav";
+import TableOfContents from "./TableOfContents";
 
 interface TocItem {
   id: string;

@@ -1,9 +1,11 @@
+import { useT } from "@agent-native/core/client";
 import {
   useEffect,
   useSyncExternalStore,
   type ReactNode,
   type FC,
 } from "react";
+
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
@@ -85,5 +87,11 @@ export function useSetHeaderActions(node: ReactNode) {
 }
 
 export function DashboardTitleSkeleton() {
-  return <Skeleton className="h-6 w-56" aria-label="Loading dashboard title" />;
+  const t = useT();
+  return (
+    <Skeleton
+      className="h-6 w-56"
+      aria-label={t("navigation.loadingDashboardTitle")}
+    />
+  );
 }

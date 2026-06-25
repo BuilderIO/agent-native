@@ -1,4 +1,3 @@
-import React from "react";
 import {
   IconAlertTriangle,
   IconBrowser,
@@ -7,13 +6,15 @@ import {
   IconLoader2,
   IconPlugConnected,
 } from "@tabler/icons-react";
+import React from "react";
+
 import { cn } from "../utils.js";
-import type { McpServerScope } from "./use-mcp-servers.js";
 import {
   useToggleBuiltinCapability,
   type BuiltinCapability,
   type BuiltinCapabilityStatus,
 } from "./use-builtin-capabilities.js";
+import type { McpServerScope } from "./use-mcp-servers.js";
 
 interface BuiltinCapabilityDetailProps {
   capability: BuiltinCapability;

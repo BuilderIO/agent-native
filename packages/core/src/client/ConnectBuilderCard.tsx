@@ -1,12 +1,16 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
 import { IconExternalLink, IconLoader2 } from "@tabler/icons-react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+
+import { agentNativePath } from "./api-path.js";
+import { BuilderBMark } from "./builder-mark.js";
 import { getCallbackOrigin } from "./frame.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
-import { BuilderBMark } from "./builder-mark.js";
 import { cn } from "./utils.js";
-import { agentNativePath } from "./api-path.js";
 
 const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
+const CODE_CHANGE_FALLBACK_DETAIL =
+  "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.";
+const CODE_CHANGE_FALLBACK_TEXT = `This requires a code change. ${CODE_CHANGE_FALLBACK_DETAIL}`;
 
 function isLocalBrowserOutsideDesktop() {
   if (typeof window === "undefined" || typeof navigator === "undefined") {
@@ -200,7 +204,7 @@ export function ConnectBuilderCard({
   // so the render tree below stays flat.
   const connectedCapabilityText = builderEnabled
     ? "AI credits and cloud code changes are ready to use."
-    : "AI credits are ready to use. Builder Cloud Agents for code changes are not available for this workspace yet.";
+    : `AI credits are ready to use. ${CODE_CHANGE_FALLBACK_TEXT}`;
   let title: string;
   let subtitle: React.ReactNode;
   if (runResult) {
@@ -215,20 +219,17 @@ export function ConnectBuilderCard({
       </>
     );
   } else if (showWaitlist) {
-    title = waitlistJoined
-      ? "You're on the waitlist"
-      : "Builder Cloud Agents coming soon";
+    title = "This requires a code change";
     subtitle = waitlistJoined ? (
       <>
-        We'll let you know when Builder Cloud Agents are available for this
-        workspace.{" "}
+        You're on the waitlist. {CODE_CHANGE_FALLBACK_DETAIL}{" "}
         {localBrowser
           ? "Since this project is already running locally, open it in the desktop app for local coding tools or keep editing from your clone."
           : "You can still clone the project locally and use the desktop app for code changes."}
       </>
     ) : (
       <>
-        You don't have access to Builder Cloud Agents for this workspace yet.{" "}
+        {CODE_CHANGE_FALLBACK_DETAIL}{" "}
         {localBrowser
           ? "Since this project is already running locally, open it in the desktop app for local coding tools or keep editing from your clone."
           : "You can still clone the project locally and use the desktop app for code changes."}

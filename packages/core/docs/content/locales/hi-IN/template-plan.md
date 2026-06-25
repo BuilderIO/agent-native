@@ -1,0 +1,815 @@
+---
+title: "दृश्य योजनाएं"
+description: "Agent-Native योजनाएं आपके कोडिंग एजेंट की योजना को एक संरचित, समीक्षा योग्य दस्तावेज़ - आरेख, वायरफ्रेम, एनोटेटेड कोड, टिप्पणियां और शेयर लिंक में बदल देती हैं। CLI से एक बार इंस्टॉल करें; समीक्षकों के साथ आप अतिथि के रूप में संपादन साझा करते हैं और केवल सहेजने या साझा करने के लिए साइन इन करते हैं।"
+---
+
+# दृश्य योजनाएं
+
+> **ज्यादातर लोग प्लान को एक कौशल के रूप में इंस्टॉल करते हैं, न कि एक मचानदार ऐप के रूप में।** एक CLI कमांड
+> `/visual-plan` और `/visual-recap` skills प्लस होस्ट किए गए प्लान को जोड़ता है
+> आपके कोडिंग एजेंट से कनेक्टर - [Plan plugin & marketplace](/docs/plan-plugin)
+> प्लगइन और बाज़ार मार्गों के लिए। योजना टेम्पलेट को फोर्क करना (
+> [For developers](#for-developers)) सेल्फ-होस्टिंग या
+> योजना पर ही निर्माण।
+
+Agent-Native प्लान कोडिंग एजेंटों के लिए विज़ुअल प्लान मोड है। यह एक साधारण
+Codex, Claude कोड, Markdown, या एक संरचित में चिपकाया गया कार्यान्वयन योजना
+समृद्ध पाठ, आरेख, वायरफ्रेम, एनोटेटेड कोड वॉकथ्रू के साथ समीक्षा सतह
+और ट्री, एनोटेशन, टिप्पणियाँ और साझा करने योग्य लिंक फ़ाइल करें।
+
+यह दो आदेशों तक आता है। `/visual-plan` एजेंट से **पहले** एक योजना बनाता है
+कोड लिखता है। `/visual-recap` एक परिवर्तन को बदल देता है जो **पहले ही** हो चुका है - एक पीआर,
+प्रतिबद्धता, शाखा, या गिट अंतर - एक उच्च-ऊंचाई वाले दृश्य कोड समीक्षा में। दोनों खुले
+वही समीक्षा सतह, इसलिए आप टिप्पणी करते हैं, टिप्पणी करते हैं और प्रतिक्रिया वापस भेजते हैं
+एजेंट उसी तरह।
+
+```an-diagram title="दो आदेश, एक समीक्षा सतह" summary="दोनों कमांड होस्ट किए गए प्लान MCP कनेक्टर के माध्यम से एक ही एनोटेट-और-टिप्पणी सतह पर प्रकाशित होते हैं।"
+{
+  "html": "<div class=\"diagram-plan\"><div class=\"diagram-col\"><div class=\"diagram-node\"><span class=\"diagram-pill accent\">/visual-plan</span><small class=\"diagram-muted\">कोड से पहले — आर्किटेक्चर, UI, रिफैक्टर</small></div><div class=\"diagram-node\"><span class=\"diagram-pill\">/visual-recap</span><small class=\"diagram-muted\">कोड के बाद — PR, कमिट, ब्रांच, diff</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Plan MCP कनेक्टर<br><small class=\"diagram-muted\">plan.agent-native.com</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">समीक्षा सतह<br><small class=\"diagram-muted\">डायग्राम · वायरफ्रेम · एनोटेटेड कोड · टिप्पणियां</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-node\">कोडिंग एजेंट<br><small class=\"diagram-muted\">feedback वापस भेजा गया</small></div></div>",
+  "css": ".diagram-plan{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-plan .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-plan .diagram-arrow{font-size:22px;line-height:1}.diagram-plan .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}"
+}
+```
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>चेकआउट रीडिज़ाइन योजना</h1><div style='flex:1'></div><button>साझा करें</button><button class='primary'>स्वीकृत करें</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>वर्तमान वायरफ्रेम</div><div class='wf-box'>प्रस्तावित वायरफ्रेम</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>कार्यान्वयन योजना</strong><div class='wf-box'>निर्णय: मौजूदा चेकआउट शेल रखें</div><div class='wf-box'>एनोटेटेड कोड walkthrough</div><div class='wf-box'>खुले प्रश्न</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>टिप्पणियाँ</strong><div class='wf-box'>प्राथमिक CTA पर पिन</div><div class='wf-box'>एजेंट के लिए प्रश्न</div><div class='wf-box'>हल किया गया copy note</div><button class='primary'>फ़ीडबैक वापस दें</button></aside></div>"
+}
+```
+
+योजनाओं में दो तरीके हैं:
+
+- **आपके कोडिंग एजेंट (CLI) से** - एक कमांड कौशल स्थापित करता है, रजिस्टर करता है
+  होस्टेड प्लान कनेक्टर, और इसे प्रमाणित करता है।
+- **ब्राउज़र में** — जिसके साथ आप साझा करते हैं वह संपादक खोल सकता है और बना सकता है या
+  बिना किसी साइन-अप के **अतिथि के रूप में संपादित करें**। वे केवल तभी साइन इन करते हैं जब वे सहेजना चाहते हैं
+  या साझा करें।
+
+## कौशल स्थापित करें {#install}
+
+Agent-Native CLI का उपयोग करें। यह अनुशंसित सेटअप है क्योंकि यह
+योजना कौशल निर्देश, होस्ट किए गए प्लान MCP कनेक्टर को पंजीकृत करता है, **और** चलाता है
+क्लाइंट-विशिष्ट प्रमाणीकरण/सेटअप एक चरण में प्रवाहित होता है, इसलिए आपका पहला टूल कॉल नहीं होता
+एक OAuth दीवार से टकराएं:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+कमांड दोनों कमांड स्थापित करता है: `/visual-plan` और `/visual-recap`।
+
+यदि आप चैट-आधारित होस्ट का उपयोग कर रहे हैं जो सीधे MCP कनेक्टर URLs स्वीकार करता है
+(CLI-कॉन्फ़िगर क्लाइंट के बजाय), होस्ट किए गए प्लान कनेक्टर को यहां कनेक्ट करें
+`https://plan.agent-native.com/_agent-native/mcp` - क्लाइंट-विशिष्ट सेटअप के लिए [MCP Clients](/docs/mcp-clients) देखें।
+
+प्रमाणीकरण सेटअप पर एक बार का ब्राउज़र साइन-इन है - यह इरादा है, और यह
+वह है जो एजेंट को अपने द्वारा बनाई गई योजनाओं को जारी रखने और साझा करने देता है। क्या बात है
+कदम आपके ग्राहक पर निर्भर करता है:
+
+- **OAuth-सक्षम होस्ट** (Claude कोड) को एक URL-केवल MCP प्रविष्टि और एक संकेत मिलता है
+  `/mcp` चलाएं और **प्रमाणित करें** चुनें।
+- **Codex / Cowork** एक छोटा ब्राउज़र डिवाइस-कोड प्रवाह चलाएं: CLI एक कोड प्रिंट करता है,
+  सत्यापन पृष्ठ खोलता है, और आपके अनुमोदन के बाद कनेक्टर लिखता है।
+- **गैर-इंटरैक्टिव शेल या सीआई** में, प्रमाणीकरण चरण को छोड़ दिया जाता है और सटीक
+  बाद में चलाने का आदेश आपके लिए मुद्रित है।
+
+डिफ़ॉल्ट रूप से CLI प्रत्येक समर्थित स्थानीय क्लाइंट को लक्षित करता है जिसे वह कॉन्फ़िगर कर सकता है। उत्तीर्ण
+`--client codex`, `--client claude-code`, या कोई अन्य विशिष्ट ग्राहक जब आप
+सेटअप को एक होस्ट तक सीमित करना चाहते हैं:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+कनेक्टर को प्रमाणित किए बिना पंजीकृत करने के लिए `--no-connect` पास करें, फिर चलाएं
+`npx @agent-native/core@latest connect https://plan.agent-native.com --client all`
+जब भी आप तैयार हों, या एक संकीर्ण `--client` चुनें:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --no-connect
+```
+
+**प्रत्येक पुल अनुरोध** पर स्वचालित रूप से पुनर्कथन उत्पन्न करने के लिए, `--with-github-action` पास करें।
+यह एक GitHub एक्शन लिखता है जो प्रत्येक पीआर पर `visual-recap` कौशल चलाता है और
+एक इनलाइन स्क्रीनशॉट के साथ एक दिलचस्प टिप्पणी के रूप में एक इंटरैक्टिव पुनर्कथन योजना पोस्ट करता है -
+[PR Visual Recap](/docs/pr-visual-recap) देखें।
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --with-github-action
+```
+
+वर्कफ़्लो लिखे जाने के बाद, कॉन्फ़िगर करने के लिए `npx @agent-native/core@latest recap setup` चलाएँ
+GitHub Actions रहस्य/चर जहां संभव हो और `npx @agent-native/core@latest recap doctor`
+यह सत्यापित करने के लिए कि रेपो तैयार है।
+
+यदि आप केवल खुले Skills CLI के माध्यम से पोर्टेबल निर्देश फ़ाइल चाहते हैं, तो इसका उपयोग करें:
+
+```bash
+npx skills@latest add BuilderIO/agent-native --skill visual-plan
+```
+
+वह केवल कौशल निर्देश स्थापित करता है। यह होस्ट किए गए MCP
+कनेक्टर, इसलिए जब आप वन-कमांड सेटअप चाहते हैं तो Agent-Native CLI पथ का उपयोग करें।
+
+> **एक-इंस्टॉल प्लगइन को प्राथमिकता दें?** Claude कोड और Codex जोड़ सकते हैं
+> `BuilderIO/agent-native` सीधे एक प्लगइन मार्केटप्लेस के रूप में, जो बंडल करता है
+> एक बार में कनेक्टर को skills _और_ इंस्टॉल करने की योजना बनाएं और skills के रूप में स्वतः अपडेट हो जाएं
+> सुधारें - [Plan plugin & marketplace](/docs/plan-plugin) देखें।
+
+### वीएस कोड के अंदर योजनाएं खोलें {#vscode-extension}
+
+यदि आप वीएस कोड में रहते हैं, तो इंस्टॉल करें
+[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+आपको भेजने के बजाय साइड पैनल में उसी योजना समीक्षा सतह को खोलने के लिए
+अलग ब्राउज़र टैब। योजना उपकरण अभी भी सामान्य वेब लिंक और MCP
+मेटाडेटा में VS कोड हैंडऑफ़ URL भी शामिल है:
+
+```text
+vscode://builder.agent-native/open?url=<encoded-plan-url>
+```
+
+एक्सटेंशन उस URI को संभालता है, वीएस कोड वेबव्यू में डिकोडेड प्लान URL को खोलता है,
+और इसमें VS के लिए मौजूदा Agent Native MCP कनेक्ट फ्लो को चलाने के लिए एक कमांड शामिल है
+कोड / GitHub कोपायलट। यह विशेष रूप से Claude कोड या किसी अन्य
+कोडिंग-एजेंट वर्कफ़्लो जहां योजना को संपादित की जा रही फ़ाइलों के बगल में रहना चाहिए।
+
+## इसे अपने कोडिंग एजेंट से उपयोग करें
+
+इंस्टॉलेशन के बाद, अपने एजेंट से उस कमांड के लिए पूछें जो काम के लिए उपयुक्त हो:
+
+- `/visual-plan` कार्यान्वयन से **पहले** एक संरचित योजना बनाता है - के लिए
+  आर्किटेक्चर, बैकएंड, रिफैक्टर, UI, या मिश्रित उत्पाद कार्य - अंदर खींचना
+  आरेख, वायरफ्रेम, मॉकअप, क्लिक करने योग्य प्रोटोटाइप और एनोटेट कोड
+  कार्य के अनुसार वॉकथ्रू और पेड़ों को फ़ाइल करें।
+- `/visual-recap` पहले से ही एक बदलाव की उच्च-ऊंचाई वाली **समीक्षा** बनाता है
+  हुआ - एक पीआर, कमिट, शाखा, या गिट अंतर - स्कीमा, API, फ़ाइल, और
+  कच्चे अंतर की दीवार के बजाय ब्लॉक से पहले/बाद में।
+
+एजेंट को पहले कोडबेस का निरीक्षण करना चाहिए, उसके बाद विज़ुअल प्लान बनाना चाहिए
+गलत दिशा महंगी पड़ेगी। लौटाया गया प्लान लिंक
+ब्राउज़र या वीएस कोड, ताकि आप एनोटेट कर सकें, सही कर सकें, विकल्प चुन सकें और पूछ सकें
+कोड परिवर्तन शुरू होने से पहले अपडेट।
+
+जब कोई Codex, Claude कोड, Markdown, या चिपकाया गया प्लान पहले से मौजूद हो, तो इसका उपयोग करें
+`/visual-plan`; एजेंट उस स्रोत योजना को सुरक्षित रखता है और समृद्ध समीक्षा बनाता है
+फिर से शुरू करने के बजाय उससे सतह बनाएं।
+
+यदि पहले पास में अभी भी जवाबदेह निर्णय हैं, तो एजेंट एक
+**खुले प्रश्न** उसी योजना के निचले भाग में बनते हैं। इसका उत्तर देकर भेज रहा हूं
+यह एजेंट के लिए मौजूदा योजना के विरुद्ध एक संशोधन मोड़ शुरू करता है।
+
+## आप इसके साथ क्या कर सकते हैं
+
+- **कार्यान्वयन से पहले समीक्षा करें।** आरेख, वायरफ्रेम, विकल्प टैब के लिए React,
+  खुले प्रश्न प्रपत्र, जोखिम नोट्स, एनोटेटेड कोड वॉकथ्रू और कोड
+  एजेंट द्वारा फ़ाइलों को संपादित करने से पहले पूर्वावलोकन।
+- **योजना पर सीधे टिप्पणी करें।** टेक्स्ट, छवियों, वायरफ्रेम, या
+  कैनवास स्थान; चुनें कि टिप्पणी एजेंट के लिए है या किसी इंसान के लिए
+  समीक्षक; @इनलाइन चिप्स वाले टीम के साथियों का उल्लेख करें; और टिप्पणियों को
+  योजना विकसित होती है।
+- **एजेंट को स्पष्ट रूप से फीडबैक भेजें।** टेक्स्ट टिप्पणियाँ निकटतम में संलग्न करें
+  गद्य ब्लॉक, दृश्य टिप्पणियों में सटीक लक्ष्य मेटाडेटा और ब्राउज़र शामिल हैं
+  हैंडऑफ़ में विज़ुअल/कैनवास टिप्पणी के एक छोटे सेट के लिए केंद्रित स्क्रीनशॉट शामिल हैं
+  एक कठिन-से-पढ़ने वाली विशाल छवि के बजाय स्थान।
+- **परिणाम निर्यात करें।** योजना की एक HTML, Markdown, या JSON रसीद रखें
+  जब आपको स्रोत-नियंत्रण-अनुकूल हैंडऑफ़ की आवश्यकता होती है।
+
+## ब्राउज़र में अतिथि के रूप में संपादन {#guest}
+
+जिन लोगों के साथ आप योजना साझा करते हैं उन्हें कुछ भी इंस्टॉल करने की आवश्यकता नहीं है। वे योजनाएं खोलते हैं
+संपादक और **बिना साइन-अप के बनाएं और संपादित करें** - वे अतिथि के रूप में काम करते हैं। साइन इन
+केवल तभी आवश्यक है जब कोई अपना काम **बचाना या साझा करना** चाहता हो।
+
+जब कोई अतिथि साइन इन करता है, तो अतिथि के रूप में उन्होंने जो योजनाएं बनाई हैं, उनका **दावा** किया जाता है
+उनका खाता, इसलिए उनके द्वारा बनाई गई कोई भी चीज़ नष्ट नहीं हुई है।
+
+इनलाइन गद्य संपादन की योजना बनाएं: समृद्ध के साथ किसी भी पाठ अनुभाग, प्रकार, प्रारूप पर क्लिक करें
+संपादक टूलबार या स्लैश मेनू, और योजनाएँ अंतर्निहित मार्कडाउन को स्वतः सहेजती हैं। समीक्षा
+एनोटेशन मोड अस्थायी रूप से टेक्स्ट अनुभागों को केवल पढ़ने के लिए बदल देता है ताकि क्लिक पिन हो सकें
+प्रतिक्रिया; गद्य का संपादन जारी रखने के लिए समीक्षा मोड छोड़ें।
+
+## साझा करना और टिप्पणी करना {#sharing}
+
+साझा करना और टिप्पणी करना ऐसे कार्यप्रवाह हैं जिनके लिए एक खाते की आवश्यकता होती है:
+
+- **देखना** एक सार्वजनिक या साझा योजना लिंक वाले किसी भी व्यक्ति के लिए काम करती है - कोई खाता नहीं
+  आवश्यक.
+- **किसी साझा योजना पर टिप्पणी** करने के लिए एक एजेंट-मूल खाते की आवश्यकता होती है।
+- **साझा करना** एक योजना (इसे एक लिंक पर प्रकाशित करना, निजी साझाकरण, समीक्षक पहुंच,
+  क्रॉस-डिवाइस या टीम समीक्षा) के लिए साइन इन करना आवश्यक है। Google साइन-इन तब दिखाई देता है जब
+  मानक Google OAuth env संस्करण कॉन्फ़िगर किए गए हैं।
+
+होस्ट किया गया प्लान कनेक्टर `https://plan.agent-native.com/_agent-native/mcp` पर रहता है।
+कौशल फ़ाइलों में कभी भी साझा रहस्य न डालें।
+
+## स्थानीय-फ़ाइलें गोपनीयता मोड {#local-files}
+
+गोपनीयता-केंद्रित कार्य के लिए, स्थानीय-फ़ाइलें मोड के लिए पूछें:
+
+```text
+Use /visual-plan in local-files mode. Do not write this plan to the Plan DB.
+```
+
+या अपने एजेंट परिवेश के लिए कन्वेंशन सेट करें:
+
+```bash
+export AGENT_NATIVE_PLANS_MODE=local-files
+```
+
+इस मोड में एजेंट एक स्थानीय MDX फ़ोल्डर लिखता है और उसे होस्ट किए गए को कॉल नहीं करना चाहिए
+योजना MCP उपकरण। जब आपको योजना चाहिए तो `plans/<slug>/` जैसे रेपो फ़ोल्डर का उपयोग करें
+कोड के साथ चेक इन किया गया। किसी अस्थायी या उपेक्षित फ़ोल्डर का उपयोग करें, जैसे
+`/tmp/agent-native-plans/<slug>/` या `.agent-native/plans/<slug>/`, जब
+योजना को गिट से बाहर रहना चाहिए। फ़ोल्डर में शामिल हैं:
+
+- `plan.mdx`
+- वैकल्पिक `canvas.mdx`
+- वैकल्पिक `prototype.mdx`
+- वैकल्पिक `.plan-state.json`
+
+फ़ोल्डर लिखने के बाद, एजेंट एक छोटा लोकलहोस्ट ब्रिज प्रारंभ करता है और
+उस स्थानीय-केवल स्रोत के विरुद्ध होस्ट की गई योजना UI:
+
+```bash
+npx @agent-native/core@latest plan local check --dir plans/<slug>
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
+```
+
+पुल URL जैसा दिखता है
+`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+पेज सामान्य प्लान व्यूअर है, लेकिन ब्राउज़र `plan.mdx` प्राप्त करता है,
+`canvas.mdx`, `prototype.mdx`, `.plan-state.json`, और स्थानीय छवि संपत्ति
+लोकलहोस्ट ब्रिज। योजना सामग्री होस्ट किए गए डेटाबेस में नहीं लिखी गई है और
+होस्ट किए गए प्लान actions के माध्यम से नहीं भेजा गया। जब तक आप
+समीक्षा; URL आपकी मशीन के लिए स्थानीय है और साझा करने योग्य टीम लिंक नहीं है। द
+सर्व कमांड डिफ़ॉल्ट रूप से खुले URL को `.plan-url` में लिखता है ताकि कोडिंग एजेंट कर सकें
+लंबे समय से चल रहे स्टडआउट को स्क्रैप किए बिना इसे कैप्चर करें; उस फ़ाइल को केवल स्थानीय मानें
+क्योंकि URL में ब्रिज टोकन शामिल है, और इसे प्रतिबद्ध न करें।
+
+MacOS पर, `--open` क्रोम/क्रोमियम को प्राथमिकता देता है क्योंकि Safari होस्ट किए गए को ब्लॉक कर सकता है
+HTTPS एक HTTP लोकलहोस्ट ब्रिज लाने से योजना पृष्ठ। बिना सिर के
+समस्या निवारण, चलाएँ:
+
+```bash
+npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind plan
+```
+
+`verify` पुल शुरू करता है, निजी-नेटवर्क प्रीफ़्लाइट और JSON की जाँच करता है
+पेलोड, प्रिंट डायग्नोस्टिक्स, और निकास।
+
+यदि आप उसी `PLAN_LOCAL_DIR` के साथ स्थानीय रूप से प्लान ऐप चलाते हैं, तो आप यह भी कर सकते हैं
+संपादन योग्य ऐप रूट खोलें:
+
+```text
+http://localhost:<port>/local-plans/<slug>
+```
+
+रेपो-समर्थित फ़ोल्डरों के लिए, प्रत्यक्ष स्थानीय मार्ग रेपो-रिश्तेदार को ले जा सकता है
+फ़ोल्डर पथ ताकि ब्राउज़र संपादन उस फ़ोल्डर में लिखते रहें:
+
+```text
+http://localhost:<port>/local-plans/<slug>?path=plans%2F<slug>
+```
+
+प्लान ऐप `agent-native.json` में `apps.plan.roots[0].path` का उपयोग करता है
+प्रचारित स्थानीय योजनाओं के लिए डिफ़ॉल्ट रेपो स्थान, `plans/` पर वापस आते हुए:
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "plan": {
+      "mode": "local-files",
+      "roots": [{ "name": "Plans", "path": "plans", "kind": "plans" }]
+    }
+  }
+}
+```
+
+प्रत्यक्ष स्थानीय योजना मार्गों में एक अस्थायी स्थानीय फ़ोल्डर को सहेजने के लिए एक मेनू क्रिया शामिल होती है
+उस रेपो स्थान में। प्रमोशन के बाद, पेज `?path=...` और
+MDX संपादनों को रेपो फ़ोल्डर में स्वत: सहेजना जारी रखता है।
+
+स्थानीय-फ़ाइलें मोड योजना या पुनर्कथन सामग्री को Agent-Native पर जाने से रोकता है
+योजना डेटाबेस. यह होस्ट की गई साझाकरण, ब्राउज़र टिप्पणियाँ, योजना इतिहास, को भी अक्षम कर देता है
+और जब तक आप स्पष्ट रूप से प्रकाशन का विकल्प नहीं चुनते तब तक रसीदें प्रकाशित/निर्यात करें। एक
+होस्टेड डेटाबेस में स्थानीय योजना, स्थानीय के साथ `publish-visual-plan` पर कॉल करें
+MDX फ़ोल्डर पथ; यह योजना को अपलोड करता है, उसे एक होस्टेड आईडी प्रदान करता है, साझाकरण को सक्षम बनाता है
+और टिप्पणी करते हुए, होस्ट किया गया URL लौटाता है। स्थानीय-फ़ाइलें मोड
+अपने कोडिंग एजेंट के LLM को स्वचालित रूप से स्थानीय बनाएं; स्थानीय या स्वीकृत चुनें
+मॉडल यदि वह गोपनीयता सीमा भी मायने रखती है।
+
+## डेस्कटॉप स्थानीय फ़ाइल सिंक {#desktop-local-sync}
+
+Agent Native डेस्कटॉप होस्ट किए गए प्लान को एक मूल स्थानीय-फ़ोल्डर ब्रिज भी देता है। यह
+स्थानीय-फ़ाइल गोपनीयता मोड से भिन्न है: होस्ट किया गया प्लान डेटाबेस
+डेस्कटॉप पर साझाकरण, टिप्पणियाँ, इतिहास और लाइव समीक्षा के लिए सत्य का स्रोत
+वर्तमान योजना की स्रोत फ़ाइलों को आपके द्वारा चुने गए फ़ोल्डर में प्रतिबिंबित कर सकता है।
+
+Agent Native डेस्कटॉप में एक योजना खोलें, योजना मेनू की **स्थानीय फ़ाइलें** actions का उपयोग करें,
+फिर:
+
+- **स्थानीय फ़ोल्डर लिंक करें** — उस योजना के MDX स्रोत के लिए फ़ोल्डर चुनें।
+- **स्थानीय फ़ोल्डर से सिंक करें** — `plan.mdx` लिखें, वैकल्पिक `canvas.mdx`,
+  वैकल्पिक `prototype.mdx`, वैकल्पिक `.plan-state.json`, और छवि संपत्ति।
+- **स्थानीय संपादन आयात करें** — फ़ोल्डर पढ़ें और इसे इसके माध्यम से लागू करें
+  योजना के वर्तमान अद्यतन टाइमस्टैम्प के साथ `import-visual-plan-source`।
+- **ऑटो-सिंक परिवर्तन** — इसके बाद होस्ट किए गए प्लान के नवीनतम स्रोत को निर्यात करना जारी रखें
+  ऐप में किए गए संपादन।
+
+इस पथ के लिए प्लान ऐप की क्लोनिंग या CLI चलाने की आवश्यकता नहीं है। यह
+होस्ट की गई योजना के बारे में फ़ाइल-पहली समीक्षा/संपादन, योजना की सामग्री को बाहर रखने के लिए नहीं
+होस्ट किए गए डेटाबेस का।
+
+## होस्ट किए गए प्लान डेटा को हटाना {#delete-data}
+
+साइन-इन किए गए स्वामी अपनी होस्ट की गई योजनाओं और पुनर्कथनों को योजना सूची से हटा सकते हैं या
+योजना कार्रवाई मेनू.
+
+- **सॉफ्ट डिलीट** योजना को **हटाए गए** टैब पर ले जाता है, सामान्य योजना बनाता है
+  दृश्य/प्रत्यक्ष लिंक काम करना बंद कर देते हैं, और पंक्ति बनाकर सार्वजनिक पहुंच को हटा देते हैं
+  निजी. SQL पंक्तियाँ बरकरार रखी जाती हैं ताकि मालिक बाद में योजना को पुनर्स्थापित कर सके।
+- **रीस्टोर** सॉफ्ट-डिलीट किए गए प्लान के लिए **डिलीट** टैब से उपलब्ध है।
+- **स्थायी डिलीट** होस्ट की गई योजना पंक्ति और योजना-स्कोप वाली टिप्पणियों को हटा देता है,
+  अनुभाग, गतिविधि ईवेंट, संस्करण स्नैपशॉट, शेयर अनुदान, दुरुपयोग रिपोर्ट, और
+  SQL asset records. The UI requires typing `DELETE <plan-id>` before the final
+  बटन सक्षम करता है।
+
+स्थायी डिलीट से प्लान ऐप के डेटाबेस रिकॉर्ड और SQL-समर्थित संपत्ति हट जाती है
+बाइट्स/संदर्भ। यदि कोई परिनियोजन बाहरी अपलोड प्रदाता, प्रदाता
+ऑब्जेक्ट रिटेंशन उस प्रदाता के जीवनचक्र का अनुसरण करता है क्योंकि साझा अपलोड
+अमूर्तीकरण वर्तमान में वस्तु विलोपन को उजागर नहीं करता है। स्थानीय-फ़ाइलें गोपनीयता मोड
+इसके बजाय स्रोत को आपके स्थानीय MDX फ़ोल्डर में रखता है; होस्ट किए गए डेटा को हटाना
+स्थानीय फ़ाइलें स्पर्श करें।
+
+## उपयोगी संकेत
+
+- "लेख प्रवाह बदलने से पहले `/visual-plan` का उपयोग करें।"
+- "मोबाइल और डेस्कटॉप स्थितियों के साथ नई ऑनबोर्डिंग स्क्रीन के लिए एक `/visual-plan` बनाएं।"
+- "नीचे दिए गए Markdown प्लान पर `/visual-plan` का उपयोग करें और समीक्षा करना आसान बनाएं।"
+- "इस पीआर पर `/visual-recap` चलाएं ताकि मैं पहले परिवर्तन के आकार की समीक्षा कर सकूं।"
+- "`main` और इस शाखा के बीच अंतर पर `/visual-recap` का उपयोग करें।"
+- "स्थानीय-फ़ाइल मोड में `/visual-recap` का उपयोग करें ताकि प्लान डीबी में कोई पुनर्कथन सामग्री न लिखी जाए।"
+
+## लेख त्रुटियों से उबरना {#auth-errors}
+
+यदि कोई प्लान टूल कभी भी `needs auth`, `Unauthorized`, या `सत्र लौटाता है
+समाप्त`, इसे दोबारा प्रयास न करें। कनेक्टर को
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
+Codex के लिए, या `/mcp` को फिर से चलाएं → **प्रमाणित करें** को OAuth-सक्षम होस्ट में। एक
+नया Codex थ्रेड या टूल की अपेक्षा करने से पहले संबंधित क्लाइंट को पुनरारंभ/पुनः लोड करें
+रजिस्ट्री को अद्यतन करना है।
+
+## डेवलपर्स के लिए
+
+इस दस्तावेज़ का शेष भाग योजना टेम्पलेट को फोर्क करने वाले या स्वयं-होस्ट करने वाले किसी भी व्यक्ति के लिए है।
+अधिकांश उपयोगकर्ताओं को ऐप को बंद करने के बजाय CLI के साथ कौशल स्थापित करना चाहिए।
+
+### त्वरित शुरुआत
+
+```bash
+npx @agent-native/core@latest create my-plans --standalone --template plan
+cd my-plans
+pnpm install
+pnpm dev
+```
+
+होस्टेड ऐप-समर्थित कौशल का उपयोग करता है:
+
+- ऐप: `https://plan.agent-native.com`
+- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+
+स्थानीय टेम्पलेट तब उपयोगी होता है जब आप स्वयं योजनाएँ विकसित कर रहे हों, स्थानीय दृढ़ता का परीक्षण कर रहे हों, या पूरी तरह से स्व-होस्टेड समीक्षा सतह चला रहे हों।
+
+### डेटा मॉडल
+
+स्कीमा `templates/plan/server/db/schema.ts` में रहती है। कोर टेबल:
+
+| तालिका             | इसमें क्या है                                                                                                                                                                                           |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans`            | प्रत्येक योजना या पुनर्कथन - `title`, `brief`, `kind` (योजना/पुनरावृत्ति), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, उपयोग आँकड़े, `source_url`, `deleted_at`/`deleted_by` |
+| `plan_sections`    | एक योजना के भीतर आदेशित अनुभाग - `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                                            |
+| `plan_comments`    | थ्रेडेड टिप्पणियाँ - `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                                         |
+| `plan_events`      | किसी योजना पर एजेंट/मानव घटनाओं का ऑडिट लॉग                                                                                                                                                             |
+| `plan_versions`    | संस्करण इतिहास के लिए पॉइंट-इन-टाइम स्नैपशॉट                                                                                                                                                            |
+| `plan_shares`      | प्रति-प्रिंसिपल शेयर अनुदान (दर्शक/संपादक/व्यवस्थापक)                                                                                                                                                   |
+| `plan_guest_mints` | अतिथि सत्र जारी करने के लिए दर-सीमा रिकॉर्ड                                                                                                                                                             |
+| `plan_assets`      | इनलाइन छवि संपत्तियों को बेस64 के रूप में संग्रहीत किया जाता है (कोई अपलोड प्रदाता नहीं होने पर फ़ॉलबैक)                                                                                                |
+
+```an-schema title="योजना डेटा मॉडल" summary="एक योजना पंक्ति में आदेशित अनुभागों के अलावा टिप्पणियाँ, ईवेंट, संस्करण, शेयर और इनलाइन संपत्तियां होती हैं।"
+{
+  "entities": [
+    { "id": "plans", "name": "plans", "note": "each plan or recap", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "title", "type": "text" },
+      { "name": "brief", "type": "text", "nullable": true },
+      { "name": "kind", "type": "enum", "note": "योजना | पुनर्कथन" },
+      { "name": "status", "type": "text" },
+      { "name": "source", "type": "text", "nullable": true },
+      { "name": "hosted_plan_id", "type": "text", "nullable": true, "note": "hosted_plan_url paired" },
+      { "name": "source_url", "type": "text", "nullable": true },
+      { "name": "deleted_at", "type": "timestamp", "nullable": true, "note": "soft delete; deleted_by paired" }
+    ] },
+    { "id": "plan_sections", "name": "plan_sections", "note": "ordered sections within a plan", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "type", "type": "text" },
+      { "name": "title", "type": "text", "nullable": true },
+      { "name": "body", "type": "text", "nullable": true },
+      { "name": "html", "type": "text", "nullable": true },
+      { "name": "sort_order", "type": "integer" },
+      { "name": "created_by", "type": "text", "nullable": true }
+    ] },
+    { "id": "plan_comments", "name": "plan_comments", "note": "threaded comments", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "kind", "type": "text" },
+      { "name": "status", "type": "text" },
+      { "name": "anchor", "type": "json", "nullable": true },
+      { "name": "message", "type": "text" },
+      { "name": "resolution_target", "type": "text", "nullable": true, "note": "agent | human | null" },
+      { "name": "mentions_json", "type": "json", "nullable": true },
+      { "name": "resolved_by", "type": "text", "nullable": true }
+    ] },
+    { "id": "plan_events", "name": "plan_events", "note": "audit log of agent/human events", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] },
+    { "id": "plan_versions", "name": "plan_versions", "note": "point-in-time snapshots", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] },
+    { "id": "plan_shares", "name": "plan_shares", "note": "per-principal grants", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "role", "type": "enum", "note": "दर्शक | संपादक | व्यवस्थापक" }
+    ] },
+    { "id": "plan_guest_mints", "name": "plan_guest_mints", "note": "rate-limit records for guest session issuance", "fields": [
+      { "name": "id", "type": "text", "pk": true }
+    ] },
+    { "id": "plan_assets", "name": "plan_assets", "note": "inline image assets as base64", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] }
+  ],
+  "relations": [
+    { "from": "plans", "to": "plan_sections", "kind": "1-n", "label": "has sections" },
+    { "from": "plans", "to": "plan_comments", "kind": "1-n", "label": "has comments" },
+    { "from": "plans", "to": "plan_events", "kind": "1-n", "label": "has events" },
+    { "from": "plans", "to": "plan_versions", "kind": "1-n", "label": "has versions" },
+    { "from": "plans", "to": "plan_shares", "kind": "1-n", "label": "has shares" },
+    { "from": "plans", "to": "plan_assets", "kind": "1-n", "label": "has assets" }
+  ]
+}
+```
+
+### कुंजी actions
+
+`templates/plan/actions/` में Actions:
+
+- **निर्माण** - `create-visual-plan`, `create-visual-recap`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions`
+- **पढ़ना और संपादन** - `get-visual-plan`, `update-visual-plan`, `list-visual-plans`, `import-visual-plan-source`, `patch-visual-plan-source`, `read-visual-plan-source`, `export-visual-plan`
+- **जीवनचक्र** - `delete-visual-plan` केवल मालिक के लिए सॉफ्ट डिलीट, रिस्टोर और टाइप-कन्फर्मेशन स्थायी डिलीट के लिए
+- **प्रकाशन और साझाकरण** — `publish-visual-plan`
+- **संस्करण** — `list-plan-versions`, `get-plan-version`, `restore-plan-version`
+- **टिप्पणियाँ और प्रतिक्रिया** - `get-plan-feedback`, `reply-to-plan-comment`, `resolve-plan-comment`, `consume-plan-feedback`, `delete-plan-comment`
+- **प्रोटोटाइप** — `convert-visual-plan-to-prototype`, `create-prototype-plan`
+- **संदर्भ एवं नेविगेशन** — `view-screen`, `navigate`
+
+### कस्टम MDX ब्लॉक {#custom-mdx-blocks}
+
+योजना स्रोत फ़ाइलें MDX हैं, लेकिन ऐप मनमाने ढंग से आयातित JSX प्रस्तुत नहीं करता है
+घटक। एक कस्टम MDX टैग को प्लान ब्लॉक के रूप में पंजीकृत किया जाना चाहिए ताकि सर्वर
+इसे पार्स और क्रमबद्ध करें, ब्राउज़र इसे रेंडर और संपादित कर सकता है, और एजेंट कर सकता है
+इसे `get-plan-blocks` द्वारा लौटाई गई ब्लॉक शब्दावली में देखें।
+
+एक पंजीकृत ब्लॉक में तीन सतहें होती हैं:
+
+- एक React-मुक्त स्कीमा और MDX कॉन्फिगरेशन, सर्वर और एजेंट कोड के लिए सुरक्षित।
+- `shared/plan-content.ts` में एक सामान्यीकृत रनटाइम प्रकार/स्कीमा प्रविष्टि।
+- `Read` और वैकल्पिक `Edit` React घटकों के साथ एक ब्राउज़र ब्लॉक विशिष्टता।
+
+ब्लॉक `type` और MDX `tag` को स्थिर रखें। `type` को सामान्यीकृत
+योजना JSON; `tag`, `plan.mdx` में घटक का नाम है। रजिस्ट्री संभालती है
+आधार MDX विशेषताएँ `id`, `title`, `summary`, और `editable` है, इसलिए ऐसा न करें
+उन्हें `toAttrs` में दोहराएं।
+
+1. डेटा आकार और MDX राउंड ट्रिप के लिए एक साझा कॉन्फ़िगरेशन जोड़ें।
+
+```ts
+// templates/plan/shared/risk-card.config.ts
+import { z } from "zod";
+import {
+  markdown,
+  type BlockMdxConfig,
+} from "@agent-native/core/blocks/server";
+
+export type RiskCardSeverity = "low" | "medium" | "high";
+
+export interface RiskCardData {
+  severity?: RiskCardSeverity;
+  body: string;
+}
+
+const severities = new Set(["low", "medium", "high"]);
+
+export const riskCardSchema = z.object({
+  severity: z.enum(["low", "medium", "high"]).optional(),
+  body: markdown(z.string().trim().min(1).max(10_000)),
+}) as z.ZodType<RiskCardData>;
+
+export const riskCardMdx: BlockMdxConfig<RiskCardData> = {
+  tag: "RiskCard",
+  childrenField: "body",
+  toAttrs: (data) => ({
+    severity: data.severity,
+  }),
+  fromAttrs: (attrs, children) => {
+    const severity = attrs.string("severity");
+
+    return {
+      severity: severities.has(severity ?? "")
+        ? (severity as RiskCardSeverity)
+        : undefined,
+      body: children,
+    };
+  },
+};
+```
+
+2. सामान्यीकृत योजना सामग्री मॉडल का विस्तार करें
+   `templates/plan/shared/plan-content.ts`.
+
+`PlanBlockType` में नया `type` जोड़ें, एक मिलान ब्लॉक इंटरफ़ेस जोड़ें
+`PlanBlock` यूनियन, और `planBlockSchema` में समान डेटा आकार जोड़ें। यह रहता है
+डेटाबेस सेव, स्रोत आयात, और कस्टम को मान्य करने वाले `update-block` पैच
+इसे अज्ञात प्रकार के रूप में अस्वीकार करने के बजाय ब्लॉक करें।
+
+3. React-मुक्त सर्वर विनिर्देश को पंजीकृत करें
+   `templates/plan/shared/plan-block-registry.ts`.
+
+```ts
+import {
+  BlockRegistry,
+  defineBlock,
+  registerLibraryBlockConfigs,
+  registerBlocks,
+} from "@agent-native/core/blocks/server";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "./risk-card.config.js";
+
+const ServerReadStub = () => null;
+
+const riskCardServerBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: ServerReadStub,
+  placement: ["block"],
+  label: "Risk card",
+  description: "low, medium या high severity वाला markdown risk note।",
+});
+
+export function registerPlanBlocks(registry: BlockRegistry): void {
+  registerLibraryBlockConfigs(registry, {
+    overrides: PLAN_SERVER_LIBRARY_OVERRIDES,
+  });
+  registerBlocks(registry, [riskCardServerBlock]);
+}
+```
+
+4. ब्राउज़र विनिर्देश को इसमें पंजीकृत करें
+   `templates/plan/app/components/plan/planBlocks.tsx`.
+
+```tsx
+import {
+  defineBlock,
+  registerLibraryBlocks,
+  registerBlocks,
+  type BlockReadProps,
+} from "@agent-native/core/blocks";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "@shared/risk-card.config";
+
+function RiskCardBlock({ data, blockId, ctx }: BlockReadProps<RiskCardData>) {
+  return (
+    <section
+      className="rounded-md border border-border bg-card p-4"
+      data-block-id={blockId}
+      data-severity={data.severity}
+    >
+      <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+        {data.severity ?? "risk"}
+      </div>
+      {ctx.renderMarkdown?.(data.body) ?? (
+        <p className="whitespace-pre-wrap text-sm">{data.body}</p>
+      )}
+    </section>
+  );
+}
+
+const riskCardBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: RiskCardBlock,
+  placement: ["block"],
+  editSurface: "panel",
+  label: "Risk card",
+  description: "low, medium या high severity वाला markdown risk note।",
+  empty: () => ({ severity: "medium", body: "Describe the risk." }),
+});
+
+registerLibraryBlocks(planBlockRegistry, {
+  overrides: PLAN_LIBRARY_OVERRIDES,
+});
+registerBlocks(planBlockRegistry, [riskCardBlock]);
+```
+
+इसके साथ, प्लान MDX इसका उपयोग कर सकता है:
+
+```mdx
+<RiskCard id="risk-auth" severity="high">
+
+Token refresh failures can strand active reviewer sessions.
+
+</RiskCard>
+```
+
+सर्वर रजिस्ट्री इस स्रोत को आयात योग्य/निर्यात योग्य बनाती है, और क्लाइंट
+रजिस्ट्री इसे `PlanBlockView` में रेंडर करती है। यदि ब्लॉक
+एजेंट, `label`, `description`, `placement`, और `empty` को सटीक रखें; वो
+फ़ील्ड लाइव ब्लॉक शब्दावली में प्रवाहित होती हैं।
+
+मौजूदा ब्लॉक को ओवरराइड करते समय, साझा किए जाने के बाद ओवरराइड को पंजीकृत करें
+पुस्तकालय पंजीकरण। अंतिम पंजीकरण `type` और MDX `tag` दोनों के लिए जीत गया।
+
+ब्लॉक जोड़ने के बाद, केंद्रित योजना परीक्षण चलाएँ:
+
+```bash
+pnpm --filter plan test -- plan-mdx plan-block-registry
+```
+
+### रूट मैप
+
+- `app/routes/plans.$id.tsx` - योजना संपादक/समीक्षा सतह
+- `app/routes/plans._index.tsx` — योजना सूची
+- `app/routes/share.$token.tsx` - सार्वजनिक/साझा योजना दृश्य
+- `app/routes/local-plans.$slug.tsx` - स्थानीय-फ़ाइलें मोड पूर्वावलोकन
+
+### स्थानीय मोड (उन्नत, ऑफ़लाइन) {#local-mode}
+
+पूरी तरह ऑफ़लाइन, बिना खाते के उपयोग के लिए, आप प्लान्स ऐप को स्थानीय रूप से चला सकते हैं और इसे स्थानीय MDX फ़ोल्डरों पर इंगित कर सकते हैं। सख्त नो-डीबी पथ के लिए, [local-files privacy mode](#local-files) का उपयोग करें, जो स्थानीय SQL पंक्तियाँ बनाने के बजाय MDX फ़ोल्डरों से पढ़ता है। स्थानीय मोड एक अलग, उन्नत पथ है - डिफ़ॉल्ट होस्टेड प्रवाह नहीं।
+
+## घटनाएं और सूचनाएं {#events}
+
+प्लान टेम्प्लेट फ्रेमवर्क इवेंट बस पर चार इवेंट उत्सर्जित करता है। कोई स्वचालन
+उनकी सदस्यता ले सकते हैं - किसी कस्टम एकीकरण कोड की आवश्यकता नहीं है।
+
+### घटना संदर्भ {#event-reference}
+
+#### `plan.created`
+
+जब कोई नया विज़ुअल प्लान या पुनर्कथन बनाया जाता है तो सक्रिय हो जाता है।
+
+| फ़ील्ड      | प्रकार                | विवरण                                |
+| ----------- | --------------------- | ------------------------------------ |
+| `planId`    | स्ट्रिंग              | अद्वितीय योजना पहचानकर्ता            |
+| `title`     | स्ट्रिंग              | योजना का शीर्षक                      |
+| `kind`      | `"plan"` \| `"recap"` | चाहे यह एक योजना हो या पुनर्कथन      |
+| `status`    | स्ट्रिंग              | प्रारंभिक स्थिति (उदा. `"review"`)   |
+| `path`      | स्ट्रिंग              | ऐप-सापेक्ष पथ (उदा. `/plans/plan-…`) |
+| `createdBy` | स्ट्रिंग              | योजना निर्माण के लिए हमेशा `"agent"` |
+
+#### `plan.commented`
+
+जब किसी योजना में एक या अधिक टिप्पणियाँ जोड़ी जाती हैं तो सक्रिय हो जाता है।
+
+| फ़ील्ड             | प्रकार                           | विवरण                                                                  |
+| ------------------ | -------------------------------- | ---------------------------------------------------------------------- |
+| `planId`           | स्ट्रिंग                         | योजना पहचानकर्ता                                                       |
+| `title`            | स्ट्रिंग                         | योजना का शीर्षक                                                        |
+| `kind`             | `"plan"` \| `"recap"`            | योजना बनाएं या पुनर्कथन करें                                           |
+| `commentIds`       | स्ट्रिंग[]                       | नई टिप्पणियों की आईडी                                                  |
+| `commentCount`     | संख्या                           | इस बैच में नई टिप्पणियों की संख्या                                     |
+| `resolutionTarget` | `"agent"` \| `"human"` \| `null` | प्रमुख लक्ष्य - `"agent"` यदि कोई टिप्पणी किसी एजेंट को लक्षित करती है |
+| `excerpt`          | स्ट्रिंग                         | पहली टिप्पणी के पहले 200 अक्षर                                         |
+| `author`           | स्ट्रिंग \| शून्य                | टिप्पणीकर्ता का ईमेल, यदि ज्ञात हो                                     |
+| `path`             | स्ट्रिंग                         | ऐप-सापेक्ष पथ                                                          |
+
+#### `plan.published`
+
+जब किसी स्थानीय योजना को होस्ट किए गए साझा करने योग्य URL पर प्रकाशित (या पुनः प्रकाशित) किया जाता है, तो सक्रिय हो जाता है।
+
+| फ़ील्ड                | प्रकार                | विवरण                                |
+| --------------------- | --------------------- | ------------------------------------ |
+| `planId`              | स्ट्रिंग              | स्थानीय योजना पहचानकर्ता             |
+| `title`               | स्ट्रिंग              | योजना का शीर्षक                      |
+| `kind`                | `"plan"` \| `"recap"` | योजना बनाएं या पुनर्कथन करें         |
+| `hostedPlanId`        | स्ट्रिंग              | होस्टेड योजना पहचानकर्ता             |
+| `url`                 | स्ट्रिंग              | होस्टेड योजना का पूर्ण सार्वजनिक URL |
+| `requestedVisibility` | स्ट्रिंग              | `"public"`, `"private"`, आदि         |
+
+#### `plan.status.changed`
+
+जब किसी योजना की स्थिति बदलती है तो सक्रिय हो जाती है (उदाहरण के लिए `review` → `approved`)।
+
+| फ़ील्ड      | प्रकार                | विवरण                                |
+| ----------- | --------------------- | ------------------------------------ |
+| `planId`    | स्ट्रिंग              | योजना पहचानकर्ता                     |
+| `title`     | स्ट्रिंग              | योजना का शीर्षक                      |
+| `kind`      | `"plan"` \| `"recap"` | योजना बनाएं या पुनर्कथन करें         |
+| `oldStatus` | स्ट्रिंग \| शून्य     | पिछली स्थिति                         |
+| `newStatus` | स्ट्रिंग              | नई स्थिति                            |
+| `changedBy` | स्ट्रिंग \| शून्य     | उस व्यक्ति का ईमेल जिसने इसे बदला है |
+| `path`      | स्ट्रिंग              | ऐप-सापेक्ष पथ                        |
+
+### स्वचालन विधियाँ {#automation-recipes}
+
+ये स्वचालन योजना एजेंट से पूछकर बनाए गए हैं - किसी कोड परिवर्तन की आवश्यकता नहीं है।
+एजेंट `action=define` के साथ `manage-automations` को कॉल करता है, एक लिखता है
+`jobs/<name>.md` संसाधन, और ईवेंट सदस्यता तुरंत प्रारंभ होती है।
+
+#### जब कोई किसी योजना पर टिप्पणी करता है तो वेबहुक के माध्यम से सूचित करें
+
+योजना एजेंट से पूछें:
+
+> "जब कोई किसी योजना पर एक मानवीय टिप्पणी जोड़ता है, तो POST मेरे वेबहुक पर एक संदेश भेजता है।"
+
+एजेंट इस तरह एक स्वचालन बनाता है:
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is human or resolutionTarget is null"
+mode: agentic
+domain: plan
+enabled: true
+---
+Send a POST request to ${keys.NOTIFY_WEBHOOK} with a JSON body containing:
+  - "title": the plan title from the event payload
+  - "excerpt": the comment excerpt from the event payload
+  - "url": the base app URL concatenated with the path field from the event payload
+  - "author": the author field from the event payload (may be null)
+```
+
+स्वचालन सक्रिय होने से पहले आपको वेबहुक URL को एक तदर्थ कुंजी के रूप में जोड़ना होगा:
+
+1. **सेटिंग्स → कुंजी** पर जाएं और अपने साथ `NOTIFY_WEBHOOK` नाम की एक कुंजी जोड़ें
+   वेबहुक URL (उदाहरण के लिए एक Slack इनकमिंग वेबहुक, एक सामान्य HTTP एंडपॉइंट, या कोई भी
+   अधिसूचना सेवा URL).
+2. वैकल्पिक रूप से कुंजी पर एक URL अनुमत सूची सेट करें ताकि यह प्रतिबंधित किया जा सके कि यह किस मूल की हो सकती है
+   POST से.
+
+`web-request` टूल `${keys.NOTIFY_WEBHOOK}` सर्वर-साइड को पहले हल करता है
+भेजना - कच्चा URL एजेंट के संदर्भ में कभी प्रकट नहीं होता है।
+
+**Slack को विशेष रूप से लक्षित करने के लिए:** `NOTIFY_WEBHOOK` को अपने Slack इनकमिंग पर सेट करें
+वेबहुक URL
+(`https://hooks.slack.com/services/…`). उपरोक्त स्वचालन निकाय पहले से ही
+एक पेलोड उत्पन्न करता है Slack का आने वाला वेबहुक `text` या `blocks` के माध्यम से स्वीकार करता है
+फ़ील्ड्स - यदि आप अधिक समृद्ध चाहते हैं तो एजेंट से मुख्य भाग को Slack संदेश के रूप में प्रारूपित करने के लिए कहें
+फ़ॉर्मेटिंग.
+
+#### जब फीडबैक इसे लक्षित करता है तो कोडिंग एजेंट को सक्रिय करें
+
+कोडिंग एजेंट (`resolutionTarget === "agent"`) पर निर्देशित फीडबैक के लिए, पूछें:
+
+> "जब कोई योजना टिप्पणी एजेंट को लक्षित करती है, तो योजना के साथ मेरा कोडिंग एजेंट चलाएँ
+> संदर्भ के रूप में अंश।"
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is agent"
+mode: agentic
+domain: plan
+enabled: true
+---
+
+Use the manage-notifications action or web-request tool to alert the coding agent
+that new agent-targeted feedback has arrived on plan ${planId}: "${excerpt}".
+Include the plan path so the agent can navigate directly to it.
+```
+
+क्योंकि स्वचालन एक पूर्ण एजेंट लूप (`mode: agentic`) चलाता है, यह कॉल कर सकता है
+`web-request`, सूचनाएं भेजें, या एजेंट के पास पहुंच वाली कोई भी कार्रवाई शुरू करें।
+सटीक वितरण तंत्र इस बात पर निर्भर करता है कि आपके पास कौन से अधिसूचना चैनल हैं
+कॉन्फ़िगर किया गया - एजेंट सर्वोत्तम उपलब्ध को चुनता है।
+
+## आगे क्या है
+
+- [**PR Visual Recap**](/docs/pr-visual-recap) - प्रत्येक पुल अनुरोध पर स्वचालित रूप से `/visual-recap` चलाएं
+- [**Automations**](/docs/automations) - इवेंट-ट्रिगर और शेड्यूल किए गए ऑटोमेशन
+- [**Plan plugin & marketplace**](/docs/plan-plugin) - प्लान skills को Claude कोड या Codex प्लगइन के रूप में इंस्टॉल करें
+- [**Skills**](/docs/skills-guide) - Agent-Native skills कैसे स्थापित करता है
+- [**MCP Clients**](/docs/mcp-clients) - होस्ट किए गए MCP कनेक्टर्स को कॉन्फ़िगर करना
+- [**Templates**](/docs/cloneable-saas) - क्लोन-एंड-ओन मॉडल

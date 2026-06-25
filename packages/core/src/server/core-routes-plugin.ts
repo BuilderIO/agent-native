@@ -1,13 +1,5 @@
-import {
-  getH3App,
-  awaitBootstrap,
-  markDefaultPluginProvided,
-  trackPluginInit,
-} from "./framework-request-handler.js";
-import {
-  getAllowedCorsOrigin,
-  readCorsAllowedOrigins,
-} from "./cors-origins.js";
+import path from "node:path";
+
 import {
   defineEventHandler,
   setResponseStatus,
@@ -20,34 +12,88 @@ import {
   getRequestURL,
 } from "h3";
 import type { H3Event } from "h3";
-import path from "node:path";
-import { createPollHandler } from "./poll.js";
-import { createPollEventsHandler } from "./poll-events.js";
-import { createOpenRouteHandler } from "./open-route.js";
-import { createEmbedStartRouteHandler } from "./embed-route.js";
-import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import { readMultipartFormData } from "h3";
+
+import { DEFAULT_MODEL } from "../agent/default-model.js";
+import { registerBuiltinEngines } from "../agent/engine/builtin.js";
+import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
 import {
-  EMBED_TRANSPLANT_HEADER,
-  isMcpEmbedCorsOrigin,
-  MCP_EMBED_CORS_ALLOW_HEADERS,
-  shouldAllowMcpEmbedCredentials,
-} from "../shared/mcp-embed-headers.js";
+  isAgentEngineSettingConfigured,
+  getAgentEngineEntry,
+  detectEngineFromEnv,
+  detectEngineFromUserSecrets,
+  isStoredEngineUsableForRequest,
+} from "../agent/engine/registry.js";
+import {
+  canUpdateAgentLoopSettings,
+  readAgentLoopSettings,
+  resetAgentLoopSettings,
+  validateMaxIterationsInput,
+  writeAgentLoopSettings,
+} from "../agent/loop-settings.js";
+import {
+  getState,
+  putState,
+  deleteState,
+  listComposeDrafts,
+  getComposeDraft,
+  putComposeDraft,
+  deleteComposeDraft,
+  deleteAllComposeDrafts,
+} from "../application-state/handlers.js";
+import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
+import { mountDbAdminRoutes } from "../db-admin/routes.js";
+import { getDbExec } from "../db/client.js";
+import {
+  uploadFile,
+  getActiveFileUploadProvider,
+  listFileUploadProviders,
+} from "../file-upload/index.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
   handleMcpOAuthAuthorizationServerMetadata,
   handleMcpOAuthProtectedResourceMetadata,
 } from "../mcp/oauth-route.js";
-import { handleIdentitySso } from "./identity-sso.js";
-import { isIdentitySsoEnabled } from "./identity-sso-store.js";
-import { getAppName } from "./app-name.js";
-import { upsertEnvFile } from "./create-server.js";
-import type { EnvKeyConfig } from "./create-server.js";
+import { registerBuiltinNotificationChannels } from "../notifications/channels.js";
+import { createNotificationsHandler } from "../notifications/routes.js";
+import { listOnboardingSteps } from "../onboarding/registry.js";
+import { getOrgContext } from "../org/context.js";
+import { createProgressHandler } from "../progress/routes.js";
+import { findWorkspaceRoot } from "../scripts/utils.js";
+import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
 import {
-  readBody,
-  DEFAULT_UPLOAD_MAX_FILE_BYTES,
-  isAllowedUploadMimeType,
-} from "./h3-helpers.js";
+  createListSecretsHandler,
+  createWriteSecretHandler,
+  createTestSecretHandler,
+  createAdHocSecretHandler,
+} from "../secrets/routes.js";
+import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
+import {
+  getUserSetting,
+  putUserSetting,
+  deleteUserSetting,
+} from "../settings/user-settings.js";
+import {
+  DEFAULT_SSR_CACHE_HEADERS,
+  EMPTY_SPECULATION_RULES,
+} from "../shared/cache-control.js";
+import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
+import {
+  EMBED_TRANSPLANT_HEADER,
+  isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+  shouldAllowMcpEmbedCredentials,
+} from "../shared/mcp-embed-headers.js";
+import { track } from "../tracking/index.js";
+import { registerBuiltinProviders } from "../tracking/providers.js";
+import { validateTrackPayload } from "../tracking/route.js";
+import { createAutomationsHandler } from "../triggers/routes.js";
+import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
+import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
+import { getAppName } from "./app-name.js";
+import { getSession, type AuthSession } from "./auth.js";
 import {
   BUILDER_CONNECT_PARAM,
   BUILDER_CONNECT_OWNER_COOKIE,
@@ -73,83 +119,40 @@ import {
   signBuilderConnectToken,
   type BuilderConnectTrackingParams,
 } from "./builder-browser.js";
+import { captureError } from "./capture-error.js";
 import {
-  getState,
-  putState,
-  deleteState,
-  listComposeDrafts,
-  getComposeDraft,
-  putComposeDraft,
-  deleteComposeDraft,
-  deleteAllComposeDrafts,
-} from "../application-state/handlers.js";
-import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
-import {
-  getUserSetting,
-  putUserSetting,
-  deleteUserSetting,
-} from "../settings/user-settings.js";
-import { getSession, type AuthSession } from "./auth.js";
-import { getAppBasePath, getOrigin } from "./google-oauth.js";
-import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
-import { findWorkspaceRoot } from "../scripts/utils.js";
-import { listOnboardingSteps } from "../onboarding/registry.js";
-import {
-  uploadFile,
-  getActiveFileUploadProvider,
-  listFileUploadProviders,
-} from "../file-upload/index.js";
-import { readMultipartFormData } from "h3";
-import {
-  createListSecretsHandler,
-  createWriteSecretHandler,
-  createTestSecretHandler,
-  createAdHocSecretHandler,
-} from "../secrets/routes.js";
-import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
-import { registerBuiltinProviders } from "../tracking/providers.js";
-import { track } from "../tracking/index.js";
-import { validateTrackPayload } from "../tracking/route.js";
-import { registerBuiltinNotificationChannels } from "../notifications/channels.js";
-import { createNotificationsHandler } from "../notifications/routes.js";
-import { createProgressHandler } from "../progress/routes.js";
-import { createAutomationsHandler } from "../triggers/routes.js";
-import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
-import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
-import { runWithRequestContext } from "./request-context.js";
-import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
-import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
-import { DEFAULT_MODEL } from "../agent/default-model.js";
+  getAllowedCorsOrigin,
+  readCorsAllowedOrigins,
+} from "./cors-origins.js";
+import { upsertEnvFile } from "./create-server.js";
+import type { EnvKeyConfig } from "./create-server.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   resolveSecret,
 } from "./credential-provider.js";
-import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
-import {
-  canUpdateAgentLoopSettings,
-  readAgentLoopSettings,
-  resetAgentLoopSettings,
-  validateMaxIterationsInput,
-  writeAgentLoopSettings,
-} from "../agent/loop-settings.js";
-import {
-  isAgentEngineSettingConfigured,
-  getAgentEngineEntry,
-  detectEngineFromEnv,
-  detectEngineFromUserSecrets,
-  isStoredEngineUsableForRequest,
-} from "../agent/engine/registry.js";
-import { registerBuiltinEngines } from "../agent/engine/builtin.js";
-import { getOrgContext } from "../org/context.js";
+import { createEmbedStartRouteHandler } from "./embed-route.js";
 import { isEnvVarWriteAllowed } from "./env-var-writes.js";
-import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
-import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
-import { mountDbAdminRoutes } from "../db-admin/routes.js";
-import { getDbExec } from "../db/client.js";
 import {
-  DEFAULT_SSR_CACHE_HEADERS,
-  EMPTY_SPECULATION_RULES,
-} from "../shared/cache-control.js";
+  getH3App,
+  awaitBootstrap,
+  markDefaultPluginProvided,
+  trackPluginInit,
+} from "./framework-request-handler.js";
+import { getAppBasePath, getOrigin } from "./google-oauth.js";
+import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
+import {
+  readBody,
+  DEFAULT_UPLOAD_MAX_FILE_BYTES,
+  isAllowedUploadMimeType,
+} from "./h3-helpers.js";
+import { isIdentitySsoEnabled } from "./identity-sso-store.js";
+import { handleIdentitySso } from "./identity-sso.js";
+import { createOpenRouteHandler } from "./open-route.js";
+import { createPollEventsHandler } from "./poll-events.js";
+import { createPollHandler } from "./poll.js";
+import { runWithRequestContext } from "./request-context.js";
+import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
+import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -568,6 +571,22 @@ export function resolveLegacyToolsRedirect(
   return `${basePath}/extensions${suffix}${search}`;
 }
 
+export function getFrameworkRouteRequestUrl(event: H3Event): URL {
+  const url = getRequestURL(event);
+  if (url.search) return url;
+
+  // In some mounted Nitro/H3 paths, `event.url` is normalized while the raw
+  // Node request URL still has the query string. Builder callbacks carry the
+  // signed `_an_state` there, so preserve it before validating the flow.
+  const rawUrl =
+    event.node?.req?.url ??
+    (typeof event.path === "string" ? event.path : undefined);
+  const queryStart = rawUrl?.indexOf("?") ?? -1;
+  if (queryStart < 0) return url;
+  url.search = rawUrl!.slice(queryStart);
+  return url;
+}
+
 function redactValues(text: string, values: Array<string | null | undefined>) {
   let out = text;
   for (const value of values) {
@@ -754,6 +773,20 @@ export function createCoreRoutesPlugin(
         );
       } catch {
         // Observability module not available — skip
+      }
+
+      // Audit log — durable, append-only record of who mutated what app data,
+      // when, and (for the agent) in which run. Capture is automatic at the
+      // action seam; here we just ensure the table exists and start the
+      // retention purge. Best-effort so a missing DB never crashes boot.
+      try {
+        const { ensureAuditTables } = await import("../audit/store.js");
+        const { startAuditCleanupJob } =
+          await import("../audit/cleanup-job.js");
+        ensureAuditTables().catch(() => {});
+        startAuditCleanupJob();
+      } catch {
+        // Audit module not available — skip
       }
 
       const P = FRAMEWORK_ROUTE_PREFIX;
@@ -1357,10 +1390,7 @@ export function createCoreRoutesPlugin(
             return { error: "Authentication required" };
           }
 
-          const requestUrl = new URL(
-            `${event.url?.pathname || "/"}${event.url?.search || ""}`,
-            getBuilderBrowserOriginForEvent(event),
-          );
+          const requestUrl = getFrameworkRouteRequestUrl(event);
           const connectToken = requestUrl.searchParams.get(
             BUILDER_CONNECT_PARAM,
           );
@@ -1658,9 +1688,7 @@ export function createCoreRoutesPlugin(
           // mismatches and missing/forged _an_state without leaking the
           // signed token itself.
           try {
-            const debugSearch = new URLSearchParams(
-              (event.url?.search || "").replace(/^\?/, ""),
-            );
+            const debugSearch = getFrameworkRouteRequestUrl(event).searchParams;
             const stateRaw = debugSearch.get(BUILDER_STATE_PARAM);
             const stateOwnerProbe =
               verifyBuilderCallbackStateAndGetOwner(stateRaw);
@@ -1677,10 +1705,7 @@ export function createCoreRoutesPlugin(
           }
           clearBuilderConnectOwnerCookie(event);
 
-          const requestUrl = new URL(
-            `${event.url?.pathname || "/"}${event.url?.search || ""}`,
-            getOrigin(event),
-          );
+          const requestUrl = getFrameworkRouteRequestUrl(event);
           let connectTracking = getBuilderConnectTrackingParams(
             requestUrl.searchParams,
           );
@@ -3160,6 +3185,83 @@ export function createCoreRoutesPlugin(
         getH3App(nitroApp).use(
           `${P}/embed/start`,
           createEmbedStartRouteHandler({ getExistingSession: getSession }),
+        );
+
+        // POST /_agent-native/mcp/embed-error — telemetry sink for MCP App
+        // embed shells. The shell runs in a sandboxed, opaque-origin iframe
+        // (Codex, Cursor, ChatGPT, Claude) with no session cookie or CSRF
+        // token, so this endpoint is intentionally unauthenticated and
+        // CORS-open to the SAME sandbox origins as /embed/start. It forwards a
+        // small, bounded diagnostic payload to Sentry via captureError so we
+        // can see *why* an inline embed failed (handshake timeout, transplant
+        // fetch status/CORS, auth, CSP) per host. Best-effort: always 204,
+        // never throws, body capped, no client-trusted identity.
+        getH3App(nitroApp).use(
+          `${P}/mcp/embed-error`,
+          defineEventHandler(async (event: H3Event) => {
+            const origin = getHeader(event, "origin");
+            if (origin && isMcpEmbedCorsOrigin(origin)) {
+              setResponseHeader(event, "Access-Control-Allow-Origin", origin);
+              setResponseHeader(event, "Vary", "Origin");
+              setResponseHeader(
+                event,
+                "Access-Control-Allow-Methods",
+                "POST,OPTIONS",
+              );
+              setResponseHeader(
+                event,
+                "Access-Control-Allow-Headers",
+                MCP_EMBED_CORS_ALLOW_HEADERS,
+              );
+            }
+            const method = getMethod(event);
+            if (method === "OPTIONS") {
+              setResponseStatus(event, 204);
+              return "";
+            }
+            if (method !== "POST") {
+              setResponseStatus(event, 405);
+              return { error: "Method not allowed" };
+            }
+            const body = await readBody(event).catch(() => undefined);
+            const rec =
+              body && typeof body === "object" && !Array.isArray(body)
+                ? (body as Record<string, unknown>)
+                : {};
+            const str = (value: unknown, max: number): string | undefined =>
+              typeof value === "string" && value
+                ? value.slice(0, max)
+                : undefined;
+            const message = str(rec.message, 500) ?? "MCP embed failed";
+            try {
+              captureError(new Error(message), {
+                route: `${P}/mcp/embed-error`,
+                method: "POST",
+                userAgent:
+                  str(rec.userAgent, 300) ?? getHeader(event, "user-agent"),
+                tags: {
+                  source: "mcp-embed-shell",
+                  embed_stage: str(rec.stage, 60),
+                  embed_render_mode: str(rec.renderMode, 40),
+                  embed_host: str(rec.host, 160),
+                  embed_bridge: str(rec.bridge, 40),
+                },
+                extra: {
+                  embedUrl: str(rec.url, 600),
+                  httpStatus:
+                    typeof rec.status === "number"
+                      ? rec.status
+                      : str(rec.status, 40),
+                  detail: str(rec.detail, 1200),
+                  origin,
+                },
+              });
+            } catch {
+              // Observability must never throw back into the request path.
+            }
+            setResponseStatus(event, 204);
+            return "";
+          }),
         );
       }
 

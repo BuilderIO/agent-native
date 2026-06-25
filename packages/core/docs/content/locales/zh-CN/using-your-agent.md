@@ -1,0 +1,71 @@
+---
+title: "使用您的代理"
+description: "与代理合作的日常循环：它看到您正在查看的内容，您指导它，嵌入它，使用 轻 UI，并与它一起共同编辑。"
+---
+
+# 使用您的代理
+
+agent-native 背后的定义思想是，agent 和 UI 是**平等的伙伴** - 请参阅 [What Is Agent-Native?](/docs/what-is-agent-native) 了解原因。本节介绍该承诺的另一半：一旦代理停靠在您的应用旁边，实际使用该代理的感觉如何。
+
+有一条简单的直通线。代理**看到**您正在查看的内容，您**将其引导**到您想要的内容，您可以**嵌入**它在任何地方，您可以在更合适的情况下完全**轻 UI**，并且您可以同时**共同编辑**相同的文档。其中每一个都是本节中的一个页面。
+
+```an-diagram title="日复一日的循环" summary="使用对接代理的五种方式 - 每种方式都是本节中的一个页面。"
+{
+  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>轻 UI</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">协同编辑</span><small class=\"diagram-muted\">实时，并排</small></div></div>",
+  "css": ".diagram-loop{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-loop .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px;flex:1}.diagram-loop .diagram-arrow{align-self:center;font-size:22px;line-height:1}"
+}
+```
+
+## 它能看到你在看什么 {#it-sees}
+
+代理不会对您的屏幕视而不见。打开一封电子邮件，它就知道是哪个线程。选择一个图表，它就知道是哪个图表。突出显示一个段落，它可以只作用于该范围。这种共同的意识让您可以说“回复此内容”或“总结选择”，而无需每次都拼写出上下文。
+
+这是有效的，因为当前的导航和选择位于 `application_state` SQL 中，代理将其作为其上下文的一部分读取。代理还可以驱动相同的状态 - 打开视图，选择一行 - 这样你就可以看到它在真实的 UI 中而不是在脚本中工作。
+
+```an-callout
+{
+  "tone": "info",
+  "body": "**Shared awareness is two-way.** You and the agent both read and write `application_state`, so \"reply to this\" or \"summarize the selection\" just works — and when the agent navigates, the real UI moves with it."
+}
+```
+
+→ [**Context Awareness**](/docs/context-awareness) — 导航状态、视图屏幕、导航命令以及代理如何与您的屏幕保持同步。
+
+## 你指挥 {#you-direct-it}
+
+大多数时候，您通过在聊天中输入内容来引导代理。有两件事可以让速度更快。
+
+**提及。** 使用 `@` 标记自定义代理、连接的代理或文件，将其拉入对话中 — “让 `@analytics` 拉取上周的数据，然后起草摘要。”提及是您如何在不离开作曲家的情况下找到合适的专家或附加正确的上下文。
+
+**声音。**作曲家有麦克风。口述请求而不是键入请求，提供程序选项范围从 Builder 的托管转录到自带密钥到浏览器后备。
+
+→ [**Agent Mentions**](/docs/agent-mentions) - `@` - 在聊天中提及自定义代理、连接的代理和文件。
+→ [**Voice Input**](/docs/voice-input) — 聊天编辑器中的听写以及转录的路由方式。
+
+## 您嵌入它 {#you-embed-it}
+
+代理不是您通过 Tab 键切换到的单独应用程序。它以几个 React 组件的形式提供——一个侧边栏、一个原始面板和一个 `sendToAgentChat()` 调用——您可以将它们放入任何应用程序中。渲染 `<AgentSidebar>` 为每个屏幕提供一个可切换代理，或连接一个按钮将特定任务交给聊天，而不是运行一次性 LLM 调用。
+
+→ [**Drop-in Agent**](/docs/drop-in-agent) — 将 `<AgentPanel>`、`<AgentSidebar>` 和 `sendToAgentChat()` 安装到任何 React 应用程序中。
+→ [**Agent Surfaces**](/docs/agent-surfaces) — 选择工作流程是否应为无头、聊天优先、嵌入式或完整应用程序。
+
+## 你可以去轻 UI {#ui-light}
+
+并非每个应用程序都需要完整的仪表板。当代理*是*产品时，您可以跳过大部分自定义UI：打开应用程序，询问您想要的内容，然后让代理完成其余的工作。代理仍然有其管理界面——历史记录、工作区、设置——但主要交互是对话而不是点击。
+
+→ [**Pure-Agent Apps**](/docs/pure-agent-apps) — 代理是整个产品的应用。
+
+## 您与它共同编辑 {#you-co-edit}
+
+当您和代理处理同一份文档时，你们不会轮流处理。通过实时协作，代理的编辑可以与您的编辑一起传输 - 实时光标，不会覆盖 - 与队友的编辑方式相同。您可以在它工作时继续输入，并且它会在发生更改时看到您的更改。
+
+→ [**Real-Time Collaboration**](/docs/real-time-collaboration) — 在同一文档中使用实时光标和代理编辑进行多用户协作编辑。
+
+## 下一步是什么 {#whats-next}
+
+- [**Context Awareness**](/docs/context-awareness) — 代理知道您在看什么
+- [**Agent Mentions**](/docs/agent-mentions) — 使用 `@` 提及来引导
+- [**Voice Input**](/docs/voice-input) — 通过说话进行指导
+- [**Drop-in Agent**](/docs/drop-in-agent) — 将其嵌入任何 React 应用
+- [**Pure-Agent Apps**](/docs/pure-agent-apps) — 当代理是产品时，采用 轻 UI
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — 共同编辑同一文档

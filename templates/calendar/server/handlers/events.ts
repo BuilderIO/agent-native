@@ -1,3 +1,5 @@
+import { emit } from "@agent-native/core/event-bus";
+import { readBody, getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
@@ -6,16 +8,15 @@ import {
   setResponseHeader,
   type H3Event,
 } from "h3";
+
 import type { CalendarEvent } from "../../shared/api.js";
-import { readBody, getSession } from "@agent-native/core/server";
-import { emit } from "@agent-native/core/event-bus";
-import * as googleCalendar from "../lib/google-calendar.js";
-import { prepareZoomMeetingPatch } from "../lib/event-video-conferencing.js";
+import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
 import {
   normalizeGuestNotificationMessage,
   sendEventGuestNotificationNote,
 } from "../lib/event-guest-notifications.js";
-import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
+import { prepareZoomMeetingPatch } from "../lib/event-video-conferencing.js";
+import * as googleCalendar from "../lib/google-calendar.js";
 
 async function uEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);

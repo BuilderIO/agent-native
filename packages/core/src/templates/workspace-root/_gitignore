@@ -28,6 +28,7 @@ packages/*/.env
 # pnpm
 .pnpm-store/
 pnpm-debug.log*
+node-compile-cache/
 
 # Local workspace data
 data/

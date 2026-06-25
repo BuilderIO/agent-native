@@ -1,0 +1,815 @@
+---
+title: "시각적 계획"
+description: "Agent-Native Plans는 코딩 에이전트의 계획을 구조화되고 검토 가능한 문서(다이어그램, 와이어프레임, 주석이 달린 코드, 주석 및 공유 링크)로 바꿔줍니다. CLI에서 한 번 설치하십시오. 게스트로 편집과 공유하고 저장하거나 공유하려는 경우에만 로그인한 리뷰어."
+---
+
+# 시각적 계획
+
+> **대부분의 사람들은 스캐폴드 앱이 아닌 스킬로 Plan을 설치합니다.** 하나의 CLI 명령
+> `/visual-plan` 및 `/visual-recap` skills와 호스팅 계획을 추가합니다
+> 커넥터 — [Plan plugin & marketplace](/docs/plan-plugin) 참조
+> . 계획 템플릿 포크(
+> [For developers](#for-developers))는 자체 호스팅을 위한 보조 경로입니다.
+> 계획 자체를 구축합니다.
+
+Agent-Native 계획은 코딩 에이전트를 위한 시각적 계획 모드입니다. 평범해졌습니다
+Codex, Claude 코드, Markdown 또는 구조화된 구현 계획에 붙여넣기
+서식 있는 텍스트, 다이어그램, 와이어프레임, 주석이 달린 코드 연습이 포함된 검토 화면
+및 파일 트리, 주석, 설명 및 공유 가능한 링크
+
+두 가지 명령으로 요약됩니다. `/visual-plan`는 에이전트 **전에** 계획을 세웁니다.
+코드를 작성합니다. `/visual-recap`는 **이미** 일어난 변화를 PR로 바꿔줍니다.
+커밋, 분기 또는 git diff를 통해 고도의 시각적 코드 검토를 수행할 수 있습니다. 둘 다 열려있습니다
+동일한 리뷰 화면에서 주석을 달고 댓글을 달고 피드백을 다시 전달할 수 있습니다
+상담원도 같은 방식으로 진행합니다.
+
+```an-diagram title="두 개의 명령, 하나의 검토 표면" summary="두 명령 모두 호스팅된 Plan MCP 커넥터를 통해 동일한 주석 및 설명 화면에 게시됩니다."
+{
+  "html": "<div class=\"diagram-plan\"><div class=\"diagram-col\"><div class=\"diagram-node\"><span class=\"diagram-pill accent\">/visual-plan</span><small class=\"diagram-muted\">코드 전 — 아키텍처, UI, 리팩터</small></div><div class=\"diagram-node\"><span class=\"diagram-pill\">/visual-recap</span><small class=\"diagram-muted\">코드 후 — PR, 커밋, 브랜치, diff</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Plan MCP 커넥터<br><small class=\"diagram-muted\">plan.agent-native.com</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">검토 화면<br><small class=\"diagram-muted\">다이어그램 · 와이어프레임 · 주석 코드 · 댓글</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-node\">코딩 에이전트<br><small class=\"diagram-muted\">피드백 전달됨</small></div></div>",
+  "css": ".diagram-plan{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-plan .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-plan .diagram-arrow{font-size:22px;line-height:1}.diagram-plan .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}"
+}
+```
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>결제 재설계 계획</h1><div style='flex:1'></div><button>공유</button><button class='primary'>승인</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>현재 와이어프레임</div><div class='wf-box'>제안 와이어프레임</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>구현 계획</strong><div class='wf-box'>결정: 기존 결제 셸 유지</div><div class='wf-box'>주석이 달린 코드 워크스루</div><div class='wf-box'>열린 질문</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>댓글</strong><div class='wf-box'>기본 CTA에 핀</div><div class='wf-box'>에이전트에게 묻는 질문</div><div class='wf-box'>해결된 문구 메모</div><button class='primary'>피드백 전달</button></aside></div>"
+}
+```
+
+계획에는 두 가지 방법이 있습니다:
+
+- **코딩 에이전트(CLI)**에서 — 하나의 명령으로 스킬을 설치하고 등록합니다.
+  호스팅된 Plans 커넥터를 확인하고 인증합니다.
+- **브라우저에서** — 공유하는 사람은 누구나 편집기를 열고 만들 수 있습니다.
+  **가입 없이 **게스트\*\*로 편집하세요. 저장하고 싶을 때만 로그인합니다
+  또는 공유하세요.
+
+## 스킬 설치 {#install}
+
+Agent-Native CLI를 사용하세요. 이는
+기술 지침을 계획하고 호스팅된 계획 MCP 커넥터를 등록하고 **실행**합니다
+클라이언트별 인증/설정 흐름을 한 단계로 완료하므로 첫 번째 도구 호출이 수행되지 않습니다
+OAuth 벽에 부딪힘:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+이 명령은 `/visual-plan` 및 `/visual-recap` 명령을 모두 설치합니다.
+
+MCP 커넥터 URL를 직접 허용하는 채팅 기반 호스트를 사용하는 경우
+(CLI로 구성된 클라이언트 대신), 호스팅된 계획 커넥터를 다음 위치에 연결하세요.
+`https://plan.agent-native.com/_agent-native/mcp` — 클라이언트별 설정은 [MCP Clients](/docs/mcp-clients)를 참조하세요.
+
+인증은 설정 시 일회성 브라우저 로그인입니다. 이는 의도된 것이며
+는 에이전트가 생성한 계획을 유지하고 공유할 수 있게 해줍니다. 인증은 무엇입니까
+단계는 고객에 따라 다릅니다:
+
+- **OAuth 가능 호스트**(Claude 코드)는 URL 전용 MCP 항목과 이에 대한 프롬프트를 얻습니다.
+  `/mcp`를 실행하고 **인증**을 선택하세요.
+- **Codex / Cowork**는 짧은 브라우저 장치 코드 흐름을 실행합니다. CLI는 코드를 인쇄합니다.
+  확인 페이지를 열고 승인하면 커넥터를 작성합니다.
+- **비대화형 셸 또는 CI**에서는 인증 단계를 건너뛰고 정확한
+  나중에 실행할 명령이 인쇄됩니다.
+
+기본적으로 CLI는 구성할 수 있는 지원되는 모든 로컬 클라이언트를 대상으로 합니다. 패스
+`--client codex`, `--client claude-code` 또는 다른 특정 클라이언트를 사용하는 경우
+설정 범위를 하나의 호스트로 좁히고 싶습니다:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+`--no-connect`를 전달하여 인증 없이 커넥터를 등록한 후 실행
+`npx @agent-native/core@latest connect https://plan.agent-native.com --client all`
+준비가 되면 언제든지 더 좁은 `--client`를 선택하세요:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --no-connect
+```
+
+**모든 풀 요청**에 대한 요약을 자동 생성하려면 `--with-github-action`를 전달하세요.
+이것은 각 PR에서 `visual-recap` 기술을 실행하는 GitHub 작업을 작성합니다.
+인라인 스크린샷이 포함된 대화형 요약 계획을 고정 댓글로 게시 —
+[PR Visual Recap](/docs/pr-visual-recap)를 참조하세요.
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --with-github-action
+```
+
+워크플로가 작성된 후 `npx @agent-native/core@latest recap setup`를 실행하여 구성
+GitHub Actions 비밀/변수(가능한 경우) 및 `npx @agent-native/core@latest recap doctor`
+저장소가 준비되었는지 확인합니다.
+
+열린 Skills CLI를 통해서만 휴대용 지침 파일을 원하는 경우 다음을 사용하세요.
+
+```bash
+npx skills@latest add BuilderIO/agent-native --skill visual-plan
+```
+
+스킬 지시사항만 설치합니다. 호스팅된 MCP를 등록하지 않습니다
+커넥터이므로 단일 명령 설정을 원할 경우 Agent-Native CLI 경로를 사용하세요.
+
+> **일회 설치 플러그인을 선호하십니까?** Claude 코드 및 Codex가 추가할 수 있습니다
+> `BuilderIO/agent-native`는 다음을 번들로 제공하는 플러그인 마켓플레이스입니다.
+> skills _및_ 한 번의 설치로 커넥터를 계획하고 skills로 자동 업데이트
+> 개선 — [Plan plugin & marketplace](/docs/plan-plugin)를 참조하세요.
+
+### VS Code 내 공개 계획 {#vscode-extension}
+
+VS Code에 거주하는 경우
+[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+다음 페이지로 보내는 대신 측면 패널에서 동일한 계획 검토 화면을 열려면
+별도의 브라우저 탭. 계획 도구는 여전히 일반 웹 링크를 반환하며 MCP
+메타데이터에는 VS Code 핸드오프 URL도 포함됩니다.
+
+```text
+vscode://builder.agent-native/open?url=<encoded-plan-url>
+```
+
+확장 프로그램은 URI를 처리하고 VS Code webview에서 디코딩된 Plan URL를 엽니다.
+그리고 VS에 대한 기존 Agent Native MCP 연결 흐름을 실행하는 명령이 포함되어 있습니다.
+코드 / GitHub 부조종사. 이는 Claude 코드 또는 다른 코드에서 특히 유용합니다.
+계획이 편집 중인 파일 옆에 있어야 하는 코딩 에이전트 작업 흐름
+
+## 코딩 에이전트에서 사용
+
+설치 후 에이전트에게 작업에 적합한 명령을 요청하세요.
+
+- `/visual-plan`는 구현 **전에** 구조화된 계획을 생성합니다 —
+  아키텍처, 백엔드, 리팩터링, UI 또는 혼합 제품 작업 - 가져오기
+  다이어그램, 와이어프레임, 모형, 클릭 가능한 프로토타입 및 주석이 달린 코드
+  작업에 필요한 안내 및 파일 트리
+- `/visual-recap`는 이미 변경된 사항에 대한 높은 고도의 **검토**를 생성합니다.
+  발생 — PR, 커밋, 분기 또는 git diff — 스키마, API, 파일 및
+  원시 차이 벽 대신 블록 앞/뒤
+
+에이전트는 먼저 코드베이스를 검사한 후 시각적 계획을 작성해야 합니다.
+잘못된 방향으로 가는 것은 비용이 많이 들 것입니다. 반환된 계획 링크는
+브라우저 또는 VS Code를 사용하여 주석을 달고 수정하고 옵션을 선택하고 요청할 수 있습니다
+코드 변경이 시작되기 전 업데이트
+
+Codex, Claude 코드, Markdown 또는 붙여넣은 계획이 이미 존재하는 경우
+`/visual-plan`; 상담원은 해당 소스 계획을 유지하고 더욱 풍부한 리뷰를 작성합니다.
+다시 시작하는 대신 표면으로 드러나세요.
+
+첫 번째 패스에서 여전히 답변 가능한 결정이 있는 경우 상담원은
+**같은 계획의 하단에 있는 공개 질문** 양식을 작성하세요. 답변 및 전송
+에이전트가 기존 계획에 대한 개정을 시작합니다.
+
+## 그것으로 무엇을 할 수 있나요
+
+- **구현 전 검토.** 다이어그램, 와이어프레임, 옵션 탭에 대한 React
+  공개 질문 양식, 위험 참고 사항, 주석이 달린 코드 연습 및 코드
+  에이전트가 파일을 편집하기 전에 미리 봅니다.
+- **계획에 직접 코멘트를 달 수 있습니다.** 텍스트, 이미지, 와이어프레임 등에 피드백을 고정할 수 있습니다.
+  캔버스 위치; 댓글이 상담원을 위한 것인지 아니면 사람을 위한 것인지 선택하세요.
+  검토자; 인라인 칩을 사용하여 팀원을 @멘션하세요. 댓글을
+  계획이 발전합니다.
+- **상담원에게 피드백을 명확하게 전달합니다.** 텍스트 댓글은 가장 가까운 곳에 첨부됩니다.
+  산문 블록, 시각적 설명에는 정확한 대상 메타데이터 및 브라우저가 포함됩니다.
+  인계에는 작은 시각적/캔버스 설명에 대한 집중 스크린샷이 포함됩니다.
+  읽기 힘든 거대한 이미지 대신 위치
+- **결과를 내보냅니다.** 계획에 대한 HTML, Markdown 또는 JSON 영수증을 보관하세요.
+  소스 제어 친화적인 핸드오프가 필요한 경우
+
+## 게스트로 브라우저에서 편집 {#guest}
+
+계획을 공유하는 사람들은 아무것도 설치할 필요가 없습니다. 그들은 계획을 엽니다
+편집자 및 **가입 없이 작성 및 편집** — 게스트로 작업합니다. 로그인
+다른 사람이 자신의 작업을 **저장하거나 공유**하려는 경우에만 필요합니다.
+
+손님이 로그인하면 손님으로 생성한 계획이 **청구**
+그들의 계정이므로 그들이 구축한 것은 아무것도 손실되지 않습니다.
+
+인라인으로 산문 편집 계획: 텍스트 섹션을 클릭하고 입력하고 형식을 지정하세요.
+편집기 도구 모음 또는 슬래시 메뉴 및 계획은 기본 마크다운을 자동 저장합니다. 검토
+주석 모드는 클릭이 고정될 수 있도록 일시적으로 텍스트 섹션을 읽기 전용으로 전환합니다.
+피드백; 산문을 계속 편집하려면 검토 모드를 종료하세요.
+
+## 공유 및 댓글 달기 {#sharing}
+
+공유 및 댓글 달기는 계정이 필요한 작업 흐름입니다.
+
+- **공개 또는 공유 계획 보기**는 링크가 있는 모든 사람이 사용할 수 있으며 계정이 없어도 가능합니다.
+  필수.
+- 공유 계획에 **댓글 달기**에는 상담원 기본 계정이 필요합니다.
+- **계획 공유**(링크에 게시, 비공개 공유, 검토자 액세스,
+  교차 기기 또는 팀 검토)에는 로그인이 필요합니다. Google 로그인은 다음 경우에 나타납니다
+  표준 Google OAuth 환경 변수가 구성되었습니다.
+
+호스팅된 Plans 커넥터는 `https://plan.agent-native.com/_agent-native/mcp`에 있습니다.
+스킬 파일에 공유 비밀을 절대 넣지 마세요.
+
+## 로컬 파일 개인정보 보호 모드 {#local-files}
+
+개인 정보 보호에 중점을 둔 작업의 경우 로컬 파일 모드를 요청하세요.
+
+```text
+Use /visual-plan in local-files mode. Do not write this plan to the Plan DB.
+```
+
+또는 에이전트 환경에 대한 규칙을 설정하십시오.
+
+```bash
+export AGENT_NATIVE_PLANS_MODE=local-files
+```
+
+이 모드에서 에이전트는 로컬 MDX 폴더를 작성하며 호스팅된 폴더를 호출해서는 안 됩니다.
+MCP 도구를 계획합니다. 계획을 원할 때 `plans/<slug>/`와 같은 repo 폴더를 사용하십시오
+코드로 체크인했습니다. 다음과 같은 임시 폴더나 무시된 폴더를 사용하세요.
+`/tmp/agent-native-plans/<slug>/` 또는 `.agent-native/plans/<slug>/`, 경우
+계획은 git에서 벗어나야 합니다. 폴더에는 다음이 포함됩니다:
+
+- `plan.mdx`
+- 선택적 `canvas.mdx`
+- 선택적 `prototype.mdx`
+- 선택적 `.plan-state.json`
+
+폴더를 작성한 후 에이전트는 작은 로컬 호스트 브리지를 시작하고
+해당 로컬 전용 소스에 대해 호스팅된 계획 UI:
+
+```bash
+npx @agent-native/core@latest plan local check --dir plans/<slug>
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
+```
+
+URL 다리는 다음과 같습니다
+`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+페이지는 일반 Plan 뷰어이지만 브라우저는 `plan.mdx`를 가져옵니다.
+`canvas.mdx`, `prototype.mdx`, `.plan-state.json` 및 로컬 이미지 자산
+로컬호스트 브리지. 계획 콘텐츠는 호스팅된 데이터베이스에 기록되지 않으며
+호스팅된 계획 actions를 통해 전송되지 않습니다. 브리지 프로세스를 계속 실행하는 동안
+검토; URL는 귀하의 컴퓨터에 로컬이며 공유 가능한 팀 링크가 아닙니다.
+serve 명령은 기본적으로 열린 URL를 `.plan-url`에 기록하므로 코딩 에이전트는
+장기 실행 stdout을 스크랩하지 않고 캡처합니다. 해당 파일을 로컬 전용으로 처리
+URL에 브리지 토큰이 포함되어 있으므로 이를 커밋하지 마세요.
+
+macOS에서는 Safari가 호스팅된 항목을 차단할 수 있으므로 `--open`는 Chrome/Chromium을 선호합니다.
+HTTP 로컬 호스트 브리지를 가져오는 HTTPS 계획 페이지입니다. 헤드리스의 경우
+문제 해결, 실행:
+
+```bash
+npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind plan
+```
+
+`verify`는 브리지를 시작하고 개인 네트워크 프리플라이트 및 JSON를 확인합니다
+페이로드, 진단 인쇄 및 종료
+
+동일한 `PLAN_LOCAL_DIR`를 사용하여 로컬에서 Plan 앱을 실행하는 경우
+편집 가능한 앱 경로 열기:
+
+```text
+http://localhost:<port>/local-plans/<slug>
+```
+
+repo 지원 폴더의 경우 직접 로컬 경로가 repo 상대 폴더를 전달할 수 있습니다.
+브라우저 편집 내용이 해당 폴더에 계속 기록되도록 하는 폴더 경로:
+
+```text
+http://localhost:<port>/local-plans/<slug>?path=plans%2F<slug>
+```
+
+플랜 앱은 `agent-native.json`의 `apps.plan.roots[0].path`를
+승격된 로컬 계획의 기본 저장소 위치, `plans/`로 대체:
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "plan": {
+      "mode": "local-files",
+      "roots": [{ "name": "Plans", "path": "plans", "kind": "plans" }]
+    }
+  }
+}
+```
+
+직접 로컬 계획 경로에는 임시 로컬 폴더를 저장하는 메뉴 작업이 포함됩니다.
+해당 저장소 위치로 이동하세요. 승격 후 `?path=...` 및
+MDX 편집 내용을 repo 폴더에 계속 자동 저장합니다.
+
+로컬 파일 모드는 계획 또는 요약 내용이 Agent-Native로 이동하는 것을 방지합니다.
+계획 데이터베이스. 또한 호스팅된 공유, 브라우저 댓글, 계획 기록 등을 비활성화합니다.
+명시적으로 게시를 선택할 때까지 영수증을 게시/내보냅니다. 이동하려면
+로컬 계획을 호스팅된 데이터베이스에 추가하려면 로컬로 `publish-visual-plan`를 호출하세요
+MDX 폴더 경로; 그러면 계획이 업로드되고 호스팅 ID가 할당되며 공유가 활성화됩니다.
+그리고 주석을 달고 호스팅된 URL를 반환합니다. 로컬 파일 모드는
+코딩 에이전트의 LLM를 자동으로 로컬로 만듭니다. 지역 또는 승인을 선택하세요
+프라이버시 경계도 중요한 모델입니다.
+
+## 데스크톱 로컬 파일 동기화 {#desktop-local-sync}
+
+Agent Native Desktop은 또한 호스팅된 계획에 기본 로컬 폴더 브리지를 제공합니다. 이
+로컬 파일 개인 정보 보호 모드와 다릅니다. 호스팅된 계획 데이터베이스는 그대로 유지
+공유, 댓글, 기록 및 실시간 검토를 위한 정보 소스, 데스크톱
+현재 계획의 소스 파일을 선택한 폴더에 미러링할 수 있습니다.
+
+Agent Native 데스크톱에서 계획을 열고 계획 메뉴의 **로컬 파일** actions를 사용하세요.
+그런 다음:
+
+- **링크 로컬 폴더** — 해당 계획의 MDX 소스에 대한 폴더를 선택하세요.
+- **로컬 폴더에 동기화** — `plan.mdx` 쓰기, 선택적으로 `canvas.mdx`
+  선택 사항 `prototype.mdx`, 선택 사항 `.plan-state.json` 및 이미지 자산
+- **로컬 편집 가져오기** — 폴더를 읽고 적용
+  계획의 현재 업데이트 타임스탬프가 있는 `import-visual-plan-source`.
+- **자동 동기화 변경 사항** — 이후 호스팅 계획의 최신 소스를 계속 내보냅니다.
+  앱에서 수정한 내용.
+
+이 경로에서는 Plan 앱을 복제하거나 CLI를 실행할 필요가 없습니다. 그것은
+계획 콘텐츠를 유지하기 위한 것이 아닌 호스팅된 계획에 대한 파일 우선 검토/편집
+호스팅된 데이터베이스
+
+## 호스팅 계획 데이터 삭제 {#delete-data}
+
+로그인한 소유자는 계획 목록에서 호스팅된 계획 및 요약을 삭제할 수 있습니다.
+계획 실행 메뉴
+
+- **일시 삭제**는 계획을 **삭제됨** 탭으로 이동하고 일반 계획으로 만듭니다
+  보기/직접 링크 작동이 중지되고 행을 만들어 공개 액세스를 제거합니다
+  비공개. SQL 행은 소유자가 나중에 계획을 복원할 수 있도록 유지됩니다.
+- **복원**은 일시 삭제된 계획의 **삭제** 탭에서 사용할 수 있습니다.
+- **영구 삭제**는 호스팅된 계획 행과 계획 범위 댓글을 제거합니다.
+  섹션, 활동 이벤트, 버전 스냅샷, 공유 승인, 남용 보고서
+  SQL 자산 기록. UI를 사용하려면 마지막 전에 `DELETE <plan-id>`를 입력해야 합니다.
+  버튼을 활성화합니다.
+
+영구 삭제하면 Plan 앱의 데이터베이스 기록과 SQL 지원 자산이 제거됩니다.
+바이트/참조. 배포에서 외부 업로드 공급자를 사용하는 경우 공급자
+객체 보존은 공유 업로드 때문에 해당 공급자의 수명 주기를 따릅니다.
+추상화는 현재 객체 삭제를 노출하지 않습니다. 로컬 파일 개인정보 보호 모드
+대신 로컬 MDX 폴더에 소스를 유지합니다. 호스팅된 데이터를 삭제하면
+로컬 파일을 터치하세요.
+
+## 유용한 메시지
+
+- "인증 흐름을 변경하기 전에 `/visual-plan`를 사용하세요."
+- "모바일 및 데스크톱 상태가 포함된 새로운 온보딩 화면을 위한 `/visual-plan`를 만듭니다."
+- "아래 Markdown 계획에 `/visual-plan`를 사용하면 검토가 더 쉬워집니다."
+- "이 PR에서 `/visual-recap`를 실행하면 먼저 변경 내용을 검토할 수 있습니다."
+- "`main`와 이 분기 사이의 차이점에 `/visual-recap`를 사용하세요."
+- "로컬 파일 모드에서 `/visual-recap`를 사용하면 요약 내용이 계획 DB에 기록되지 않습니다."
+
+## 인증 오류 복구 {#auth-errors}
+
+계획 도구가 `needs auth`, `Unauthorized` 또는 `세션'을 반환하는 경우
+종료됨`, 계속 재시도하지 마세요.
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
+Codex의 경우 또는 `/mcp`를 다시 실행 → OAuth 가능 호스트에서 **인증**. 시작하세요
+도구를 기대하기 전에 새로운 Codex 스레드를 사용하거나 관련 클라이언트를 다시 시작/다시 로드하세요
+업데이트할 레지스트리.
+
+## 개발자용
+
+이 문서의 나머지 부분은 계획 템플릿을 포크하거나 자체 호스팅하는 모든 사람을 위한 것입니다.
+대부분의 사용자는 앱을 스캐폴딩하는 대신 CLI로 스킬을 설치해야 합니다.
+
+### 빠른 시작
+
+```bash
+npx @agent-native/core@latest create my-plans --standalone --template plan
+cd my-plans
+pnpm install
+pnpm dev
+```
+
+호스팅된 앱 지원 기술은 다음을 사용합니다:
+
+- 앱: `https://plan.agent-native.com`
+- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+
+로컬 템플릿은 계획 자체를 개발하거나, 로컬 지속성을 테스트하거나, 완전 자체 호스팅 검토 화면을 실행할 때 유용합니다.
+
+### 데이터 모델
+
+스키마는 `templates/plan/server/db/schema.ts`에 있습니다. 핵심 테이블:
+
+| 테이블             | 무엇을 담고 있는지                                                                                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans`            | 각 계획 또는 요약 — `title`, `brief`, `kind`(계획/요약), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, 사용 통계, `source_url`, `deleted_at`/`deleted_by` |
+| `plan_sections`    | 계획 내에서 순서가 지정된 섹션 — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                       |
+| `plan_comments`    | 스레드 댓글 — `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                           |
+| `plan_events`      | 계획에 대한 에이전트/사람 이벤트의 감사 로그                                                                                                                                       |
+| `plan_versions`    | 버전 기록을 위한 특정 시점 스냅샷                                                                                                                                                  |
+| `plan_shares`      | 주체별 공유 부여(뷰어/편집자/관리자)                                                                                                                                               |
+| `plan_guest_mints` | 게스트 세션 발행을 위한 비율 제한 기록                                                                                                                                             |
+| `plan_assets`      | base64로 저장된 인라인 이미지 자산(업로드 공급자가 없는 경우 대체)                                                                                                                 |
+
+```an-schema title="계획 데이터 모델" summary="하나의 계획 행은 주문된 섹션과 설명, 이벤트, 버전, 공유 및 인라인 자산을 소유합니다."
+{
+  "entities": [
+    { "id": "plans", "name": "plans", "note": "each plan or recap", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "title", "type": "text" },
+      { "name": "brief", "type": "text", "nullable": true },
+      { "name": "kind", "type": "enum", "note": "계획 | 요약" },
+      { "name": "status", "type": "text" },
+      { "name": "source", "type": "text", "nullable": true },
+      { "name": "hosted_plan_id", "type": "text", "nullable": true, "note": "hosted_plan_url paired" },
+      { "name": "source_url", "type": "text", "nullable": true },
+      { "name": "deleted_at", "type": "timestamp", "nullable": true, "note": "soft delete; deleted_by paired" }
+    ] },
+    { "id": "plan_sections", "name": "plan_sections", "note": "ordered sections within a plan", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "type", "type": "text" },
+      { "name": "title", "type": "text", "nullable": true },
+      { "name": "body", "type": "text", "nullable": true },
+      { "name": "html", "type": "text", "nullable": true },
+      { "name": "sort_order", "type": "integer" },
+      { "name": "created_by", "type": "text", "nullable": true }
+    ] },
+    { "id": "plan_comments", "name": "plan_comments", "note": "threaded comments", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "kind", "type": "text" },
+      { "name": "status", "type": "text" },
+      { "name": "anchor", "type": "json", "nullable": true },
+      { "name": "message", "type": "text" },
+      { "name": "resolution_target", "type": "text", "nullable": true, "note": "agent | human | null" },
+      { "name": "mentions_json", "type": "json", "nullable": true },
+      { "name": "resolved_by", "type": "text", "nullable": true }
+    ] },
+    { "id": "plan_events", "name": "plan_events", "note": "audit log of agent/human events", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] },
+    { "id": "plan_versions", "name": "plan_versions", "note": "point-in-time snapshots", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] },
+    { "id": "plan_shares", "name": "plan_shares", "note": "per-principal grants", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "role", "type": "enum", "note": "뷰어 | 편집자 | 관리자" }
+    ] },
+    { "id": "plan_guest_mints", "name": "plan_guest_mints", "note": "rate-limit records for guest session issuance", "fields": [
+      { "name": "id", "type": "text", "pk": true }
+    ] },
+    { "id": "plan_assets", "name": "plan_assets", "note": "inline image assets as base64", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] }
+  ],
+  "relations": [
+    { "from": "plans", "to": "plan_sections", "kind": "1-n", "label": "has sections" },
+    { "from": "plans", "to": "plan_comments", "kind": "1-n", "label": "has comments" },
+    { "from": "plans", "to": "plan_events", "kind": "1-n", "label": "has events" },
+    { "from": "plans", "to": "plan_versions", "kind": "1-n", "label": "has versions" },
+    { "from": "plans", "to": "plan_shares", "kind": "1-n", "label": "has shares" },
+    { "from": "plans", "to": "plan_assets", "kind": "1-n", "label": "has assets" }
+  ]
+}
+```
+
+### 키 actions
+
+`templates/plan/actions/`의 Actions:
+
+- **생성** — `create-visual-plan`, `create-visual-recap`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions`
+- **읽기 및 편집** — `get-visual-plan`, `update-visual-plan`, `list-visual-plans`, `import-visual-plan-source`, `patch-visual-plan-source`, `read-visual-plan-source`, `export-visual-plan`
+- **수명주기** — 소유자 전용 일시 삭제, 복원 및 입력 확인 영구 삭제를 위한 `delete-visual-plan`
+- **게시 및 공유** — `publish-visual-plan`
+- **버전** — `list-plan-versions`, `get-plan-version`, `restore-plan-version`
+- **댓글 및 피드백** — `get-plan-feedback`, `reply-to-plan-comment`, `resolve-plan-comment`, `consume-plan-feedback`, `delete-plan-comment`
+- **프로토타입** — `convert-visual-plan-to-prototype`, `create-prototype-plan`
+- **컨텍스트 및 탐색** — `view-screen`, `navigate`
+
+### 사용자 정의 MDX 블록 {#custom-mdx-blocks}
+
+계획 소스 파일은 MDX이지만 앱은 임의로 가져온 JSX를 렌더링하지 않습니다.
+구성요소. 서버가 다음을 수행할 수 있도록 사용자 정의 MDX 태그를 계획 블록으로 등록해야 합니다.
+파싱하고 직렬화하면 브라우저가 렌더링하고 편집할 수 있으며 에이전트는
+`get-plan-blocks`가 반환한 블록 어휘에서 이를 확인하세요.
+
+등록된 블록에는 세 개의 표면이 있습니다:
+
+- React가 없는 스키마와 MDX 구성으로 서버 및 에이전트 코드에 안전합니다.
+- `shared/plan-content.ts`의 정규화된 런타임 유형/스키마 항목.
+- `Read` 및 선택적 `Edit` React 구성 요소가 포함된 브라우저 블록 사양.
+
+블록 `type` 및 MDX `tag`를 안정적으로 유지하세요. `type`는 정규화되어 저장됩니다.
+JSON 계획; `tag`는 `plan.mdx`의 구성 요소 이름입니다. 레지스트리가 처리합니다
+기본 MDX 속성은 `id`, `title`, `summary` 및 `editable`이므로 그렇지 않습니다.
+`toAttrs`에서 반복하세요.
+
+1. 데이터 셰이프 및 MDX 왕복에 대한 공유 구성을 추가합니다.
+
+```ts
+// templates/plan/shared/risk-card.config.ts
+import { z } from "zod";
+import {
+  markdown,
+  type BlockMdxConfig,
+} from "@agent-native/core/blocks/server";
+
+export type RiskCardSeverity = "low" | "medium" | "high";
+
+export interface RiskCardData {
+  severity?: RiskCardSeverity;
+  body: string;
+}
+
+const severities = new Set(["low", "medium", "high"]);
+
+export const riskCardSchema = z.object({
+  severity: z.enum(["low", "medium", "high"]).optional(),
+  body: markdown(z.string().trim().min(1).max(10_000)),
+}) as z.ZodType<RiskCardData>;
+
+export const riskCardMdx: BlockMdxConfig<RiskCardData> = {
+  tag: "RiskCard",
+  childrenField: "body",
+  toAttrs: (data) => ({
+    severity: data.severity,
+  }),
+  fromAttrs: (attrs, children) => {
+    const severity = attrs.string("severity");
+
+    return {
+      severity: severities.has(severity ?? "")
+        ? (severity as RiskCardSeverity)
+        : undefined,
+      body: children,
+    };
+  },
+};
+```
+
+2. 정규화된 계획 콘텐츠 모델 확장
+   `templates/plan/shared/plan-content.ts`.
+
+새로운 `type`를 `PlanBlockType`에 추가하고 일치하는 블록 인터페이스를 추가
+`PlanBlock` 공용체를 만들고 동일한 데이터 모양을 `planBlockSchema`에 추가합니다. 이것은 계속
+데이터베이스 저장, 소스 가져오기 및 사용자 정의 유효성을 검사하는 `update-block` 패치
+알 수 없는 유형으로 거부하는 대신 차단하세요.
+
+3. React가 없는 서버 사양을 등록하세요
+   `templates/plan/shared/plan-block-registry.ts`.
+
+```ts
+import {
+  BlockRegistry,
+  defineBlock,
+  registerLibraryBlockConfigs,
+  registerBlocks,
+} from "@agent-native/core/blocks/server";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "./risk-card.config.js";
+
+const ServerReadStub = () => null;
+
+const riskCardServerBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: ServerReadStub,
+  placement: ["block"],
+  label: "Risk card",
+  description: "low, medium, high 심각도를 가진 markdown 위험 메모입니다.",
+});
+
+export function registerPlanBlocks(registry: BlockRegistry): void {
+  registerLibraryBlockConfigs(registry, {
+    overrides: PLAN_SERVER_LIBRARY_OVERRIDES,
+  });
+  registerBlocks(registry, [riskCardServerBlock]);
+}
+```
+
+4. 브라우저 사양을 등록하세요.
+   `templates/plan/app/components/plan/planBlocks.tsx`.
+
+```tsx
+import {
+  defineBlock,
+  registerLibraryBlocks,
+  registerBlocks,
+  type BlockReadProps,
+} from "@agent-native/core/blocks";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "@shared/risk-card.config";
+
+function RiskCardBlock({ data, blockId, ctx }: BlockReadProps<RiskCardData>) {
+  return (
+    <section
+      className="rounded-md border border-border bg-card p-4"
+      data-block-id={blockId}
+      data-severity={data.severity}
+    >
+      <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+        {data.severity ?? "risk"}
+      </div>
+      {ctx.renderMarkdown?.(data.body) ?? (
+        <p className="whitespace-pre-wrap text-sm">{data.body}</p>
+      )}
+    </section>
+  );
+}
+
+const riskCardBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: RiskCardBlock,
+  placement: ["block"],
+  editSurface: "panel",
+  label: "Risk card",
+  description: "low, medium, high 심각도를 가진 markdown 위험 메모입니다.",
+  empty: () => ({ severity: "medium", body: "Describe the risk." }),
+});
+
+registerLibraryBlocks(planBlockRegistry, {
+  overrides: PLAN_LIBRARY_OVERRIDES,
+});
+registerBlocks(planBlockRegistry, [riskCardBlock]);
+```
+
+이를 통해 Plan MDX는 다음을 사용할 수 있습니다.
+
+```mdx
+<RiskCard id="risk-auth" severity="high">
+
+Token refresh failures can strand active reviewer sessions.
+
+</RiskCard>
+```
+
+서버 레지스트리는 이 소스를 가져오기/내보내기 가능하게 만들고 클라이언트는
+레지스트리를 사용하면 `PlanBlockView`에서 렌더링됩니다. 블록이
+에이전트, `label`, `description`, `placement` 및 `empty`를 정확하게 유지하세요. 그거
+필드는 라이브 블록 어휘로 흘러갑니다.
+
+기존 블록을 재정의하는 경우 공유 후 재정의를 등록하십시오.
+도서관 등록. `type` 및 MDX `tag` 모두 마지막 등록에서 승리했습니다.
+
+블록을 추가한 후 집중적인 계획 테스트를 실행하세요:
+
+```bash
+pnpm --filter plan test -- plan-mdx plan-block-registry
+```
+
+### 노선
+
+- `app/routes/plans.$id.tsx` — 계획 편집자 / 검토 표면
+- `app/routes/plans._index.tsx` — 계획 목록
+- `app/routes/share.$token.tsx` — 공개/공유 계획 보기
+- `app/routes/local-plans.$slug.tsx` — 로컬 파일 모드 미리보기
+
+### 로컬 모드(고급, 오프라인) {#local-mode}
+
+계정 없이 완전히 오프라인으로 사용하려면 로컬에서 Plans 앱을 실행하고 로컬 MDX 폴더를 가리킬 수 있습니다. 더 엄격한 no-DB 경로의 경우 로컬 SQL 행을 생성하는 대신 MDX 폴더에서 읽는 [local-files privacy mode](#local-files)를 사용합니다. 로컬 모드는 기본 호스팅 흐름이 아닌 별도의 고급 경로입니다.
+
+## 이벤트 및 알림 {#events}
+
+계획 템플릿은 프레임워크 이벤트 버스에서 4개의 이벤트를 내보냅니다. 모든 자동화
+구독할 수 있습니다. 맞춤 통합 코드가 필요하지 않습니다.
+
+### 이벤트 참고 {#event-reference}
+
+#### `plan.created`
+
+새로운 시각적 계획이나 요약이 생성되면 실행됩니다.
+
+| 필드        | 유형                  | 설명                              |
+| ----------- | --------------------- | --------------------------------- |
+| `planId`    | 문자열                | 고유한 계획 식별자                |
+| `title`     | 문자열                | 계획 제목                         |
+| `kind`      | `"plan"` \| `"recap"` | 이것이 계획인지 요약인지          |
+| `status`    | 문자열                | 초기 상태(예: `"review"`)         |
+| `path`      | 문자열                | 앱 상대 경로(예: `/plans/plan-…`) |
+| `createdBy` | 문자열                | 계획 생성을 위해 항상 `"agent"`   |
+
+#### `plan.commented`
+
+하나 이상의 댓글이 계획에 추가되면 실행됩니다.
+
+| 필드               | 유형                             | 설명                                                          |
+| ------------------ | -------------------------------- | ------------------------------------------------------------- |
+| `planId`           | 문자열                           | 계획 식별자                                                   |
+| `title`            | 문자열                           | 계획 제목                                                     |
+| `kind`             | `"plan"` \| `"recap"`            | 계획 또는 요약                                                |
+| `commentIds`       | 문자열[]                         | 새 댓글의 ID                                                  |
+| `commentCount`     | 번호                             | 이 배치의 새 댓글 수                                          |
+| `resolutionTarget` | `"agent"` \| `"human"` \| `null` | 주요 대상 — 상담원을 대상으로 하는 댓글이 있는 경우 `"agent"` |
+| `excerpt`          | 문자열                           | 첫 번째 댓글의 처음 200자                                     |
+| `author`           | 문자열 \| 널                     | 댓글 작성자의 이메일(알고 있는 경우)                          |
+| `path`             | 문자열                           | 앱 상대 경로                                                  |
+
+#### `plan.published`
+
+호스팅된 공유 가능 URL에 로컬 계획이 게시(또는 다시 게시)될 때 실행됩니다.
+
+| 필드                  | 유형                  | 설명                        |
+| --------------------- | --------------------- | --------------------------- |
+| `planId`              | 문자열                | 지역 계획 식별자            |
+| `title`               | 문자열                | 계획 제목                   |
+| `kind`                | `"plan"` \| `"recap"` | 계획 또는 요약              |
+| `hostedPlanId`        | 문자열                | 호스팅 계획 식별자          |
+| `url`                 | 문자열                | 호스팅 계획의 전체 공개 URL |
+| `requestedVisibility` | 문자열                | `"public"`, `"private"` 등  |
+
+#### `plan.status.changed`
+
+계획의 상태가 변경되면 실행됩니다(예: `review` → `approved`).
+
+| 필드        | 유형                  | 설명                 |
+| ----------- | --------------------- | -------------------- |
+| `planId`    | 문자열                | 계획 식별자          |
+| `title`     | 문자열                | 계획 제목            |
+| `kind`      | `"plan"` \| `"recap"` | 계획 또는 요약       |
+| `oldStatus` | 문자열 \| 널          | 이전 상태            |
+| `newStatus` | 문자열                | 새로운 상태          |
+| `changedBy` | 문자열 \| 널          | 변경한 사람의 이메일 |
+| `path`      | 문자열                | 앱 상대 경로         |
+
+### 자동화 레시피 {#automation-recipes}
+
+이러한 자동화는 계획 담당자에게 요청하여 생성되며 코드 변경이 필요하지 않습니다.
+에이전트는 `action=define`로 `manage-automations`를 호출하고
+`jobs/<name>.md` 리소스 및 이벤트 구독이 즉시 시작됩니다.
+
+#### 누군가 계획에 댓글을 달면 웹후크를 통해 알림
+
+계획 대리인에게 문의하세요:
+
+> "누군가가 계획에 사람의 의견을 추가하면 POST가 내 웹훅에 메시지를 보냅니다."
+
+에이전트는 다음과 같은 자동화를 생성합니다.
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is human or resolutionTarget is null"
+mode: agentic
+domain: plan
+enabled: true
+---
+Send a POST request to ${keys.NOTIFY_WEBHOOK} with a JSON body containing:
+  - "title": the plan title from the event payload
+  - "excerpt": the comment excerpt from the event payload
+  - "url": the base app URL concatenated with the path field from the event payload
+  - "author": the author field from the event payload (may be null)
+```
+
+자동화가 시작되기 전에 웹훅 URL를 임시 키로 추가해야 합니다.
+
+1. **설정 → 키**로 이동하여 이름이 `NOTIFY_WEBHOOK`인 키를 추가하세요.
+   웹훅 URL(예: Slack 수신 웹훅, 일반 HTTP 엔드포인트 또는 기타
+   알림 서비스 URL).
+2. 선택적으로 키에 URL 허용 목록을 설정하여 키가 가능한 출처를 제한할 수 있습니다.
+   POST부터.
+
+`web-request` 도구는 이전에 `${keys.NOTIFY_WEBHOOK}` 서버 측을 해결합니다.
+전송 — 원시 URL는 에이전트의 컨텍스트에 절대 나타나지 않습니다.
+
+**Slack를 구체적으로 타겟팅하려면:** `NOTIFY_WEBHOOK`를 Slack 수신으로 설정하세요.
+웹훅 URL
+(`https://hooks.slack.com/services/…`). 위의 자동화 본문은 이미
+Slack의 수신 웹훅이 `text` 또는 `blocks`를 통해 허용하는 페이로드를 생성합니다.
+필드 — 더 풍부한 내용을 원할 경우 에이전트에게 본문을 Slack 메시지 형식으로 지정하도록 요청하세요.
+포맷을 지정합니다.
+
+#### 피드백이 목표로 삼을 때 코딩 에이전트를 깨우세요
+
+코딩 에이전트(`resolutionTarget === "agent"`)에 대한 피드백은 다음과 같이 문의하세요.
+
+> "계획 댓글이 에이전트를 대상으로 하는 경우 계획과 함께 내 코딩 에이전트를 실행하세요.
+> 문맥에서 발췌."
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is agent"
+mode: agentic
+domain: plan
+enabled: true
+---
+
+Use the manage-notifications action or web-request tool to alert the coding agent
+that new agent-targeted feedback has arrived on plan ${planId}: "${excerpt}".
+Include the plan path so the agent can navigate directly to it.
+```
+
+자동화는 전체 에이전트 루프(`mode: agentic`)를 실행하기 때문에
+`web-request`, 알림을 보내거나 에이전트가 액세스할 수 있는 모든 작업을 호출합니다.
+정확한 전달 메커니즘은 보유하고 있는 알림 채널에 따라 다릅니다.
+구성됨 — 상담원이 가장 적합한 것을 선택합니다.
+
+## 다음 단계
+
+- [**PR Visual Recap**](/docs/pr-visual-recap) — 풀 요청이 있을 때마다 자동으로 `/visual-recap`를 실행합니다.
+- [**Automations**](/docs/automations) — 이벤트 트리거 및 예약 자동화
+- [**Plan plugin & marketplace**](/docs/plan-plugin) — skills 계획을 Claude 코드 또는 Codex 플러그인으로 설치
+- [**Skills**](/docs/skills-guide) — Agent-Native가 skills를 설치하는 방법
+- [**MCP Clients**](/docs/mcp-clients) — 호스팅된 MCP 커넥터 구성
+- [**Templates**](/docs/cloneable-saas) — 복제 및 소유 모델

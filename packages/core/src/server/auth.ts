@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+
 import {
   defineEventHandler,
   getMethod,
@@ -12,19 +13,20 @@ import {
   getHeader,
 } from "h3";
 import type { H3Event } from "h3";
-import type { H3AppShim } from "./framework-request-handler.js";
+
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
-import {
-  resolveEmbedSessionFromRequest,
-  requestHasEmbedAuthMarker,
-} from "./embed-session.js";
 import {
   EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import {
+  resolveEmbedSessionFromRequest,
+  requestHasEmbedAuthMarker,
+} from "./embed-session.js";
+import type { H3AppShim } from "./framework-request-handler.js";
 
 // In h3 v2, `event.req` IS the web Request — but in Nitro's dev server (srvx
 // runtime), event.url and event.req share the same underlying URL object.
@@ -70,25 +72,49 @@ import {
   retryOnDdlRace,
   describeDbError,
 } from "../db/client.js";
+import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { readBody } from "../server/h3-helpers.js";
+import { putSetting } from "../settings/store.js";
+import { DEFAULT_SSR_CACHE_HEADERS } from "../shared/cache-control.js";
+import { extractOAuthStateAppId } from "../shared/oauth-state.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  withAgentNativeSocialImageCacheBuster,
+} from "../shared/social-meta.js";
+import {
+  normalizeWorkspaceAppAudience,
+  workspaceAppAudienceFromEnv,
+  workspaceAppRouteAccessFromEnv,
+  type WorkspaceAppAudience,
+} from "../shared/workspace-app-audience.js";
+import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
+import { signupAttributionFromCookieHeader } from "./attribution.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
-import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+import {
+  BUILDER_CONNECT_OWNER_COOKIE,
+  BUILDER_CONNECT_PARAM,
+  BUILDER_STATE_PARAM,
+  verifyBuilderCallbackStateAndGetOwner,
+  verifyBuilderConnectTokenAndGetOwner,
+} from "./builder-browser.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import {
-  getOnboardingHtml,
-  getResetPasswordHtml,
-  type OnboardingHtmlOptions,
-} from "./onboarding-html.js";
-import type { GoogleAuthMode } from "./google-auth-mode.js";
-import { readBody } from "../server/h3-helpers.js";
-import {
   readDesktopSso,
   writeDesktopSso,
   clearDesktopSso,
 } from "./desktop-sso.js";
+import type { GoogleAuthMode } from "./google-auth-mode.js";
+import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import {
   isElectron as isElectronRequest,
   getAppBasePath,
@@ -102,38 +128,17 @@ import {
   resolveOAuthRedirectUri,
   isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
-import { safeOAuthReturnUrl } from "./oauth-return-url.js";
-import { captureAuthError } from "./sentry.js";
-import { extractOAuthStateAppId } from "../shared/oauth-state.js";
-import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
-import {
-  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
-  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
-  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
-  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
-  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
-  withAgentNativeSocialImageCacheBuster,
-} from "../shared/social-meta.js";
-import { DEFAULT_SSR_CACHE_HEADERS } from "../shared/cache-control.js";
-import {
-  normalizeWorkspaceAppAudience,
-  workspaceAppAudienceFromEnv,
-  workspaceAppRouteAccessFromEnv,
-  type WorkspaceAppAudience,
-} from "../shared/workspace-app-audience.js";
-import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
-import {
-  BUILDER_CONNECT_OWNER_COOKIE,
-  BUILDER_CONNECT_PARAM,
-  BUILDER_STATE_PARAM,
-  verifyBuilderCallbackStateAndGetOwner,
-  verifyBuilderConnectTokenAndGetOwner,
-} from "./builder-browser.js";
-import { putSetting } from "../settings/store.js";
 // Pure env-read feature switch from a leaf module (no dependency back on
 // auth.ts), so the guard and the SSO route handler share one validator and
 // can never disagree about whether federated SSO is enabled.
 import { isIdentitySsoEnabled } from "./identity-sso-store.js";
+import { safeOAuthReturnUrl } from "./oauth-return-url.js";
+import {
+  getOnboardingHtml,
+  getResetPasswordHtml,
+  type OnboardingHtmlOptions,
+} from "./onboarding-html.js";
+import { captureAuthError } from "./sentry.js";
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
@@ -261,6 +266,12 @@ export interface AuthOptions {
     continueLabel?: string;
     cancelLabel?: string;
   };
+  /**
+   * Optional email signup legal copy for the built-in login page.
+   * Leave unset to use Agent Native links only on `*.agent-native.com` hosts,
+   * pass false to suppress, or pass URLs for custom/self-hosted policies.
+   */
+  signupLegalNotice?: OnboardingHtmlOptions["signupLegalNotice"];
   /**
    * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
    *
@@ -855,20 +866,41 @@ async function ensureSessionTable(): Promise<void> {
   if (!_sessionInitPromise) {
     _sessionInitPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
+      const createSql = `
           CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
             email TEXT,
             created_at ${intType()} NOT NULL
           )
-        `),
-      );
+        `;
+
+      // PG guard: probe information_schema first (no lock), run DDL only when
+      // missing, bounded by a transaction-scoped lock_timeout.
+      if (isPostgres()) {
+        await ensureTableExists("sessions", createSql);
+        await ensureColumnExists(
+          "sessions",
+          "email",
+          `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS email TEXT`,
+        );
+        // Older deployments have a 32-bit `created_at`; on Postgres the
+        // `Date.now()` written on session create overflows int4. Widen in place
+        // (no-op once done / on fresh DBs).
+        await widenIntColumnsToBigInt("sessions", ["created_at"]);
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      await retryOnDdlRace(() => client.execute(createSql));
       try {
         await client.execute(`ALTER TABLE sessions ADD COLUMN email TEXT`);
       } catch {
         // Column already exists
       }
+      // Older deployments have a 32-bit `created_at`; on Postgres the
+      // `Date.now()` written on session create overflows int4. Widen in place
+      // (no-op once done / on fresh DBs).
+      await widenIntColumnsToBigInt("sessions", ["created_at"]);
     })().catch((err) => {
       // Don't cache the rejection — let the next caller retry a fresh init.
       _sessionInitPromise = undefined;
@@ -1008,6 +1040,7 @@ function getOnboardingHtmlOptions(
     googleOnly: options.googleOnly,
     marketing: options.marketing,
     googleSignInNotice: options.googleSignInNotice,
+    signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
@@ -1615,6 +1648,19 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Durable-background AGENT-CHAT processor. The foreground POST self-dispatches
+    // a long chat turn here (through the Netlify `-background` function, which
+    // rewrites its default url to this path); the route HMAC-verifies the
+    // dispatch (same internal-token scheme as agent-teams above) plus an atomic
+    // SQL claim. The self-dispatch carries ONLY a Bearer HMAC token and NO
+    // session cookie, so without this bypass the blanket 401-for-/_agent-native/*
+    // gate below blocks the worker before `prepareProcessRunRequest` ever runs —
+    // the run is never claimed, its heartbeat never starts, and it times out with
+    // no visible progress. Exact path only (mirrors agent-teams).
+    if (p === "/_agent-native/agent-chat/_process-run") {
+      return;
+    }
+
     // Read-only agent chat share links. The random token is the bearer secret;
     // the route returns a sanitized transcript plus bounded run summaries and
     // exposes no write surface, live event stream, tool payloads, or owner APIs.
@@ -1787,7 +1833,7 @@ function createAuthGuardFn(): (
       return;
     }
 
-    // React Router 7's lazy route discovery fetches `/__manifest?p=...` to
+    // React Router's lazy route discovery fetches `/__manifest?p=...` to
     // resolve manifest patches for `<Link>`s the user might click. The
     // auth fallback returning loginHtml here makes RR fail to parse the
     // body as RSC, surfacing as a console error and (when the visitor
@@ -2520,6 +2566,9 @@ async function mountBetterAuthRoutes(
               })
             : "/";
         const returnUrl = validated !== "/" ? validated : undefined;
+        const signupAttribution = signupAttributionFromCookieHeader(
+          getHeader(event, "cookie") ?? null,
+        );
         const state = encodeOAuthState({
           redirectUri,
           desktop,
@@ -2527,6 +2576,7 @@ async function mountBetterAuthRoutes(
           app: getOAuthStateAppId(),
           returnUrl,
           flowId,
+          signupAttribution,
         });
         logGoogleOAuthDebug(event, "auth-url", {
           flowId,
@@ -2581,10 +2631,11 @@ async function mountBetterAuthRoutes(
         try {
           const query = getQuery(event);
           const code = query.code as string;
-          const { redirectUri, desktop, returnUrl, flowId } = decodeOAuthState(
-            query.state as string | undefined,
-            getAppUrl(event, "/_agent-native/google/callback"),
-          );
+          const { redirectUri, desktop, returnUrl, flowId, signupAttribution } =
+            decodeOAuthState(
+              query.state as string | undefined,
+              getAppUrl(event, "/_agent-native/google/callback"),
+            );
           callbackFlowId = flowId;
           callbackDesktop = desktop ?? false;
           logGoogleOAuthDebug(event, "callback-start", {
@@ -2704,6 +2755,7 @@ async function mountBetterAuthRoutes(
               authProvider: "google",
               authUserId: typeof user.id === "string" ? user.id : undefined,
               name: typeof user.name === "string" ? user.name : undefined,
+              attribution: signupAttribution,
             },
           });
           logGoogleOAuthDebug(event, "callback-session-created", {
@@ -3123,6 +3175,7 @@ async function mountBetterAuthRoutes(
       try {
         await auth.api.signUpEmail({
           body: { email, password, name: email.split("@")[0], callbackURL },
+          headers: event.headers,
         });
         return { ok: true };
       } catch (e: any) {
@@ -3358,6 +3411,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
         const auth = await getBetterAuth();
         await auth.api.signUpEmail({
           body: { email, password, name: email.split("@")[0] },
+          headers: event.headers,
         });
         return { ok: true };
       } catch (e: any) {

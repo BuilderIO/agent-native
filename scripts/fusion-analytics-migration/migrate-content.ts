@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
 import {
   customerHealthExtension,
   cxDoubleClickExtension,
@@ -23,6 +24,10 @@ import {
   strategicAccountsExtension,
 } from "./manual-data-extensions";
 import {
+  fusionClosedLostExtension,
+  fusionClosedWonExtension,
+} from "./manual-fusion-analysis-extensions";
+import {
   dbtExtension as manualDbtExtension,
   fusionEngExtension,
   gcloudExtension,
@@ -32,10 +37,6 @@ import {
   slackExtension as manualSlackExtension,
   stripeExtension as manualStripeExtension,
 } from "./manual-provider-extensions";
-import {
-  fusionClosedLostExtension,
-  fusionClosedWonExtension,
-} from "./manual-fusion-analysis-extensions";
 
 type Dialect = "sqlite" | "postgres";
 type ChartType =

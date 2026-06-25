@@ -1,0 +1,111 @@
+---
+title: "Journal d'audit"
+description: "Un enregistrement durable, en ajout uniquement, indiquant qui a modifié quelles données d'application, quand et s'il s'agissait de vous ou de l'agent, capturé automatiquement au moment de l'action."
+---
+
+# Journal d'audit
+
+Chaque application native d'agent reçoit immédiatement un journal d'audit : un enregistrement durable, complet, avec accès limité et en ajout uniquement, indiquant ** qui a muté quelles données d'application, quand, d'où et - quand il s'agissait de l'agent - dans quelle exécution. ** La capture est automatique au niveau de l'action ; vous n'écrivez aucun code pour cela.
+
+Étant donné que l'agent peut modifier les données en votre nom, la question principale à laquelle un journal d'audit répond ici n'est pas seulement « qui a modifié cet enregistrement » – c'est ** « était-ce moi ou l'agent, et quelle tournure l'a causé ? »** Aucun autre système du framework ne peut répondre à cette question.
+
+## Audit vs observabilité vs suivi {#which}
+
+Trois systèmes enregistrent « ce qui s'est passé », pour trois raisons différentes. Choisissez en fonction de la question que vous posez :
+
+| Système                                  | La question à laquelle il répond                                   | Fidélité                            | Public                                        |
+| ---------------------------------------- | ------------------------------------------------------------------ | ----------------------------------- | --------------------------------------------- |
+| **Journal d'audit** (cette page)         | "Qui a modifié cet enregistrement, quand et était-ce l'agent ?"    | **Complet, durable, limité**        | Utilisateur, administrateur, l'agent lui-même |
+| **[Observability](/docs/observability)** | "Pourquoi l'agent a-t-il fait cela et combien cela a-t-il coûté ?" | Télémétrie d'étendue échantillonnée | Développeur                                   |
+| **[Tracking](/docs/tracking)**           | "Comment les gens utilisent-ils le produit ?"                      | Activez et oubliez le SaaS externe  | PM / croissance                               |
+
+Un journal d'audit échantillonné ou expédié à un fournisseur d'analyses est inutile : l'essentiel est qu'il soit complet, local et interrogeable. C'est donc son propre sous-système, pas un mode des deux autres.
+
+## Ce qui est capturé automatiquement {#captured}
+
+Lorsqu'une action de **mutation** est exécutée (tout ce qui n'est pas un `GET` en lecture seule), le framework ajoute une ligne à `agent_audit_log` avec :
+
+- **Action** — le nom de l'action (par exemple `delete-recording`).
+- **Acteur** – `agent`, `human` ou `system`, plus l'adresse e-mail de l'acteur – renseignée **même pour les appels d'agent**, vous obtenez donc "l'agent, agissant pour alice@,…".
+- **Exécuter la liaison** — l'agent `threadId` / `turnId` qui a déclenché l'appel (un appel d'outil), donc une mutation remonte au tour exact de l'agent.
+- **Surface** – `tool` (agent), `frontend`, `http`, `cli`, `mcp` ou `a2a`.
+- **Résultat** — `success`, `error` (avec un code d'erreur) ou `denied` (bloqué par une porte d'approbation humaine).
+- **Inputs** — les arguments d'appel, avec des valeurs en forme d'identifiant [redacted](#privacy).
+- **Cible et propriétaire** : ressource modifiée par l'action, utilisée pour [scope reads](#reading).
+
+Aucun câblage nécessaire : la capture s'accroche de manière transparente au `defineAction`. Les actions en lecture seule sont ignorés et quelques frameworks haute fréquence actions (synchronisation de l'état de l'application, radiographie contextuelle, navigation) sont ignorés par défaut pour éviter d'inonder le journal.
+
+## Déclarer ce qu'une action a modifié {#target}
+
+Par défaut, un événement est limité au **acteur** : vous voyez vos propres modifications et celles de l'agent en votre nom. Pour apporter une modification à une ressource _partagée_ qui apparaît également dans le journal du **propriétaire** et pour étiqueter les événements par ressource, déclarez un `target` :
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({
+      type: "recording",
+      id: args.id,
+      // Optional — defaults to the actor. Set when editing someone else's resource.
+      ownerEmail: result?.ownerEmail,
+      visibility: "org",
+    }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+Tout dans `audit` est facultatif. L'ajout minimum utile est `target: () => ({ type, id })`.
+
+### Capture de réglage {#tuning}
+
+| Option               | Effet                                                                        |
+| -------------------- | ---------------------------------------------------------------------------- |
+| `audit.target`       | Étiquetez l'événement avec la ressource et la portée lit à son propriétaire. |
+| `audit.summary`      | Une courte ligne lisible par l'homme pour l'événement.                       |
+| `audit.onRead`       | Auditer une **lecture** sensible (accès secret, exportation groupée).        |
+| `audit.enabled`      | `true` force la capture ; `false` supprime une mutation bruyante.            |
+| `audit.recordInputs` | `false` ignore la capture des arguments (déjà expurgés).                     |
+
+## Lecture du parcours {#reading}
+
+Deux actions en lecture sont disponibles pour l'agent **et** le frontend dans chaque application, étendus dans SQL à l'appelant — ils ne renvoient jamais les lignes d'un autre locataire :
+
+- **`list-audit-events`** — filtrer par `targetType` / `targetId`, `actorKind` (`agent` | `human` | `system`), `status`, `threadId` / `turnId`, `action`, `sinceMs` et `limit`.
+- **`get-audit-event`** — un événement par identifiant, y compris sa charge utile d'entrée expurgée.
+
+Créez un flux d'activité ou une ligne « qui a modifié cela » en appelant `list-audit-events` à partir du UI avec `useActionQuery` — n'écrivez jamais manuellement une récupération dans la table d'audit :
+
+```tsx
+import { useActionQuery } from "@agent-native/core/client";
+
+const { data } = useActionQuery("list-audit-events", {
+  targetType: "recording",
+  targetId: recordingId,
+});
+// data.events → [{ action, actorKind, actorEmail, turnId, status, summary, createdAt }, …]
+```
+
+L'agent peut appeler la même action : demandez-lui "Qu'avez-vous changé sur cet enregistrement ?" et il répond depuis le sentier.
+
+## Confidentialité et conservation {#privacy}
+
+- **Rédaction** — avant que les entrées ne soient stockées, les clés et valeurs en forme d'informations d'identification (jetons, secrets, mots de passe, chaînes de support) sont supprimées et les charges utiles surdimensionnées tronquées. Le journal d'audit ne devient jamais un magasin secondaire de secrets. Gardez également le texte `summary` exempt de données sensibles.
+- **Append-only** : il n'y a aucune action de mise à jour ou de suppression pour les lignes d'audit. La seule suppression est la purge de rétention, qui rend le journal digne de confiance en tant que piste d'audit.
+- **Isolement du locataire** : les lectures sont limitées à l'identité et à l'organisation de l'appelant ; sans identité, rien ne correspond.
+
+Configurer via l'environnement :
+
+- `AGENT_NATIVE_AUDIT_RETENTION_DAYS` — durée pendant laquelle les lignes sont conservées (`365` par défaut ; `0` = conserver pour toujours).
+- `AGENT_NATIVE_AUDIT_ENABLED=false` — kill switch global.
+
+## Quelle est la prochaine étape
+
+- [**Actions**](/docs/actions) — la couture `defineAction` où se produit la capture
+- [**Human-in-the-Loop Approvals**](/docs/human-approval) — actions fermé, enregistré sous le nom `denied`
+- [**Security & Data Scoping**](/docs/security) — l'audit du modèle de propriété lit la réutilisation
+- [**Observability**](/docs/observability) — télémétrie exécutée par l'agent (l'autre "ce qui s'est passé")

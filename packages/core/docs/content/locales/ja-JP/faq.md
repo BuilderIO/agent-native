@@ -1,0 +1,142 @@
+---
+title: "FAQ"
+description: "エージェント ネイティブについてよくある質問 — エージェント ネイティブとは何なのか、誰向けなのか、何を構築できるのか、どのように機能するのかなどです。"
+---
+
+# FAQ
+
+エージェント ネイティブに関するよくある質問を、「探しているだけです」から「現在認証を接続しているところです」までまとめました。
+
+## 基本 {#general}
+
+### エージェントネイティブとは何ですか? {#what-is-agent-native}
+
+エージェントネイティブは、AI エージェントとその周囲の製品表面が対等なパートナーとなるアプリを構築するためのフレームワークです。そのサーフェスは、1 つのカスタム アクションを備えたヘッドレス エージェントとして開始し、リッチ チャットに成長したり、完全な UI になることができます。不変条件は、エージェントと人間が同じ actions、データベース、状態を共有することです。完全な説明については、[What Is Agent-Native?](/docs/what-is-agent-native) を参照してください。
+
+### これは誰のためのものですか? {#who-is-this-for}
+
+エージェント ネイティブは、実際のアプリと AI エージェントが同じデータと actions から動作することを望む人向けです。一般的なパスは次のとおりです。
+
+- メール、カレンダー、フォーム、プラン、または設定なしで完成した別のテンプレートが必要な場合は、**ホストされたアプリを使用します**。[template gallery](/templates) から始めてください。
+- ユーザーがすぐに会話できる基本的なアプリが必要な場合は、**チャットから始めます**。次に、actions と画面で拡張します。[Getting Started](/docs/getting-started) または [Chat](/docs/template-chat) から始めます。
+- **プリミティブファーストで開始** UI にコミットする前に 1 つのアクションとヘッドレスアプリエージェントループが必要な場合は、[Getting Started](/docs/getting-started) から開始します。
+- 認証、データベース、UI、エージェント actions がすでに接続されている独自の SaaS 製品が必要な場合は、**テンプレートをフォークしてカスタマイズします**。[Templates](/docs/cloneable-saas) を参照してください。
+- **最初から構築** 新しいエージェント駆動製品のフレームワーク プリミティブが必要な場合は、[Getting Started](/docs/getting-started) から始めます。
+- **別のエージェントまたはコード ツールを接続します** Claude、ChatGPT、Codex、カーソル、または GitHub Copilot / VS Code でエージェント ネイティブ アプリを使用する場合は、「[External Agents](/docs/external-agents) および [Skills Guide](/docs/skills-guide)」を参照してください。
+
+### これは、既存のアプリに AI を追加することとどう違うのですか? {#how-is-this-different}
+
+ほとんどのアプリは後付けで AI を追加していますが、実際にアプリ内で何かを行うことはできません。エージェント ネイティブ アプリでは、エージェントは UI と同じ actions、データベース、状態を共有する第一級市民であるため、ボタンで実行できることはすべて実行でき、アプリ自体のコードを変更することもできます。 [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder) を参照してください。
+
+```an-diagram title="ボルトオン AI 対 agent-native" summary="ボルトで固定されたチャット サイドバーは、独自の世界に存在します。 agent-native エージェントは、UI と同じアクション、データベース、状態を共有します。"
+{
+  "html": "<div class=\"diagram-vs\"><div class=\"diagram-col\"><span class=\"diagram-pill warn\">後付けの AI</span><div class=\"diagram-node\">チャットサイドバー</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>分離された AI 世界<br><small class=\"diagram-muted\">アプリを操作できない</small></div><div class=\"diagram-box diagram-muted\">App UI &amp; data</div></div><div class=\"diagram-divider\" aria-hidden=\"true\"></div><div class=\"diagram-col\"><span class=\"diagram-pill ok\">Agent-native</span><div class=\"diagram-row2\"><div class=\"diagram-node\">UI</div><div class=\"diagram-node\">Agent</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>shared actions, DB &amp; state</div></div></div>",
+  "css": ".diagram-vs{display:flex;align-items:stretch;gap:18px;flex-wrap:wrap}.diagram-vs .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:center;flex:1;min-width:200px}.diagram-vs .diagram-row2{display:flex;gap:8px}.diagram-vs .diagram-arrow{font-size:20px;line-height:1}.diagram-vs .diagram-divider{width:1px;align-self:stretch;background:currentColor;opacity:.15}"
+}
+```
+
+### オープンソースですか? {#is-this-open-source}
+
+はい。フレームワークとすべてのテンプレートはオープンソースです。すべてをローカルで実行したり、セルフホストしたり、管理されたホスティング、コラボレーション、チーム機能のために Builder.io のクラウドを使用したりできます。
+
+### 料金はいくらですか? {#how-much}
+
+フレームワーク自体は無料です。実際に発生する 2 つのコスト:
+
+- **AI の使用法。** 独自の API キー (Anthropic、OpenAI など) を持参し、モデル プロバイダーに直接支払います。弊社からの値上げはありません。
+- **ホスティング** ホストの料金に応じて。ほとんどのテンプレートは、小規模なワークロードの無料枠 (Netlify、Vercel、Cloudflare) で問題なく動作します。
+
+これらを一切管理したくない場合は、`agent-native.com` のホスト バージョン (Builder.io によって運営) で、推論とホスティングがシートごとのプランにバンドルされています。
+
+### これを自分でホストできますか? {#can-i-self-host}
+
+はい。ノードを実行する任意のホスト (Netlify、Vercel、Cloudflare、AWS、Deno Deploy、独自のサーバー)、および任意の SQL データベース (Postgres、SQLite、Turso、D1) を選択します。フレームワークは移植できるように構築されています。 [Deployment](/docs/deployment) を参照してください。
+
+### どの AI モデルをサポートしていますか? {#what-models}
+
+Anthropic Claude、OpenAI (GPT-5 ファミリー)、Google Gemini、および OpenAI API シェイプを話すプロバイダー (Ollama 経由のローカル モデルを含む)。モデルは設定で構成します。切り替えは構成の変更であり、コードの書き換えではありません。フレームワークの最も重いテスト済みパスは Claude であるため、これがデフォルトの推奨事項です。
+
+### AI/ML について知る必要がありますか? {#do-i-need-to-know-ai}
+
+いいえ。モデルをトレーニングしたり、微調整したり、埋め込みを処理したりすることはありません。通常の Web アプリを構築しますが、ホストされたバージョンでは、ほとんど何も構築しません。フレームワークは、メッセージのルーティング、actions の実行、状態の同期など、エージェントの統合を処理します。
+
+### 既存のアプリをエージェントネイティブに移行できますか? {#can-i-use-existing-code}
+
+可能ですが、エージェントネイティブは最初から構築した場合に最適に機能します。アーキテクチャ (共有データベース、ポーリング同期、actions、アプリケーションの状態) は、全体にわたって統合される必要があります。テンプレートから開始してカスタマイズすることをお勧めします。これは、デスクトップ ファーストからモバイル ファーストへの移行のようなものだと考えてください。改造することはできますが、ネイティブに構築する方が優れています。
+
+## テンプレートと作成できるもの {#templates}
+
+### どのようなテンプレートが利用可能ですか? {#what-templates-are-available}
+
+このフレームワークには、[Chat](/docs/template-chat)、[Mail](/docs/template-mail)、[Calendar](/docs/template-calendar)、[Forms](/docs/template-forms)、[Plan](/docs/template-plan) (ビジュアル プランと PR の要約)、[Analytics](/docs/template-analytics)、[Dispatch](/docs/template-dispatch) などの本番環境に対応したテンプレートが付属しています。それぞれは、UI、エージェント actions、データベース スキーマ、AI 命令を備えた完全なアプリで、すぐに使用できます。完全なカタログについては、[Templates](/docs/cloneable-saas) を参照してください。
+
+### テンプレートをカスタマイズできますか? {#can-i-customize-templates}
+
+それが要点です。テンプレートをフォークし、エージェントに依頼してカスタマイズします。 「フォームに優先度フィールドを追加します。」 「Salesforce インスタンスに接続します。」 「当社のブランドに合わせて配色を変更してください。」エージェントがコードを変更すると、アプリは時間の経過とともに進化します。
+
+### テンプレートでカバーされていないものを構築できますか? {#build-from-scratch}
+
+はい。基本的なチャット アプリが必要な場合は、`npx @agent-native/core@latest create my-chat-app --template chat` を実行します。耐久性のあるチャット スレッド、actions、認証、SQL に基づくランタイム状態、および独自の画面を追加する余地が得られます。 UI を持たない最小のアクション優先アプリが必要な場合は、`npx @agent-native/core@latest create my-agent --headless` を実行します。 [Getting Started](/docs/getting-started)、[Pure-Agent Apps](/docs/pure-agent-apps)、および [Chat](/docs/template-chat) を参照してください。
+
+### テンプレートをフォークせずに試してみることはできますか? {#try-with-a-skill}
+
+はい — 1 つのコマンドですでに使用しているコーディング エージェントにスキルをインストールします。スキャフォールドは必要ありません。チュートリアルについては、[Skills Guide](/docs/skills-guide#app-backed-skills) を参照してください。
+
+## エージェントの機能 {#agent-capabilities}
+
+### エージェントは本当にアプリ自身のコードを変更できますか? {#can-the-agent-modify-code}
+
+はい、それは機能です。エージェントはコンポーネント、ルート、スタイル、actions を安全に編集できます。 「コホート分析グラフの追加」を依頼すると、エージェントがそれを作成します。 「Stripe アカウントに接続してください」と要求すると、エージェントが統合を作成します。すべては通常の Git 追跡コードであるため、不適切な変更は簡単に元に戻すことができます。
+
+### ユーザーはアプリの外部からエージェントと会話できますか? {#external-channels}
+
+はい。同じエージェントが、Web UI、Slack、Telegram、電子メール、および他のエージェント ([A2A](/docs/a2a-protocol) 経由) で実行されます。それは同じメモリと同じ actions を持つ同じエージェントであり、異なるチャネルを通じて到達しただけです。 [Messaging the agent](/docs/messaging) を参照してください。
+
+### エージェント同士は会話できますか? {#can-agents-talk-to-each-other}
+
+はい、[A2A (Agent-to-Agent) protocol](/docs/a2a-protocol) 経由です。すべてのエージェント ネイティブ アプリは、自動的に A2A エンドポイントを取得します。メール アプリから、分析エージェントにタグを付けてデータをクエリできます。エージェントは、利用可能な他のエージェントを検出し、プロトコル経由でそれらを呼び出し、UI に結果を表示します。設定は必要ありません。エージェント カードはテンプレートの actions から自動生成されます。
+
+### エージェントはアプリで何を確認できますか? {#what-can-the-agent-see}
+
+エージェントは、ユーザーが現在何を表示しているかを常に把握しています。 UI は、ルートが変更されるたびに、どのビューが開いているか、どの項目が選択されているかなど、ナビゲーション状態をデータベースに書き込みます。エージェントはアクションを実行する前にこれを読みます。電子メールが開封されている場合、エージェントはどの電子メールを認識しているかがわかります。スライドが選択されている場合、エージェントはどのスライドであるかを認識します。 [Context Awareness](/docs/context-awareness) を参照してください。
+
+## 開発に関する質問 {#development}
+
+### エージェント ネイティブで動作する AI コーディング ツールはどれですか? {#which-ai-tools-work}
+
+プロジェクトの指示を読み取る AI コーディング ツール。このフレームワークは、汎用標準として AGENTS.md を使用し、特定のツールのシンボリックリンクを自動作成します。
+
+- **Claude コード** — CLAUDE.md を読み取ります (CLI セットアップによって AGENTS.md からシンボリックリンクされます)
+- **Cursor** — AGENTS.md を直接読み取るか、プロジェクト内に存在する場合は `.cursorrules` (カーソルの従来の場所) を読み取ります
+- **Windsurf** — .windsurfrules を読み取ります (CLI セットアップによって AGENTS.md からシンボリックリンクされます)
+- **Codex、Gemini、その他** — 埋め込みエージェント パネルを介して動作します
+- **Builder.io** — ビジュアル編集とコラボレーションを備えたクラウドホスト型エージェント
+
+### 独自のデータベースを使用できますか? {#can-i-use-my-own-database}
+
+はい。 `DATABASE_URL` を設定すると、フレームワークがそれを自動検出します。サポートされているデータベースには、SQLite、Postgres (Neon、Supabase、plain)、Turso (libSQL)、Cloudflare D1 が含まれます。すべての SQL は、Drizzle ORM を介して方言に依存しません。同じコードがどこでも機能します。
+
+### どこに導入できますか? {#where-can-i-deploy}
+
+どこでも。サーバーは Nitro 上で実行され、任意のデプロイメント ターゲット (Node.js、Cloudflare Workers/Pages、Netlify、Vercel、Deno Deploy、AWS Lambda、および Bun) にコンパイルされます。管理された展開に Builder.io のホスティングを使用することもできます。 [Deployment guide](/docs/deployment) を参照してください。
+
+## アーキテクチャ {#architecture}
+
+### なぜ WebSocket ではなく SSE とポーリングを使用するのですか? {#why-polling-not-websockets}
+
+SSE は、同一プロセス書き込みでブラウザへの即時パスを提供し、軽量のバージョン カウンター ポーリングはフォールバックのままです。これは、永続的なソケットが利用できない可能性があるサーバーレスやエッジを含むすべてのデプロイメント環境で動作するためです。 [Key Concepts — ライブ同期](/docs/key-concepts#polling-sync) を参照してください。
+
+```an-diagram title="SSE 最初にポーリング フォールバック" summary="同じプロセスはストリームを即座に書き込みます。バージョンカウンターポーリングにより、サーバーレス、エッジ、およびクロスプロセスの書き込みが収束します。"
+{
+  "html": "<div class=\"diagram-transport\"><div class=\"diagram-box\" data-rough>DB 書き込み</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">SSE<br><small class=\"diagram-muted\">/_agent-native/events &middot; instant</small></div><div class=\"diagram-node\">ポーリング<br><small class=\"diagram-muted\">/_agent-native/poll &middot; universal fallback</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>ブラウザー再取得</div></div>",
+  "css": ".diagram-transport{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-transport .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-transport .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+### UI が LLM を直接呼び出せないのはなぜですか? {#why-no-inline-llm-calls}
+
+AI は非決定的であるため、ワンショット ボタンではなく、フィードバックを提供して反復するための会話フローが必要です。エージェントは、コードベース、指示、skills、インライン コールにはない履歴をすでに持っています。すべてをエージェント経由でルーティングすることで、Slack、Telegram、または別のエージェントからアプリを駆動できるようになります。 [Key Concepts — Agent chat bridge](/docs/key-concepts#agent-chat-bridge) を参照してください。
+
+### これがライブラリではなくフレームワークであるのはなぜですか? {#why-framework-not-library}
+
+共有データベース、ライブ同期、actions システム、およびアプリケーションの状態は、それらが根本から接続されているためにのみ機能します。UI はエージェントの変更に即座に反応し、エージェントは通信し、エージェントはユーザーが見ているものを理解します。図書館はあなたに作品を提供します。これは建築です。 [Key Concepts](/docs/key-concepts) を参照してください。

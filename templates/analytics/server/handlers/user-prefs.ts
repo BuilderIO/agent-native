@@ -1,10 +1,10 @@
-import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 import { readBody, getSession } from "@agent-native/core/server";
 import {
   getUserSetting,
   putUserSetting,
   deleteUserSetting,
 } from "@agent-native/core/settings";
+import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 
 async function resolveEmail(event: any): Promise<string | null> {
   const session = await getSession(event);

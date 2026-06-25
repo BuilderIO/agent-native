@@ -1,4 +1,21 @@
+import { useT } from "@agent-native/core/client";
+import {
+  IconArrowsUpDown,
+  IconChevronLeft,
+  IconChevronRight,
+} from "@tabler/icons-react";
 import { useState, useMemo } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -7,21 +24,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import {
-  IconArrowsUpDown,
-  IconChevronLeft,
-  IconChevronRight,
-} from "@tabler/icons-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -43,6 +45,7 @@ export function DataTable({
   error,
   maxRows,
 }: DataTableProps) {
+  const t = useT();
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(0);
@@ -115,7 +118,7 @@ export function DataTable({
         <p className="text-sm text-red-400 py-4">{error}</p>
       ) : data.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">
-          No data
+          {t("common.noData")}
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -161,7 +164,7 @@ export function DataTable({
           {sorted.length > PAGE_SIZE_OPTIONS[0] && (
             <div className="flex items-center justify-between px-2 py-2 border-t border-border text-xs text-muted-foreground">
               <div className="flex items-center gap-2">
-                <span>Rows per page:</span>
+                <span>{t("common.rowsPerPage")}</span>
                 <Select
                   value={String(pageSize)}
                   onValueChange={(value) => {

@@ -1,6 +1,7 @@
-import * as schema from "./schema.js";
 import { createGetDb, getDbExec } from "@agent-native/core/db";
 import { registerShareableResource } from "@agent-native/core/sharing";
+
+import * as schema from "./schema.js";
 
 export const getDb = createGetDb(schema);
 export { schema, getDbExec };
@@ -13,6 +14,7 @@ registerShareableResource({
   titleColumn: "title",
   getResourcePath: (recording) => `/r/${recording.id}`,
   getDb,
+  ownerAccessIgnoresOrg: true,
 });
 
 registerShareableResource({

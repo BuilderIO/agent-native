@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+
+import type { WorkspaceConnectionTemplateUse } from "../connections/catalog.js";
 import {
   resolveCredential,
   type CredentialContext,
@@ -18,10 +20,9 @@ import {
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "../oauth-tokens/index.js";
-import { getCredentialContext } from "../server/request-context.js";
 import { resolveGoogleProviderCredentialCandidates } from "../server/google-oauth-credentials.js";
+import { getCredentialContext } from "../server/request-context.js";
 import { resolveWorkspaceConnectionCredentialForApp } from "../workspace-connections/credentials.js";
-import type { WorkspaceConnectionTemplateUse } from "../connections/catalog.js";
 import type {
   CustomProviderConfig,
   CustomProviderAuthKind,

@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { builderFileUploadProvider } from "./builder.js";
 import {
   getActiveFileUploadProvider,
   listFileUploadProviders,
@@ -6,7 +8,6 @@ import {
   unregisterFileUploadProvider,
   uploadFile,
 } from "./registry.js";
-import { builderFileUploadProvider } from "./builder.js";
 import type { FileUploadProvider } from "./types.js";
 
 const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());

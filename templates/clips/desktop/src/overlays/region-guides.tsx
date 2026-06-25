@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   IconDeviceFloppy,
   IconPencil,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useMemo, useRef, useState } from "react";
+
 import {
   type FeatureConfig,
   type RegionGuideRect,

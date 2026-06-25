@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("h3", () => ({
   getMethod: (event: any) => event.method ?? "GET",
@@ -425,6 +426,77 @@ describe("MCP OAuth route", () => {
       scopes: ["mcp:read", "mcp:apps"],
       clientId: client.client_id,
     });
+  });
+
+  it("renders a friendly confirmation page (not a bare 302) for deep-link clients", async () => {
+    const deepLink = "cursor://anysphere.cursor-retrieval/mcp/oauth/callback";
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            client_name: "Cursor",
+            redirect_uris: [deepLink],
+            token_endpoint_auth_method: "none",
+          } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: deepLink,
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          scope: "mcp:read mcp:apps",
+          state: "state-xyz",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+      { appName: "Mail" },
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )?.[1] ?? "";
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: deepLink,
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          scope: "mcp:read mcp:apps",
+          state: "state-xyz",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+      { appName: "Mail" },
+    );
+    // The browser tab gets a real HTML page instead of dangling on cursor://…
+    expect(authorize.status).toBe(200);
+    expect(authorize.headers.get("content-type")).toContain("text/html");
+    const page = await authorize.text();
+    expect(page).toContain("You're all set");
+    expect(page).toContain("Open Cursor");
+    // The deep link (carrying the auth code + state) is still handed to the client.
+    const link = (
+      page.match(/id="return-link" href="([^"]+)"/)?.[1] ?? ""
+    ).replace(/&amp;/g, "&");
+    expect(link).toContain("cursor://");
+    const linkUrl = new URL(link);
+    expect(linkUrl.searchParams.get("code")).toBeTruthy();
+    expect(linkUrl.searchParams.get("state")).toBe("state-xyz");
   });
 
   it("preserves org_id in OAuth access tokens even when the org has no domain", async () => {

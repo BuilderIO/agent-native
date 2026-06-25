@@ -1,5 +1,3 @@
-import { mergeAttributes, Node } from "@tiptap/core";
-import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import {
   IconFile,
   IconFolder,
@@ -11,6 +9,8 @@ import {
   IconStack2,
   IconMessageChatbot,
 } from "@tabler/icons-react";
+import { mergeAttributes, Node } from "@tiptap/core";
+import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 
 const iconProps = { size: 14, className: "shrink-0 text-muted-foreground" };
 

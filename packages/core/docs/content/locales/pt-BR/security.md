@@ -1,0 +1,330 @@
+---
+title: "Segurança"
+description: "Modelo de segurança para aplicativos nativos de agente: validação de entrada, prevenção de injeção SQL, XSS, escopo de dados, gerenciamento de segredos e padrões de autenticação."
+---
+
+# Segurança
+
+Os aplicativos nativos do agente são projetados para serem seguros por padrão. A estrutura fornece proteções automáticas em várias camadas: você obtém isolamento de dados no nível SQL, consultas parametrizadas, validação de entrada e autenticação prontas para uso.
+
+## O que você ganha de graça e o que você possui {#what-you-own}
+
+```an-diagram title="Defesa em camadas" summary="A estrutura possui a maior parte da superfície de ameaças; você possui duas coisas: marcar tabelas para definir o escopo e validar entradas externas."
+{
+  "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">Pertence ao framework</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">Você controla</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
+  "css": ".sec-layers{display:flex;flex-direction:column;gap:12px}.sec-layers .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
+}
+```
+
+Quando você desenvolve os padrões padrão, a estrutura já lida com a maior parte da superfície de ameaças para você:
+
+- **Isolamento de dados** — o agente SQL foi reescrito para poder ver apenas as linhas do usuário atual (e da organização ativa). Consulte [Data Scoping](#data-scoping).
+- **Injeção SQL** — `db-query`/`db-exec` e Drizzle sempre parametrizam. Consulte [SQL Injection Prevention](#sql-injection).
+- **XSS** — React escapa automaticamente, TipTap e `react-markdown` higienizam. Consulte [XSS Prevention](#xss).
+- **Auth & CSRF** — todo `defineAction` é protegido por autenticação; os cookies são `httpOnly` + `SameSite=lax`. Consulte [Authentication](#auth).
+- **Criptografia secreta** — as credenciais e o cofre são criptografados em repouso. Consulte [Secrets Management](#secrets).
+
+Isso deixa uma pequena superfície na qual você realmente precisa pensar:
+
+- **A. Marque suas tabelas para definir o escopo.** Adicione `owner_email` (e `org_id` para dados da equipe) por meio de [`ownableColumns()`](#data-scoping) e roteie leituras/gravações de Drizzle por meio de [access guards](#access-guards).
+- **B. Valide e roteie a entrada externa.** Dê a cada ação um Zod [`schema:`](#input-validation) e envie qualquer busca do lado do servidor de um usuário/agente URL por meio do [SSRF guard](#ssrf).
+
+Acerte esses dois e o resto será o padrão. O [Production Checklist](#production-checklist) é a confirmação de uma página antes do envio.
+
+## Segurança desde o projeto {#secure-by-design}
+
+A arquitetura da estrutura evita vulnerabilidades comuns quando você usa os padrões padrão:
+
+| Vulnerabilidade      | Proteção de estrutura                                                                |
+| -------------------- | ------------------------------------------------------------------------------------ |
+| Injeção SQL          | Consultas parametrizadas em `db-query`/`db-exec` e Drizzle ORM                       |
+| XSS                  | React escapa automaticamente de JSX; TipTap limpa rich text                          |
+| Vazamento de dados   | Escopo no nível SQL por meio de visualizações temporárias (`owner_email`, `org_id`)  |
+| Ignorar autenticação | A proteção de autenticação protege automaticamente todos os endpoints `defineAction` |
+| Injeção de entrada   | Validação do esquema Zod em `defineAction`                                           |
+| CSRF                 | Biscoitos `SameSite=lax` + `httpOnly`                                                |
+| Exposição secreta    | `.env` gitignorado; credenciais e cofre criptografados em repouso (AES-256-GCM)      |
+| SSRF                 | `ssrfSafeFetch` bloqueia alvos internos/metadados + religação de redirecionamento    |
+
+## Validação de entrada {#input-validation}
+
+Use `defineAction` com um Zod `schema:` para cada ação. A estrutura valida a entrada automaticamente antes da execução do código:
+
+```ts
+import { z } from "zod";
+import { defineAction } from "@agent-native/core/action";
+
+export default defineAction({
+  description: "Create a note",
+  schema: z.object({
+    title: z.string().min(1).max(200).describe("Note title"),
+    content: z.string().optional().describe("Note body"),
+  }),
+  run: async (args) => {
+    // args is guaranteed valid — invalid input never reaches here
+  },
+});
+```
+
+Entrada inválida retorna mensagens de erro claras (400 para HTTP, erro estruturado para chamadas de agente). O formato herdado `parameters:` não fornece validação de tempo de execução.
+
+## Prevenção de injeção SQL {#sql-injection}
+
+As ferramentas `db-query` e `db-exec` da estrutura usam consultas parametrizadas. A entrada do usuário é passada como argumentos, nunca interpolada na string SQL:
+
+```ts
+// SAFE — parameterized query (framework default)
+await exec({ sql: "INSERT INTO notes (title) VALUES (?)", args: [title] });
+
+// SAFE — Drizzle ORM (always generates parameterized queries)
+await db.insert(notes).values({ title, ownerEmail: email });
+
+// DANGEROUS — string concatenation (never do this)
+await exec(`INSERT INTO notes (title) VALUES ('${title}')`);
+```
+
+```an-callout
+{
+  "tone": "risk",
+  "body": "Nunca construa SQL por concatenação de strings ou literais de modelo. Passe a entrada do usuário como `args` para `exec` / `db-query` ou use Drizzle — ambos sempre parametrizam. As verificações `pnpm guards` capturam consultas sem escopo e concatenadas no momento do CI."
+}
+```
+
+## Prevenção XSS {#xss}
+
+React escapa automaticamente de todas as expressões JSX. Diretrizes adicionais:
+
+- Nunca use `dangerouslySetInnerHTML` com conteúdo controlado pelo usuário
+- Nunca use `innerHTML`, `eval()` ou `document.write()`
+- Para edição de rich text, use TipTap (framework dependency) — ele limpa através de seu esquema
+- Para renderizar markdown, use `react-markdown` — ele converte em elementos React com segurança
+
+## Busca no lado do servidor (SSRF) {#ssrf}
+
+Qualquer `fetch` do lado do servidor de um URL controlado por usuário ou agente deve passar pela proteção da estrutura SSRF ou pode ser apontado para metadados de nuvem (`169.254.169.254`), `localhost` ou serviços internos:
+
+```ts
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+
+const res = await ssrfSafeFetch(userProvidedUrl, {}, { maxRedirects: 3 });
+```
+
+`ssrfSafeFetch` bloqueia alvos privados/internos, verifica novamente o IP resolvido no momento da conexão (religação DNS) e revalida cada salto de redirecionamento para que um URL público não possa redirecionar para a rede privada. O proxy iframe de extensão, `upload-image`, e o importador de token de design passam por ele. Para uma verificação apenas antes do voo, use `isBlockedExtensionUrlWithDns(url)` com `redirect: "manual"`.
+
+## Escopo de dados {#data-scoping}
+
+Na produção, a estrutura restringe automaticamente as consultas do agente SQL aos dados do usuário atual. Isso é aplicado no nível SQL – os agentes não podem ignorá-lo. Esta seção é a referência canônica para o pipeline de escopo; os documentos [Authentication](/docs/authentication) e [Multi-Tenancy](/docs/multi-tenancy) têm link aqui para a mecânica.
+
+### O pipeline de escopo {#scoping-pipeline}
+
+O escopo flui da sessão autenticada até o SQL que o agente executa:
+
+```
+session.orgId → AGENT_ORG_ID → SQL row scoping
+```
+
+```an-diagram title="O pipeline de escopo" summary="O agente SQL nunca toca as tabelas base diretamente - ele lê uma visão temporária com escopo para a identidade atual, portanto, um nome de tabela vazio só pode retornar linhas próprias."
+{
+  "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">Sessão conectada<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">SQL do agente<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
+  "css": ".scope-pipe{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.scope-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.scope-pipe .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+A sessão conectada carrega `email` e (quando uma organização está ativa) `orgId`. A estrutura estabelece o contexto de solicitação dessa sessão, expõe a organização ativa ao agente SQL como `AGENT_ORG_ID` e reescreve cada consulta para que possa ver apenas as linhas que a identidade atual possui. O mesmo caminho se aplica quer a consulta venha do UI, de uma ação ou do agente — o agente não pode ler dados de uma organização da qual o usuário não é membro.
+
+### Escopo por usuário (`owner_email`)
+
+Toda tabela com dados específicos do usuário **deve** ter uma coluna de texto `owner_email`. Use o nome da propriedade camelCase Drizzle — `accessFilter` lê `resourceTable.ownerEmail`:
+
+```ts
+import {
+  table,
+  text,
+  integer,
+  ownableColumns,
+} from "@agent-native/core/db/schema";
+
+// Minimal: just the owner column
+export const notes = table("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  content: text("content"),
+  ownerEmail: text("owner_email").notNull(), // REQUIRED — camelCase property
+});
+
+// Or use ownableColumns() to add owner_email + org_id + visibility in one call
+export const notes = table("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  content: text("content"),
+  ...ownableColumns(),
+});
+```
+
+A estrutura cria visualizações SQL temporárias que filtram consultas automaticamente:
+
+```sql
+CREATE TEMPORARY VIEW "notes" AS
+  SELECT * FROM main."notes"
+  WHERE "owner_email" = 'alice@example.com';
+```
+
+As instruções INSERT são injetadas automaticamente em `owner_email` quando a coluna ainda não está presente.
+
+As ferramentas `db-query`/`db-exec` rejeitam referências de tabela qualificadas pelo esquema (`public.<table>`, `main.<table>`) — um nome qualificado é resolvido para a tabela base e ignoraria a visualização temporária acima. Os agentes usam nomes de tabelas simples; o escopo é aplicado automaticamente.
+
+### Escopo por organização (`org_id`)
+
+Para aplicativos multiusuário em que as equipes compartilham dados, adicione uma coluna `org_id`. Quando ambas as colunas estão presentes, as consultas têm escopo definido por ambas: `WHERE owner_email = ? AND org_id = ?`.
+
+O auxiliar de esquema `ownableColumns()` adiciona `owner_email`, `org_id` e `visibility` em uma chamada, para que novas tabelas com reconhecimento de locatário obtenham o contrato de escopo completo por padrão:
+
+```ts
+import { table, text, ownableColumns } from "@agent-native/core/db/schema";
+
+export const projects = table("projects", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(), // adds owner_email + org_id + visibility
+});
+```
+
+```an-schema title="What ownableColumns() adds" summary="As três colunas que tornam uma tabela compatível com locatários e compartilhável."
+{
+  "entities": [
+    {
+      "id": "ownable",
+      "name": "ownable resource",
+      "note": "Any table that spreads...ownableColumns()",
+      "fields": [
+        { "name": "owner_email", "type": "text", "nullable": false, "note": "Creator. Auto-filled by write actions; auto-injected on INSERT." },
+        { "name": "org_id", "type": "text", "nullable": true, "note": "Organização ativa do proprietário na criação. Impulsiona verificações de visibilidade organizacional." },
+        { "name": "visibility", "type": "enum", "nullable": false, "note": "privado | organização | público — padrão grosseiro, o padrão é privado." }
+      ]
+    }
+  ]
+}
+```
+
+### Proteções de acesso em actions {#access-guards}
+
+O agente bruto SQL tem o escopo definido pelas visualizações temporárias acima. O código de ação que consulta diretamente com Drizzle deve passar pelos auxiliares de acesso da estrutura para que as leituras e gravações permaneçam no escopo da identidade atual:
+
+- **`accessFilter`** — retorna o predicado `WHERE` que limita uma consulta às linhas que o usuário/organização atual pode ver. Use-o em consultas de lista/leitura.
+- **`resolveAccess`** — resolve o escopo de acesso efetivo (proprietário, organização, compartilhado) da solicitação atual.
+- **`assertAccess`** — protege uma gravação ou leitura de registro único, lançando se a identidade atual não atuar na linha de destino.
+
+As tabelas criadas com `ownableColumns()` exigem essas leituras e gravações com escopo definido; rotas Nitro personalizadas devem estabelecer o contexto da solicitação antes de consultar dados proprietários. A verificação `guard-no-unscoped-queries` (executada via `pnpm guards`) impõe isso no momento do CI. Veja a habilidade `sharing` para o ajudante completo API.
+
+### Validação
+
+```bash
+pnpm action db-check-scoping           # Verifique se todas as tabelas possuem proprietário_email
+pnpm action db-check-scoping --require-org  # Também requer org_id
+```
+
+## Gerenciamento de segredos {#secrets}
+
+| Tipo de segredo                                     | Onde armazenar                                                  |
+| --------------------------------------------------- | --------------------------------------------------------------- |
+| Chaves no nível da implantação (uma por aplicativo) | Arquivo `.env` (gitignored, somente no lado do servidor)        |
+| Chaves API por usuário/por organização              | `saveCredential`/`resolveCredential` (criptografado em repouso) |
+| Segredos registrados (cofre da barra lateral)       | Cofre `app_secrets` (criptografado em repouso)                  |
+| Tokens OAuth (Google, GitHub)                       | Armazenamento `oauth_tokens` via `saveOAuthTokens()`            |
+| Tokens de sessão                                    | Automático (melhor autenticação lida com isso)                  |
+
+As credenciais por usuário/por organização e o cofre são criptografados em repouso com AES-256-GCM, codificados por `SECRETS_ENCRYPTION_KEY` (retrocedendo para `BETTER_AUTH_SECRET`); a produção se recusa a começar sem ele. Para criptografar quaisquer linhas de credenciais de texto simples pré-existentes, execute `pnpm action db-migrate-encrypt-credentials` (idempotente, não destrutivo).
+
+Nunca armazene segredos em `settings`, `application_state`, código-fonte ou respostas de ação. Use as credenciais/cofre APIs acima: elas lidam com criptografia e escopo por usuário.
+
+## Autenticação {#auth}
+
+A autenticação é automática. Consulte a documentação do [Authentication](/docs/authentication) para a configuração completa.
+
+**Pontos-chave para segurança:**
+
+- Os endpoints `defineAction` são protegidos automaticamente pela proteção de autenticação
+- Rotas `/api/` personalizadas devem chamar `getSession(event)` e verificar o resultado
+- As operações de mudança de estado devem usar POST (o padrão para actions)
+- Os cookies `SameSite=lax` + `httpOnly` evitam a maioria dos ataques CSRF
+
+## Verificação de identidade A2A {#a2a-identity}
+
+Quando os aplicativos ligam entre si por meio do protocolo A2A, eles verificam a identidade usando tokens JWT assinados com um segredo compartilhado:
+
+```bash
+A2A_SECRET=your-shared-secret-at-least-32-chars
+```
+
+1. O aplicativo A assina um JWT contendo `sub: "steve@example.com"`
+2. O aplicativo B verifica a assinatura JWT com o mesmo segredo
+3. O aplicativo B lê a declaração `sub` verificada no contexto da solicitação
+4. O escopo dos dados se aplica: o aplicativo B mostra apenas os dados de Steve
+
+Sem `A2A_SECRET` em produção, cada endpoint A2A e o endpoint de disparo automático `/_agent-native/integrations/process-task` retornam **503**. Configure-o em todos os aplicativos que chamam ou recebem tráfego A2A. (Para desenvolvimento local, a estrutura ainda permite chamadas não autenticadas.)
+
+## Entrada Webhooks {#webhooks}
+
+Os manipuladores de webhook de entrada (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom, Google Docs Pub/Sub) recusam solicitações forjadas por padrão na produção: quando a variável de env secreta de assinatura correspondente está faltando, o manipulador retorna 401 em vez de aceitar e despachar.
+
+Anteriormente, essa era uma postura de "avisar e aceitar" - defina o segredo que de outra forma estaria faltando ou opte novamente pelo comportamento antigo com `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` apenas para desenvolvedores locais. Consulte [Messaging](/docs/messaging#env-vars) para obter as variáveis secretas de assinatura por integração.
+
+## Lista de verificação de produção {#production-checklist}
+
+### Autenticação e segredos
+
+- [ ] `BETTER_AUTH_SECRET` definido como uma string aleatória com mais de 32 caracteres (`openssl rand -hex 32`), a menos que esta seja uma implantação de espaço de trabalho hospedado derivada de `A2A_SECRET`
+- [ ] `OAUTH_STATE_SECRET` definido como uma string aleatória separada com mais de 32 caracteres (não reutilize `BETTER_AUTH_SECRET`) — consulte [OAuth State Signing](#oauth-state)
+- [ ] `A2A_SECRET` definido em cada aplicativo que chama ou recebe tráfego A2A — consulte [A2A Identity Verification](#a2a-identity)
+- [ ] conjunto `SECRETS_ENCRYPTION_KEY` (ou confie no substituto `BETTER_AUTH_SECRET`) — consulte [Secrets Management](#secrets)
+- [ ] `AUTH_SKIP_EMAIL_VERIFICATION` **não** é definido em produção (ou definido apenas em implantações de visualização de controle de qualidade)
+
+### Segredos do webhook (defina aqueles para integrações que você usa)
+
+- [ ] Conjunto de segredos de assinatura para cada integração de entrada habilitada — consulte [Inbound Webhooks](#webhooks) e [Messaging](/docs/messaging#env-vars) para obter a lista por integração
+- [ ] `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` **não** está definido no produto
+
+### Esquema
+
+- [ ] Cada tabela voltada para o usuário tem `owner_email`, tabelas multiusuário também `org_id` - consulte [Data Scoping](#data-scoping)
+- [ ] Leituras/gravações de tabelas próprias passam pelo [access guards](#access-guards)
+- [ ] Todos os actions usam `defineAction` com Zod `schema:` — veja [Input Validation](#input-validation)
+- [ ] As buscas do lado do servidor de usuários/agentes URLs passam por `ssrfSafeFetch` — consulte [SSRF](#ssrf)
+- [ ] Nenhum `dangerouslySetInnerHTML` com conteúdo do usuário (ou a saída é executada por meio do DOMPurify)
+- [ ] Nenhum SQL concatenado com string
+- [ ] `pnpm guards` está limpo (`guard-no-unscoped-queries`, `guard-no-env-credentials`, `guard-no-env-mutation`, `guard-no-localhost-fallback`, `guard-no-unscoped-credentials`, `guard-no-drizzle-push`)
+- [ ] Testado com duas contas de usuário para verificar o isolamento de dados
+
+### Endurecimento diverso
+
+- [ ] `AGENT_NATIVE_DEBUG_ERRORS` **não** é definido em produção real (somente em visualizações de depuração)
+- [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` **não** é definido, a menos que sua organização realmente compartilhe chaves de espaço de trabalho — consulte [Cross-User Tooling Secrets](#tooling-secrets)
+- [ ] Em implantações multilocatários, **os usuários trazem seu próprio `ANTHROPIC_API_KEY`** — a estrutura se recusa a voltar para o ambiente de nível de implantação var
+
+---
+
+As seções abaixo abordam sinalizadores de ambiente de nicho que você só alcança em implantações específicas. A maioria dos aplicativos nunca toca neles.
+
+## Assinatura de estado OAuth {#oauth-state}
+
+Fluxos OAuth (Google, Atlassian, Zoom) assinam seu envelope de estado com uma chave HMAC dedicada:
+
+```bash
+OAUTH_STATE_SECRET=$(openssl rand -hex 32)
+```
+
+Isso costumava recorrer a `GOOGLE_CLIENT_SECRET` (uma credencial compartilhada com o Google) — um vazamento do segredo do Google teria permitido que invasores falsificassem envelopes de estado OAuth. A chave dedicada é independente de qualquer segredo de terceiros. Se `OAUTH_STATE_SECRET` não estiver definido, a estrutura retornará para `BETTER_AUTH_SECRET`; implantações de espaço de trabalho hospedado também podem derivar uma chave OAuth específica do `A2A_SECRET` já necessário. Se nenhum desses segredos do servidor estiver disponível, os fluxos OAuth falharão na produção.
+
+Os parâmetros de consulta `redirect_uri` também são validados em uma lista de permissões (mesma origem + caminhos da estrutura `/_agent-native/...`). Os fluxos OAuth personalizados em modelos devem usar o auxiliar `isAllowedOAuthRedirectUri()` da estrutura antes de assinar o estado.
+
+## Segredos de ferramentas para vários usuários {#tooling-secrets}
+
+Ferramentas e automações que fazem referência a `${keys.NAME}` resolvem segredos por usuário por padrão. O substituto do escopo do espaço de trabalho está **desativado por padrão** nesta versão. Caso contrário, um membro mal-intencionado da organização poderia plantar um espaço de trabalho `OPENAI_API_KEY` e coletar chamadas API de outros membros.
+
+Se sua organização realmente compartilha chaves para todo o espaço de trabalho (por exemplo, uma única chave Stripe corporativa), opte novamente pelo comportamento antigo com:
+
+```bash
+AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1
+```
+
+As gravações secretas no escopo do workspace ainda exigem a função de proprietário/administrador da organização, independentemente dessa sinalização.

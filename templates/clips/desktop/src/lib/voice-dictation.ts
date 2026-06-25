@@ -32,6 +32,7 @@ export type VoiceProvider =
   | "auto"
   | "browser"
   | "macos-native"
+  | "whisper"
   | "builder-gemini"
   | "builder"
   | "gemini"
@@ -82,8 +83,10 @@ interface VoiceSession {
   // webkitSpeechRecognition (works in Safari and Chromium WebViews,
   // broken in Tauri WKWebView). "native" sessions drive Apple's
   // SFSpeechRecognizer + AVAudioEngine through Tauri commands —
-  // on-device, real-time partials, free, macOS-only.
-  kind: "server" | "browser" | "native";
+  // on-device, real-time partials, free, macOS-only. "whisper" sessions
+  // drive the local whisper.cpp engine via audio_transcription_* commands,
+  // mic-only (captureSystem: false), no API key required.
+  kind: "server" | "browser" | "native" | "whisper";
   // server-only fields
   stream: MediaStream | null;
   recorder: MediaRecorder | null;
@@ -496,6 +499,7 @@ export function installDesktopVoiceDictation(
   const resolveProvider = async (): Promise<
     | { kind: "browser"; cleanupProvider?: ServerVoiceProvider }
     | { kind: "native"; cleanupProvider?: ServerVoiceProvider }
+    | { kind: "whisper"; cleanupProvider?: ServerVoiceProvider }
     | {
         kind: "server";
         providerPref: ServerVoiceProvider;
@@ -515,6 +519,7 @@ export function installDesktopVoiceDictation(
       return { kind: "browser" };
     }
     if (provider === "macos-native") return { kind: "native" };
+    if (provider === "whisper") return { kind: "whisper" };
     if (provider !== "auto") {
       const cleanupProvider =
         provider === "builder" ? "builder-gemini" : provider;
@@ -605,6 +610,8 @@ export function installDesktopVoiceDictation(
         await startBrowser(resolved.cleanupProvider);
       } else if (resolved.kind === "native") {
         await startNative(resolved.cleanupProvider);
+      } else if (resolved.kind === "whisper") {
+        await startWhisper(resolved.cleanupProvider);
       } else {
         await startServer(resolved.providerPref);
       }
@@ -944,6 +951,80 @@ export function installDesktopVoiceDictation(
   };
 
   /**
+   * Whisper path: local whisper.cpp engine via audio_transcription_* Tauri
+   * commands. Mic-only (captureSystem: false) — same linger/finalize flow
+   * as the native path, same voice:*-transcript events from Rust.
+   */
+  const startWhisper = async (cleanupProvider?: ServerVoiceProvider) => {
+    console.log(
+      "[voice-dictation] startWhisper: invoke audio_transcription_start",
+    );
+    try {
+      // Open the mic BEFORE showing the bar so audio is capturing by the time
+      // the user sees the recording state and starts speaking. The inverse order
+      // (bar first, then start) causes the mic to open ~100-300ms late and the
+      // first spoken words are lost inside audio_transcription_start's
+      // ensure_model + create_state + start_raw_mic_capture sequence.
+      await invoke("audio_transcription_start", {
+        meetingId: null,
+        locale: navigator.language || "en-US",
+        micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
+        micDeviceLabel: micDeviceLabel || null,
+        captureSystem: false,
+      });
+      console.log("[voice-dictation] audio_transcription_start ok");
+      if (disposed || stopRequestedBeforeReady) {
+        invoke("audio_transcription_stop").catch(() => {});
+        abortPendingStart();
+        return;
+      }
+      await invoke("show_flow_bar");
+      if (disposed || stopRequestedBeforeReady) {
+        invoke("audio_transcription_stop").catch(() => {});
+        abortPendingStart();
+        return;
+      }
+      setFlowState("recording");
+      emit("voice:partial-transcript", { text: "" }).catch(() => {});
+      const next: VoiceSession = {
+        kind: "whisper",
+        stream: null,
+        recorder: null,
+        chunks: [],
+        audioContext: null,
+        analyser: null,
+        raf: null,
+        mimeType: "",
+        recognition: null,
+        browserTranscript: "",
+        lastResultAt: 0,
+        startedAt: Date.now(),
+        stopping: false,
+        transcribeAbort: null,
+        cancelled: false,
+        cleanupProvider: cleanupProvider ?? null,
+      };
+      session = next;
+      startInFlight = false;
+      startSyntheticMeter(next);
+      if (stopRequestedBeforeReady) {
+        stop();
+      }
+    } catch (err) {
+      console.error("[voice-dictation] startWhisper failed", err);
+      startInFlight = false;
+      stopRequestedBeforeReady = false;
+      session = null;
+      setFlowState("error");
+      window.setTimeout(() => {
+        if (disposed || session) return;
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
+      }, 800);
+    }
+  };
+
+  /**
    * Browser-path: real-time on-device transcription via WKWebView's
    * webkitSpeechRecognition. No server round-trip — text is ready the
    * moment we stop the recognizer, so we paste immediately unless an LLM
@@ -1172,6 +1253,13 @@ export function installDesktopVoiceDictation(
         invoke("native_speech_cancel").catch((err) => {
           console.warn("[voice-dictation] native_speech_cancel failed:", err);
         });
+      } else if (current.kind === "whisper") {
+        invoke("audio_transcription_stop").catch((err) => {
+          console.warn(
+            "[voice-dictation] audio_transcription_stop (cancel) failed:",
+            err,
+          );
+        });
       } else {
         try {
           current.recognition?.abort();
@@ -1225,6 +1313,8 @@ export function installDesktopVoiceDictation(
         }
       } else if (current.kind === "native") {
         invoke("native_speech_cancel").catch(() => {});
+      } else if (current.kind === "whisper") {
+        invoke("audio_transcription_stop").catch(() => {});
       }
       cleanup(current);
       return;
@@ -1232,15 +1322,19 @@ export function installDesktopVoiceDictation(
     try {
       if (current.kind === "server") {
         current.recorder?.stop();
-      } else if (current.kind === "native") {
-        // NATIVE PATH: dismiss the pill *immediately* (snappy UX) but
-        // leave the transcript chip lingering. Tell Rust to `endAudio()`
-        // so SFSpeechRecognizer can deliver its final hypothesis. When
+      } else if (current.kind === "native" || current.kind === "whisper") {
+        // NATIVE / WHISPER PATH: dismiss the pill *immediately* (snappy UX)
+        // but leave the transcript chip lingering. Tell Rust to end the
+        // engine so it can deliver its final hypothesis. When
         // `voice:final-transcript` lands (or after a safety timeout),
         // paste the text and let the chip sit for ~1s with the final
         // word visible — like a notification fading — then dismiss.
-        invoke("native_speech_stop").catch((err) => {
-          console.warn("[voice-dictation] native_speech_stop failed:", err);
+        const stopCmd =
+          current.kind === "whisper"
+            ? "audio_transcription_stop"
+            : "native_speech_stop";
+        invoke(stopCmd).catch((err) => {
+          console.warn(`[voice-dictation] ${stopCmd} failed:`, err);
         });
         // Pill goes RIGHT NOW. The flow-bar window stays open (we'll
         // hide it after the linger) but renders only the transcript
@@ -1576,7 +1670,8 @@ export function installDesktopVoiceDictation(
   // don't re-emit it here.
   onPartialTranscript(({ text }) => {
     const current = session;
-    if (!current || current.kind !== "native") return;
+    if (!current || (current.kind !== "native" && current.kind !== "whisper"))
+      return;
     if (current.cancelled || current.stopping) return;
     current.browserTranscript = text.trim();
   })
@@ -1590,7 +1685,9 @@ export function installDesktopVoiceDictation(
     // late-arriving final from the previous session would otherwise
     // overwrite the new session's transcript with stale text.
     const current =
-      lingeringSession && lingeringSession.kind === "native"
+      lingeringSession &&
+      (lingeringSession.kind === "native" ||
+        lingeringSession.kind === "whisper")
         ? lingeringSession
         : null;
     if (!current) return;
@@ -1607,7 +1704,8 @@ export function installDesktopVoiceDictation(
   onSpeechError(({ error }) => {
     const current = session;
     console.error("[voice-dictation] native speech error:", error);
-    if (!current || current.kind !== "native") return;
+    if (!current || (current.kind !== "native" && current.kind !== "whisper"))
+      return;
     setFlowState("error");
     window.setTimeout(() => {
       if (!disposed && session === current) cleanup(current);

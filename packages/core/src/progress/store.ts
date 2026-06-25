@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
+
 import {
   getDbExec,
   intType,
+  isPostgres,
   isUniqueViolation,
-  retryOnDdlRace,
   safeJsonParse,
 } from "../db/client.js";
+import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { recordChange } from "../server/poll.js";
 import type {
   AgentRun,
@@ -41,32 +43,46 @@ async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
-          CREATE TABLE IF NOT EXISTS progress_runs (
-            id TEXT PRIMARY KEY,
-            owner TEXT NOT NULL,
-            title TEXT NOT NULL,
-            step TEXT,
-            percent ${intType()},
-            status TEXT NOT NULL DEFAULT 'running',
-            metadata TEXT,
-            started_at ${intType()} NOT NULL,
-            updated_at ${intType()} NOT NULL,
-            completed_at ${intType()}
-          )
-        `),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
+      const createSql = `
+        CREATE TABLE IF NOT EXISTS progress_runs (
+          id TEXT PRIMARY KEY,
+          owner TEXT NOT NULL,
+          title TEXT NOT NULL,
+          step TEXT,
+          percent ${intType()},
+          status TEXT NOT NULL DEFAULT 'running',
+          metadata TEXT,
+          started_at ${intType()} NOT NULL,
+          updated_at ${intType()} NOT NULL,
+          completed_at ${intType()}
+        )
+      `;
+
+      if (isPostgres()) {
+        // PG-guard: probe information_schema / pg_indexes before issuing DDL to
+        // avoid ACCESS EXCLUSIVE lock contention in fresh background-worker processes.
+        await ensureTableExists("progress_runs", createSql);
+        await ensureIndexExists(
+          "idx_progress_runs_owner_status",
           `CREATE INDEX IF NOT EXISTS idx_progress_runs_owner_status ON progress_runs (owner, status, started_at)`,
-        ),
-      );
+        );
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
       // NOTE: table name is `progress_runs` (not `agent_runs`) to avoid
       // colliding with core's existing agent/run-store.ts which uses
       // `agent_runs` for agent-chat turn lifecycle tracking. These are
       // separate concerns — progress = user-facing task status, agent_runs =
       // internal chat turn bookkeeping.
+      await client.execute(createSql);
+      try {
+        await client.execute(
+          `CREATE INDEX IF NOT EXISTS idx_progress_runs_owner_status ON progress_runs (owner, status, started_at)`,
+        );
+      } catch {
+        // Index already exists or the dialect rejected a duplicate.
+      }
     })().catch((err) => {
       // Reset on failure so a transient DB outage doesn't poison the cached
       // promise and reject every future insert/update call for the lifetime

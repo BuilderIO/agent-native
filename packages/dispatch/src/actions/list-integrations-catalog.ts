@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import { listIntegrationsCatalog } from "../server/lib/vault-store.js";
 
 export default defineAction({

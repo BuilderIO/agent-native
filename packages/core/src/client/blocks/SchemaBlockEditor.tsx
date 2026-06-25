@@ -1,10 +1,11 @@
+import { IconPlus, IconTrash } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import type { ZodType } from "zod";
-import { IconPlus, IconTrash } from "@tabler/icons-react";
+
 import { cn } from "../utils.js";
 import { ltrCodeBlockProps } from "./code-block-direction.js";
-import type { BlockRenderContext } from "./types.js";
 import { introspect, type FieldDescriptor } from "./schema-form/introspect.js";
+import type { BlockRenderContext } from "./types.js";
 
 /**
  * Schema-driven auto-editor. When a {@link BlockSpec} omits `Edit`, the registry

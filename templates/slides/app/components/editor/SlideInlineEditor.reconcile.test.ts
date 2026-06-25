@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { shouldApplySlideContentSync } from "./SlideInlineEditor";
 
 const base = {

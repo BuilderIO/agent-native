@@ -31,11 +31,11 @@ jobs:
           node-version: "22"
           cache: "pnpm"
 
-      # Lint only needs prettier + oxlint from root devDependencies; no package
+      # Lint only needs oxfmt + oxlint from root devDependencies; no package
       # builds are required, so skip the postinstall build chain entirely.
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Prettier check
+      - name: Oxfmt check
         run: pnpm fmt:check
 
       - name: Oxlint
@@ -199,7 +199,7 @@ jobs:
           key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
           restore-keys: dist-
 
-      # postinstall rebuilds any stale/missing dists (incremental tsc is fast on
+      # postinstall rebuilds any stale/missing dists (incremental tsgo is fast on
       # cache hit); no separate `pnpm build` step needed.
       - run: pnpm install --frozen-lockfile
 

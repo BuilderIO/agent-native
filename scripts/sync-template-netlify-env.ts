@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { TEMPLATES } from "../packages/core/src/cli/templates-meta.js";
 
 type TemplateSite = {
@@ -51,6 +52,9 @@ const SITE_BY_NAME = new Map(TEMPLATE_SITES.map((site) => [site.name, site]));
 const DEFAULT_SOURCES = [".env", ".env.local"];
 const DEFAULT_SCOPES = ["builds", "functions", "runtime"];
 const DEFAULT_CONTEXT = "production";
+const DEFAULT_HOSTED_TEMPLATE_ENV = new Map([
+  ["GA_MEASUREMENT_ID", "G-ESF7FYXGN9"],
+]);
 const BLOCKED_TEMPLATE_ENV_KEYS = new Set([
   "ANTHROPIC_API_KEY",
   "OPENAI_API_KEY",
@@ -64,6 +68,7 @@ const PUBLIC_KEY_EXACT = new Set([
   "BUILDER_USER_ID",
   "EMAIL_FROM",
   "ENABLE_BUILDER",
+  "GA_MEASUREMENT_ID",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_SIGN_IN_CLIENT_ID",
   "GOOGLE_PICKER_API_KEY",
@@ -94,6 +99,8 @@ Options:
   --scope <scope>         Scope to set. Can be repeated. Defaults to ${DEFAULT_SCOPES.join(",")}.
   --source <file>         Env file inside each template. Can be repeated.
                            Defaults to ${DEFAULT_SOURCES.join(", ")}.
+                           GA_MEASUREMENT_ID defaults to the hosted Agent-Native
+                           GA4 property unless an env source overrides it.
   --help                  Show this help.
 
 Known templates:
@@ -248,7 +255,7 @@ function findClosingDoubleQuote(value: string): number {
 }
 
 function loadTemplateEnv(template: string, sources: string[]) {
-  const values = new Map<string, string>();
+  const values = new Map<string, string>(DEFAULT_HOSTED_TEMPLATE_ENV);
   const foundSources: string[] = [];
 
   for (const source of sources) {

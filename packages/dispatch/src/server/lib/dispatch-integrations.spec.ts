@@ -15,11 +15,12 @@ vi.mock("@agent-native/core/org", () => ({
   resolveOrgIdForEmail: mocks.resolveOrgIdForEmail,
 }));
 
+import type { IncomingMessage } from "@agent-native/core/server";
+
 import {
   identityKeyForIncoming,
   resolveDispatchOwner,
 } from "./dispatch-integrations.js";
-import type { IncomingMessage } from "@agent-native/core/server";
 
 const originalFetch = globalThis.fetch;
 

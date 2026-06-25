@@ -1314,6 +1314,17 @@ body[data-clips-route="recording-pill"] #root {
   gap: 6px;
 }
 
+.setup-section-heading {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
 .setup-advanced {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -1636,6 +1647,11 @@ body[data-clips-route="recording-pill"] #root {
   padding-top: 10px;
   border-top: 1px solid var(--border);
   font-size: 12px;
+}
+
+.setup-account--no-border {
+  border-top: none;
+  padding-top: 0;
 }
 
 .setup-account-email {
@@ -2037,13 +2053,101 @@ body[data-clips-route="recording-pill"] #root {
   pointer-events: none;
 }
 
+/*
+ * Horizontal row of [cancel] [number] [skip]. The two circular buttons are
+ * absolutely centered at exactly ±200px (logical) from the row center so the
+ * native cursor-poll hit-rects in clips/mod.rs (CONTROL_OFFSET_X = 200.0,
+ * CONTROL_DIAMETER = 64.0) line up with the rendered controls. Keep these
+ * numbers in sync with that Rust code.
+ */
+.countdown-controls {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.countdown-control {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  background: rgba(10, 12, 16, 0.42);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  color: #ffffff;
+  cursor: pointer;
+  pointer-events: auto;
+  backdrop-filter: blur(8px);
+  transform: translateY(-50%);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.countdown-control-cancel {
+  /* center at -200px from row center: -200 - (64 / 2) = -232px */
+  left: -232px;
+}
+
+.countdown-control-skip {
+  /* center at +200px from row center: 200 - (64 / 2) = 168px */
+  left: 168px;
+}
+
+.countdown-control:hover {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.95);
+  color: #0b0d12;
+}
+
+.countdown-control:active {
+  transform: translateY(-50%) scale(0.94);
+}
+
+.countdown-control:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 2px;
+}
+
+/*
+ * Absolutely centers the number without contributing width to .countdown-controls.
+ * This keeps the controls div at zero width so the cancel/skip button positions
+ * (left: -232px, left: 168px) line up exactly with the Rust cursor-poll hit-rects
+ * (CONTROL_OFFSET_X = 200.0) measured from the window center.
+ */
+.countdown-number-wrap {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
 .countdown-number {
   font-size: 240px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: #ffffff;
-  -webkit-text-stroke: 1px rgba(17, 24, 39, 0.22);
+  /*
+   * Do NOT use -webkit-text-stroke here: it joins with a hard miter and no way
+   * to set stroke-linejoin, so at this size/weight the sharp concave corner of
+   * the "2" (where the curved top meets the flat bottom bar) sprouts star-shaped
+   * miter spikes. We fake a soft dark edge with a 4-direction 1px shadow halo
+   * instead, which has no join geometry and cannot spike.
+   */
   text-shadow:
+    1px 0 1px rgba(17, 24, 39, 0.22),
+    -1px 0 1px rgba(17, 24, 39, 0.22),
+    0 1px 1px rgba(17, 24, 39, 0.22),
+    0 -1px 1px rgba(17, 24, 39, 0.22),
     0 2px 4px rgba(0, 0, 0, 0.48),
     0 12px 34px rgba(0, 0, 0, 0.36),
     0 0 2px rgba(0, 0, 0, 0.72);
@@ -2356,8 +2460,12 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
+  /* Pin content to the top in BOTH states. The primary controls are
+     centered inside their own fixed-height zone (.toolbar-v-primary), so
+     the collapsed→expanded growth only adds room BELOW them. Without this,
+     flipping justify-content center→flex-start on hover yanked the Stop
+     button up toward the bar's top edge. */
+  justify-content: flex-start;
   /* Equal inset on all four sides from the pill edge to the buttons. */
   padding: 10px;
   overflow: hidden;
@@ -2376,13 +2484,27 @@ body[data-clips-route="recording-pill"] #root {
 
 .toolbar-v:hover,
 .toolbar-v:focus-within {
-  height: 234px;
-  justify-content: flex-start;
+  /* Matches TOOLBAR_EXPANDED_HEIGHT in toolbar.tsx — the fixed 130px primary
+     zone + 88px hover actions (+2 margin) + 20px vertical padding. */
+  height: 240px;
   border-radius: 26px;
 }
 
 .toolbar-v:active {
   cursor: grabbing;
+}
+
+/* Fixed-height home for Stop / time / Pause. Its height equals the collapsed
+   pill's content box (150px − 20px vertical padding = 130px), so the trio is
+   centered exactly as before when collapsed and never shifts when the pill
+   grows on hover — the extra height flows into .toolbar-v-hover-actions below. */
+.toolbar-v-primary {
+  flex: 0 0 130px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 
 .toolbar-v-stop {
@@ -3883,11 +4005,15 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 /* Collapsed (not expanded). Shrinks to dot + waveform; controls revealed via
-   CSS :hover which works at the WebKit level even when the app is unfocused. */
+   CSS :hover which works at the WebKit level even when the app is unfocused.
+   Top-anchored (not centered) inside the headroom-sized window so the hover
+   reveal of the drag grip grows the capsule strictly DOWNWARD — centering it
+   would split the growth and raise the top edge, sliding buttons up under the
+   cursor and causing misclicks. */
 .pill-inner-compact {
   width: fit-content;
   height: fit-content;
-  align-self: center;
+  align-self: flex-start;
   border-radius: 18px;
 }
 
@@ -4139,9 +4265,9 @@ body[data-clips-route="recording-pill"] #root {
 
 .whisper-status {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px 6px;
   margin-top: 6px;
   font-size: 11px;
   line-height: 1.4;
@@ -4176,8 +4302,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .whisper-status-path {
-  display: block;
-  margin-top: 2px;
+  flex-basis: 100%;
   font-size: 10px;
   color: var(--fg-subtle);
   word-break: break-all;

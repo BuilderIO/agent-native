@@ -6,8 +6,15 @@
  * are signed JWTs and are never persisted.
  */
 
-import { getDbExec, isConnectionError, intType } from "../db/client.js";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
+
+import {
+  getDbExec,
+  isConnectionError,
+  intType,
+  isPostgres,
+} from "../db/client.js";
+import { ensureTableExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -78,7 +85,7 @@ async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await client.execute(`
+      const createClientsSql = `
         CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
           client_id TEXT PRIMARY KEY,
           client_name TEXT,
@@ -88,8 +95,8 @@ async function ensureTable(): Promise<void> {
           token_endpoint_auth_method TEXT,
           created_at ${intType()}
         )
-      `);
-      await client.execute(`
+      `;
+      const createCodesSql = `
         CREATE TABLE IF NOT EXISTS mcp_oauth_codes (
           code TEXT PRIMARY KEY,
           client_id TEXT NOT NULL,
@@ -105,8 +112,8 @@ async function ensureTable(): Promise<void> {
           expires_at ${intType()},
           consumed_at ${intType()}
         )
-      `);
-      await client.execute(`
+      `;
+      const createRefreshTokensSql = `
         CREATE TABLE IF NOT EXISTS mcp_oauth_refresh_tokens (
           id TEXT PRIMARY KEY,
           token_hash TEXT UNIQUE NOT NULL,
@@ -122,7 +129,26 @@ async function ensureTable(): Promise<void> {
           revoked_at ${intType()},
           replaced_by_hash TEXT
         )
-      `);
+      `;
+
+      if (isPostgres()) {
+        // PG-guard: probe information_schema first (no lock) and only issue
+        // DDL when the table is actually missing, wrapped in a
+        // transaction-scoped lock_timeout so a contended lock fails fast.
+        await ensureTableExists("mcp_oauth_clients", createClientsSql);
+        await ensureTableExists("mcp_oauth_codes", createCodesSql);
+        await ensureTableExists(
+          "mcp_oauth_refresh_tokens",
+          createRefreshTokensSql,
+        );
+        return;
+      }
+
+      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
+      // create-then-execute behaviour.
+      await client.execute(createClientsSql);
+      await client.execute(createCodesSql);
+      await client.execute(createRefreshTokensSql);
     })().catch((err) => {
       _initPromise = undefined;
       throw err;

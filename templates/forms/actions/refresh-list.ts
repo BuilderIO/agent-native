@@ -1,9 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
 import {
   writeAppState,
   deleteAppState,
 } from "@agent-native/core/application-state";
+import { z } from "zod";
 
 export default defineAction({
   description: "Trigger a UI refresh by writing and deleting a refresh signal.",

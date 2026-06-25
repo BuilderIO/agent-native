@@ -26,11 +26,16 @@ patterns live in `.agents/skills/`.
 - Generated files must be complete, standalone HTML unless the user asks for a
   different export format. They should render in the iframe without a build step.
 - For raster image generation, restyling, or editing existing screenshots/photos,
-  use the first-party Assets app via `call-agent` with agent `"assets"` when
-  available instead of claiming Design has no image tools. If the user attached
-  an image, use its hosted chat-attachment URL or call `upload-image` to create
-  one before delegating. If no image/upload provider is configured, say that
-  specific setup is needed and continue any non-image Design work separately.
+  use the available first-party Assets MCP tool such as `generate-asset` instead
+  of placeholders or generic stock imagery. When the Assets picker returns a
+  selected asset, preserve `assetId`, `runId`, and URLs verbatim; if a design is
+  open, call `insert-asset` with the chosen URL/id, then refine placement with
+  `get-design-snapshot` and `edit-design` as needed. If no Assets MCP tool is
+  available, use the first-party Assets app via `call-agent` with agent
+  `"assets"` when available. If the user attached an image, use its hosted
+  chat-attachment URL or call `upload-image` to create one before delegating. If
+  no image/upload provider is configured, say that specific setup is needed and
+  continue any non-image Design work separately.
 - Use Alpine.js and Tailwind CDN for interactive prototypes. Prefer Alpine
   directives over raw inline event handlers.
 - Navigate between prototype screens with Alpine state (`x-show`), a

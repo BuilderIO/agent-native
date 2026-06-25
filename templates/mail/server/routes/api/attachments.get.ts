@@ -1,20 +1,21 @@
 import {
-  defineEventHandler,
-  getQuery,
-  setResponseHeader,
-  setResponseStatus,
-} from "h3";
-import {
   getOAuthTokens,
   saveOAuthTokens,
   listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
 import { getSession } from "@agent-native/core/server";
-import { isConnected } from "../../lib/google-auth.js";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseHeader,
+  setResponseStatus,
+} from "h3";
+
 import {
   createOAuth2Client,
   gmailGetAttachment,
 } from "../../lib/google-api.js";
+import { isConnected } from "../../lib/google-auth.js";
 
 interface StoredTokens {
   access_token: string;

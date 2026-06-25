@@ -1,13 +1,10 @@
 import { Buffer } from "node:buffer";
-import { and, eq } from "drizzle-orm";
+
 import { readAppSecret, writeAppSecret } from "@agent-native/core/secrets";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
+
 import { getDb, schema } from "../db/index.js";
-import {
-  getActiveOrganizationId,
-  getCurrentOwnerEmail,
-  nanoid,
-} from "./recordings.js";
 import {
   detectPlatform,
   getEvent,
@@ -16,6 +13,11 @@ import {
   refreshAccessTokenWithFallback,
   type CalendarEvent,
 } from "./google-calendar-client.js";
+import {
+  getActiveOrganizationId,
+  getCurrentOwnerEmail,
+  nanoid,
+} from "./recordings.js";
 
 export const CALENDAR_MEETING_ID_PREFIX = "gcal";
 

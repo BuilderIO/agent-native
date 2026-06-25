@@ -3,6 +3,7 @@ import {
   useAgentRouteState,
 } from "@agent-native/core/client";
 import { useLocation } from "react-router";
+
 import { rememberLastOpened } from "@/lib/last-opened";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -63,8 +64,6 @@ export function useNavigationState() {
         state.view = "catalog";
       } else if (pathname === "/settings") {
         state.view = "settings";
-      } else if (pathname === "/about") {
-        state.view = "about";
       }
 
       return state;
@@ -84,7 +83,6 @@ export function useNavigationState() {
       if (cmd.view === "ask") return "/ask";
       if (cmd.view === "settings") return "/settings";
       if (cmd.view === "overview") return "/overview";
-      if (cmd.view === "about") return "/about";
       return "/";
     },
     onNavigate: (_command, path) => {

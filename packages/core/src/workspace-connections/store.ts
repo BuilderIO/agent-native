@@ -1,4 +1,11 @@
 import { randomUUID } from "node:crypto";
+
+import {
+  listWorkspaceConnectionProviders,
+  type WorkspaceConnectionCapability,
+  type WorkspaceConnectionProvider,
+  type WorkspaceConnectionTemplateUse,
+} from "../connections/catalog.js";
 import {
   getDbExec,
   intType,
@@ -9,15 +16,14 @@ import {
   type DbExec,
 } from "../db/client.js";
 import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
+import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
-import {
-  listWorkspaceConnectionProviders,
-  type WorkspaceConnectionCapability,
-  type WorkspaceConnectionProvider,
-  type WorkspaceConnectionTemplateUse,
-} from "../connections/catalog.js";
 
 export type WorkspaceConnectionStatus =
   | "connected"
@@ -458,8 +464,8 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
       const client = getDbExec();
       const table = workspaceConnectionsTable();
       const grantsTable = workspaceConnectionGrantsTable();
-      await retryOnDdlRace(() =>
-        client.execute(`
+
+      const createConnectionsSql = `
           CREATE TABLE IF NOT EXISTS ${table} (
             id TEXT PRIMARY KEY,
             provider TEXT NOT NULL DEFAULT '',
@@ -479,23 +485,8 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
             last_checked_at ${intType()},
             last_error TEXT
           )
-        `),
-      );
-
-      await ensureWorkspaceConnectionColumns(client, table);
-
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_workspace_connections_scope_provider ON ${table} (org_id, owner_email, provider)`,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_workspace_connections_updated_at ON ${table} (updated_at)`,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(`
+        `;
+      const createGrantsSql = `
           CREATE TABLE IF NOT EXISTS ${grantsTable} (
             id TEXT PRIMARY KEY,
             connection_id TEXT NOT NULL DEFAULT '',
@@ -511,11 +502,199 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
             updated_at ${intType()} NOT NULL DEFAULT 0,
             last_used_at ${intType()}
           )
-        `),
+        `;
+
+      if (isPostgres()) {
+        // PG-guard: probe information_schema / pg_indexes first (no lock) and
+        // only issue DDL when the table/column/index is actually missing,
+        // wrapped in a transaction-scoped lock_timeout so a contended lock
+        // fails fast. Uses unqualified table names for the probe (the helpers
+        // always search the `public` schema).
+
+        // --- workspace_connections ---
+        await ensureTableExists("workspace_connections", createConnectionsSql);
+        await ensureColumnExists(
+          "workspace_connections",
+          "provider",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT ''`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "label",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS label TEXT NOT NULL DEFAULT ''`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "account_id",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS account_id TEXT`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "account_label",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS account_label TEXT`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "status",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'connected'`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "scopes_json",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS scopes_json TEXT NOT NULL DEFAULT '[]'`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "config_json",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS config_json TEXT NOT NULL DEFAULT '{}'`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "allowed_apps_json",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS allowed_apps_json TEXT NOT NULL DEFAULT '[]'`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "credential_refs_json",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS credential_refs_json TEXT NOT NULL DEFAULT '[]'`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "owner_email",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT ''`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "org_id",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS org_id TEXT`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "created_at",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS created_at ${intType()} NOT NULL DEFAULT 0`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "updated_at",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS updated_at ${intType()} NOT NULL DEFAULT 0`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "last_checked_at",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS last_checked_at ${intType()}`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "last_used_at",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS last_used_at ${intType()}`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "last_error",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS last_error TEXT`,
+        );
+        await ensureIndexExists(
+          "idx_workspace_connections_scope_provider",
+          `CREATE INDEX IF NOT EXISTS idx_workspace_connections_scope_provider ON ${table} (org_id, owner_email, provider)`,
+        );
+        await ensureIndexExists(
+          "idx_workspace_connections_updated_at",
+          `CREATE INDEX IF NOT EXISTS idx_workspace_connections_updated_at ON ${table} (updated_at)`,
+        );
+
+        // --- workspace_connection_grants ---
+        await ensureTableExists("workspace_connection_grants", createGrantsSql);
+        await ensureColumnExists(
+          "workspace_connection_grants",
+          "connection_id",
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS connection_id TEXT NOT NULL DEFAULT ''`,
+        );
+        await ensureColumnExists(
+          "workspace_connection_grants",
+          "provider",
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT ''`,
+        );
+        await ensureColumnExists(
+          "workspace_connection_grants",
+          "app_id",
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT ''`,
+        );
+        await ensureColumnExists(
+          "workspace_connection_grants",
+          "scopes_json",
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS scopes_json TEXT NOT NULL DEFAULT '[]'`,
+        );
+        await ensureColumnExists(
+          "workspace_connection_grants",
+          "config_json",
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS config_json TEXT NOT NULL DEFAULT '{}'`,
+        );
+        await ensureColumnExists(
+          "workspace_connection_grants",
+          "credential_refs_json",
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS credential_refs_json TEXT NOT NULL DEFAULT '[]'`,
+        );
+        await ensureColumnExists(
+          "workspace_connection_grants",
+          "granted_by_email",
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS granted_by_email TEXT NOT NULL DEFAULT ''`,
+        );
+        await ensureColumnExists(
+          "workspace_connection_grants",
+          "owner_email",
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT ''`,
+        );
+        await ensureColumnExists(
+          "workspace_connection_grants",
+          "org_id",
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS org_id TEXT`,
+        );
+        await ensureColumnExists(
+          "workspace_connection_grants",
+          "created_at",
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS created_at ${intType()} NOT NULL DEFAULT 0`,
+        );
+        await ensureColumnExists(
+          "workspace_connection_grants",
+          "updated_at",
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS updated_at ${intType()} NOT NULL DEFAULT 0`,
+        );
+        await ensureColumnExists(
+          "workspace_connection_grants",
+          "last_used_at",
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS last_used_at ${intType()}`,
+        );
+        await ensureIndexExists(
+          "idx_workspace_connection_grants_connection_app",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_connection_grants_connection_app ON ${grantsTable} (connection_id, app_id)`,
+        );
+        await ensureIndexExists(
+          "idx_workspace_connection_grants_scope_app",
+          `CREATE INDEX IF NOT EXISTS idx_workspace_connection_grants_scope_app ON ${grantsTable} (org_id, owner_email, app_id)`,
+        );
+        await ensureIndexExists(
+          "idx_workspace_connection_grants_updated_at",
+          `CREATE INDEX IF NOT EXISTS idx_workspace_connection_grants_updated_at ON ${grantsTable} (updated_at)`,
+        );
+        return;
+      }
+
+      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
+      // retryOnDdlRace + ensureColumn behaviour.
+      await retryOnDdlRace(() => client.execute(createConnectionsSql));
+      await ensureWorkspaceConnectionColumns(client, table);
+      await retryOnDdlRace(() =>
+        client.execute(
+          `CREATE INDEX IF NOT EXISTS idx_workspace_connections_scope_provider ON ${table} (org_id, owner_email, provider)`,
+        ),
       );
-
+      await retryOnDdlRace(() =>
+        client.execute(
+          `CREATE INDEX IF NOT EXISTS idx_workspace_connections_updated_at ON ${table} (updated_at)`,
+        ),
+      );
+      await retryOnDdlRace(() => client.execute(createGrantsSql));
       await ensureWorkspaceConnectionGrantColumns(client, grantsTable);
-
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_connection_grants_connection_app ON ${grantsTable} (connection_id, app_id)`,

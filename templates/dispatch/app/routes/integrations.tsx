@@ -1,12 +1,8 @@
 import {
-  useEffect,
-  useMemo,
-  useState,
-  type ComponentType,
-  type FormEvent,
-  type ReactNode,
-} from "react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import { DispatchShell } from "@agent-native/dispatch/components";
 import {
   AlertDialog,
@@ -43,7 +39,6 @@ import {
   SelectValue,
 } from "@agent-native/dispatch/components/ui/select";
 import { Switch } from "@agent-native/dispatch/components/ui/switch";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -69,10 +64,21 @@ import {
   IconUsersGroup,
   IconWorld,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentType,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 
+import { messagesByLocale } from "@/i18n-data";
+
 export function meta() {
-  return [{ title: "Workspace Integrations — Dispatch" }];
+  return [{ title: messagesByLocale["en-US"].routeTitles.integrations }];
 }
 
 const CONNECTION_QUERY_PARAMS = { includeDisabled: true } as const;
@@ -322,13 +328,7 @@ const EMPTY_RESPONSE: WorkspaceConnectionsResponse = {
   counts: { providers: 0, connections: 0, grants: 0 },
 };
 
-const STATUS_LABELS: Record<WorkspaceConnectionStatus, string> = {
-  connected: "Connected",
-  checking: "Checking",
-  needs_reauth: "Needs reauth",
-  error: "Error",
-  disabled: "Disabled",
-};
+type Translate = ReturnType<typeof useT>;
 
 const STATUS_CLASSES: Record<WorkspaceConnectionStatus, string> = {
   connected:
@@ -339,18 +339,6 @@ const STATUS_CLASSES: Record<WorkspaceConnectionStatus, string> = {
     "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400",
   error: "border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400",
   disabled: "border-border bg-muted text-muted-foreground",
-};
-
-const READINESS_LABELS: Record<
-  WorkspaceConnectionProviderReadinessStatus,
-  string
-> = {
-  ready: "Ready",
-  checking: "Checking",
-  needs_credentials: "Needs refs",
-  needs_attention: "Needs attention",
-  disabled: "Disabled",
-  not_configured: "Available",
 };
 
 const READINESS_CLASSES: Record<
@@ -400,6 +388,33 @@ function iconForApp(appId: string): IconComponent {
   return APP_ICONS[appId] ?? IconUsersGroup;
 }
 
+function statusLabel(t: Translate, status: WorkspaceConnectionStatus): string {
+  return t(`integrations.status.${status}`);
+}
+
+function readinessLabel(
+  t: Translate,
+  status: WorkspaceConnectionProviderReadinessStatus,
+): string {
+  return t(`integrations.readiness.${status}`);
+}
+
+function scopeLabel(
+  t: Translate,
+  scope: WorkspaceConnectionCredentialRef["scope"],
+): string {
+  switch (scope) {
+    case "org":
+      return t("integrations.scopeOrg");
+    case "workspace":
+      return t("integrations.scopeWorkspace");
+    case "user":
+      return t("integrations.scopeUser");
+    default:
+      return "";
+  }
+}
+
 function humanizeAppId(appId: string): string {
   return appId
     .split(/[-_]/)
@@ -427,8 +442,11 @@ function hasGrantUsageTimestamp(grant: WorkspaceConnectionGrant): boolean {
   return Object.prototype.hasOwnProperty.call(grant, "lastUsedAt");
 }
 
-function formatTimestamp(value: string | null | undefined): string {
-  if (value == null) return "Never used";
+function formatTimestamp(
+  t: Translate,
+  value: string | null | undefined,
+): string {
+  if (value == null) return t("integrations.time.neverUsed");
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   const deltaMs = date.getTime() - Date.now();
@@ -448,7 +466,7 @@ function formatTimestamp(value: string | null | undefined): string {
       return formatter.format(Math.round(deltaMs / ms), unit);
     }
   }
-  return "Just now";
+  return t("integrations.time.justNow");
 }
 
 function usageSortValue(connection: WorkspaceConnection): number {
@@ -619,17 +637,11 @@ function grantModeForApp(
   return "off";
 }
 
-function grantModeLabel(mode: ReturnType<typeof grantModeForApp>): string {
-  switch (mode) {
-    case "all-apps":
-      return "All-app";
-    case "selected":
-      return "Selected";
-    case "explicit":
-      return "Grant";
-    case "off":
-      return "Off";
-  }
+function grantModeLabel(
+  t: Translate,
+  mode: ReturnType<typeof grantModeForApp>,
+): string {
+  return t(`integrations.grantMode.${mode}`);
 }
 
 function usageForAppGrant(
@@ -666,8 +678,9 @@ function summarizeGrant(
   connection: WorkspaceConnection,
   grantApps: GrantApp[],
   grants: WorkspaceConnectionsResponse["grants"],
+  t: Translate,
 ) {
-  if (connection.allowedApps.length === 0) return "All apps";
+  if (connection.allowedApps.length === 0) return t("integrations.allApps");
   const grantedAppIds = Array.from(
     new Set([
       ...connection.allowedApps,
@@ -687,13 +700,19 @@ function summarizeGrant(
   return `${labels.join(", ")}${suffix}`;
 }
 
-function summarizeAppList(appIds: string[], grantApps: GrantApp[]): string {
+function summarizeAppList(
+  appIds: string[],
+  grantApps: GrantApp[],
+  t: Translate,
+): string {
   const labels = appIds
     .map((appId) => grantApps.find((app) => app.id === appId)?.label ?? appId)
     .slice(0, 3);
   const suffix =
     appIds.length > labels.length ? ` +${appIds.length - labels.length}` : "";
-  return labels.length > 0 ? `${labels.join(", ")}${suffix}` : "No apps";
+  return labels.length > 0
+    ? `${labels.join(", ")}${suffix}`
+    : t("integrations.noApps");
 }
 
 function ProviderCard({
@@ -705,6 +724,7 @@ function ProviderCard({
   connections: WorkspaceConnection[];
   onCreate: () => void;
 }) {
+  const t = useT();
   const Icon = iconForProvider(provider.id);
   const active = connections.filter((item) => item.status !== "disabled");
   const readiness = provider.readiness;
@@ -723,7 +743,7 @@ function ProviderCard({
             ) : (
               <IconCircleDashed size={12} />
             )}
-            {READINESS_LABELS[readinessStatus]}
+            {readinessLabel(t, readinessStatus)}
           </Pill>
         </div>
         <div>
@@ -743,29 +763,31 @@ function ProviderCard({
         </div>
         {readiness?.missingRequiredCredentialKeys.length ? (
           <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-            Missing{" "}
-            {readiness.missingRequiredCredentialKeys.slice(0, 2).join(", ")}
-            {readiness.missingRequiredCredentialKeys.length > 2
-              ? ` +${readiness.missingRequiredCredentialKeys.length - 2}`
-              : ""}
+            {t("integrations.missingKeys", {
+              keys: readiness.missingRequiredCredentialKeys
+                .slice(0, 2)
+                .join(", "),
+              suffix:
+                readiness.missingRequiredCredentialKeys.length > 2
+                  ? ` +${readiness.missingRequiredCredentialKeys.length - 2}`
+                  : "",
+            })}
           </div>
         ) : null}
       </div>
       <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
         <span className="text-xs text-muted-foreground">
           {active.length > 0
-            ? `${active.length} active connection${
-                active.length === 1 ? "" : "s"
-              }`
+            ? t("integrations.activeConnection", { count: active.length })
             : provider.credentialKeys.length === 0
-              ? "No credential refs"
-              : `${provider.credentialKeys.length} credential ref${
-                  provider.credentialKeys.length === 1 ? "" : "s"
-                }`}
+              ? t("integrations.noCredentialRefs")
+              : t("integrations.credentialRefCount", {
+                  count: provider.credentialKeys.length,
+                })}
         </span>
         <Button type="button" variant="outline" size="sm" onClick={onCreate}>
           <IconPlus size={14} />
-          Connect
+          {t("integrations.connect")}
         </Button>
       </div>
     </article>
@@ -793,6 +815,7 @@ function ConnectionRow({
   onToggleGrant: (appId: string, granted: boolean) => void;
   grantPending: boolean;
 }) {
+  const t = useT();
   const Icon = iconForProvider(connection.provider);
   const missingKeys = missingRequiredCredentialKeys(
     provider,
@@ -818,11 +841,11 @@ function ConnectionRow({
                     {connection.label}
                   </h2>
                   <Pill className={STATUS_CLASSES[connection.status]}>
-                    {STATUS_LABELS[connection.status]}
+                    {statusLabel(t, connection.status)}
                   </Pill>
                   {missingKeys.length > 0 ? (
                     <Pill className={READINESS_CLASSES.needs_credentials}>
-                      Missing refs
+                      {t("integrations.missingRefs")}
                     </Pill>
                   ) : null}
                 </div>
@@ -844,12 +867,12 @@ function ConnectionRow({
                   onClick={onRepair}
                 >
                   <IconRefresh size={14} />
-                  Repair
+                  {t("integrations.repair")}
                 </Button>
               ) : null}
               <Button type="button" variant="ghost" size="sm" onClick={onEdit}>
                 <IconEdit size={14} />
-                Edit
+                {t("integrations.edit")}
               </Button>
               <Button
                 type="button"
@@ -858,7 +881,7 @@ function ConnectionRow({
                 onClick={onDelete}
               >
                 <IconTrash size={14} />
-                Delete
+                {t("integrations.delete")}
               </Button>
             </div>
           </div>
@@ -866,30 +889,32 @@ function ConnectionRow({
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <ConnectionMeta
               icon={IconKey}
-              label="Credential refs"
+              label={t("integrations.credentialRefs")}
               value={
                 connection.credentialRefs.length
                   ? connection.credentialRefs.map((ref) => ref.key).join(", ")
-                  : "None"
+                  : t("integrations.none")
               }
             />
             <ConnectionMeta
               icon={IconShieldCheck}
-              label="Scopes"
+              label={t("integrations.scopes")}
               value={
-                connection.scopes.length ? connection.scopes.join(", ") : "None"
+                connection.scopes.length
+                  ? connection.scopes.join(", ")
+                  : t("integrations.none")
               }
             />
             <ConnectionMeta
               icon={IconUsersGroup}
-              label="Access"
-              value={summarizeGrant(connection, grantApps, grants)}
+              label={t("integrations.access")}
+              value={summarizeGrant(connection, grantApps, grants, t)}
             />
             {hasUsageTimestamp(connection) ? (
               <ConnectionMeta
                 icon={IconClock}
-                label="Usage"
-                value={formatTimestamp(connection.lastUsedAt)}
+                label={t("integrations.usage")}
+                value={formatTimestamp(t, connection.lastUsedAt)}
               />
             ) : null}
           </div>
@@ -902,7 +927,9 @@ function ConnectionRow({
             <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
               <IconAlertTriangle size={15} className="mt-0.5 shrink-0" />
               <span className="min-w-0 break-words">
-                Required refs missing: {missingKeys.join(", ")}
+                {t("integrations.requiredRefsMissing", {
+                  keys: missingKeys.join(", "),
+                })}
               </span>
             </div>
           ) : null}
@@ -921,20 +948,20 @@ function ConnectionRow({
           <div className="mb-2 flex items-center justify-between gap-2">
             <div>
               <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                App grants
+                {t("integrations.appGrants")}
               </h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {connection.allowedApps.length === 0
-                  ? "Every workspace app can reuse this account"
-                  : `${summarizeGrant(
-                      connection,
-                      grantApps,
-                      grants,
-                    )} can reuse this account`}
+                  ? t("integrations.everyWorkspaceAppCanReuse")
+                  : t("integrations.selectedAppsCanReuse", {
+                      apps: summarizeGrant(connection, grantApps, grants, t),
+                    })}
               </p>
             </div>
             <Pill className="border-border bg-muted text-muted-foreground">
-              {connection.allowedApps.length === 0 ? "All apps" : "Selected"}
+              {connection.allowedApps.length === 0
+                ? t("integrations.allApps")
+                : t("integrations.selected")}
             </Pill>
           </div>
           <div className="grid gap-1.5">
@@ -956,7 +983,7 @@ function ConnectionRow({
                       </span>
                       {usage !== undefined ? (
                         <span className="truncate text-xs text-muted-foreground">
-                          {formatTimestamp(usage)}
+                          {formatTimestamp(t, usage)}
                         </span>
                       ) : null}
                     </span>
@@ -968,7 +995,7 @@ function ConnectionRow({
                           : "border-border bg-muted text-muted-foreground",
                       )}
                     >
-                      {grantModeLabel(mode)}
+                      {grantModeLabel(t, mode)}
                     </Pill>
                   </div>
                   <Switch
@@ -977,9 +1004,13 @@ function ConnectionRow({
                     onCheckedChange={(checked) =>
                       onToggleGrant(app.id, checked)
                     }
-                    aria-label={`${granted ? "Revoke" : "Grant"} ${
-                      app.label
-                    } access to ${connection.label}`}
+                    aria-label={t("integrations.toggleGrantAria", {
+                      action: granted
+                        ? t("integrations.revoke")
+                        : t("integrations.grant"),
+                      app: app.label,
+                      connection: connection.label,
+                    })}
                   />
                 </div>
               );
@@ -1018,6 +1049,7 @@ function CredentialRefsPreview({
 }: {
   refs: WorkspaceConnectionCredentialRef[];
 }) {
+  const t = useT();
   return (
     <div className="flex flex-wrap gap-1.5">
       {refs.map((ref) => (
@@ -1028,7 +1060,9 @@ function CredentialRefsPreview({
           <IconKey size={12} />
           {ref.key}
           {ref.scope ? (
-            <span className="font-sans text-muted-foreground">{ref.scope}</span>
+            <span className="font-sans text-muted-foreground">
+              {scopeLabel(t, ref.scope)}
+            </span>
           ) : null}
         </Pill>
       ))}
@@ -1072,7 +1106,7 @@ function Modal({
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto p-0">
-        <DialogHeader className="border-b p-4 pr-10">
+        <DialogHeader className="border-b p-4 pe-10">
           <DialogTitle className="text-base">{title}</DialogTitle>
           {description ? (
             <DialogDescription>{description}</DialogDescription>
@@ -1103,6 +1137,7 @@ function ConnectionForm({
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const t = useT();
   if (!form) return null;
   const provider = providers.find((item) => item.id === form.provider);
   const credentialRefs = normalizeCredentialRefs(form.credentialRefs, provider);
@@ -1114,14 +1149,18 @@ function ConnectionForm({
     <Modal
       open={open}
       onClose={onClose}
-      title={form.id ? "Edit connection" : "New connection"}
+      title={
+        form.id
+          ? t("integrations.editConnection")
+          : t("integrations.newConnection")
+      }
       description={provider?.description}
     >
       <form onSubmit={onSubmit}>
         <div className="grid gap-4 p-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5 text-sm">
-              <Label>Provider</Label>
+              <Label>{t("integrations.provider")}</Label>
               <Select
                 value={form.provider}
                 onValueChange={(value) => {
@@ -1139,7 +1178,7 @@ function ConnectionForm({
                 }}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose provider" />
+                  <SelectValue placeholder={t("integrations.chooseProvider")} />
                 </SelectTrigger>
                 <SelectContent>
                   {providers.map((item) => (
@@ -1151,7 +1190,7 @@ function ConnectionForm({
               </Select>
             </div>
             <div className="grid gap-1.5 text-sm">
-              <Label>Status</Label>
+              <Label>{t("integrations.statusLabel")}</Label>
               <Select
                 value={form.status}
                 onValueChange={(value) =>
@@ -1165,9 +1204,9 @@ function ConnectionForm({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                  {Object.keys(STATUS_CLASSES).map((value) => (
                     <SelectItem key={value} value={value}>
-                      {label}
+                      {statusLabel(t, value as WorkspaceConnectionStatus)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1177,42 +1216,44 @@ function ConnectionForm({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <TextField
-              label="Label"
+              label={t("integrations.label")}
               value={form.label}
               onChange={(value) => onChange({ ...form, label: value })}
               required
             />
             <TextField
-              label="Account label"
+              label={t("integrations.accountLabel")}
               value={form.accountLabel}
               onChange={(value) => onChange({ ...form, accountLabel: value })}
-              placeholder="Acme workspace"
+              placeholder={t("integrations.accountLabelPlaceholder")}
             />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <TextField
-              label="Account ID"
+              label={t("integrations.accountId")}
               value={form.accountId}
               onChange={(value) => onChange({ ...form, accountId: value })}
-              placeholder="team or account id"
+              placeholder={t("integrations.accountIdPlaceholder")}
             />
             <TextField
-              label="Scopes"
+              label={t("integrations.scopes")}
               value={form.scopes}
               onChange={(value) => onChange({ ...form, scopes: value })}
-              placeholder="channels:history, search"
+              placeholder={t("integrations.scopesPlaceholder")}
             />
           </div>
 
           <div className="rounded-md border bg-background p-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-medium">Access mode</div>
+                <div className="text-sm font-medium">
+                  {t("integrations.accessMode")}
+                </div>
                 <div className="text-xs text-muted-foreground">
                   {form.allApps
-                    ? "All workspace apps can reuse this connection"
-                    : "Only selected apps can reuse this connection"}
+                    ? t("integrations.allAppsCanReuseConnection")
+                    : t("integrations.onlySelectedAppsCanReuseConnection")}
                 </div>
               </div>
               <Switch
@@ -1220,7 +1261,7 @@ function ConnectionForm({
                 onCheckedChange={(checked) =>
                   onChange({ ...form, allApps: checked })
                 }
-                aria-label="Grant this connection to all workspace apps"
+                aria-label={t("integrations.grantAllWorkspaceAppsAria")}
               />
             </div>
             {!form.allApps ? (
@@ -1271,11 +1312,11 @@ function ConnectionForm({
             onClick={onClose}
             disabled={saving}
           >
-            Cancel
+            {t("integrations.cancel")}
           </Button>
           <Button type="submit" disabled={saving || !form.label.trim()}>
             {saving ? <IconRefresh size={14} className="animate-spin" /> : null}
-            Save connection
+            {t("integrations.saveConnection")}
           </Button>
         </DialogFooter>
       </form>
@@ -1320,6 +1361,7 @@ function CredentialRefsEditor({
   missingRefs: string[];
   onChange: (refs: WorkspaceConnectionCredentialRef[]) => void;
 }) {
+  const t = useT();
   const providerKeys = new Map(
     provider?.credentialKeys.map((credential) => [
       credential.key,
@@ -1332,9 +1374,11 @@ function CredentialRefsEditor({
     <div className="rounded-md border bg-background p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-medium">Credential refs</div>
+          <div className="text-sm font-medium">
+            {t("integrations.credentialRefs")}
+          </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            Reference names only. Secret values remain in Vault or OAuth.
+            {t("integrations.credentialRefsDescription")}
           </div>
         </div>
         <Button
@@ -1344,7 +1388,7 @@ function CredentialRefsEditor({
           onClick={() => onChange(appendCredentialRef(refs, provider))}
         >
           <IconPlus size={14} />
-          Add ref
+          {t("integrations.addRef")}
         </Button>
       </div>
 
@@ -1358,10 +1402,10 @@ function CredentialRefsEditor({
             >
               <div className="grid min-w-0 gap-1.5 text-sm">
                 <Label className="flex items-center gap-1.5">
-                  Ref name
+                  {t("integrations.refName")}
                   {credential?.required ? (
                     <Pill className="h-5 border-border bg-muted px-1.5 text-[11px]">
-                      Required
+                      {t("integrations.required")}
                     </Pill>
                   ) : null}
                 </Label>
@@ -1391,7 +1435,7 @@ function CredentialRefsEditor({
                 ) : null}
               </div>
               <div className="grid gap-1.5 text-sm">
-                <Label>Scope</Label>
+                <Label>{t("integrations.scope")}</Label>
                 <Select
                   value={ref.scope ?? "org"}
                   onValueChange={(value) =>
@@ -1407,9 +1451,15 @@ function CredentialRefsEditor({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="org">Org</SelectItem>
-                    <SelectItem value="workspace">Workspace</SelectItem>
-                    <SelectItem value="user">User</SelectItem>
+                    <SelectItem value="org">
+                      {t("integrations.scopeOrg")}
+                    </SelectItem>
+                    <SelectItem value="workspace">
+                      {t("integrations.scopeWorkspace")}
+                    </SelectItem>
+                    <SelectItem value="user">
+                      {t("integrations.scopeUser")}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1421,7 +1471,9 @@ function CredentialRefsEditor({
                   onClick={() =>
                     onChange(rows.filter((_, itemIndex) => itemIndex !== index))
                   }
-                  aria-label={`Remove ${ref.key || "credential ref"}`}
+                  aria-label={t("integrations.removeRefAria", {
+                    ref: ref.key || t("integrations.credentialRef"),
+                  })}
                 >
                   <IconTrash size={14} />
                 </Button>
@@ -1434,7 +1486,11 @@ function CredentialRefsEditor({
       {missingRefs.length > 0 ? (
         <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
           <IconAlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span>Missing required refs: {missingRefs.join(", ")}</span>
+          <span>
+            {t("integrations.missingRequiredRefs", {
+              refs: missingRefs.join(", "),
+            })}
+          </span>
         </div>
       ) : null}
     </div>
@@ -1472,6 +1528,7 @@ function SetupWizard({
   onClose: () => void;
   onSubmit: () => void;
 }) {
+  const t = useT();
   const provider =
     plan?.provider ?? providers.find((item) => item.id === state?.providerId);
   const credentialRefs = form
@@ -1483,9 +1540,9 @@ function SetupWizard({
   );
   const selectedApps = form?.selectedApps ?? [];
   const stepItems = [
-    { label: "Provider", icon: IconPlugConnected },
-    { label: "Refs", icon: IconKey },
-    { label: "Access", icon: IconShieldCheck },
+    { label: t("integrations.provider"), icon: IconPlugConnected },
+    { label: t("integrations.refs"), icon: IconKey },
+    { label: t("integrations.access"), icon: IconShieldCheck },
   ];
   const canAdvance =
     step === 0
@@ -1524,8 +1581,15 @@ function SetupWizard({
       onClose={onClose}
       title={
         state?.mode === "repair"
-          ? `Repair ${form?.label || provider?.label || "connection"}`
-          : `Connect ${provider?.label || "provider"}`
+          ? t("integrations.repairConnectionTitle", {
+              connection:
+                form?.label ||
+                provider?.label ||
+                t("integrations.connectionFallback"),
+            })
+          : t("integrations.connectProviderTitle", {
+              provider: provider?.label || t("integrations.providerFallback"),
+            })
       }
       description={provider?.description}
     >
@@ -1558,7 +1622,7 @@ function SetupWizard({
 
         {loading ? (
           <div className="rounded-lg border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
-            Loading setup plan...
+            {t("integrations.loadingSetupPlan")}
           </div>
         ) : null}
 
@@ -1582,14 +1646,16 @@ function SetupWizard({
               <div className="grid gap-4">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="grid gap-1.5 text-sm">
-                    <Label>Provider</Label>
+                    <Label>{t("integrations.provider")}</Label>
                     <Select
                       value={form.provider}
                       disabled={state?.mode === "repair"}
                       onValueChange={onProviderChange}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Choose provider" />
+                        <SelectValue
+                          placeholder={t("integrations.chooseProvider")}
+                        />
                       </SelectTrigger>
                       <SelectContent>
                         {providers.map((item) => (
@@ -1601,7 +1667,7 @@ function SetupWizard({
                     </Select>
                   </div>
                   <TextField
-                    label="Connection label"
+                    label={t("integrations.connectionLabel")}
                     value={form.label}
                     onChange={(value) => onChange({ ...form, label: value })}
                     required
@@ -1609,24 +1675,26 @@ function SetupWizard({
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <TextField
-                    label="Account label"
+                    label={t("integrations.accountLabel")}
                     value={form.accountLabel}
                     onChange={(value) =>
                       onChange({ ...form, accountLabel: value })
                     }
-                    placeholder="Acme workspace"
+                    placeholder={t("integrations.accountLabelPlaceholder")}
                   />
                   <TextField
-                    label="Account ID"
+                    label={t("integrations.accountId")}
                     value={form.accountId}
                     onChange={(value) =>
                       onChange({ ...form, accountId: value })
                     }
-                    placeholder="team or account id"
+                    placeholder={t("integrations.accountIdPlaceholder")}
                   />
                 </div>
                 <div className="rounded-md border bg-background p-3">
-                  <div className="text-sm font-medium">Provider plan</div>
+                  <div className="text-sm font-medium">
+                    {t("integrations.providerPlan")}
+                  </div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {provider.capabilities.map((capability) => (
                       <Pill key={capability} className="border-border bg-muted">
@@ -1680,10 +1748,11 @@ function SetupWizard({
                       className="mt-0.5"
                     />
                     <span className="grid gap-1">
-                      <span className="text-sm font-medium">Selected apps</span>
+                      <span className="text-sm font-medium">
+                        {t("integrations.selectedApps")}
+                      </span>
                       <span className="text-xs leading-5 text-muted-foreground">
-                        Grant only the apps that should reuse this provider
-                        account.
+                        {t("integrations.selectedAppsDescription")}
                       </span>
                     </span>
                   </Label>
@@ -1697,9 +1766,11 @@ function SetupWizard({
                       className="mt-0.5"
                     />
                     <span className="grid gap-1">
-                      <span className="text-sm font-medium">All apps</span>
+                      <span className="text-sm font-medium">
+                        {t("integrations.allApps")}
+                      </span>
                       <span className="text-xs leading-5 text-muted-foreground">
-                        Make this connection available to every workspace app.
+                        {t("integrations.allAppsDescription")}
                       </span>
                     </span>
                   </Label>
@@ -1707,7 +1778,9 @@ function SetupWizard({
 
                 {form.grantMode === "selected-apps" ? (
                   <div className="rounded-md border bg-background p-3">
-                    <div className="mb-3 text-sm font-medium">App grants</div>
+                    <div className="mb-3 text-sm font-medium">
+                      {t("integrations.appGrants")}
+                    </div>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {suggestedGrantApps.map((app) => {
                         const AppIcon = app.icon;
@@ -1728,7 +1801,7 @@ function SetupWizard({
                               </span>
                               {app.recommended ? (
                                 <Pill className="h-5 border-border bg-muted px-1.5 text-[11px]">
-                                  Suggested
+                                  {t("integrations.suggested")}
                                 </Pill>
                               ) : null}
                             </span>
@@ -1747,9 +1820,12 @@ function SetupWizard({
                                       ),
                                 })
                               }
-                              aria-label={`${selected ? "Remove" : "Grant"} ${
-                                app.label
-                              }`}
+                              aria-label={t("integrations.appGrantAria", {
+                                action: selected
+                                  ? t("integrations.remove")
+                                  : t("integrations.grant"),
+                                app: app.label,
+                              })}
                             />
                           </Label>
                         );
@@ -1757,7 +1833,7 @@ function SetupWizard({
                     </div>
                     {selectedApps.length === 0 ? (
                       <div className="mt-3 text-xs text-muted-foreground">
-                        Choose at least one app, or switch to all apps.
+                        {t("integrations.chooseOneApp")}
                       </div>
                     ) : null}
                   </div>
@@ -1775,7 +1851,7 @@ function SetupWizard({
           onClick={onClose}
           disabled={saving}
         >
-          Cancel
+          {t("integrations.cancel")}
         </Button>
         {step > 0 ? (
           <Button
@@ -1784,8 +1860,8 @@ function SetupWizard({
             onClick={() => onStepChange(step - 1)}
             disabled={saving}
           >
-            <IconArrowLeft size={14} />
-            Back
+            <IconArrowLeft size={14} className="rtl:-scale-x-100" />
+            {t("integrations.back")}
           </Button>
         ) : null}
         {step < 2 ? (
@@ -1794,8 +1870,8 @@ function SetupWizard({
             onClick={() => onStepChange(step + 1)}
             disabled={!canAdvance || loading || saving}
           >
-            Next
-            <IconArrowRight size={14} />
+            {t("integrations.next")}
+            <IconArrowRight size={14} className="rtl:-scale-x-100" />
           </Button>
         ) : (
           <Button
@@ -1804,7 +1880,9 @@ function SetupWizard({
             disabled={!canAdvance || loading || saving}
           >
             {saving ? <IconRefresh size={14} className="animate-spin" /> : null}
-            {state?.mode === "repair" ? "Apply repair" : "Create connection"}
+            {state?.mode === "repair"
+              ? t("integrations.applyRepair")
+              : t("integrations.createConnection")}
           </Button>
         )}
       </DialogFooter>
@@ -1823,19 +1901,27 @@ function GrantPreview({
   selectedAppIds: string[];
   grantApps: GrantApp[];
 }) {
-  const selectedLabel = summarizeAppList(selectedAppIds, grantApps);
+  const t = useT();
+  const selectedLabel = summarizeAppList(selectedAppIds, grantApps, t);
   return (
     <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
       <div className="flex items-center gap-2 font-medium text-foreground">
         <IconShieldCheck size={14} className="text-muted-foreground" />
-        Grant preview
+        {t("integrations.grantPreview")}
       </div>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">
         {grantMode === "all-apps"
-          ? `Every workspace app can use ${providerLabel}. Secret values stay in Vault or OAuth.`
+          ? t("integrations.grantPreviewAllApps", {
+              provider: providerLabel,
+            })
           : selectedAppIds.length > 0
-            ? `${selectedLabel} can use ${providerLabel}. App-specific channels, repos, cursors, and sync rules stay in those apps.`
-            : `Choose which apps can use ${providerLabel}, or switch to all apps.`}
+            ? t("integrations.grantPreviewSelected", {
+                apps: selectedLabel,
+                provider: providerLabel,
+              })
+            : t("integrations.grantPreviewEmpty", {
+                provider: providerLabel,
+              })}
       </p>
     </div>
   );
@@ -1852,6 +1938,7 @@ function DeleteConfirm({
   onClose: () => void;
   onConfirm: () => void;
 }) {
+  const t = useT();
   const { data: impact, isLoading: impactLoading } =
     useActionQuery<WorkspaceConnectionImpactPreview>(
       "preview-workspace-connection-impact",
@@ -1869,16 +1956,22 @@ function DeleteConfirm({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete connection</AlertDialogTitle>
+          <AlertDialogTitle>
+            {t("integrations.deleteConnection")}
+          </AlertDialogTitle>
           <AlertDialogDescription>
             {connection?.label
-              ? `This removes ${connection.label} and its app grants.`
-              : "This removes the shared connection and its app grants."}
+              ? t("integrations.deleteConnectionDescription", {
+                  connection: connection.label,
+                })
+              : t("integrations.deleteSharedConnectionDescription")}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <ConnectionDeleteImpact impact={impact} loading={impactLoading} />
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={deleting}>
+            {t("integrations.cancel")}
+          </AlertDialogCancel>
           <AlertDialogAction
             disabled={deleting}
             onClick={(event) => {
@@ -1890,7 +1983,7 @@ function DeleteConfirm({
             {deleting ? (
               <IconRefresh size={14} className="animate-spin" />
             ) : null}
-            Delete
+            {t("integrations.delete")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -1905,10 +1998,11 @@ function ConnectionDeleteImpact({
   impact?: WorkspaceConnectionImpactPreview;
   loading: boolean;
 }) {
+  const t = useT();
   if (loading) {
     return (
       <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-        Checking affected apps...
+        {t("integrations.checkingAffectedApps")}
       </div>
     );
   }
@@ -1927,22 +2021,23 @@ function ConnectionDeleteImpact({
       <div className="flex flex-wrap items-center gap-2">
         <Pill className="border-border bg-background text-muted-foreground">
           {impact.impactSummary.hasAllAppsAccess
-            ? "All-app connection"
-            : "Selected grants"}
+            ? t("integrations.allAppConnection")
+            : t("integrations.selectedGrants")}
         </Pill>
         {impact.impactSummary.usageTracked ? (
           <Pill className="border-border bg-background text-muted-foreground">
             <IconClock size={12} />
-            {formatTimestamp(impact.impactSummary.lastUsedAt)}
+            {formatTimestamp(t, impact.impactSummary.lastUsedAt)}
           </Pill>
         ) : null}
       </div>
       <p className="mt-2 leading-5 text-muted-foreground">
         {impact.likelyAffectedApps.length > 0
-          ? `Likely affected: ${appLabels.join(", ")}${
-              extraCount ? ` +${extraCount}` : ""
-            }.`
-          : "No current app grants were found."}
+          ? t("integrations.likelyAffected", {
+              apps: appLabels.join(", "),
+              suffix: extraCount ? ` +${extraCount}` : "",
+            })
+          : t("integrations.noCurrentAppGrants")}
       </p>
       <p className="mt-1 leading-5 text-muted-foreground">
         {impact.recommendedConfirmation.body}
@@ -1952,6 +2047,7 @@ function ConnectionDeleteImpact({
 }
 
 export default function WorkspaceIntegrationsRoute() {
+  const t = useT();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<ConnectionFormState | null>(null);
   const [setupWizard, setSetupWizard] = useState<SetupWizardState | null>(null);
@@ -2074,10 +2170,16 @@ export default function WorkspaceIntegrationsRoute() {
         credentialRefs,
         allowedApps: form.allApps ? [] : form.selectedApps,
       });
-      toast.success(form.id ? "Connection updated" : "Connection created");
+      toast.success(
+        form.id
+          ? t("integrations.connectionUpdated")
+          : t("integrations.connectionCreated"),
+      );
       setForm(null);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save");
+      toast.error(
+        error instanceof Error ? error.message : t("integrations.failedToSave"),
+      );
     }
   }
 
@@ -2100,7 +2202,9 @@ export default function WorkspaceIntegrationsRoute() {
         selectedApps: setupForm.selectedApps,
       });
       toast.success(
-        setupForm.connectionId ? "Connection repaired" : "Connection created",
+        setupForm.connectionId
+          ? t("integrations.connectionRepaired")
+          : t("integrations.connectionCreated"),
       );
       setSetupWizard(null);
       setSetupForm(null);
@@ -2108,7 +2212,9 @@ export default function WorkspaceIntegrationsRoute() {
       queryClient.invalidateQueries({ queryKey: CONNECTION_QUERY_KEY });
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to apply setup",
+        error instanceof Error
+          ? error.message
+          : t("integrations.failedToApplySetup"),
       );
     }
   }
@@ -2179,13 +2285,17 @@ export default function WorkspaceIntegrationsRoute() {
         knownAppIds,
       });
       queryClient.invalidateQueries({ queryKey: CONNECTION_QUERY_KEY });
-      toast.success(granted ? "Grant added" : "Grant revoked");
+      toast.success(
+        granted ? t("integrations.grantAdded") : t("integrations.grantRevoked"),
+      );
     } catch (error) {
       if (previous) {
         queryClient.setQueryData(CONNECTION_QUERY_KEY, previous);
       }
       toast.error(
-        error instanceof Error ? error.message : "Failed to update grant",
+        error instanceof Error
+          ? error.message
+          : t("integrations.failedToUpdateGrant"),
       );
     }
   }
@@ -2210,14 +2320,16 @@ export default function WorkspaceIntegrationsRoute() {
     );
     try {
       await deleteConnection.mutateAsync({ id: deleteTarget.id });
-      toast.success("Connection deleted");
+      toast.success(t("integrations.connectionDeleted"));
       setDeleteTarget(null);
     } catch (error) {
       if (previous) {
         queryClient.setQueryData(CONNECTION_QUERY_KEY, previous);
       }
       toast.error(
-        error instanceof Error ? error.message : "Failed to delete connection",
+        error instanceof Error
+          ? error.message
+          : t("integrations.failedToDeleteConnection"),
       );
     }
   }
@@ -2248,8 +2360,8 @@ export default function WorkspaceIntegrationsRoute() {
 
   return (
     <DispatchShell
-      title="Integrations"
-      description="Connect provider accounts once, then grant them to workspace apps."
+      title={t("integrations.title")}
+      description={t("integrations.description")}
     >
       <div className="space-y-6">
         <section
@@ -2260,53 +2372,60 @@ export default function WorkspaceIntegrationsRoute() {
         >
           <SummaryCard
             icon={IconCheck}
-            label="Ready providers"
+            label={t("integrations.readyProviders")}
             value={`${data.counts.readyProviders ?? 0}/${providers.length}`}
-            detail="Configured refs and healthy status"
+            detail={t("integrations.readyProvidersDetail")}
           />
           <SummaryCard
             icon={IconPlugConnected}
-            label="Connections"
+            label={t("integrations.connections")}
             value={String(connections.length)}
-            detail={`${connectedCount} connected`}
+            detail={t("integrations.connectedCount", {
+              count: connectedCount,
+            })}
           />
           <SummaryCard
             icon={IconShieldCheck}
-            label="App grants"
+            label={t("integrations.appGrants")}
             value={String(data.grants.length)}
-            detail={`${data.counts.allAppConnections ?? 0} all-app, ${
-              data.counts.selectedAppConnections ?? 0
-            } selected`}
+            detail={t("integrations.appGrantsDetail", {
+              allAppCount: data.counts.allAppConnections ?? 0,
+              selectedCount: data.counts.selectedAppConnections ?? 0,
+            })}
           />
           <SummaryCard
             icon={IconKey}
-            label="Key health"
+            label={t("integrations.keyHealth")}
             value={
               connectionsMissingKeys === 0
-                ? "Healthy"
-                : `${connectionsMissingKeys} missing`
+                ? t("integrations.healthy")
+                : t("integrations.missingCount", {
+                    count: connectionsMissingKeys,
+                  })
             }
             detail={
               attentionCount
-                ? `${attentionCount} connection${
-                    attentionCount === 1 ? "" : "s"
-                  } need attention`
-                : "Required refs are present"
+                ? t("integrations.connectionNeedsAttention", {
+                    count: attentionCount,
+                  })
+                : t("integrations.requiredRefsPresent")
             }
           />
           {usageTracked ? (
             <SummaryCard
               icon={IconClock}
-              label="Usage"
+              label={t("integrations.usage")}
               value={
                 Number.isFinite(mostRecentUsage)
-                  ? formatTimestamp(new Date(mostRecentUsage).toISOString())
-                  : "Never used"
+                  ? formatTimestamp(t, new Date(mostRecentUsage).toISOString())
+                  : t("integrations.time.neverUsed")
               }
               detail={
                 neverUsedCount
-                  ? `${neverUsedCount} never used`
-                  : "All tracked accounts have usage"
+                  ? t("integrations.neverUsedCount", {
+                      count: neverUsedCount,
+                    })
+                  : t("integrations.allTrackedAccountsHaveUsage")
               }
             />
           ) : null}
@@ -2316,7 +2435,7 @@ export default function WorkspaceIntegrationsRoute() {
 
         {connectionsQuery.isLoading ? (
           <div className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
-            Loading workspace integrations...
+            {t("integrations.loadingWorkspaceIntegrations")}
           </div>
         ) : null}
 
@@ -2324,10 +2443,12 @@ export default function WorkspaceIntegrationsRoute() {
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-foreground">
-                Provider catalog
+                {t("integrations.providerCatalog")}
               </h2>
               <p className="text-xs text-muted-foreground">
-                {providers.length} providers available
+                {t("integrations.providersAvailable", {
+                  count: providers.length,
+                })}
               </p>
             </div>
           </div>
@@ -2347,14 +2468,14 @@ export default function WorkspaceIntegrationsRoute() {
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-foreground">
-                Connected accounts
+                {t("integrations.connectedAccounts")}
               </h2>
               <p className="text-xs text-muted-foreground">
                 {connections.length === 0
-                  ? "No shared connections yet"
-                  : `${connections.length} saved connection${
-                      connections.length === 1 ? "" : "s"
-                    }`}
+                  ? t("integrations.noSharedConnectionsYet")
+                  : t("integrations.savedConnectionCount", {
+                      count: connections.length,
+                    })}
               </p>
             </div>
           </div>
@@ -2365,12 +2486,10 @@ export default function WorkspaceIntegrationsRoute() {
                 className="mx-auto text-muted-foreground"
               />
               <p className="mt-3 text-sm font-medium text-foreground">
-                No shared accounts yet.
+                {t("integrations.noSharedAccountsYet")}
               </p>
               <p className="mx-auto mt-1 max-w-md text-sm leading-5 text-muted-foreground">
-                Pick a provider from the catalog above, save its credential ref
-                names, then grant the shared account to Brain, Analytics, Mail,
-                Dispatch, or another workspace app.
+                {t("integrations.emptyConnectedAccountsDescription")}
               </p>
             </div>
           ) : (
@@ -2442,6 +2561,7 @@ export default function WorkspaceIntegrationsRoute() {
 }
 
 function IntegrationOnboarding() {
+  const t = useT();
   const steps: Array<{
     icon: IconComponent;
     title: string;
@@ -2449,19 +2569,18 @@ function IntegrationOnboarding() {
   }> = [
     {
       icon: IconPlugConnected,
-      title: "Connect once",
-      detail:
-        "Save safe account metadata and credential ref names in Dispatch.",
+      title: t("integrations.onboardingConnectTitle"),
+      detail: t("integrations.onboardingConnectDetail"),
     },
     {
       icon: IconShieldCheck,
-      title: "Grant apps",
-      detail: "Let Brain, Analytics, Mail, or Dispatch reuse the account.",
+      title: t("integrations.onboardingGrantTitle"),
+      detail: t("integrations.onboardingGrantDetail"),
     },
     {
       icon: IconDatabase,
-      title: "Keep app setup local",
-      detail: "Channels, repos, cursors, and sync rules stay with each app.",
+      title: t("integrations.onboardingLocalTitle"),
+      detail: t("integrations.onboardingLocalDetail"),
     },
   ];
 
@@ -2470,11 +2589,10 @@ function IntegrationOnboarding() {
       <div className="grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)] lg:items-center">
         <div>
           <h2 className="text-sm font-semibold text-foreground">
-            Connect once, grant to apps
+            {t("integrations.onboardingTitle")}
           </h2>
           <p className="mt-1 text-sm leading-5 text-muted-foreground">
-            Dispatch owns shared provider accounts. Each app owns how it uses
-            the account.
+            {t("integrations.onboardingDescription")}
           </p>
         </div>
         <div className="grid gap-2 sm:grid-cols-3">

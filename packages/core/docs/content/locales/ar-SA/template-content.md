@@ -1,0 +1,402 @@
+---
+title: "المحتوى"
+description: "Obsidian مفتوح المصدر لـ MDX: قم بتحرير ملفات Markdown/MDX المحلية، وقم بإنشاء كتل مخصصة تفاعلية غنية، والكتابة باستخدام وكيل AI."
+---
+
+# المحتوى
+
+المحتوى عبارة عن Obsidian مفتوح المصدر لـ MDX: مستند صديق للملفات المحلية
+مساحة عمل يمكن للوكيل من خلالها قراءة الصفحات وكتابتها وإعادة تنظيمها ونشرها لـ
+أنت. افتح مستندًا، واطلب "إعادة كتابة هذه الفقرة لتكون أكثر إيجازًا" أو "إنشاء
+صفحة تسمى تخطيط الربع الرابع مع صفحات فرعية للأهداف والمقاييس والمخاطر" - نفس الشيء
+النتيجة سواء قمت بذلك بنفسك أو طلبت ذلك.
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>محتوى</strong><span class='wf-pill accent'>خارطة طريق الربع الثالث</span><span class='wf-pill'>الأهداف</span><span class='wf-pill'>المقاييس</span><span class='wf-pill'>المخاطر</span><hr/><span class='wf-pill'>ويكي الهندسة</span><span class='wf-pill'>قائمة القراءة</span><span class='wf-pill'>مزامنة أسبوعية</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>خارطة طريق الربع الثالث</h1><div style='flex:1'></div><button>يشارك</button><button class='primary'>نشر</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>إطلاق الأهداف</h2><p style='margin:0'>قم بشحن تدفق الإعداد، وتقليل وقت الإعداد، وتسليم مالك المستند.</p><div class='wf-box'>في لمحة · المالك، النافذة، الحالة</div><div class='wf-box'>أعلى الأهداف</div><div class='wf-box'>جدول مسارات العمل</div></div></main></div>"
+}
+```
+
+عند فتح التطبيق، سترى شجرة صفحات بجوار المحرر. يعرف الوكيل دائمًا الصفحة التي تشاهدها والنص الذي حددته، لذلك يمكن أن تظل تعديلات المستند ثابتة في الصفحة الحالية.
+
+```an-diagram title="وثيقة واحدة والعديد من المحررين" summary="تقوم أنت والوكيل بالكتابة من خلال نفس خط الأنابيب Yjs. SQL هو المتجر الأساسي؛ الملفات المحلية وNotion هي أسطح مزامنة اختيارية."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">تكتب<br><small class=\"diagram-muted\">قائمة slash، شريط الأدوات</small></div><div class=\"diagram-node\">تعديلات الوكيل<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">مباشر، دمج بلا تعارض</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">مخزن SQL القانوني</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">ملفات .md / .mdx المحلية<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">صفحات Notion<br><small class=\"diagram-muted\">سحب · دفع</small></div></div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## ما يمكنك فعله به
+
+- **اكتب نصًا منسقًا** يتضمن العناوين والقوائم والجداول ومجموعات التعليمات البرمجية والصور والروابط. أوامر القطع المائلة (`/`) تدرج الكتل؛ يؤدي تحديد النص إلى ظهور شريط أدوات التنسيق.
+- **تنظيم الصفحات في شجرة** — تداخل بشكل لا نهائي، اسحب لإعادة ترتيب الصفحات المفضلة التي تستخدمها كثيرًا.
+- **البحث في كل شيء** من خلال البحث في النص الكامل عبر العناوين والمحتوى.
+- **تحرير ملفات Markdown/MDX المحلية مثل Obsidian.** استخدم طريقة العرض `/local-files`
+  لتصدير مساحة العمل الخاصة بك إلى الملفات، قم بتحريرها باستخدام أدواتك الخاصة، ثم قم بالمعاينة
+  التغييرات، ثم قم باستيرادها مرة أخرى. في وضع الملف المحلي، تتم كتابة المحتوى مباشرة إلى
+  الملف `.md` أو `.mdx` المحدد.
+- **إنشاء كتل مخصصة تفاعلية غنية.** تسجيل مكونات React المحلية،
+  أدخلها كـ MDX، واسمح للوكيل بإنشاء أو تحديث ملفات المكونات لـ
+  مستنداتك.
+- **المزامنة مع Notion.** ربط مستند محلي بصفحة Notion وسحب المحتوى أو دفعه في أي من الاتجاهين. تتم مزامنة التعليقات في كلا الاتجاهين أيضًا.
+- **التعاون في الوقت الفعلي.** يمكن لعدة أشخاص (والوكيل) تعديل نفس المستند في نفس الوقت.
+- **مشاركة المستندات** مع أعضاء الفريق أو جعلها عامة — خاصة بشكل افتراضي، مع أدوار المشاهد/المحرر/المشرف.
+- **اطلب من الوكيل أي شيء**: "أعد كتابة هذه الفقرة." "أضف TL;DR في الأعلى." "البحث عن كافة ملاحظات الاجتماع الخاصة بي من الأسبوع الماضي." "اجعل هذه النغمة أكثر رسمية."
+
+## البدء
+
+عرض توضيحي مباشر: [content.agent-native.com](https://content.agent-native.com).
+
+عند فتح التطبيق، انقر فوق **+ صفحة جديدة** في الشريط الجانبي، وأعطها عنوانًا، وابدأ في الكتابة. لاستخدام الوكيل، اكتب في الشريط الجانبي:
+
+- "أنشئ صفحة باسم Onboarding وأضف ثلاث صفحات فرعية تحتها."
+- "أعد كتابة هذه الفقرة لتكون أكثر إيجازًا." (مع صفحة مفتوحة)
+- "أضف قسمًا حول التسعير بثلاث نقاط."
+- "تلخيص هذا المستند في TL;DR في الأعلى."
+- "سحب الأحدث من Notion." (بعد ربط صفحة Notion)
+
+حدد نصًا واضغط على Cmd+I لتركيز الوكيل مع هذا التحديد الذي تم تحميله مسبقًا - "اجعل هذا أكثر قوة" ثم يعمل على ما حددته بالضبط.
+
+## ملفات Markdown/MDX المحلية {#local-files}
+
+يمكن للمحتوى نقل المستندات ذهابًا وإيابًا عبر الملفات المحلية دون استنساخها أو تشغيلها
+تطبيق المحتوى محليًا. يبدو الأمر أشبه بـ Obsidian بالنسبة لـ MDX: تظل الملفات قابلة للفحص
+وقابل للتحرير، بينما يمنحك التطبيق محررًا غنيًا ووكيل actions ومشاركة و
+الكتل المخصصة. افتح `/local-files`، واختر مجلدًا في المتصفح أو الوكيل
+سطح المكتب الأصلي، وقم بتصدير شجرة المستندات الحالية كـ Markdown/MDX ضمن
+`content/`.
+
+يحتوي كل ملف تم تصديره على مادة أمامية للبيانات التعريفية للمستند (`id`، `title`،
+`parentId`، و`position`، وعلامات المفضلة/البحث/الرؤية، و`updatedAt`) بالإضافة إلى
+نص المستند كـ Markdown. يمكنك تحرير هذه الملفات في محررك العادي،
+ثم ارجع إلى `/local-files` لمعاينة التغييرات واستيرادها مرة أخرى إلى المحتوى.
+
+يكون سير العمل هذا مفيدًا عندما تريد المحتوى في التحكم بالمصادر، وتريد تجميعه
+تحرير المستندات باستخدام الأدوات المحلية، أو الرغبة في الحصول على مسار غير مستنسخ للفرق التي تفضل الملفات
+كسطح المراجعة. يظل التطبيق المستضاف هو المصدر الحقيقي للمشاركة،
+التعليقات والأذونات والتعاون المباشر؛ المجلد المحلي صريح
+سطح المزامنة.
+
+يمكن أيضًا تشغيل المحتوى في **وضع الملف المحلي**، حيث تكون الملفات هي مصدر
+الحقيقة بدلاً من مستندات SQL. أضف `agent-native.json` إلى الريبو، اضبط
+`mode: "local-files"`، وقم بتكوين الجذور مثل `docs/`، `blog/`،
+`content/` و`resources/`. يقوم محرر المحتوى القياسي بعد ذلك بملء
+الشريط الجانبي الأيسر من ملفات `.md`/`.mdx` المحلية ويكتب التعديلات مرة أخرى إلى
+الملف المحدد من خلال المستند العادي actions. استخدم هذا لمستندات الريبو الأولى،
+المدونات أو مكتبات الموارد أو المحتوى الشخصي بنمط Obsidian الذي يعمل بنظام MDX
+المكونات؛ قم بالتبديل مرة أخرى إلى وضع قاعدة البيانات عندما تريد التعاون المستضاف و
+المشاركة المدعومة بـ SQL. راجع [Local File Mode](/docs/local-file-mode) لمعرفة
+تخطيط الريبو المستقل، التكوين، مكونات MDX المخصصة، المحلية
+أدوات `extensions/` ودليل سلامة الإنتاج.
+
+لتثبيت مهارة ملفات المحتوى المحلية في الريبو الحالي:
+
+```bash
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+```
+
+يقوم المثبت بنسخ مهارة `content` لوكيل الترميز الخاص بك ويقوم بكتابة أو
+تحديثات `agent-native.json` بجذور المحتوى لـ `docs/`، و`blog/`، و`content/`،
+و `resources/`. عندما يكون تطبيق المحتوى المحلي، أو Agent Native Desktop، أو موثوقًا به
+الجسر المحلي قيد التشغيل، ويجب على الوكلاء استخدام المحتوى actions مثل
+`list-documents`، و`get-document`، و`edit-document`، و`update-document`، و
+يكتب `share-local-file-document` بدلاً من نظام الملفات الخام. بدون ذلك المحلي
+الجسر، لا تزال المهارة المثبتة تمنح الوكيل عقد تحرير الريبو لـ
+تعديلات Markdown/MDX الآمنة.
+
+## للمطورين
+
+باقي هذا المستند مخصص لأي شخص يقوم بتعديل قالب المحتوى أو توسيعه.
+
+### بداية سريعة
+
+دعم مساحة عمل جديدة باستخدام قالب المحتوى:
+
+```bash
+npx @agent-native/core@latest create my-workspace --standalone --template content
+cd my-workspace
+pnpm install
+pnpm dev
+```
+
+افتح `http://localhost:8083` وأنشئ صفحتك الأولى. ثم اطلب من الوكيل "إنشاء صفحة تسمى Onboarding وإضافة ثلاث صفحات فرعية تحتها".
+
+### الميزات الرئيسية {#key-features}
+
+**الصفحات المتداخلة.** تشكل المستندات شجرة قابلة للسحب تحتوي على المفضلة والرموز والترتيب والمشاركة على مستوى الصفحة.
+
+**محرر MDX الغني.** يعمل Tiptap على تشغيل العناوين والقوائم والجداول وكتل التعليمات البرمجية والصور والروابط وأوامر الشرطة المائلة وأشرطة أدوات التحديد ومكونات React المحلية.
+
+**التعاون المباشر.** يحتفظ Yjs بالعديد من المحررين وتعديلات الوكيل بشكل متزامن دون التشويش على بعضهم البعض.
+
+**البحث والتعليقات.** يتم تضمين البحث عن النص الكامل والتعليقات المرتبطة وسجل الإصدارات وتدفقات الاستعادة في سطح المستند.
+
+**أسطح المزامنة.** يمكن مزامنة المستندات مع مجلدات Notion أو مجلدات Markdown/MDX المحلية، حيث تعمل SQL كطبقة ذاكرة التخزين المؤقت/السجل التعاونية.
+
+### مزامنة الملفات المحلية
+
+يستخدم مسار `/local-files` المحمي الوصول إلى نظام الملفات في المتصفح API، أو
+جسر المجلد الأصلي المحمي داخل Agent Native Desktop، للقراءة والكتابة
+ملفات Markdown/MDX من مجلد اختاره المستخدم. بعد ربط المجلد و
+تم استيراده، ويتم التعامل مع الملف المحدد باعتباره المرجع: يتم قراءة فتح الصفحة
+الملف، ويقوم المحرر العادي بحفظ الملف أولاً. يتم بعد ذلك تحديث SQL باعتباره
+طبقة ذاكرة التخزين المؤقت/السجل للمستند الحالي UI والبحث ولوحة الإصدار، وليس
+كمصدر للحقيقة. تعرض قائمة الصفحة العلوية اليمنى مسار المصدر المحلي:
+المسار النسبي متاح دائمًا، والمسار المطلق متاح في ملف محلي حقيقي
+وAgent Native Desktop والكشف في Finder من خلال
+جسر سطح المكتب أو وضع الملف المحلي المدعوم من الخادم.
+
+يستدعي مسار المزامنة المجمعة:
+
+- `export-content-source` — يقرأ شجرة المستندات التي يمكن الوصول إليها ويعيد
+  حزمة الملفات الحتمية `content/`.
+- `import-content-source` — التحقق من صحة الملفات، وإنشاء مستندات خاصة جديدة،
+  يقوم بتحديث المستندات التي يتمتع المتصل بإمكانية وصول المحرر إليها، ويحتفظ بالنسخة
+  السجل، ويرفض الدورات الأصلية غير الصالحة.
+
+التنسيق المصدر موجود في `shared/content-source.ts`. احتفظ بهذا الملف باسم
+عقد واحد لأسماء الملفات والجزء الأمامي والتحليل والتسلسل.
+
+يمكن لمساحات عمل الملفات المحلية أيضًا توفير مكونات React المحلية من خلال
+مجلد `components` الذي تم تكوينه. يستورد خادم تطوير المحتوى PascalCase
+يصدر من تلك الملفات، ويعرض علامات MDX المطابقة مثل `<ImpactCounter />`
+داخل المحرر، ويعرضها في القائمة المائلة ضمن المكونات المحلية.
+هذه هي طبقة "Obsidian for MDX": تظل كتل MDX المخصصة محلية في
+مساحة العمل، ولكن يمكن للمحرر عرضها ويمكن للوكيل إنشاءها أو تحديثها
+مصدرها دون استنساخ تطبيق المحتوى. يمكن لمكون مساحة العمل الأدنى
+يكون:
+
+```tsx
+// components/ImpactCounter.tsx
+import { useState } from "react";
+
+export function ImpactCounter({
+  label = "points",
+  start = 3,
+}: {
+  label?: string;
+  start?: number;
+}) {
+  const [count, setCount] = useState(start);
+  return (
+    <button type="button" onClick={() => setCount(count + 1)}>
+      Impact: {count} {label}
+    </button>
+  );
+}
+
+export const ImpactCounterInputs = {
+  label: { type: "string", label: "Label", default: "points" },
+  start: { type: "number", label: "Starting count", default: 3 },
+};
+```
+
+استخدمه في MDX المحلي كـ `<ImpactCounter />`، أو أدخله من الشرطة المائلة للمحرر
+ضمن المكونات المحلية. عندما يتم تصدير بيانات التعريف المدخلة، حدد
+يظهر المكون الموجود في المحرر زر تحرير الزاوية الذي يعيد كتابة دعائم MDX
+في الملف المحلي.
+
+يستطيع منتقي **الملفات المحلية** في المتصفح قراءة وكتابة ملفات `.md` و`.mdx` على
+تتطلب معاينات مكون React الخاصة به، ولكن القابلة للتنفيذ، مترجمًا محليًا. تشغيل
+المحتوى محليًا أو استخدم Agent Native Desktop حتى يتمكن مسار مساحة العمل المحدد من العمل
+يتم تسجيله في خادم تطوير المحتوى المحلي. يقوم Vite بعد ذلك باستيراد
+`components/*.tsx`، عمليات إعادة التحميل السريعة وتحرير ملفات المكونات الموجودة وإعادة التحميل
+تسجيل المكونات عند إضافة الملفات أو إزالتها. يمكن للوكلاء استخدام
+`list-local-component-files` و`write-local-component-file` للفحص أو
+قم بتحديث ملفات المكونات المسجلة بينما يقوم المحرر بالتحديث من نفس المصدر.
+
+### التعليقات
+
+التعليقات المترابطة على المستندات التي تحتوي على نقاط ربط النص المقتبس والردود وحالة الحل. مدعومة بالجدول `document_comments` و`app/components/editor/CommentsSidebar.tsx`. Actions: `list-comments`، `add-comment`. يمكن مزامنة تعليقات Notion في كلا الاتجاهين عبر `sync-notion-comments`.
+
+### سجل الإصدارات
+
+يلتقط كل تحديث مهم صفًا في الجدول `document_versions`. تظهر UI هذه في `app/components/editor/VersionHistoryPanel.tsx`.
+
+### المشاركة والرؤية
+
+المستندات خاصة بشكل افتراضي. يمكنك تغيير مستوى الرؤية إلى `org` أو `public`، أو منح الأدوار لكل مستخدم ولكل مؤسسة (`viewer`، `editor`، `admin`). تعمل المشاركة المثبتة تلقائيًا لإطار العمل actions خارج الصندوق:
+
+- `share-resource --resourceType document --resourceId <id> --principalType user --principalId <email> --role editor`
+- `unshare-resource` / `list-resource-shares` / `set-resource-visibility`
+
+اطلع على مهارة `sharing`.
+
+### الفرق
+
+تستخدم صفحة الفريق المخصصة في `/team` (راجع `app/routes/_app.team.tsx`) مكون `TeamPage` الخاص بإطار العمل لإنشاء المؤسسات وإدارة الأعضاء.
+
+### العمل مع الوكيل
+
+نظرًا لأن الوكيل يرى شاشتك الحالية، فإن معظم المطالبات لا تحتاج إلى الإشارة إلى مستند بشكل صريح. عندما تكون لديك صفحة مفتوحة، فإن كلمة "هذا" تعني تلك الصفحة.
+
+بالنسبة للتعديلات الصغيرة، يستخدم الوكيل `edit-document --find ... --replace ...` بحيث يتدفق النص الذي تم تغييره فقط عبر Yjs - سترى الفرق مطبقًا في مكانه بدلاً من إعادة عرض الصفحة بأكملها. لعمليات إعادة الكتابة الأكبر حجمًا، يتم استخدام `update-document --content ...`.
+
+إذا حددت نصًا وضغطت على Cmd+I (أو ركزت على لوحة الوكيل)، فسينتقل التحديد مع رسالتك التالية كسياق، لذا فإن "اجعل هذا أكثر تأثيرًا" يعمل على ما حددته بالضبط.
+
+### قواعد البيانات والخصائص
+
+يمكن للمستندات استضافة قواعد بيانات مضمّنة - جداول بنمط Notion حيث يكون كل صف بمثابة مستند في حد ذاته. يمكن للوكيل إنشاء قواعد بيانات وإضافة عناصر وتكوين تعريفات الأعمدة وتعيين قيم الخصائص من خلال actions: `create-content-database` و`add-database-item` و`set-document-property`. تعريفات الخاصية (النوع، الرؤية، الخيارات، الموقع) موجودة في `document_property_definitions`؛ توجد قيم لكل صف في `document_property_values`.
+
+### actions إضافية
+
+خارج سطح CRUD في نموذج البيانات، يشحن القالب `export-document` لتحويل الصفحة إلى Markdown أو HTML، و`transcribe-media` لإرفاق نص بالصفحة، و`restore-document-version` للرجوع إلى لقطة سابقة.
+
+### نموذج البيانات
+
+تسعة جداول، جميعها محددة في `server/db/schema.ts`:
+
+- **`documents`** — شجرة الصفحات. الأعمدة: `id`، `parent_id`، `title`، `content` (Markdown)، `icon`، `position`، `is_favorite`، `visibility`، `owner_email`، `org_id`، `created_at`، `updated_at`.
+- **`document_versions`** — لقطات كاملة من العنوان والمحتوى لسجل الإصدارات. استرجاع مع `restore-document-version`.
+- **`document_comments`** — التعليقات المترابطة مع `thread_id`، و`parent_id`، و`quoted_text`، و`resolved`، و`notion_comment_id` الاختياري لمزامنة Notion ثنائية الاتجاه.
+- **`document_sync_links`** — صف واحد لكل مستند مرتبط بـ Notion لتتبع معرف الصفحة البعيدة وأوقات المزامنة الأخيرة وحالة التعارض وتجزئة المحتوى والأخطاء.
+- **`document_property_definitions`** — تعريفات الأعمدة لقواعد البيانات المضمنة: الاسم والنوع ومستوى الرؤية والخيارات والموضع.
+- **`content_databases`** — كائنات قاعدة البيانات المضمنة المرفقة بـ `document_id` بعنوان وتكوين العرض JSON.
+- **`content_database_items`** — صفوف في قاعدة بيانات مضمّنة، يربط كل منها `database_id` بـ `document_id`.
+- **`document_property_values`** — قيم الخصائص لكل مستند (`property_id` → `value_json`).
+- **`document_shares`** — المنح لكل مستخدم ولكل مؤسسة يتم إنشاؤها عبر `createSharesTable`.
+
+```an-schema title="نموذج بيانات المحتوى" summary="Nine tables in server/db/schema.ts. documents is the page tree; the rest hang off it for versions, comments, Notion sync, inline databases, and sharing."
+{
+  "entities": [
+    {
+      "id": "documents",
+      "name": "documents",
+      "note": "The page tree (ownable, markdown body)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "parent_id", "type": "id", "fk": "documents.id", "nullable": true, "note": "infinite nesting" },
+        { "name": "title", "type": "string" },
+        { "name": "content", "type": "markdown" },
+        { "name": "icon", "type": "string", "nullable": true },
+        { "name": "position", "type": "int", "note": "sibling ordering" },
+        { "name": "is_favorite", "type": "bool" },
+        { "name": "visibility", "type": "enum", "note": "خاص | منظمة | عام" },
+        { "name": "owner_email", "type": "string" },
+        { "name": "org_id", "type": "id", "nullable": true }
+      ]
+    },
+    {
+      "id": "document_versions",
+      "name": "document_versions",
+      "note": "لقطات title/content كاملة لسجل الإصدارات",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "title", "type": "string" },
+        { "name": "content", "type": "markdown" }
+      ]
+    },
+    {
+      "id": "document_comments",
+      "name": "document_comments",
+      "note": "التعليقات المتسلسلة ذات نقاط ربط النص المقتبس",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "thread_id", "type": "id" },
+        { "name": "parent_id", "type": "id", "fk": "document_comments.id", "nullable": true },
+        { "name": "quoted_text", "type": "string", "nullable": true },
+        { "name": "resolved", "type": "bool" },
+        { "name": "notion_comment_id", "type": "string", "nullable": true, "note": "مزامنة Notion ثنائية الاتجاه" }
+      ]
+    },
+    {
+      "id": "document_sync_links",
+      "name": "document_sync_links",
+      "note": "صف واحد لكل مستند مرتبط بـ Notion",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "notion_page_id", "type": "string" },
+        { "name": "conflict", "type": "bool" },
+        { "name": "content_hash", "type": "string" }
+      ]
+    },
+    {
+      "id": "content_databases",
+      "name": "content_databases",
+      "note": "كائنات قاعدة البيانات المضمنة المرفقة بالمستند",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "title", "type": "string" },
+        { "name": "view_config", "type": "json" }
+      ]
+    },
+    {
+      "id": "content_database_items",
+      "name": "content_database_items",
+      "note": "Rows in an inline database (each row is a document)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "database_id", "type": "id", "fk": "content_databases.id" },
+        { "name": "document_id", "type": "id", "fk": "documents.id" }
+      ]
+    },
+    {
+      "id": "document_property_definitions",
+      "name": "document_property_definitions",
+      "note": "تعريفات الأعمدة لقواعد البيانات المضمنة",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "name", "type": "string" },
+        { "name": "type", "type": "string" },
+        { "name": "options", "type": "json", "nullable": true },
+        { "name": "position", "type": "int" }
+      ]
+    },
+    {
+      "id": "document_property_values",
+      "name": "document_property_values",
+      "note": "قيم الخصائص لكل مستند",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "property_id", "type": "id", "fk": "document_property_definitions.id" },
+        { "name": "value_json", "type": "json" }
+      ]
+    },
+    {
+      "id": "document_shares",
+      "name": "document_shares",
+      "note": "Per-user and per-org grants (createSharesTable)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "principal", "type": "string" },
+        { "name": "role", "type": "enum", "note": "عارض | محرر | admin" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "documents", "to": "documents", "kind": "1-n", "label": "has children" },
+    { "from": "documents", "to": "document_versions", "kind": "1-n", "label": "has snapshots" },
+    { "from": "documents", "to": "document_comments", "kind": "1-n", "label": "has comments" },
+    { "from": "documents", "to": "document_sync_links", "kind": "1-1", "label": "روابط إلى Notion" },
+    { "from": "documents", "to": "content_databases", "kind": "1-n", "label": "hosts databases" },
+    { "from": "content_databases", "to": "content_database_items", "kind": "1-n", "label": "has rows" },
+    { "from": "document_property_definitions", "to": "document_property_values", "kind": "1-n", "label": "has values" },
+    { "from": "documents", "to": "document_shares", "kind": "1-n", "label": "has share grants" }
+  ]
+}
+```
+
+يتم تخزين المحتوى كتخفيض. يقوم المحرر بالتحويل من وإلى نموذج Tiptap JSON في الذاكرة؛ يتم دائمًا تخفيض الصف SQL بحيث يمكن تشغيل actions والبحث ومزامنة Notion بتنسيق أساسي واحد.
+
+تتضمن جميع الجداول القابلة للتملك `owner_email` و`org_id` عبر `ownableColumns()`, بحيث يتم تحديد نطاق كل صف للمستخدم الذي قام بتسجيل الدخول (ومؤسسته النشطة بشكل اختياري) منذ لحظة إنشائه.
+
+### تخصيصه
+
+الأماكن الأربعة التي يجب البحث فيها عند تغيير السلوك:
+
+- **`actions/`** — كل عملية يمكن للوكيل أو UI تنفيذها. أضف ملفًا جديدًا مثل `actions/publish-to-wordpress.ts` باستخدام `defineAction` وسيحصل عليه الطرفان مجانًا. مفتاح actions الموجود: `create-document.ts`، `edit-document.ts`، `update-document.ts`، `delete-document.ts`، `list-documents.ts`، `search-documents.ts`، `get-document.ts`، `pull-notion-page.ts`، `push-notion-page.ts`، `add-comment.ts`، `view-screen.ts`، `navigate.ts`.
+- **`app/routes/`** — سطح الصفحة. `_app.tsx` هو تخطيط بدون مسار يحافظ على تثبيت الشريط الجانبي ولوحة الوكيل؛ `_app._index.tsx` هو منظر الهبوط؛ `_app.page.$id.tsx` هو طريق المحرر؛ `_app.team.tsx` هي صفحة إعدادات الفريق.
+- **`app/components/editor/`** — محرر Tiptap. أضف نوع عقدة جديد ضمن `extensions/` وقم بتسجيله في `DocumentEditor.tsx`. إن شريط أدوات الفقاعة، وقائمة الشرطة المائلة، ومعاينات التمرير كلها ملفات مكونة يمكنك تحريرها.
+- **`.agents/skills/`** — التوجيه الذي يقرأه الوكيل قبل التصرف. إذا قمت بإضافة إمكانية جديدة (على سبيل المثال، مسار نشر CMS)، فقم بإسقاط `SKILL.md` في مجلد مهارات جديد حتى يستخدمه الوكيل بشكل صحيح. skills الموجودة: `document-editing`، `notion-integration`، `real-time-sync`، `delegate-to-agent`، `storing-data`، `self-modifying-code`، `security`، `frontend-design`، `create-skill`، `capture-learnings`.
+- **`AGENTS.md`** — دليل الوكيل ذو المستوى الأعلى مع ورقة الغش الخاصة بالإجراء وجدول المهام المشتركة. قم بتحديثه كلما أضفت ميزة رئيسية حتى يكتشفها الوكيل دون استكشافها.
+- **`server/db/schema.ts`** — نموذج البيانات. أضف عمودًا أو جدولًا هنا. لا يحتوي قالب المحتوى على برنامج نصي `db:push`؛ فهو يعتمد على عمليات الترحيل الإضافية بشكل صارم والتي يتم تشغيلها عند بدء التشغيل. قم بتحرير `server/db/schema.ts`، واكتب ترحيلًا إضافيًا مطابقًا، وسيتم تطبيق التغيير في المرة التالية التي يتم فيها تشغيل التطبيق - يجب ألا تؤدي تحديثات المخطط أبدًا إلى إسقاط الجداول أو الأعمدة الموجودة أو إعادة تسميتها أو تغييرها بشكل مدمر (راجع [Database](/docs/database#migrations) للحصول على الإرشادات).
+- **`shared/notion-markdown.ts`** — تحويل الكتل إلى Notion. قم بتوسيع هذا إذا قمت بإضافة أنواع كتل جديدة تحتاج إلى رحلة ذهابًا وإيابًا عبر Notion.
+
+يمكن للوكيل إجراء كل هذه التغييرات بنفسه - اطلب منه "إضافة عمود علامات إلى المستندات وعرضه في الشريط الجانبي" وسيعمل على تحديث المخطط وترحيله وتوصيل UI وكتابة الإجراء.

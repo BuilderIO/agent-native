@@ -1,4 +1,12 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import {
+  useActionQuery,
+  useActionMutation,
+  sendToAgentChat,
+  openAgentSidebar,
+  appApiPath,
+  useFormatters,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconWorld,
   IconPalette,
@@ -11,14 +19,9 @@ import {
   IconPhoto,
   IconCheck,
 } from "@tabler/icons-react";
-import {
-  useActionQuery,
-  useActionMutation,
-  sendToAgentChat,
-  openAgentSidebar,
-  appApiPath,
-} from "@agent-native/core/client";
-import { toast } from "@/hooks/use-toast";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -26,11 +29,12 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
+
 import {
   MAX_FIG_UPLOAD_BYTES,
   formatFileSize,
@@ -89,6 +93,7 @@ export function DesignSystemSetup({
   onComplete,
   editingId,
 }: DesignSystemSetupProps) {
+  const t = useT();
   const [companyName, setCompanyName] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [websiteUrls, setWebsiteUrls] = useState<string[]>([]);
@@ -235,7 +240,7 @@ export function DesignSystemSetup({
         setter((prev) => [...prev, ...newFiles]);
       });
     },
-    [],
+    [t],
   );
 
   const handleFigImport = useCallback(
@@ -244,14 +249,14 @@ export function DesignSystemSetup({
       event.target.value = "";
       if (!file) return;
       if (!file.name.toLowerCase().endsWith(".fig")) {
-        setFigError(
-          "Please choose a .fig file (in Figma: File > Save local copy).",
-        );
+        setFigError(t("designSystemSetup.figFileRequired"));
         return;
       }
       if (file.size > MAX_FIG_UPLOAD_BYTES) {
         setFigError(
-          `File too large (max ${formatFileSize(MAX_FIG_UPLOAD_BYTES)}).`,
+          t("designSystemSetup.figFileTooLarge", {
+            maxSize: formatFileSize(MAX_FIG_UPLOAD_BYTES),
+          }),
         );
         return;
       }
@@ -268,12 +273,14 @@ export function DesignSystemSetup({
         });
         const parsed = await readFigImportResponse(res);
         setFigResult(parsed);
-        setFigTitle(parsed.suggestedTitle || "Imported brand");
+        setFigTitle(
+          parsed.suggestedTitle || t("designSystemSetup.importedBrand"),
+        );
       } catch (err) {
         setFigError(
           err instanceof Error
             ? err.message
-            : "Could not parse that Figma file.",
+            : t("designSystemSetup.figParseFailed"),
         );
       } finally {
         setFigParsing(false);
@@ -285,7 +292,9 @@ export function DesignSystemSetup({
   const handleCreateFromFig = useCallback(async () => {
     if (!figResult) return;
     const title =
-      figTitle.trim() || figResult.suggestedTitle || "Imported brand";
+      figTitle.trim() ||
+      figResult.suggestedTitle ||
+      t("designSystemSetup.importedBrand");
     setFigCreating(true);
     try {
       await createSystemMutation.mutateAsync({
@@ -293,18 +302,20 @@ export function DesignSystemSetup({
         data: JSON.stringify(figResult.data),
         customInstructions: figResult.customInstructions || "",
       } as any);
-      toast({ title: "Design system created from Figma" });
+      toast({ title: t("designSystemSetup.figmaCreated") });
       onComplete();
     } catch (err) {
       setFigCreating(false);
       toast({
-        title: "Could not create the design system",
+        title: t("designSystemSetup.createFailed"),
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error
+            ? err.message
+            : t("designSystemSetup.genericError"),
         variant: "destructive",
       });
     }
-  }, [figResult, figTitle, createSystemMutation, onComplete]);
+  }, [figResult, figTitle, createSystemMutation, onComplete, t]);
 
   const handleEditSave = async () => {
     if (!editingId) return;
@@ -317,10 +328,10 @@ export function DesignSystemSetup({
         customInstructions,
       });
       onComplete();
-      toast({ title: "Design system updated" });
+      toast({ title: t("designSystemSetup.updated") });
     } catch {
       toast({
-        title: "Failed to update",
+        title: t("designSystemSetup.updateFailed"),
         variant: "destructive",
       });
     } finally {
@@ -434,9 +445,8 @@ export function DesignSystemSetup({
     openAgentSidebar();
     sendToAgentChat({ message: parts.join("\n"), submit: true });
     toast({
-      title: "Design system generation started",
-      description:
-        "You can keep working while the agent processes the sources.",
+      title: t("designSystemSetup.generationStarted"),
+      description: t("designSystemSetup.generationStartedDescription"),
     });
     onComplete();
   }, [
@@ -452,6 +462,7 @@ export function DesignSystemSetup({
     brandNotes,
     customInstructions,
     onComplete,
+    t,
   ]);
 
   return (
@@ -460,12 +471,14 @@ export function DesignSystemSetup({
         <DialogHeader className="px-6 pt-6 pb-0">
           <DialogTitle className="text-foreground flex items-center gap-2">
             <IconPalette className="w-5 h-5 text-[#609FF8]" />
-            {editingId ? "Edit Design System" : "New Design System"}
+            {editingId
+              ? t("designSystemSetup.editTitle")
+              : t("designSystemSetup.newTitle")}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
             {editingId
-              ? "Update your brand identity."
-              : "Provide any combination of sources — the more context, the better the result."}
+              ? t("designSystemSetup.editDescription")
+              : t("designSystemSetup.newDescription")}
           </DialogDescription>
         </DialogHeader>
 
@@ -473,11 +486,13 @@ export function DesignSystemSetup({
           <div className="space-y-5 py-4">
             {/* Company Name */}
             <div className="space-y-2">
-              <Label className="text-foreground/80">Company / Brand</Label>
+              <Label className="text-foreground/80">
+                {t("designSystemSetup.companyBrand")}
+              </Label>
               <Input
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
-                placeholder="Acme Inc. — We build developer tools..."
+                placeholder={t("designSystemSetup.companyBrandPlaceholder")}
                 className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
               />
             </div>
@@ -488,7 +503,7 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconBrandFigma className="w-3.5 h-3.5" />
-                    Figma file
+                    {t("designSystemSetup.figmaFile")}
                   </Label>
                   {!figResult ? (
                     <>
@@ -501,12 +516,11 @@ export function DesignSystemSetup({
                         {figParsing ? (
                           <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                             <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
-                            Parsing Figma file...
+                            {t("designSystemSetup.parsingFigmaFile")}
                           </span>
                         ) : (
                           <span className="text-xs text-muted-foreground">
-                            Upload a .fig local copy to create a slide design
-                            system
+                            {t("designSystemSetup.uploadFigDescription")}
                           </span>
                         )}
                       </button>
@@ -546,13 +560,13 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconWorld className="w-3.5 h-3.5" />
-                    Website URL
+                    {t("designSystemSetup.websiteUrl")}
                   </Label>
                   <div className="flex gap-2">
                     <Input
                       value={websiteUrl}
                       onChange={(e) => setWebsiteUrl(e.target.value)}
-                      placeholder="example.com or Nike"
+                      placeholder={t("designSystemSetup.websitePlaceholder")}
                       className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
                       onBlur={() => {
                         const normalized = normalizeWebsiteUrlInput(websiteUrl);
@@ -568,7 +582,7 @@ export function DesignSystemSetup({
                       onClick={addWebsiteUrl}
                       className="shrink-0 cursor-pointer"
                     >
-                      Add
+                      {t("designSystemSetup.add")}
                     </Button>
                   </div>
                   <TagList
@@ -583,7 +597,7 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconBrandGithub className="w-3.5 h-3.5" />
-                    GitHub Repository
+                    {t("designSystemSetup.githubRepository")}
                   </Label>
                   <div className="flex gap-2">
                     <Input
@@ -601,7 +615,7 @@ export function DesignSystemSetup({
                       onClick={addGithubLink}
                       className="shrink-0 cursor-pointer"
                     >
-                      Add
+                      {t("designSystemSetup.add")}
                     </Button>
                   </div>
                   <TagList
@@ -616,7 +630,7 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconFolder className="w-3.5 h-3.5" />
-                    Code Files
+                    {t("designSystemSetup.codeFiles")}
                   </Label>
                   <button
                     onClick={() => codeInputRef.current?.click()}
@@ -629,7 +643,7 @@ export function DesignSystemSetup({
                     className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
                   >
                     <p className="text-xs text-muted-foreground">
-                      CSS, Tailwind config, theme files — drop or click
+                      {t("designSystemSetup.codeFilesDrop")}
                     </p>
                   </button>
                   <input
@@ -656,7 +670,7 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconFileDescription className="w-3.5 h-3.5" />
-                    Documents & Presentations
+                    {t("designSystemSetup.documents")}
                   </Label>
                   <button
                     onClick={() => docInputRef.current?.click()}
@@ -669,7 +683,7 @@ export function DesignSystemSetup({
                     className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
                   >
                     <p className="text-xs text-muted-foreground">
-                      PPTX, DOCX, PDF, Markdown, TXT — brand guides, design docs
+                      {t("designSystemSetup.documentsDrop")}
                     </p>
                   </button>
                   <input
@@ -696,14 +710,14 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconPhoto className="w-3.5 h-3.5" />
-                    Screenshots & Visual References
+                    {t("designSystemSetup.visualReferences")}
                   </Label>
                   <button
                     onClick={() => imageInputRef.current?.click()}
                     className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
                   >
                     <p className="text-xs text-muted-foreground">
-                      Product screenshots, mood boards, logos
+                      {t("designSystemSetup.visualReferencesDrop")}
                     </p>
                   </button>
                   <input
@@ -736,7 +750,7 @@ export function DesignSystemSetup({
                 {existingSystems.length > 0 && (
                   <div className="space-y-2">
                     <Label className="text-foreground/80">
-                      Fork an existing design system
+                      {t("designSystemSetup.forkExisting")}
                     </Label>
                     <div className="grid grid-cols-2 gap-2">
                       {existingSystems
@@ -772,12 +786,14 @@ export function DesignSystemSetup({
             {/* Brand Notes */}
             <div className="space-y-2">
               <Label className="text-foreground/80">
-                {editingId ? "Brand Notes" : "Additional Notes"}
+                {editingId
+                  ? t("designSystemSetup.brandNotes")
+                  : t("designSystemSetup.additionalNotes")}
               </Label>
               <Textarea
                 value={brandNotes}
                 onChange={(e) => setBrandNotes(e.target.value)}
-                placeholder="Design preferences, constraints, brand guidelines..."
+                placeholder={t("designSystemSetup.notesPlaceholder")}
                 rows={3}
                 className="bg-accent border-border text-foreground placeholder:text-muted-foreground resize-none"
               />
@@ -785,17 +801,20 @@ export function DesignSystemSetup({
 
             {/* Custom Instructions — durable, stored on the design system */}
             <div className="space-y-2">
-              <Label className="text-foreground/80">Custom instructions</Label>
+              <Label className="text-foreground/80">
+                {t("designSystemSetup.customInstructions")}
+              </Label>
               <Textarea
                 value={customInstructions}
                 onChange={(e) => setCustomInstructions(e.target.value)}
-                placeholder="e.g. Always open with a single-stat title slide. Never use bullet lists longer than 3 items. Keep slide titles under 6 words..."
+                placeholder={t(
+                  "designSystemSetup.customInstructionsPlaceholder",
+                )}
                 rows={4}
                 className="bg-accent border-border text-foreground placeholder:text-muted-foreground resize-none"
               />
               <p className="text-[11px] text-muted-foreground">
-                Saved with the design system. Re-applied every time the agent
-                uses it to generate slides.
+                {t("designSystemSetup.customInstructionsDescription")}
               </p>
             </div>
           </div>
@@ -809,7 +828,7 @@ export function DesignSystemSetup({
             disabled={generating}
             className="text-muted-foreground hover:text-foreground cursor-pointer"
           >
-            Cancel
+            {t("designSystemSetup.cancel")}
           </Button>
           <Button
             onClick={handleGenerate}
@@ -819,12 +838,12 @@ export function DesignSystemSetup({
             {generating ? (
               <>
                 <IconLoader2 className="w-4 h-4 animate-spin" />
-                Saving...
+                {t("designSystemSetup.saving")}
               </>
             ) : editingId ? (
-              "Save Changes"
+              t("designSystemSetup.saveChanges")
             ) : (
-              "Continue to generation"
+              t("designSystemSetup.continueToGeneration")
             )}
           </Button>
         </div>
@@ -840,6 +859,7 @@ function TagList({
   items: string[];
   onRemove: (index: number) => void;
 }) {
+  const t = useT();
   if (items.length === 0) return null;
   return (
     <div className="space-y-1">
@@ -852,6 +872,7 @@ function TagList({
           <span className="truncate flex-1">{item}</span>
           <button
             onClick={() => onRemove(i)}
+            aria-label={t("designSystemSetup.removeItem", { item })}
             className="text-muted-foreground hover:text-foreground/70 shrink-0 cursor-pointer"
           >
             <IconX className="w-3.5 h-3.5" />
@@ -877,14 +898,16 @@ function FigImportPreview({
   onCreate: () => void;
   onReset: () => void;
 }) {
+  const t = useT();
+  const { formatNumber } = useFormatters();
   const colors = result.data.colors;
   const colorEntries = (
     [
-      ["Accent", "accent"],
-      ["Primary", "primary"],
-      ["Secondary", "secondary"],
-      ["Background", "background"],
-      ["Text", "text"],
+      [t("designSystemSetup.colorAccent"), "accent"],
+      [t("designSystemSetup.colorPrimary"), "primary"],
+      [t("designSystemSetup.colorSecondary"), "secondary"],
+      [t("designSystemSetup.colorBackground"), "background"],
+      [t("designSystemSetup.colorText"), "text"],
     ] as const
   ).filter(([, key]) => colors[key]);
   const typography = result.data.typography;
@@ -896,25 +919,35 @@ function FigImportPreview({
         {result.preview.thumbnailDataUrl ? (
           <img
             src={result.preview.thumbnailDataUrl}
-            alt="Figma file thumbnail"
+            alt={t("designSystemSetup.figmaThumbnailAlt")}
             className="h-16 w-24 shrink-0 rounded-md border border-border object-cover"
           />
         ) : null}
         <div className="min-w-0 flex-1 space-y-1.5">
           <Label className="text-xs text-muted-foreground">
-            Design system name
+            {t("designSystemSetup.designSystemName")}
           </Label>
           <Input
             value={title}
             onChange={(event) => onTitleChange(event.target.value)}
             className="bg-card border-border text-foreground"
-            placeholder="Brand name"
+            placeholder={t("designSystemSetup.brandNamePlaceholder")}
           />
           <p className="text-[11px] text-muted-foreground">
-            {result.preview.nodeCount.toLocaleString()} nodes,{" "}
-            {gradients.length} gradient{gradients.length === 1 ? "" : "s"},{" "}
-            {result.preview.imageCount} image
-            {result.preview.imageCount === 1 ? "" : "s"}
+            {t("designSystemSetup.figPreviewStats", {
+              nodes: t("designSystemSetup.nodeCount", {
+                count: result.preview.nodeCount,
+                formattedCount: formatNumber(result.preview.nodeCount),
+              }),
+              gradients: t("designSystemSetup.gradientCount", {
+                count: gradients.length,
+                formattedCount: formatNumber(gradients.length),
+              }),
+              images: t("designSystemSetup.imageCount", {
+                count: result.preview.imageCount,
+                formattedCount: formatNumber(result.preview.imageCount),
+              }),
+            })}
           </p>
         </div>
       </div>
@@ -955,14 +988,18 @@ function FigImportPreview({
         <div className="text-xs text-foreground/80">
           {typography.headingFont && (
             <span>
-              <span className="text-muted-foreground">Headings:</span>{" "}
+              <span className="text-muted-foreground">
+                {t("designSystemSetup.headingsLabel")}
+              </span>{" "}
               {typography.headingFont}
               {typography.headingWeight ? ` ${typography.headingWeight}` : ""}
             </span>
           )}
           {typography.bodyFont && (
             <span className="ml-3">
-              <span className="text-muted-foreground">Body:</span>{" "}
+              <span className="text-muted-foreground">
+                {t("designSystemSetup.bodyLabel")}
+              </span>{" "}
               {typography.bodyFont}
             </span>
           )}
@@ -979,10 +1016,10 @@ function FigImportPreview({
           {creating ? (
             <>
               <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
-              Creating...
+              {t("designSystemSetup.creating")}
             </>
           ) : (
-            "Create design system"
+            t("designSystemSetup.createDesignSystem")
           )}
         </Button>
         <Button
@@ -992,7 +1029,7 @@ function FigImportPreview({
           disabled={creating}
           className="cursor-pointer"
         >
-          Choose another file
+          {t("designSystemSetup.chooseAnotherFile")}
         </Button>
       </div>
     </div>
@@ -1006,6 +1043,7 @@ function FileList({
   files: UploadedFile[];
   onRemove: (id: string) => void;
 }) {
+  const t = useT();
   if (files.length === 0) return null;
   return (
     <div className="space-y-1">
@@ -1021,6 +1059,7 @@ function FileList({
           </span>
           <button
             onClick={() => onRemove(f.id)}
+            aria-label={t("designSystemSetup.removeItem", { item: f.name })}
             className="text-muted-foreground hover:text-foreground/70 shrink-0 cursor-pointer"
           >
             <IconX className="w-3.5 h-3.5" />

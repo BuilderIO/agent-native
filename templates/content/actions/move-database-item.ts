@@ -1,8 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 
@@ -43,9 +44,12 @@ export default defineAction({
         eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
       )
       .where(
-        itemId
-          ? eq(schema.contentDatabaseItems.id, itemId)
-          : eq(schema.contentDatabaseItems.documentId, documentId!),
+        and(
+          itemId
+            ? eq(schema.contentDatabaseItems.id, itemId)
+            : eq(schema.contentDatabaseItems.documentId, documentId!),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
       );
 
     if (!row) throw new Error("Database row not found.");

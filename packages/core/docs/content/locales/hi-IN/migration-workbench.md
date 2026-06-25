@@ -1,0 +1,33 @@
+---
+title: "Agent-Native पर माइग्रेट करना (/migrate)"
+description: "माइग्रेशन Agent-Native कोड कार्यक्षेत्र में एक अंतर्निहित /माइग्रेट लक्ष्य है - एक अलग ऐप नहीं। पूरी गाइड के लिए Agent-Native कोड UI देखें।"
+---
+
+# Agent-Native पर माइग्रेट करना (/migrate)
+
+माइग्रेशन **एक अलग उत्पाद या टेम्पलेट नहीं** है - यह अंतर्निहित है
+[Agent-Native Code](/docs/code-agents-ui) कार्यक्षेत्र के अंदर `/migrate` लक्ष्य।
+यह एक सामान्य कोड सत्र के रूप में चलता है जिसे आप फिर से शुरू कर सकते हैं, संलग्न कर सकते हैं, निरीक्षण कर सकते हैं और रोक सकते हैं।
+
+```an-diagram title="/माइग्रेट एक कोड सत्र है, कोई अलग ऐप नहीं" summary="एक पथ, URL, या विवरण अंदर जाता है; रन हर दूसरे कोड सत्र के समान स्टोर, ट्रांसक्रिप्ट और नियंत्रण साझा करता है, और एक पोर्टेबल डोजियर उत्सर्जित कर सकता है।"
+{
+  "html": "<div class=\"diagram-migrate\"><div class=\"diagram-col\"><div class=\"diagram-pill\">./local-app</div><div class=\"diagram-pill\">https://example.com</div><div class=\"diagram-pill\">--describe \\\"...\\\"</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">/migrate goal</span><small class=\"diagram-muted\">वही store · transcript · run controls</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\" data-rough>माइग्रेटेड ऐप</div><div class=\"diagram-pill ok\">--emit dossier</div></div></div>",
+  "css": ".diagram-migrate{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-migrate .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-migrate .diagram-arrow{font-size:22px;line-height:1}.diagram-migrate .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+```bash
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+npx @agent-native/core@latest code /migrate https://example.com --describe "marketing site plus dashboard"
+npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # shortcut into the same goal
+```
+
+पूरा गाइड - इनपुट आकार (पथ / URL / विवरण), `--emit` डोजियर,
+प्लान बनाम ऑटो मोड, रन नियंत्रण, क्रेडेंशियल, डेस्कटॉप डीप लिंक और
+`@agent-native/migrate` पैकेज निर्यात - में रहता है
+[Agent-Native Code UI → Migrating to Agent-Native](/docs/code-agents-ui#migrate).
+
+> [!NOTE]
+> लीगेसी छिपा हुआ `migration` विवरण ऐप हटा दिया गया है। कोड का उपयोग करें
+> कार्यस्थान, डेस्कटॉप कोड टैब, या समर्थित दस्तावेज़
+> सतहें।

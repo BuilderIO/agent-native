@@ -72,9 +72,19 @@ Each response is stored in the `responses` SQL table:
 | `submittedAt`    | text | ISO timestamp                        |
 | `ip`             | text | Submitter IP when available          |
 | `submitterEmail` | text | Submitter email hint when known      |
+| `pageUrl`        | text | Page the respondent was on, if sent  |
+| `clientSurface`  | text | App surface: web, electron, or tauri |
 
 `submitterEmail` may come from the logged-in Forms session or from trusted
 feedback clients that pass the logged-in user email as submission metadata.
+
+`pageUrl` and `clientSurface` are hidden pass-through fields: trusted embeds
+(e.g. the framework FeedbackButton) forward the URL of the page the respondent
+was on and the runtime shell they were in (`web`, `electron`, or `tauri`) as
+submission metadata, so owners can see which screen and which app feedback came
+from. Both are null for direct fills that send no context, and `clientSurface`
+is allowlisted server-side (unknown values are dropped). The responses table
+surfaces them as "Page" and "Source" columns when any response carries them.
 
 The `data` JSON maps field IDs to values:
 

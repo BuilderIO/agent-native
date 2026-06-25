@@ -1,9 +1,7 @@
 import {
-  defineEventHandler,
-  getQuery,
-  setResponseStatus,
-  type H3Event,
-} from "h3";
+  OAuthAccountOwnedByOtherUserError,
+  setOAuthDisplayName,
+} from "@agent-native/core/oauth-tokens";
 import {
   readBody,
   getSession,
@@ -21,6 +19,16 @@ import {
   setDesktopExchange,
   setDesktopExchangeError,
 } from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+
+import { htmlSignatureToMarkdown } from "../../shared/gmail-signature.js";
+import { googleFetch } from "../lib/google-api.js";
 import {
   getAuthUrl,
   exchangeCode,
@@ -29,13 +37,6 @@ import {
   getClient,
   setAccountDisplayName,
 } from "../lib/google-auth.js";
-import { googleFetch } from "../lib/google-api.js";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import { htmlSignatureToMarkdown } from "../../shared/gmail-signature.js";
-import {
-  OAuthAccountOwnedByOtherUserError,
-  setOAuthDisplayName,
-} from "@agent-native/core/oauth-tokens";
 
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "mail";
 

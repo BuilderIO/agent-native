@@ -10,6 +10,10 @@
  * Max size: 5 MB (logos). Storage: ./data/uploads.
  */
 
+import fs from "node:fs";
+import path from "node:path";
+
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getHeader,
@@ -18,9 +22,6 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import fs from "node:fs";
-import path from "node:path";
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
 
 const UPLOADS_DIR = path.resolve("data/uploads");
 const MAX_BYTES = 5 * 1024 * 1024;

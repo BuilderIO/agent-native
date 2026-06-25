@@ -1,0 +1,70 @@
+const messages = {
+  settings: {
+    title: "설정",
+    description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
+    languageTitle: "언어",
+    languageDescription:
+      "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
+    languageLabel: "인터페이스 언어",
+    workspaceTitle: "워크스페이스",
+    workspaceDescription:
+      "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",
+    openTeamSettings: "팀 설정 열기",
+    openResourceSettings: "리소스 설정 열기",
+    agentTitle: "에이전트 설정",
+    agentDescription:
+      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    openAgentSettings: "에이전트 설정 열기",
+  },
+  chat: {
+    archiveChat: "채팅 보관",
+    archiveFailed: "보관 실패",
+    chats: "채팅",
+    composerPlaceholder: "에이전트에게 물어보세요...",
+    emptyState: "무엇이든 물어보세요",
+    heroDescription:
+      "에이전트에게 이 앱을 살펴보고 설명하거나 변경하도록 요청하세요.",
+    heroTitle: "무엇을 도와드릴까요?",
+    inspectEmptyState: "이 앱에 대해 무엇이든 물어보세요",
+    inspectSuggestionAction: "사용 가능한 작업 보기",
+    inspectSuggestionCapabilities: "이 앱은 무엇을 할 수 있나요?",
+    inspectSuggestionHello: "시작할 수 있게 도와주세요",
+    newChat: "새 채팅",
+    optionsFor: "옵션 대상",
+    pinChat: "채팅 고정",
+    renameChat: "채팅 이름 바꾸기",
+    renameFailed: "이름 변경 실패",
+    renameThread: "스레드 이름 바꾸기",
+    suggestionActions: "사용 가능한 작업을 보여줘",
+    suggestionCapabilities: "이 앱은 무엇을 할 수 있나요?",
+    suggestionCustomize: "이 앱을 맞춤 설정하도록 도와줘",
+    unpinChat: "채팅 고정 해제",
+  },
+  navigation: {
+    chat: "채팅",
+    collapseSidebar: "사이드바 접기",
+    database: "데이터베이스",
+    expandSidebar: "사이드바 펼치기",
+    extensions: "확장 프로그램",
+    navigation: "탐색",
+    navigationDescription: "기본 탐색",
+    observability: "관찰성",
+    openNavigation: "탐색 열기",
+    settings: "설정",
+    team: "팀",
+  },
+  pages: {
+    databaseTitle: "데이터베이스",
+    observabilityPageTitle: "에이전트 관찰성",
+    teamTitle: "팀",
+    teamCreateOrgDescription: "팀원을 초대하고 이 앱을 공유할 조직을 만드세요.",
+  },
+  root: {
+    commandActions: "작업",
+    commandAppearance: "화면 표시",
+    commandSearch: "검색",
+    toggleTheme: "테마 전환",
+  },
+};
+
+export default messages;

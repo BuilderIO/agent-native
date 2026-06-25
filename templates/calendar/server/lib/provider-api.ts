@@ -1,3 +1,4 @@
+import { resolveCredential } from "@agent-native/core/credentials";
 import {
   createProviderApiRuntime,
   defaultProviderApiCredentialResolver,
@@ -10,7 +11,6 @@ import {
   type ProviderApiRequestArgs,
   type ProviderApiResolvedCredential,
 } from "@agent-native/core/provider-api";
-import { resolveCredential } from "@agent-native/core/credentials";
 import { getCredentialContext } from "@agent-native/core/server";
 
 export const CALENDAR_APP_ID = "calendar";

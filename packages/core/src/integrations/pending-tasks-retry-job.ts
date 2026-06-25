@@ -1,6 +1,6 @@
 import { getDbExec } from "../db/client.js";
-import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import { signInternalToken } from "./internal-token.js";
 
 /**

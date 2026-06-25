@@ -1,28 +1,30 @@
-import { useLocation } from "react-router";
+import { AgentToggleButton } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client";
+import { RunsTray } from "@agent-native/core/client/progress";
 import type { ReactNode } from "react";
+import { useLocation } from "react-router";
+
 import { dashboards } from "@/pages/adhoc/registry";
+
 import {
   DashboardTitleSkeleton,
   useHeaderTitle,
   useHeaderActions,
 } from "./HeaderActions";
-import { AgentToggleButton } from "@agent-native/core/client";
-import { RunsTray } from "@agent-native/core/client/progress";
 
-const pageTitles: Record<string, string> = {
-  "/": "Overview",
-  "/data-sources": "Data Sources",
-  "/data-dictionary": "Data Dictionary",
-  "/catalog": "Template Catalog",
-  "/analyses": "Analyses",
-  "/dashboards/explorer": "Explorer",
-  "/team": "Team",
-  "/settings": "Settings",
-  "/about": "About",
+const pageTitleKeys: Record<string, string> = {
+  "/": "navigation.overview",
+  "/data-sources": "navigation.dataSources",
+  "/data-dictionary": "navigation.dataDictionary",
+  "/catalog": "navigation.templateCatalog",
+  "/analyses": "navigation.analyses",
+  "/dashboards/explorer": "navigation.explorer",
+  "/team": "navigation.team",
+  "/settings": "navigation.settings",
 };
 
-function resolveTitle(pathname: string): ReactNode {
-  if (pageTitles[pathname]) return pageTitles[pathname];
+function resolveTitle(pathname: string, t: (key: string) => string): ReactNode {
+  if (pageTitleKeys[pathname]) return t(pageTitleKeys[pathname]);
 
   const adhocMatch = pathname.match(/^\/(?:adhoc|dashboards)\/(.+)$/);
   if (adhocMatch) {
@@ -31,16 +33,17 @@ function resolveTitle(pathname: string): ReactNode {
     return dash?.name || <DashboardTitleSkeleton />;
   }
 
-  if (pathname.startsWith("/analyses/")) return "Analyses";
+  if (pathname.startsWith("/analyses/")) return t("navigation.analyses");
 
-  return "Analytics";
+  return t("navigation.brand");
 }
 
 export function Header() {
   const location = useLocation();
+  const t = useT();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
-  const fallbackTitle = resolveTitle(location.pathname);
+  const fallbackTitle = resolveTitle(location.pathname, t);
 
   return (
     <header className="flex h-12 items-center gap-3 border-b border-border bg-background px-4 lg:px-6 shrink-0">

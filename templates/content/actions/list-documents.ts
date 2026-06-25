@@ -1,28 +1,29 @@
 import { defineAction } from "@agent-native/core";
-import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import {
+  accessFilter,
+  ROLE_RANK,
+  type ShareRole,
+} from "@agent-native/core/sharing";
+import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   documentDiscoveryFilter,
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import { parseDatabaseViewConfig } from "./_property-utils.js";
-import {
-  accessFilter,
-  ROLE_RANK,
-  type ShareRole,
-} from "@agent-native/core/sharing";
 import { serializeDatabaseMembership } from "./_database-utils.js";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
-import { z } from "zod";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   isContentLocalFileMode,
   listLocalFileDocuments,
 } from "./_local-file-documents.js";
+import { parseDatabaseViewConfig } from "./_property-utils.js";
 
 function contentPreview(content: string, maxLength = 180) {
   const compact = content.replace(/\s+/g, " ").trim();
@@ -167,9 +168,12 @@ export default defineAction({
             .select()
             .from(schema.contentDatabases)
             .where(
-              inArray(
-                schema.contentDatabases.documentId,
-                documents.map((d) => d.id),
+              and(
+                inArray(
+                  schema.contentDatabases.documentId,
+                  documents.map((d) => d.id),
+                ),
+                isNull(schema.contentDatabases.deletedAt),
               ),
             )
         : [];
@@ -192,9 +196,12 @@ export default defineAction({
               ),
             )
             .where(
-              inArray(
-                schema.contentDatabaseItems.documentId,
-                documents.map((d) => d.id),
+              and(
+                inArray(
+                  schema.contentDatabaseItems.documentId,
+                  documents.map((d) => d.id),
+                ),
+                isNull(schema.contentDatabases.deletedAt),
               ),
             )
         : [];
@@ -202,60 +209,104 @@ export default defineAction({
       databaseMemberships.map((row) => [row.item.documentId, row]),
     );
 
-    const mapped = documents.map((d) => {
-      let accessRole: EffectiveRole = "viewer";
-      const shareRole = shareRoleByDocumentId.get(d.id) ?? null;
-      const database = databaseByDocumentId.get(d.id) ?? null;
-      const databaseMembership =
-        databaseMembershipByDocumentId.get(d.id) ?? null;
+    const softDeletedDocumentIds = new Set<string>();
+    if (documents.length > 0) {
+      const visibleDocumentIds = documents.map((d) => d.id);
+      const softDeletedDatabases = await db
+        .select({
+          id: schema.contentDatabases.id,
+          documentId: schema.contentDatabases.documentId,
+        })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            inArray(schema.contentDatabases.documentId, visibleDocumentIds),
+            isNotNull(schema.contentDatabases.deletedAt),
+          ),
+        );
 
-      if (shareRole && ROLE_RANK[shareRole] > ROLE_RANK[accessRole]) {
-        accessRole = shareRole;
-      }
-      if (
-        userEmail &&
-        d.ownerEmail === userEmail &&
-        (orgId ? d.orgId === orgId : !d.orgId)
-      ) {
-        accessRole = "owner";
+      for (const database of softDeletedDatabases) {
+        softDeletedDocumentIds.add(database.documentId);
       }
 
-      return {
-        id: d.id,
-        parentId: d.parentId,
-        title: d.title,
-        contentPreview: contentPreview(d.contentSnippet),
-        contentLength: Number(d.contentLength) || 0,
-        icon: d.icon,
-        position: d.position,
-        isFavorite: parseDocumentFavorite(d.isFavorite),
-        hideFromSearch: parseDocumentHideFromSearch(d.hideFromSearch),
-        notionPageId: notionPageIdByDocumentId.get(d.id) ?? null,
-        notionPageUrl: notionPageIdByDocumentId.has(d.id)
-          ? `https://www.notion.so/${notionPageIdByDocumentId.get(d.id)!.replace(/-/g, "")}`
-          : null,
-        visibility: d.visibility,
-        source: serializeDocumentSource(d),
-        database: database
-          ? {
-              id: database.id,
-              documentId: database.documentId,
-              title: database.title,
-              viewConfig: parseDatabaseViewConfig(database.viewConfigJson),
-              createdAt: database.createdAt,
-              updatedAt: database.updatedAt,
-            }
-          : undefined,
-        databaseMembership: databaseMembership
-          ? serializeDatabaseMembership(databaseMembership)
-          : undefined,
-        accessRole,
-        canEdit: canEditRole(accessRole),
-        canManage: canManageRole(accessRole),
-        createdAt: d.createdAt,
-        updatedAt: d.updatedAt,
-      };
-    });
+      if (softDeletedDatabases.length > 0) {
+        const softDeletedItems = await db
+          .select({ documentId: schema.contentDatabaseItems.documentId })
+          .from(schema.contentDatabaseItems)
+          .where(
+            and(
+              inArray(
+                schema.contentDatabaseItems.databaseId,
+                softDeletedDatabases.map((database) => database.id),
+              ),
+              inArray(
+                schema.contentDatabaseItems.documentId,
+                visibleDocumentIds,
+              ),
+            ),
+          );
+        for (const item of softDeletedItems) {
+          softDeletedDocumentIds.add(item.documentId);
+        }
+      }
+    }
+
+    const mapped = documents
+      .filter((d) => !softDeletedDocumentIds.has(d.id))
+      .map((d) => {
+        let accessRole: EffectiveRole = "viewer";
+        const shareRole = shareRoleByDocumentId.get(d.id) ?? null;
+        const database = databaseByDocumentId.get(d.id) ?? null;
+        const databaseMembership =
+          databaseMembershipByDocumentId.get(d.id) ?? null;
+
+        if (shareRole && ROLE_RANK[shareRole] > ROLE_RANK[accessRole]) {
+          accessRole = shareRole;
+        }
+        if (
+          userEmail &&
+          d.ownerEmail === userEmail &&
+          (orgId ? d.orgId === orgId : !d.orgId)
+        ) {
+          accessRole = "owner";
+        }
+
+        return {
+          id: d.id,
+          parentId: d.parentId,
+          title: d.title,
+          contentPreview: contentPreview(d.contentSnippet),
+          contentLength: Number(d.contentLength) || 0,
+          icon: d.icon,
+          position: d.position,
+          isFavorite: parseDocumentFavorite(d.isFavorite),
+          hideFromSearch: parseDocumentHideFromSearch(d.hideFromSearch),
+          notionPageId: notionPageIdByDocumentId.get(d.id) ?? null,
+          notionPageUrl: notionPageIdByDocumentId.has(d.id)
+            ? `https://www.notion.so/${notionPageIdByDocumentId.get(d.id)!.replace(/-/g, "")}`
+            : null,
+          visibility: d.visibility,
+          source: serializeDocumentSource(d),
+          database: database
+            ? {
+                id: database.id,
+                documentId: database.documentId,
+                title: database.title,
+                viewConfig: parseDatabaseViewConfig(database.viewConfigJson),
+                createdAt: database.createdAt,
+                updatedAt: database.updatedAt,
+              }
+            : undefined,
+          databaseMembership: databaseMembership
+            ? serializeDatabaseMembership(databaseMembership)
+            : undefined,
+          accessRole,
+          canEdit: canEditRole(accessRole),
+          canManage: canManageRole(accessRole),
+          createdAt: d.createdAt,
+          updatedAt: d.updatedAt,
+        };
+      });
 
     return { documents: [...localDocuments, ...mapped] };
   },

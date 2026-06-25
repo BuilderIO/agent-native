@@ -1,12 +1,17 @@
+import {
+  PromptComposer,
+  useSendToAgentChat,
+  useT,
+} from "@agent-native/core/client";
+import { IconPlus } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { IconPlus } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
-import { PromptComposer, useSendToAgentChat } from "@agent-native/core/client";
 
 type NewCompositionPopoverProps = {
   isNew: boolean;
@@ -23,6 +28,7 @@ export function NewCompositionPopover({
   const [isGenerating, setIsGenerating] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const { send, codeRequiredDialog } = useSendToAgentChat();
+  const t = useT();
 
   // Auto-save after the agent finishes generating a new composition
   useEffect(() => {
@@ -58,7 +64,7 @@ export function NewCompositionPopover({
       const message =
         typeof detail?.message === "string"
           ? detail.message
-          : "The agent run failed before the composition could be created.";
+          : t("newComposition.runFailed");
       sessionStorage.setItem("videos:new-composition-error", message);
       finish();
     };
@@ -69,7 +75,7 @@ export function NewCompositionPopover({
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
       window.removeEventListener("agent-chat:run-error", handleRunError);
     };
-  }, [isGenerating, onGeneratingChange]);
+  }, [isGenerating, onGeneratingChange, t]);
 
   async function fileToDataUrl(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -105,7 +111,7 @@ export function NewCompositionPopover({
       }
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Could not read attachment.";
+        error instanceof Error ? error.message : t("newComposition.readFailed");
       setSubmitError(message);
       setIsGenerating(false);
       onGeneratingChange?.(false);
@@ -120,7 +126,7 @@ export function NewCompositionPopover({
       newTab: true,
     });
     if (result === null) {
-      setSubmitError("Could not start the composition request.");
+      setSubmitError(t("newComposition.startFailed"));
       setIsGenerating(false);
       onGeneratingChange?.(false);
       return;
@@ -152,7 +158,7 @@ export function NewCompositionPopover({
             )}
           >
             <IconPlus size={14} />
-            New Composition
+            {t("newComposition.button")}
           </button>
         </PopoverTrigger>
         <PopoverContent
@@ -163,16 +169,16 @@ export function NewCompositionPopover({
         >
           <div className="mb-2 px-1">
             <h3 className="text-sm font-semibold text-foreground">
-              New composition
+              {t("newComposition.title")}
             </h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              Describe the video you want to create
+              {t("newComposition.description")}
             </p>
           </div>
           <PromptComposer
             autoFocus
             attachmentsEnabled
-            placeholder="Describe the video you want to create..."
+            placeholder={t("newComposition.placeholder")}
             draftScope="videos:new-composition"
             onSubmit={handleSubmit}
           />

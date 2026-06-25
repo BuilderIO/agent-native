@@ -1,0 +1,77 @@
+---
+title: "観察記憶"
+description: "バックグラウンドの 3 層圧縮 (最近の未加工→観察→反映) により、短い会話に影響を与えることなく、長いエージェント スレッドを安価に、プロンプト キャッシュの安定性を保ちます。"
+---
+
+# 観察記憶
+
+長時間実行されるエージェント スレッドは、すべてのメッセージ、すべてのツール呼び出し、すべての結果など、膨大なトランスクリプトを蓄積します。各ターンでその履歴全体をモデルに再生するとコストがかかり、最終的にはコンテキスト ウィンドウが開いてしまいます。 **Observational Memory (OM)** は、長いスレッドの古い部分を日付付きの階層化された概要に圧縮するため、モデルは何が起こったのかをトークン コストのほんの一部で把握しながら、最新のターンはそのまま残ります。
+
+OM は完全に自動であり、所有者限定です。 **短いスレッドは影響を受けません**: スレッドが最初の圧縮しきい値を超えるまで、OM は何も行われず、コンテキストはバイト単位で、それが無い場合と同じになります。
+
+## 3 つの層 {#tiers}
+
+OM は、最も蒸留されたスレッドから最新のスレッドまでの 3 つの層として長いスレッドを表します。
+
+| ティア                   | それは何ですか                                                                                                                      |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **反射**                 | 大きくなった観察記録を凝縮した最高レベル。長い弧の概要。                                                                            |
+| **観察結果**             | 一連の生のメッセージを、何が起こったかをコンパクトに記録した、高密度で日付の入ったエントリ。                                        |
+| **最近の生のメッセージ** | 最後の N ターンは **逐語** 維持され、折りたたまれることはありません。そのため、エージェントは常に最新のコンテキストを確認できます。 |
+
+```an-diagram title="3 層、最新のものまで蒸留" summary="古いプレフィックスは、日付の付いた観測と長い円弧の反射に折りたたまれます。最新のターンのみがそのまま残ります。"
+{
+  "html": "<div class=\"om\"><div class=\"diagram-card\"><span class=\"diagram-pill\">振り返り</span><small class=\"diagram-muted\">観察ログから圧縮した長期サマリー</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">観察</span><small class=\"diagram-muted\">生メッセージの範囲を折りたたむ日付付きの濃いエントリ</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">最近の生メッセージ</span><small class=\"diagram-muted\">last N turns, kept <strong>verbatim</strong> — 折りたたまない</small></div></div>",
+  "css": ".om{display:flex;flex-direction:column-reverse;align-items:stretch;gap:8px}.om .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.om .diagram-arrow{text-align:center;font-size:20px;line-height:1}"
+}
+```
+
+各ターンで、読み取り側はこれらを単一の自己ラベル付き `[Observational Memory]` ブロックにアセンブルします。このブロックは生の古いプレフィックスを置き換え、最近の生のウィンドウをそのまま保持し、圧縮されたレコードを信頼できるものとして扱うようにモデルに指示します (完了した作業をやり直さず、記録された決定、名前、日付、ステータスを信頼します)。
+
+## 圧縮の実行方法 {#compaction}
+
+2 つのパスは、クリーン ターン後の **ファイア アンド フォーゲット、ベスト エフォート** ステップとして実行されるため、ユーザーに表示される応答に遅延が追加されることはなく、失敗は無視されます。
+
+1. **Observer** — スレッドの _unobserved_ メッセージが監視トークンのしきい値を超えると、それらのメッセージは 1 つの高密度の監視エントリに折りたたまれます。
+2. **リフレクター** — 永続化された観測ログ自体がリフレクション トークンのしきい値を超えると、観測結果がより高いレベルのリフレクションに凝縮されます。
+
+```an-diagram title="クリーンターン後のベストエフォートパス2本" summary="各パスはしきい値以下で no-op を実行するため、コンパクターを毎ターン実行するのは低コストです。失敗は無視され、レイテンシが追加されることはありません。"
+{
+  "html": "<div class=\"om-pass\"><div class=\"diagram-node\">クリーンなターンが終了<br><small class=\"diagram-muted\">fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Observer</span><small class=\"diagram-muted\">unobserved tokens &gt; 30k? &rarr; fold into one observation</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Reflector</span><small class=\"diagram-muted\">observation log &gt; 40k? &rarr; condense into a reflection</small></div></div>",
+  "css": ".om-pass{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.om-pass .diagram-node,.om-pass .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.om-pass .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+どちらもしきい値以下では no-op を通過するため、ターンごとにコンパクターを呼び出すのはコストがかかりません。 OM は揮発性の未処理のプレフィックスを安定した圧縮されたテキストに置き換えるため、長いスレッドのターンにわたってプロンプトを**キャッシュ安定**に保ちます。
+
+OM データは、アプリ独自の SQL データベースに存在し、所有者 (存在する場合は組織) にスコープ設定されます。これは、フレームワークの残りの部分と同じスコープ モデルです。ユーザー間で共有されることはありません。
+
+## 構成 {#config}
+
+デフォルトは保守的です。オペレーターは、`AGENT_NATIVE_OM_*` 環境変数を使用してデプロイ時に圧縮をダイヤルできます (アプリ コードの再デプロイは必要ありません)。無効な値または欠落している値は、常に名前付きのデフォルトに戻ります。
+
+| 環境変数                                      | デフォルト | それが制御するもの                                                                           |
+| --------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_OM_OBSERVATION_TOKEN_THRESHOLD` | `30000`    | オブザーバーがメッセージを 1 つの観測にまとめるようにトリガーする未観測メッセージ トークン。 |
+| `AGENT_NATIVE_OM_REFLECTION_TOKEN_THRESHOLD`  | `40000`    | リフレクターが反射に凝縮するきっかけとなる観察ログ トークン。                                |
+| `AGENT_NATIVE_OM_RECENT_RAW_MESSAGE_COUNT`    | `12`       | 最新のメッセージのうち、そのままのメッセージがいくつあるか (観測値に組み込まれていない)。    |
+
+オブザーバーとリフレクターの出力上限 (4000 / 2000 トークン) は、それ自体による単一の圧縮パスが予算を超過するのを防ぎます。 `resolveObservationalMemoryConfig({ ... })` を介してコード内で調整できますが、環境公開はできません。
+
+> [!TIP]
+> しきい値を下げて、より早く圧縮します (長いスレッドが安くなり、要約が少し多くなります)。圧縮する前にコンテキスト内でより多くの生の履歴を保持するためにそれらを上げます。ワークフローでより長い逐語的末尾が必要な場合は、`AGENT_NATIVE_OM_RECENT_RAW_MESSAGE_COUNT` を高く設定します。
+
+## それが始まるとき {#when}
+
+OM は、少なくとも 1 つの観測または反映が生成されるのに十分な期間、スレッドの動作を変更するだけです。具体的には:
+
+- 真新しい、または短いスレッド: OM エントリがまだありません → コンテキストは変更されていない単純なトランスクリプトです。
+- 監視しきい値を超えた長いスレッド: 古いプレフィックスは圧縮された `[Observational Memory]` ブロックに置き換えられ、最近の未加工の末尾はそのまま残り、トークンの使用量は大幅に減少します。
+
+注入はベストエフォートかつ境界安全です。安全なトリム ポイントが見つからない場合 (保留中のツール使用/結果のペアがウィンドウの端にある場合など)、OM は保留中のツール結果をドロップするリスクを冒すのではなく、トリミングせずにメモリ ブロックを*追加的に*注入します。
+
+## 関連
+
+- [**Using Your Agent**](/docs/using-your-agent) — アプリの隣にドッキングされているエージェントを操作する日常的なループ。
+- [**Observability**](/docs/observability) — OM の節約が示される、実行ごとのトークンとコストのメトリクス。
+- [**Custom Agents & Teams**](/docs/agent-teams) — 長時間のサブエージェント実行は、同じ圧縮の恩恵を受けます。

@@ -12,9 +12,10 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { readBody } from "../server/h3-helpers.js";
-import { getSession } from "../server/auth.js";
+
 import { getOrgContext } from "../org/context.js";
+import { getSession } from "../server/auth.js";
+import { readBody } from "../server/h3-helpers.js";
 
 /**
  * Workspace-scoped secret writes/deletes are deployment-wide for every

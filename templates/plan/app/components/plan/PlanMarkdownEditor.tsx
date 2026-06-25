@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useRef } from "react";
 import {
   RichMarkdownEditor,
   useCollaborativeDoc,
@@ -9,7 +8,10 @@ import {
   type RichMarkdownCollabUser,
   type CollabUser,
 } from "@agent-native/core/client";
+import { useCallback, useEffect, useRef } from "react";
+
 import { cn } from "@/lib/utils";
+
 import { PlanImageNode } from "./PlanImageNode";
 
 // Plans get the shared block-level image node: the `/image` slash command, plus

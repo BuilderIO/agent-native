@@ -1,0 +1,402 @@
+---
+title: "Contenido"
+description: "Obsidian de código abierto para MDX: edite archivos locales Markdown/MDX, genere bloques personalizados interactivos enriquecidos y escriba con un agente de IA."
+---
+
+# Contenido
+
+El contenido es Obsidian de código abierto para MDX: un documento compatible con archivos locales
+espacio de trabajo donde el agente puede leer, escribir, reorganizar y publicar páginas para
+tú. Abra un documento, solicite "reescribir este párrafo para que sea más conciso" o "crear un
+página llamada Planificación del cuarto trimestre con subpáginas para objetivos, métricas y riesgos" - igual
+resultado ya sea que lo hagas tú mismo o lo pidas.
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Hoja de ruta del T3</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>Wiki de ingeniería</span><span class='wf-pill'>Lista de lectura</span><span class='wf-pill'>Sincronización semanal</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Hoja de ruta del T3</h1><div style='flex:1'></div><button>Compartir</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>Objetivos de lanzamiento</h2><p style='margin:0'>Enviar el flujo de onboarding, reducir el tiempo de configuración y documentar traspasos de propietario.</p><div class='wf-box'>De un vistazo · propietario, ventana, estado</div><div class='wf-box'>Objetivos principales</div><div class='wf-box'>Tabla de líneas de trabajo</div></div></main></div>"
+}
+```
+
+Cuando abras la aplicación, verás un árbol de páginas al lado del editor. El agente siempre sabe qué página está viendo y qué texto ha seleccionado, por lo que las ediciones del documento pueden permanecer basadas en la página actual.
+
+```an-diagram title="Un documento, muchos editores" summary="Tanto usted como el agente escriben a través del mismo canal Yjs. SQL es la tienda canónica; Los archivos locales y Notion son superficies de sincronización opcionales."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Tú escribes<br><small class=\"diagram-muted\">menú slash, barra de herramientas</small></div><div class=\"diagram-node\">Ediciones del agente<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">en vivo, fusión sin conflictos</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">almacén SQL canónico</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Archivos locales .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Páginas de Notion<br><small class=\"diagram-muted\">traer · enviar</small></div></div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## Qué puedes hacer con él
+
+- **Escriba texto enriquecido** con encabezados, listas, tablas, bloques de código, imágenes y enlaces. Los comandos de barra diagonal (`/`) insertan bloques; Al seleccionar texto aparece una barra de herramientas de formato.
+- **Organiza las páginas en un árbol**: anida infinitamente, arrastra para reordenar, páginas favoritas que usas con frecuencia.
+- **Busca en todo** con búsqueda de texto completo en títulos y contenido.
+- **Edite archivos locales Markdown/MDX como Obsidian.** Utilice la vista `/local-files`
+  para exportar su espacio de trabajo a archivos, edítelos en sus propias herramientas, obtenga una vista previa
+  cambios e importarlos nuevamente. En el modo de archivo local, el contenido se escribe directamente en
+  el archivo `.md` o `.mdx` seleccionado.
+- **Genere bloques personalizados interactivos enriquecidos.** Registre componentes React locales,
+  insértelos como MDX y permita que el agente cree o actualice archivos de componentes para
+  tus documentos.
+- **Sincronizar con Notion.** Vincula un documento local a una página de Notion y extrae o envía contenido en cualquier dirección. Los comentarios también se sincronizan en ambos sentidos.
+- **Colabora en tiempo real.** Varias personas (y el agente) pueden editar el mismo documento al mismo tiempo.
+- **Comparte documentos** con compañeros de equipo o hazlos públicos (privados de forma predeterminada, con funciones de espectador/editor/administrador).
+- **Pídele cualquier cosa al agente**: "Vuelve a escribir este párrafo". "Agregue un TL;DR en la parte superior". "Encuentra todas mis notas de reuniones de la semana pasada". "Haz que este tono sea más formal".
+
+## Empezando
+
+Demostración en vivo: [content.agent-native.com](https://content.agent-native.com).
+
+Cuando abras la aplicación, haz clic en **+ Nueva página** en la barra lateral, dale un título y comienza a escribir. Para utilizar el agente, escriba en la barra lateral:
+
+- "Cree una página llamada Incorporación y agregue tres subpáginas debajo de ella."
+- "Vuelva a escribir este párrafo para que sea más conciso". (con una página abierta)
+- "Agregue una sección sobre precios con tres viñetas".
+- "Resume este documento en un TL;DR en la parte superior."
+- "Obtenga lo último de Notion". (después de vincular una página Notion)
+
+Seleccione el texto y presione Cmd+I para enfocar al agente con esa selección precargada; "hacer esto más impactante" luego opera exactamente en lo que resaltó.
+
+## Archivos locales Markdown/MDX {#local-files}
+
+El contenido puede enviar documentos de ida y vuelta a través de archivos locales sin clonarlos ni ejecutarlos
+la aplicación Contenido localmente. Parece Obsidian para MDX: los archivos permanecen inspeccionables
+y editable, mientras que la aplicación te ofrece un editor enriquecido, agente actions, uso compartido y
+bloques personalizados. Abra `/local-files`, elija una carpeta en su navegador o Agente
+Native Desktop y exporte el árbol de documentos actual como Markdown/MDX en
+`content/`.
+
+Cada archivo exportado contiene información preliminar para los metadatos del documento (`id`, `title`,
+`parentId`, `position`, indicadores de favoritos/búsqueda/visibilidad y `updatedAt`) más
+el cuerpo del documento como Markdown. Puedes editar esos archivos en tu editor normal,
+luego regrese a `/local-files` para obtener una vista previa e importar los cambios nuevamente al Contenido.
+
+Este flujo de trabajo es útil cuando desea contenido en control de fuente, desea realizar lotes
+edite documentos con herramientas locales o desee una ruta sin clonación para equipos que prefieran archivos
+como superficie de revisión. La aplicación alojada sigue siendo la fuente de verdad para compartir,
+comentarios, permisos y colaboración en vivo; la carpeta local es explícita
+superficie de sincronización.
+
+El contenido también se puede ejecutar en **Modo de archivo local**, donde los archivos son la fuente de
+verdad en lugar de documentos SQL. Agregue `agent-native.json` a un repositorio, configure
+`mode: "local-files"` y configurar raíces como `docs/`, `blog/`,
+`content/` y `resources/`. Luego, el editor de contenido estándar completa su
+barra lateral izquierda de esos archivos locales `.md`/`.mdx` y escribe las ediciones en el
+archivo seleccionado a través del documento normal actions. Utilice esto para documentos de repositorio primero,
+blogs, bibliotecas de recursos o contenido personal estilo Obsidian con tecnología MDX
+componentes; volver al modo de base de datos cuando desee colaboración alojada y
+Compartición respaldada por SQL. Consulte [Local File Mode](/docs/local-file-mode) para
+diseño de repositorio independiente, configuración, componentes personalizados MDX, local
+Widgets `extensions/` y guía de seguridad de producción.
+
+Para instalar la habilidad de archivos locales de contenido en un repositorio existente:
+
+```bash
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+```
+
+El instalador copia la habilidad `content` para su agente de codificación y escribe o
+actualiza `agent-native.json` con raíces de contenido para `docs/`, `blog/`, `content/`,
+y `resources/`. Cuando una aplicación de contenido local, Agent Native Desktop o de confianza
+El puente local se está ejecutando, los agentes deben usar Contenido actions como
+`list-documents`, `get-document`, `edit-document`, `update-document` y
+`share-local-file-document` en lugar de escrituras en el sistema de archivos sin formato. Sin ese local
+puente, la habilidad instalada aún le otorga al agente el contrato de edición de repositorio para
+ediciones seguras de Markdown/MDX.
+
+## Para desarrolladores
+
+El resto de este documento es para cualquiera que bifurque la plantilla de contenido o la amplíe.
+
+### Inicio rápido
+
+Crea un nuevo espacio de trabajo con la plantilla Contenido:
+
+```bash
+npx @agent-native/core@latest create my-workspace --standalone --template content
+cd my-workspace
+pnpm install
+pnpm dev
+```
+
+Abre `http://localhost:8083` y crea tu primera página. Luego pídale al agente que "cree una página llamada Incorporación y agregue tres subpáginas debajo de ella".
+
+### Características clave {#key-features}
+
+**Páginas anidadas.** Los documentos forman un árbol que se puede arrastrar con favoritos, íconos, ordenamiento y uso compartido a nivel de página.
+
+**Editor Rich MDX.** Tiptap potencia encabezados, listas, tablas, bloques de código, imágenes, enlaces, comandos de barra diagonal, barras de herramientas de selección y componentes locales de React.
+
+**Colaboración en vivo.** Yjs mantiene sincronizados varios editores y ediciones de agentes sin molestarse entre sí.
+
+**Búsqueda y comentarios.** La búsqueda de texto completo, los comentarios anclados, el historial de versiones y los flujos de restauración están integrados en la superficie del documento.
+
+**Sincronizar superficies.** Los documentos se pueden sincronizar con Notion o carpetas locales Markdown/MDX, con SQL actuando como capa de historial/caché colaborativo.
+
+### Sincronización de archivos locales
+
+La ruta protegida `/local-files` utiliza el acceso al sistema de archivos API del navegador, o un
+Puente de carpetas nativas protegidas dentro del escritorio Agent Native, para lectura y escritura
+Archivos Markdown/MDX de una carpeta elegida por el usuario. Después de vincular la carpeta y
+importado, el archivo seleccionado se trata como la autoridad: al abrir la página se lee
+el archivo, y el editor normal lo guarda, escribe el archivo primero. Luego, SQL se actualiza como
+capa de caché/historial para el documento existente UI, panel de búsqueda y versión, no
+como fuente de verdad. El menú de la página superior derecha muestra la ruta de origen local:
+La ruta relativa siempre está disponible, la ruta absoluta está disponible en el archivo local verdadero
+modo y Agent Native Escritorio, y Revelar en Finder está disponible a través del
+modo puente de escritorio o archivo local respaldado por servidor.
+
+La ruta de sincronización masiva llama:
+
+- `export-content-source`: lee el árbol de documentos accesible y devuelve un
+  paquete de archivos determinista `content/`.
+- `import-content-source`: valida archivos, crea nuevos documentos privados
+  actualiza documentos donde la persona que llama tiene acceso de editor y conserva la versión
+  historial y rechaza los ciclos principales no válidos.
+
+El formato fuente se encuentra en `shared/content-source.ts`. Mantenga ese archivo como
+contrato único para nombres de archivos, frontmatter, análisis y serialización.
+
+Los espacios de trabajo de archivos locales también pueden proporcionar componentes React de repositorio local a través de
+carpeta `components` configurada. El servidor de desarrollo de contenido importa PascalCase
+exporta desde esos archivos y genera etiquetas MDX coincidentes, como `<ImpactCounter />`
+dentro del editor y los expone en el menú diagonal debajo de Componentes locales.
+Esta es la capa "Obsidiana para MDX": los bloques MDX personalizados permanecen locales en el
+espacio de trabajo, pero el editor puede renderizarlos y el agente puede generarlos o actualizarlos
+su fuente sin clonar la aplicación Contenido. Un componente mínimo del espacio de trabajo puede
+ser:
+
+```tsx
+// components/ImpactCounter.tsx
+import { useState } from "react";
+
+export function ImpactCounter({
+  label = "points",
+  start = 3,
+}: {
+  label?: string;
+  start?: number;
+}) {
+  const [count, setCount] = useState(start);
+  return (
+    <button type="button" onClick={() => setCount(count + 1)}>
+      Impact: {count} {label}
+    </button>
+  );
+}
+
+export const ImpactCounterInputs = {
+  label: { type: "string", label: "Label", default: "points" },
+  start: { type: "number", label: "Starting count", default: 3 },
+};
+```
+
+Úselo en MDX local como `<ImpactCounter />`, o insértelo desde la barra diagonal del editor
+menú en Componentes locales. Cuando se exportan los metadatos de entrada, seleccionando el
+El componente en el editor muestra un botón de edición en la esquina que reescribe los accesorios MDX
+en el archivo local.
+
+El selector de **Archivos locales** del navegador puede leer y escribir archivos `.md` y `.mdx` en
+Las vistas previas del componente React, propias pero ejecutables, requieren un compilador local. Ejecutar
+Contenido local o use Agent Native Desktop para que la ruta del espacio de trabajo seleccionado pueda
+estar registrado en el servidor de desarrollo de contenido local. Vite luego importa
+`components/*.tsx`, recarga en caliente ediciones de archivos de componentes existentes y recargas
+el registro de componentes cuando se agregan o eliminan archivos. Los agentes pueden utilizar
+`list-local-component-files` y `write-local-component-file` para inspeccionar o
+Actualice los archivos de componentes registrados mientras el editor actualiza desde la misma fuente.
+
+### Comentarios
+
+Comentarios encadenados en documentos con anclajes de texto entre comillas, respuestas y estado de resolución. Respaldado por la mesa `document_comments` y `app/components/editor/CommentsSidebar.tsx`. Actions: `list-comments`, `add-comment`. Los comentarios de Notion se pueden sincronizar en ambos sentidos a través de `sync-notion-comments`.
+
+### Historial de versiones
+
+Cada actualización importante captura una fila en la tabla `document_versions`. El UI los presenta en `app/components/editor/VersionHistoryPanel.tsx`.
+
+### Compartir y visibilidad
+
+Los documentos son privados de forma predeterminada. Puede cambiar la visibilidad a `org` o `public`, o otorgar roles por usuario y por organización (`viewer`, `editor`, `admin`). El actions para compartir montado automáticamente del marco funciona de inmediato:
+
+- `share-resource --resourceType document --resourceId <id> --principalType user --principalId <email> --role editor`
+- `unshare-resource` / `list-resource-shares` / `set-resource-visibility`
+
+Ver la habilidad `sharing`.
+
+### Equipos
+
+Una página de equipo dedicada en `/team` (ver `app/routes/_app.team.tsx`) utiliza el componente `TeamPage` del marco para crear organizaciones y administrar miembros.
+
+### Trabajar con el agente
+
+Debido a que el agente ve su pantalla actual, la mayoría de las indicaciones no necesitan que haga referencia explícita a un documento. Cuando tienes una página abierta, "esta" significa esa página.
+
+Para ediciones pequeñas, el agente usa `edit-document --find ... --replace ...`, por lo que solo el texto modificado fluye a través de Yjs; verá la diferencia aplicada en su lugar en lugar de volver a renderizar toda la página. Para reescrituras más grandes utiliza `update-document --content ...`.
+
+Si selecciona texto y presiona Cmd+I (o enfoca el panel del agente), la selección viaja con su siguiente mensaje como contexto, por lo que "hacer esto más impactante" opera exactamente en lo que resaltó.
+
+### Bases de datos y propiedades
+
+Los documentos pueden alojar bases de datos en línea: tablas estilo Notion donde cada fila es en sí misma un documento. El agente puede crear bases de datos, agregar elementos, configurar definiciones de columnas y establecer valores de propiedades a través de actions: `create-content-database`, `add-database-item`, `set-document-property`. Las definiciones de propiedad (tipo, visibilidad, opciones, posición) se encuentran en `document_property_definitions`; los valores por fila se encuentran en `document_property_values`.
+
+### actions adicional
+
+Más allá de la superficie CRUD en el modelo de datos, la plantilla incluye `export-document` para convertir una página a Markdown o HTML, `transcribe-media` para adjuntar una transcripción a una página y `restore-document-version` para retroceder a una instantánea anterior.
+
+### Modelo de datos
+
+Nueve tablas, todas definidas en `server/db/schema.ts`:
+
+- **`documents`**: el árbol de páginas. Columnas: `id`, `parent_id`, `title`, `content` (rebaja), `icon`, `position`, `is_favorite`, `visibility`, `owner_email`, `org_id`, `created_at`, `updated_at`.
+- **`document_versions`**: instantáneas completas del título y el contenido para el historial de versiones. Retroceda con `restore-document-version`.
+- **`document_comments`**: comentarios en cadena con `thread_id`, `parent_id`, `quoted_text`, `resolved` y un `notion_comment_id` opcional para sincronización bidireccional de Notion.
+- **`document_sync_links`**: una fila por documento vinculado a Notion que rastrea el ID de página remota, las horas de la última sincronización, el estado del conflicto, el hash de contenido y los errores.
+- **`document_property_definitions`**: definiciones de columnas para bases de datos en línea: nombre, tipo, visibilidad, opciones y posición.
+- **`content_databases`**: objetos de base de datos en línea adjuntos a un `document_id` con un título y una configuración de vista JSON.
+- **`content_database_items`**: filas en una base de datos en línea, cada una de las cuales vincula un `database_id` a un `document_id`.
+- **`document_property_values`**: valores de propiedad por documento (`property_id` → `value_json`).
+- **`document_shares`**: subvenciones por usuario y por organización creadas a través de `createSharesTable`.
+
+```an-schema title="Modelo de datos Content" summary="Nueve tablas en server/db/schema.ts. documents es el árbol de páginas; las demás cuelgan de él para versiones, comentarios, sincronización con Notion, bases de datos inline y uso compartido."
+{
+  "entities": [
+    {
+      "id": "documents",
+      "name": "documents",
+      "note": "The page tree (ownable, markdown body)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "parent_id", "type": "id", "fk": "documents.id", "nullable": true, "note": "infinite nesting" },
+        { "name": "title", "type": "string" },
+        { "name": "content", "type": "markdown" },
+        { "name": "icon", "type": "string", "nullable": true },
+        { "name": "position", "type": "int", "note": "sibling ordering" },
+        { "name": "is_favorite", "type": "bool" },
+        { "name": "visibility", "type": "enum", "note": "privado | organización | público" },
+        { "name": "owner_email", "type": "string" },
+        { "name": "org_id", "type": "id", "nullable": true }
+      ]
+    },
+    {
+      "id": "document_versions",
+      "name": "document_versions",
+      "note": "Instantáneas completas de title/content para el historial de versiones",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "title", "type": "string" },
+        { "name": "content", "type": "markdown" }
+      ]
+    },
+    {
+      "id": "document_comments",
+      "name": "document_comments",
+      "note": "Comentarios encadenados con anclajes de texto entre comillas",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "thread_id", "type": "id" },
+        { "name": "parent_id", "type": "id", "fk": "document_comments.id", "nullable": true },
+        { "name": "quoted_text", "type": "string", "nullable": true },
+        { "name": "resolved", "type": "bool" },
+        { "name": "notion_comment_id", "type": "string", "nullable": true, "note": "sincronización bidireccional de Notion" }
+      ]
+    },
+    {
+      "id": "document_sync_links",
+      "name": "document_sync_links",
+      "note": "Una fila por documento vinculado a Notion",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "notion_page_id", "type": "string" },
+        { "name": "conflict", "type": "bool" },
+        { "name": "content_hash", "type": "string" }
+      ]
+    },
+    {
+      "id": "content_databases",
+      "name": "content_databases",
+      "note": "Objetos de base de datos en línea adjuntos a un documento",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "title", "type": "string" },
+        { "name": "view_config", "type": "json" }
+      ]
+    },
+    {
+      "id": "content_database_items",
+      "name": "content_database_items",
+      "note": "Rows in an inline database (each row is a document)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "database_id", "type": "id", "fk": "content_databases.id" },
+        { "name": "document_id", "type": "id", "fk": "documents.id" }
+      ]
+    },
+    {
+      "id": "document_property_definitions",
+      "name": "document_property_definitions",
+      "note": "Definiciones de columnas para bases de datos en línea",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "name", "type": "string" },
+        { "name": "type", "type": "string" },
+        { "name": "options", "type": "json", "nullable": true },
+        { "name": "position", "type": "int" }
+      ]
+    },
+    {
+      "id": "document_property_values",
+      "name": "document_property_values",
+      "note": "Valores de propiedad por documento",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "property_id", "type": "id", "fk": "document_property_definitions.id" },
+        { "name": "value_json", "type": "json" }
+      ]
+    },
+    {
+      "id": "document_shares",
+      "name": "document_shares",
+      "note": "Per-user and per-org grants (createSharesTable)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "principal", "type": "string" },
+        { "name": "role", "type": "enum", "note": "visor | redactor | administración" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "documents", "to": "documents", "kind": "1-n", "label": "has children" },
+    { "from": "documents", "to": "document_versions", "kind": "1-n", "label": "has snapshots" },
+    { "from": "documents", "to": "document_comments", "kind": "1-n", "label": "has comments" },
+    { "from": "documents", "to": "document_sync_links", "kind": "1-1", "label": "enlaces a Notion" },
+    { "from": "documents", "to": "content_databases", "kind": "1-n", "label": "hosts databases" },
+    { "from": "content_databases", "to": "content_database_items", "kind": "1-n", "label": "has rows" },
+    { "from": "document_property_definitions", "to": "document_property_values", "kind": "1-n", "label": "has values" },
+    { "from": "documents", "to": "document_shares", "kind": "1-n", "label": "has share grants" }
+  ]
+}
+```
+
+El contenido se almacena como descuento. El editor convierte hacia y desde el modelo Tiptap JSON en la memoria; la fila SQL siempre está rebajada, por lo que actions, la búsqueda y la sincronización de Notion pueden operar en un único formato canónico.
+
+Todas las tablas de propiedad incluyen `owner_email` y `org_id` a través de `ownableColumns()`, por lo que cada fila tiene como alcance el usuario que inició sesión (y opcionalmente su organización activa) desde el momento en que se crea.
+
+### Personalizarlo
+
+Los cuatro lugares donde buscar al cambiar de comportamiento:
+
+- **`actions/`**: todas las operaciones que el agente o UI pueden realizar. Agregue un nuevo archivo como `actions/publish-to-wordpress.ts` usando `defineAction` y ambas partes lo obtendrán gratis. Clave existente actions: `create-document.ts`, `edit-document.ts`, `update-document.ts`, `delete-document.ts`, `list-documents.ts`, `search-documents.ts`, `get-document.ts`, `pull-notion-page.ts`, `push-notion-page.ts`, `add-comment.ts`, `view-screen.ts`, `navigate.ts`.
+- **`app/routes/`**: la superficie de la página. `_app.tsx` es el diseño sin rutas que mantiene montados la barra lateral y el panel del agente; `_app._index.tsx` es la vista del rellano; `_app.page.$id.tsx` es la ruta del editor; `_app.team.tsx` es la página de configuración del equipo.
+- **`app/components/editor/`**: el editor Tiptap. Agregue un nuevo tipo de nodo en `extensions/` y regístrelo en `DocumentEditor.tsx`. La barra de herramientas de burbujas, el menú diagonal y las vistas previas al pasar el cursor son todos archivos componentes que puedes editar.
+- **`.agents/skills/`**: guía que el agente lee antes de actuar. Si agrega una nueva capacidad (por ejemplo, una canalización de publicación CMS), coloque un `SKILL.md` en una nueva carpeta de habilidades para que el agente lo use correctamente. skills existente: `document-editing`, `notion-integration`, `real-time-sync`, `delegate-to-agent`, `storing-data`, `self-modifying-code`, `security`, `frontend-design`, `create-skill`, `capture-learnings`.
+- **`AGENTS.md`**: la guía del agente de nivel superior con la hoja de referencia de acciones y la tabla de tareas comunes. Actualízalo cada vez que agregues una característica importante para que el agente la descubra sin explorar.
+- **`server/db/schema.ts`**: modelo de datos. Agregue una columna o tabla aquí. La plantilla de Contenido no tiene script `db:push`; se basa en migraciones estrictamente aditivas que se ejecutan al inicio. Edite `server/db/schema.ts`, escriba una migración aditiva coincidente y el cambio se aplicará la próxima vez que se inicie la aplicación; las actualizaciones de esquema nunca deben eliminar, cambiar el nombre ni alterar de manera destructiva las tablas o columnas existentes (consulte [Database](/docs/database#migrations) para obtener pautas).
+- **`shared/notion-markdown.ts`**: conversión de rebajas a bloques Notion. Amplíe esto si agrega nuevos tipos de bloques que necesitan circular a través de Notion.
+
+El agente puede realizar todos estos cambios por sí mismo: pídale que "agregue una columna de etiquetas a los documentos y la exponga en la barra lateral" y actualizará el esquema, migrará, conectará el UI y escribirá la acción.

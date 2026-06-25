@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
 import sharp from "sharp";
+import { describe, expect, it } from "vitest";
+
 import {
   compositeLogo,
   extractDominantColors,

@@ -1,0 +1,397 @@
+---
+title: "एजेंट सतह"
+description: "Agent-Native का उपयोग बिना सोचे-समझे, रिच चैट के रूप में, किसी मौजूदा ऐप के अंदर, या पूर्ण एजेंट-नेटिव एप्लिकेशन के रूप में करें।"
+search: "हेडलेस एजेंट रिच चैट पूर्ण ऐप BYO एजेंट रनटाइम एजेंटचैटरनटाइम एम्बेड actions MCP A2A HTTP CLI"
+---
+
+# एजेंट सतहें
+
+Agent-Native जानबूझकर रचना योग्य है। आप एजेंट का उपयोग बहुत अधिक UI के बिना कर सकते हैं,
+अंतर्निहित एजेंट रनटाइम के बिना UI का उपयोग करें, या दोनों को पूर्ण रूप में एक साथ उपयोग करें
+आवेदन.
+
+चुनने का उपयोगी तरीका पहले प्रोटोकॉल नहीं है। उत्पाद की सतह चुनें
+आप चाहें, तो मेल खाने वाले प्रिमिटिव का उपयोग करें।
+
+| सतह                          | इसका उपयोग तब करें जब                                                                                     | से प्रारंभ करें                                                                             |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **नेतृत्वहीन एजेंट**         | कोड, जॉब, स्क्रिप्ट, अन्य ऐप, या किसी अन्य एजेंट को कार्य को सीधे कॉल करना चाहिए।                         | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
+| **Agent-Native पर रिच चैट**  | आप अंतर्निहित एजेंट लूप द्वारा समर्थित एक स्टैंडअलोन या एम्बेडेड चैट चाहते हैं।                           | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
+| **आपके एजेंट पर समृद्ध चैट** | आपने एजेंट कहीं और बनाया है और Agent-Native का कंपोजर, ट्रांसक्रिप्ट, टूल कार्ड और नेटिव विजेट चाहते हैं। | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
+| **एंबेडेड साइडकार**          | आपके पास पहले से ही एक SaaS ऐप है और आप उसके पास पेज संदर्भ और होस्ट कमांड के साथ एक एजेंट चाहते हैं।     | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
+| **पूर्ण आवेदन**              | मनुष्यों और एजेंटों को टिकाऊ स्क्रीन, डेटा, नेविगेशन और सहयोग साझा करना चाहिए।                            | टेम्पलेट्स, actions, SQL स्थिति, संदर्भ जागरूकता                                            |
+
+वे चरण हैं, अलग-अलग उत्पाद नहीं। एक वर्कफ़्लो बिना नेतृत्व
+एक कार्रवाई के साथ एजेंट, चैट में एक तालिका या चार्ट के रूप में दिखाई देता है, और बाद में एक बन जाता है
+एजेंट द्वारा कॉल किए जाने वाले ऑपरेशन को बदले बिना किसी ऐप में पूर्ण स्क्रीन।
+
+```an-diagram title="सतह स्पेक्ट्रम" summary="एक क्रिया सतह, चार उत्पाद आकार - प्रत्येक नीचे के ऑपरेशन को बदले बिना यूआई जोड़ता है।"
+{
+  "html": "<div class=\"diagram-spectrum\"><div class=\"diagram-card\"><strong>Headless</strong><small class=\"diagram-muted\">actions, jobs, scripts, दूसरे agents</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>rich chat</strong><small class=\"diagram-muted\">कंपोजर, ट्रांसक्रिप्ट, टूल कार्ड</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>embedded sidecar</strong><small class=\"diagram-muted\">agent beside an existing app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">अधिकांश UI</span><strong>पूर्ण application</strong><small class=\"diagram-muted\">स्थायी स्क्रीन, डेटा, सहयोग</small></div></div><div class=\"diagram-base\" data-rough><span class=\"diagram-muted\">वही actions · वही SQL · वही एजेंट लूप</span></div>",
+  "css": ".diagram-spectrum{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-spectrum .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px;flex:1}.diagram-spectrum .diagram-arrow{align-self:center;font-size:22px;line-height:1}.diagram-base{margin-top:12px;padding:10px 14px;text-align:center}"
+}
+```
+
+## नेतृत्वहीन एजेंट {#headless}
+
+जब किसी को कस्टम ऐप स्क्रीन को घूरने की आवश्यकता न हो तो हेडलेस पथ का उपयोग करें
+कार्य चलता है: निर्धारित कार्य, एकीकरण, बैकएंड वर्कफ़्लो, CLI लूप,
+कोई अन्य एजेंट, या कोई मौजूदा उत्पाद जो Agent-Native पर कॉल कर रहा है।
+
+जब **एजेंट *उत्पाद*है** - तब तक पहुंचने के लिए यह आकार भी है -
+ऐप-एजेंट लूप सामने का दरवाजा है, डैशबोर्ड नहीं। आप
+टर्मिनल, Slack, ईमेल, एक निर्धारित नौकरी, अन्य एजेंट, या चैट - "मेरा सारांश प्रस्तुत करें
+अपठित ईमेल," "दैनिक मेट्रिक्स को Slack पर पोस्ट करें," "उन उम्मीदवारों को ढूंढें जो
+पिछले सप्ताह उत्तर दिया गया" - और एजेंट कार्य करता है और जहां कहीं भी परिणाम देता है
+के अंतर्गत आता है। यह अभी भी एक वास्तविक ऐप है, कोई स्टेटलेस प्रॉम्प्ट नहीं: actions, प्रमाणीकरण सत्र,
+ऐप स्थिति, थ्रेड/रन इतिहास, सेटिंग्स, क्रेडेंशियल और शेयर रिकॉर्ड सभी लाइव
+SQL में।
+
+यह पैटर्न तब चुनें जब:
+
+- **कार्य पृष्ठभूमि में होता है।** अधिकांश मान तब निर्मित होता है जब उपयोगकर्ता नहीं देख रहा होता है - ट्राइएज एजेंट, दैनिक-रिपोर्ट एजेंट, ऑन-कॉल उत्तरदाता।
+- **आउटपुट ऐप छोड़ देता है।** एजेंट Slack पर पोस्ट करता है, ईमेल भेजता है, या तीसरे पक्ष के सिस्टम को अपडेट करता है; ऐप में ब्राउज़ करने के लिए कुछ भी नहीं है।
+- **डोमेन एक-शॉट है।** अनुसंधान बॉट, सारांश जनरेटर, रिपोर्ट लेखक - कोई स्थायी वस्तु नहीं है जिसके लिए सूची दृश्य की आवश्यकता हो।
+- **आप प्रोटोटाइप कर रहे हैं।** एजेंट को अभी भेजें; यदि उपयोगकर्ता चाहें तो बाद में अधिक समृद्ध UI जोड़ें।
+
+यदि आपका उत्पाद उपयोगकर्ताओं द्वारा ब्राउज़, पिवोट और लगातार उपयोग की जाने वाली वस्तुओं के आधार पर बनाया गया है
+साझा करें - ईमेल, ईवेंट, दस्तावेज़, चार्ट - एक [full application](#full-application) चुनें
+या इसके बजाय एक [template](/docs/cloneable-saas); वे एक पूर्ण UI _प्लस_ एजेंट जोड़ते हैं।
+
+### बॉक्स में क्या भेजा जाता है {#in-the-box}
+
+एक हेडलेस ऐप कई हफ्तों तक डैशबोर्ड पर काम नहीं करता है, और यह दिन से चैनल-अज्ञेयवादी हो जाता है
+एक - एक ही एजेंट वेब, Slack, टेलीग्राम, ईमेल और अन्य एजेंटों से चलता है
+क्योंकि सब कुछ एजेंट के माध्यम से जाता है, UI के माध्यम से नहीं। समझौता वहीं है
+कोई "हर चीज़-एक-नज़र में ब्राउज़ करें" दृश्य नहीं; यदि उपयोगकर्ताओं को इसकी आवश्यकता है, तो पैटर्न मिलाएं और
+एक छोटा स्थिति पृष्ठ या सूची दृश्य जोड़ें।
+
+जब आप अंतर्निहित चैट शेल जोड़ते हैं, तो फ्रेमवर्क पांच प्रबंधन प्रदान करता है
+ऐसी सतहें जिन्हें आपको बनाने की ज़रूरत नहीं है: **चैट** (मुख्य इनपुट), **कार्यस्थान**
+(skills, मेमोरी, निर्देश, उप-एजेंट, कनेक्टेड MCP सर्वर, शेड्यूल किया गया
+नौकरियाँ), **कार्य इतिहास**, **थ्रेड इतिहास**, और **सेटिंग्स**। वे आमतौर पर
+पर्याप्त - उससे बात करें, देखें कि उसने क्या किया है, कॉन्फ़िगर करें कि वह कैसा व्यवहार करता है। के लिए पहुंचें
+[Chat](/docs/template-chat) जब आप उस ब्राउज़र को जोड़ने के लिए तैयार हों UI, या
+कार्यस्थान-शैली की शुरुआत के लिए [Dispatch template](/docs/template-dispatch)
+Slack/टेलीग्राम, निर्धारित नौकरियों और बॉक्स से बाहर साझा रहस्यों के साथ बिंदु।
+
+सबसे छोटा स्थानीय पथ एक हेडलेस एजेंट मचान और एक क्रिया है:
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+cd my-agent
+pnpm install
+```
+
+फिर टिकाऊ संचालन को परिभाषित करें:
+
+```ts
+// actions/summarize-week.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Summarize this week's submissions.",
+  readOnly: true,
+  schema: z.object({ formId: z.string() }),
+  run: async ({ formId }) => {
+    return { formId, summary: "34 submissions, up 18% from last week." };
+  },
+});
+```
+
+तब एक क्रिया को इस प्रकार कॉल किया जा सकता है:
+
+- **HTTP** — `POST /_agent-native/actions/summarize-week`
+- **CLI** — `pnpm action summarize-week --formId form_123`
+- **ऐप-एजेंट CLI** — `pnpm agent "Summarize form_123"`
+- **MCP** - Claude, ChatGPT, Codex, कर्सर, ओपनकोड, कोपायलट और अन्य MCP होस्ट से
+- **A2A** - किसी अन्य एजेंट-मूल ऐप या एजेंट सहकर्मी से
+- **UI** — `useActionQuery`, `useActionMutation`, या `callAction` के माध्यम से
+- **एजेंट टूल** - अंतर्निहित चैट लूप से
+
+```an-api title="HTTP पर एक कार्रवाई कॉल करना"
+{
+  "method": "POST",
+  "path": "/_agent-native/actions/summarize-week",
+  "summary": "HTTP पर नाम से कोई भी कार्रवाई शुरू करें",
+  "description": "Every `defineAction` is auto-mounted at `/_agent-native/actions/<name>`. The JSON body is validated against the action's zod schema before `run` executes.",
+  "request": {
+    "contentType": "application/json",
+    "example": "{ \"formId\": \"form_123\" }"
+  },
+  "responses": [
+    { "status": "200", "description": "The action's return value as JSON", "example": "{ \"formId\": \"form_123\", \"summary\": \"34 submissions, up 18% from last week.\" }" },
+    { "status": "400", "description": "Input failed schema validation" }
+  ]
+}
+```
+
+यह नो-डेटाबेस या स्टेटलेस मोड नहीं है। ऐप-एजेंट लूप सत्र संग्रहीत करता है,
+थ्रेड्स, रन, सेटिंग्स, क्रेडेंशियल्स, एप्लिकेशन स्थिति और शेयर रिकॉर्ड
+SQL. स्थानीय विकास SQLite पर डिफ़ॉल्ट होता है; होस्ट किए गए हेडलेस ऐप्स को a
+लगातार SQL डेटाबेस।
+
+यदि आपको प्रोजेक्ट फ़ोल्डर से संपूर्ण एजेंट लूप को बिना किसी प्रयास के चाहिए, तो इसका उपयोग करें:
+
+```bash
+pnpm agent "Summarize this week's forms."
+```
+
+यदि किसी अन्य ऐप या स्क्रिप्ट को पूरे एजेंट को कॉल करने की आवश्यकता है, तो इसका उपयोग करें
+`agentNative.invoke("analytics", "...")` या `agent-native invoke` CLI। वह
+क्रॉस-ऐप कार्य को A2A पथ पर रखता है जबकि स्थानीय कार्य actions पर रहता है।
+
+कर्मचारी, नौकरियां, एकीकरण webhooks और कस्टम होस्ट एजेंट लूप चला सकते हैं
+सीधे सर्वर API के माध्यम से। यह actions से निम्न-स्तर है - आप प्रदान करते हैं
+इंजन, मॉडल, संदेश, actions, और ईवेंट स्वयं सिंक हो जाते हैं:
+
+```ts
+import { runAgentLoop } from "@agent-native/core/server";
+
+await runAgentLoop({ engine, model, systemPrompt, actions, messages, send });
+```
+
+अधिकांश ऐप्स के लिए, निर्धारित संकेत और एकीकरण webhooks पहले से ही इस लूप को कॉल करते हैं
+आपके लिए। कस्टम हेडलेस होस्ट बनाते समय ही सीधे उस तक पहुंचें, eval
+रनर, या सर्वर-साइड ऑर्केस्ट्रेशन सतह - [सर्वर - प्रोडक्शन एजेंट
+हैंडलर](/docs/server#agent-handler) पूर्ण हस्ताक्षर के लिए।
+
+### फ़ोल्डर के विरुद्ध चल रहा है {#folder-loop}
+
+यदि आपका लक्ष्य "इस फ़ोल्डर के विरुद्ध एक एजेंट चलाना" है, तो ऐप-एजेंट से शुरुआत करें
+उस फ़ोल्डर में लूप करें: हेडलेस ऐप को स्कैफोल्ड करें, actions/निर्देश जोड़ें, चलाएं
+`pnpm agent "..."`. यह कार्य को उसी क्रिया/रनटाइम/स्थिति में रखता है
+ऐप अनुबंध का उपयोग उत्पादन में करेगा।
+
+बाहरी कोडिंग हार्नेस Claude को एम्बेड करने के लिए एक अलग उत्पाद सतह है
+कोड, Codex, Pi, कर्सर, मास्ट्रा, या Agent-Native ऐप के अंदर समान रनटाइम।
+जब आप कोडिंग-एजेंट उत्पाद बना रहे हों तो उनका उपयोग करें, डिफ़ॉल्ट तरीके के रूप में नहीं
+एक स्थानीय एजेंट-मूल वर्कफ़्लो प्रारंभ करें।
+
+### क्लाउड रेपो एक्सेस {#cloud-repo-access}
+
+क्लाउड हेडलेस ऐप्स के लिए जिन्हें रिपॉजिटरी एक्सेस की आवश्यकता है, GitHub कनेक्टर का उपयोग करें
+प्लस टोकन CRUD मॉडल: रिपॉजिटरी की सूची बनाएं, फ़ाइलें खोजें, फ़ाइलें पढ़ें, बनाएं या
+फ़ाइलें संपादित करें, फ़ाइलें हटाएं, और प्रदाता-दायरे के माध्यम से पहुंच रद्द करें
+प्रमाणपत्र. स्थानीय विकास में, लक्ष्य भंडार को स्पष्ट रूप से सेट करें:
+
+```bash
+GITHUB_REPOSITORY=owner/repo pnpm agent "Read README.md and suggest the next action."
+```
+
+VM क्लोन या लंबे समय तक चलने वाले सैंडबॉक्स चेकआउट को प्राथमिक क्लाउड न मानें
+रेपो-एक्सेस मॉडल। पृथक कोड निष्पादन के लिए सैंडबॉक्स अभी भी मायने रखते हैं, लेकिन
+रिपोजिटरी पहुंच स्पष्ट, अनुमति प्राप्त, ऑडिट योग्य और प्रतिसंहरणीय होनी चाहिए
+कनेक्टर परत के माध्यम से।
+
+### सत्र और रन साझा करना {#sharing-runs}
+
+बिना सोचे-समझे सत्र और रन टिकाऊ वस्तुएं हैं। साझाकरण को चरणबद्ध किया जाना चाहिए:
+पहले लिंक पढ़ें/साझा करें, ताकि टीम के साथी स्वच्छ संकेतों, आउटपुट का निरीक्षण कर सकें
+और रन स्थिति; बाद में लिखने योग्य सहयोग की अनुमति दी गई, इसलिए एक रन जारी रखें,
+actions को मंजूरी देना, शेड्यूल संपादित करना, या कॉन्फ़िगरेशन बदलना
+स्पष्ट पहुंच जांच।
+
+## Agent-Native पर रिच चैट {#rich-chat}
+
+जब उपयोगकर्ता को एजेंट से बात करनी हो, टूल कॉल देखें, तो अंतर्निहित चैट का उपयोग करें
+कार्य को मंजूरी दें, मूल परिणामों का निरीक्षण करें, और एक टिकाऊ थ्रेड इतिहास रखें।
+
+पूर्ण ऐप शुरुआती बिंदु के लिए, [Chat template](/docs/template-chat) का उपयोग करें:
+
+```bash
+npx @agent-native/core@latest create my-chat-app --template chat
+```
+
+सबसे सरल पूर्ण-पृष्ठ चैट:
+
+```tsx
+import { AgentChatSurface } from "@agent-native/core/client/chat";
+
+export default function ChatRoute() {
+  return <AgentChatSurface mode="page" className="h-screen" />;
+}
+```
+
+जब किसी ऐप में पूर्ण-पृष्ठ चैट टैब और `AgentSidebar` दोनों हों, तो इसका उपयोग करें
+दोनों सतहों पर `storageKey`, `chatViewTransition` सक्षम करें, और इंस्टॉल करें
+लेआउट में चैट-होम हैंडऑफ़ हेल्पर्स। सामान्य इन-ऐप लिंक चैट से बाहर
+पेज फिर सक्रिय रहते हुए पूरी चैट को साइडबार में रूपांतरित कर सकता है
+थ्रेड:
+
+```tsx
+import {
+  AgentChatSurface,
+  AgentSidebar,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
+} from "@agent-native/core/client/chat";
+import { useLocation } from "react-router";
+
+function ChatRoute() {
+  return (
+    <AgentChatSurface mode="page" storageKey="my-app" chatViewTransition />
+  );
+}
+
+function AppLayout({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const handoffActive = useAgentChatHomeHandoff({
+    storageKey: "my-app",
+    activePath: location.pathname,
+    enabled: location.pathname !== "/chat",
+  });
+  useAgentChatHomeHandoffLinks({ storageKey: "my-app", chatPath: "/chat" });
+
+  return (
+    <AgentSidebar
+      storageKey="my-app"
+      chatViewTransition
+      openOnChatRunning={handoffActive}
+    >
+      {children}
+    </AgentSidebar>
+  );
+}
+```
+
+आपके अपने क्रोम के साथ सबसे सरल एम्बेडेड चैट:
+
+```tsx
+import { AssistantChat } from "@agent-native/core/client/chat";
+
+export function ProjectChat({ threadId }: { threadId: string }) {
+  return <AssistantChat threadId={threadId} />;
+}
+```
+
+Actions स्पष्ट देशी विजेट परिणाम लौटा सकता है इसलिए चैट आउटपुट सिर्फ
+पाठ. तालिकाएँ, चार्ट और टाइप किए गए उत्पाद कार्ड प्रथम-पक्ष React
+चैट में घटक, आईफ्रेम के बिना। [Native चैट UI](/docs/native-chat-ui) देखें.
+
+## अपने एजेंट पर रिच चैट {#byo-agent}
+
+इस पथ का उपयोग तब करें जब आपका एजेंट पहले से ही किसी अन्य ढांचे के साथ बना हो या
+रनटाइम और आप इसके आसपास Agent-Native की चैट UI चाहते हैं। `AgentChatRuntime` है
+सीमा: आपका रनटाइम सामान्यीकृत घटनाओं को स्ट्रीम करता है, और Agent-Native रेंडर करता है
+कंपोजर, ट्रांसक्रिप्ट, टूल कॉल, अनुमोदन, मूल विजेट और ऐप लेआउट।
+
+```tsx
+import {
+  AssistantChat,
+  createHttpAgentChatRuntime,
+} from "@agent-native/core/client/chat";
+
+const runtime = createHttpAgentChatRuntime({
+  endpoint: "/api/support-agent/chat",
+});
+
+export function SupportAgentChat() {
+  return <AssistantChat runtime={runtime} threadId="support" />;
+}
+```
+
+OpenAI एजेंटों, OpenAI प्रतिक्रियाओं, Claude के लिए तैयार रनटाइम सहायक मौजूद हैं
+एजेंट SDK, वर्सेल AI SDK, और AG-UI, साथ ही उपरोक्त सामान्यीकृत HTTP रनटाइम
+किसी अन्य एजेंट के लिए (मास्ट्रा, फ़्लू, ईव, लैंगग्राफ, या एक कस्टम सेवा)। ACP है
+अंतिम-उपयोगकर्ता ऐप चैट या A2A ट्रांसपोर्ट नहीं, और Agent-Native वर्तमान में नहीं है
+A2UI समर्थन का दावा करें। ACP एक विशिष्ट स्थान पर समर्थित है - लोकल ड्राइविंग
+कोडिंग एजेंट (मिथुन CLI, Claude कोड,…) के माध्यम से
+[harness layer](/docs/harness-agents#acp), यहां चैट रनटाइम के रूप में नहीं।
+
+[Native चैट UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+इवेंट आकृतियों, रनटाइम हेल्पर्स और `chatUI` के लिए विहित घर है
+टूल-परिणाम मेटाडेटा। किसी बाहरी एजेंट को चैट में शामिल करते समय वहीं से शुरुआत करें।
+
+## एंबेडेड साइडकार {#embedded-sidecar}
+
+जब मुख्य उत्पाद पहले से मौजूद हो और आप चाहते हों तो एम्बेडेड साइडकार का उपयोग करें
+इसके बगल में एजेंट।
+
+सर्वर प्लगइन आपके होस्ट ऐप में Agent-Native रूट्स को माउंट करता है और हल करता है
+होस्ट पहचान सर्वर-साइड:
+
+```ts
+import { createAgentNativeEmbeddedPlugin } from "@agent-native/core/server";
+
+export default createAgentNativeEmbeddedPlugin({
+  databaseUrl: process.env.AGENT_NATIVE_DATABASE_URL,
+  auth: getHostSession,
+  actions: hostActions,
+});
+```
+
+React साइडकार पेज संदर्भ और होस्ट कमांड पास करता है:
+
+```tsx
+import { AgentNativeEmbedded } from "@agent-native/core/client";
+
+export function AppShell({ children }) {
+  return (
+    <AgentNativeEmbedded
+      getContext={() => ({
+        route: { pathname: window.location.pathname },
+        selection: { text: window.getSelection()?.toString() || undefined },
+      })}
+      onNavigate={(payload) =>
+        router.navigate((payload as { path: string }).path)
+      }
+      onRefresh={() => queryClient.invalidateQueries()}
+    >
+      {children}
+    </AgentNativeEmbedded>
+  );
+}
+```
+
+```an-diagram title="साइडकार होस्ट ऐप से कैसे जुड़ता है" summary="प्लगइन Agent-Native रूट सर्वर-साइड को माउंट करता है; React साइडकार पेज संदर्भ को स्ट्रीम करता है और होस्ट कमांड को बाहर स्ट्रीम करता है।"
+{
+  "html": "<div class=\"diagram-sidecar\"><div class=\"diagram-panel\"><strong>host app</strong><small class=\"diagram-muted\">आपका मौजूदा SaaS</small><div class=\"diagram-node\">getContext()<br><small class=\"diagram-muted\">रूट · चयन</small></div><div class=\"diagram-node\">onNavigate / onRefresh<br><small class=\"diagram-muted\">होस्ट commands</small></div></div><div class=\"diagram-col-arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div></div><div class=\"diagram-panel accent-panel\"><span class=\"diagram-pill accent\">AgentNativeEmbedded</span><small class=\"diagram-muted\">agent + workspace</small><div class=\"diagram-box\" data-rough>Agent-Native रूट<br><small class=\"diagram-muted\">mounted by the server plugin</small></div></div></div>",
+  "css": ".diagram-sidecar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sidecar .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:200px}.diagram-sidecar .diagram-col-arrows{display:flex;flex-direction:column;gap:6px}.diagram-sidecar .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+होस्ट ऑथ, डेटाबेस आइसोलेशन के लिए [Embedding SDK](/docs/embedding-sdk) देखें
+आईफ्रेम/पिकर मोड, और निचले स्तर का ब्रिज APIs।
+
+## पूर्ण आवेदन {#full-application}
+
+जब उपयोगकर्ताओं को टिकाऊ ऑब्जेक्ट और वर्कफ़्लो की आवश्यकता हो तो पूर्ण ऐप पथ का उपयोग करें: फ़ॉर्म,
+डैशबोर्ड, कैलेंडर, इनबॉक्स, संपादक, दस्तावेज़, संपत्ति, या रिपोर्ट।
+
+पूर्ण ऐप्स समान क्रिया और एजेंट अनुबंध के आसपास उत्पाद UI जोड़ते हैं:
+
+- **SQL स्थिति** — ऐप डेटा, नेविगेशन, सेटिंग्स और चैट इतिहास टिकाऊ हैं।
+- **संदर्भ जागरूकता** - एजेंट वर्तमान मार्ग, चयन और केंद्रित वस्तु को जानता है।
+- **लाइव सिंक** - एजेंट परिवर्तन UI को अपडेट करते हैं, और UI परिवर्तन एजेंट के संदर्भ को अपडेट करते हैं।
+- **डीप लिंक** — कार्रवाई के परिणाम सही ऐप दृश्य खोल सकते हैं।
+- **मूल चैट विजेट** — टेबल, चार्ट, कार्ड, अनुमोदन और टाइप किए गए परिणाम इनलाइन दिखाई देते हैं।
+
+जब आपको न्यूनतम ऐप चाहिए तो [Chat template](/docs/template-chat) से प्रारंभ करें
+आपके actions के आसपास, या किसी डोमेन [template](/docs/cloneable-saas) से जब आप
+एक संपूर्ण उत्पाद आकार चाहते हैं।
+
+## कैसे चुनें {#how-to-choose}
+
+| अगर आप सोच रहे हैं...                                                            | चुनें                   |
+| -------------------------------------------------------------------------------- | ----------------------- |
+| "मुझे बस एक कॉल करने योग्य टूल या वर्कफ़्लो की आवश्यकता है।"                     | नेतृत्वहीन एजेंट        |
+| "मुझे फ़्रेमवर्क का एजेंट चाहिए, लेकिन चैट मुख्य UI होनी चाहिए।"                 | Agent-Native पर रिच चैट |
+| "मेरे पास पहले से ही एक एजेंट है; मुझे इसके लिए एक बेहतर चैट UI की आवश्यकता है।" | अपने एजेंट पर रिच चैट   |
+| "मेरे पास पहले से ही एक SaaS ऐप है; इसके बगल में एक एजेंट जोड़ें।"               | एम्बेडेड साइडकार        |
+| "एजेंट और UI को उत्पाद के रूप में एक साथ विकसित होना चाहिए।"                     | पूर्ण आवेदन             |
+
+अनुबंध को छोटा रखें: टिकाऊ संचालन को actions के रूप में परिभाषित करें, स्पष्ट वापसी करें
+विजेट परिणाम जब चैट को समृद्ध UI की आवश्यकता होती है, और पूर्ण स्क्रीन केवल तभी जोड़ते हैं जब उपयोगकर्ता
+लगातार वस्तुओं को ब्राउज़ करने, तुलना करने, कॉन्फ़िगर करने या सहयोग करने की आवश्यकता है।
+
+## संबंधित दस्तावेज़ {#related-docs}
+
+- [Actions](/docs/actions) - हेडलेस ऑपरेशन को एक बार परिभाषित करें।
+- [Native चैट UI](/docs/native-chat-ui) - चैट में टाइप किए गए कार्रवाई परिणाम प्रस्तुत करें।
+- [Drop-in Agent](/docs/drop-in-agent) - चैट, साइडबार या पैनल सतहों को माउंट करें।
+- [Component API](/docs/components) - निचले स्तर के React चैट/संगीतकार टुकड़े।
+- [Embedding SDK](/docs/embedding-sdk) - किसी मौजूदा ऐप में Agent-Native जोड़ें।
+- [External Agents](/docs/external-agents) - MCP-संगत होस्ट को एक ऐप से कनेक्ट करें।
+- [A2A Protocol](/docs/a2a-protocol) - अन्य एजेंटों से कॉल एजेंट।

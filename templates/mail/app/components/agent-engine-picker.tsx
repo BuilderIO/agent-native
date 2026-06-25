@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath, useT } from "@agent-native/core/client";
 import {
   IconCheck,
   IconLoader2,
@@ -8,6 +7,10 @@ import {
   IconPlayerPlay,
   IconCpu,
 } from "@tabler/icons-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -16,10 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { agentNativePath } from "@agent-native/core/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -160,6 +161,7 @@ function EngineCard({
 // ─── AgentEnginePicker ────────────────────────────────────────────────────────
 
 export function AgentEnginePicker() {
+  const t = useT();
   const qc = useQueryClient();
   const [localEngine, setLocalEngine] = useState<string | null>(null);
   const [localModel, setLocalModel] = useState<string | null>(null);
@@ -221,7 +223,7 @@ export function AgentEnginePicker() {
   if (error || !data) {
     return (
       <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-[13px] text-destructive/70">
-        Failed to load engine list. Make sure the server is running.
+        {t("mail.agentEngine.loadFailed")}
       </div>
     );
   }
@@ -260,7 +262,7 @@ export function AgentEnginePicker() {
         <IconCpu className="h-4 w-4 text-indigo-400 shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-[12px] font-medium text-foreground">
-            Active engine
+            {t("mail.agentEngine.activeEngine")}
           </p>
           <p className="text-[11px] text-muted-foreground font-mono">
             {current.engine} / {current.model}
@@ -279,7 +281,7 @@ export function AgentEnginePicker() {
       {/* Engine cards */}
       <div>
         <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
-          Select engine
+          {t("mail.agentEngine.selectEngine")}
         </p>
         <div className="grid gap-2 sm:grid-cols-2">
           {engines.map((engine) => (
@@ -390,7 +392,7 @@ export function AgentEnginePicker() {
 
       {setEngine.isSuccess && !isDirty && (
         <p className="text-[12px] text-emerald-400">
-          Engine saved. Takes effect on the next conversation.
+          {t("mail.agentEngine.engineSaved")}
         </p>
       )}
 

@@ -1,14 +1,34 @@
+import { useLocale, useT } from "@agent-native/core/client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate, Link } from "react-router";
 import { createPortal } from "react-dom";
-import { buildSearchIndex, type SearchEntry } from "./docs-content";
+import { useNavigate, Link } from "react-router";
+
+import { buildSearchIndexAsync, type SearchEntry } from "./docs-content";
+import { docsPathForSlug } from "./docs-locale";
 
 // Lazily built on first open — not at module scope — so the index and the full
 // docs corpus are not included in the initial page bundle.
-let cachedIndex: SearchEntry[] | null = null;
-function getSearchIndex(): SearchEntry[] {
-  if (!cachedIndex) cachedIndex = buildSearchIndex();
-  return cachedIndex;
+const cachedIndexes = new Map<string, SearchEntry[]>();
+const pendingIndexes = new Map<string, Promise<SearchEntry[]>>();
+function getCachedSearchIndex(locale: string): SearchEntry[] | null {
+  const cached = cachedIndexes.get(locale);
+  return cached ?? null;
+}
+
+function loadSearchIndex(locale: string): Promise<SearchEntry[]> {
+  const cached = cachedIndexes.get(locale);
+  if (cached) return Promise.resolve(cached);
+
+  const pending = pendingIndexes.get(locale);
+  if (pending) return pending;
+
+  const promise = buildSearchIndexAsync(locale).then((index) => {
+    cachedIndexes.set(locale, index);
+    pendingIndexes.delete(locale);
+    return index;
+  });
+  pendingIndexes.set(locale, promise);
+  return promise;
 }
 
 function highlightMatch(text: string, query: string) {
@@ -32,9 +52,8 @@ function highlightMatch(text: string, query: string) {
   );
 }
 
-function search(query: string): SearchEntry[] {
+function search(query: string, index: SearchEntry[]): SearchEntry[] {
   if (!query.trim()) return [];
-  const index = getSearchIndex();
   const q = query.toLowerCase();
   const words = q.split(/\s+/).filter(Boolean);
 
@@ -94,11 +113,31 @@ export function SearchModal({
 }) {
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
+  const [index, setIndex] = useState<SearchEntry[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
   const navigate = useNavigate();
-  const results = search(query);
+  const { locale } = useLocale();
+  const t = useT();
+  const results = search(query, index);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const cached = getCachedSearchIndex(locale);
+    if (cached) {
+      setIndex(cached);
+      return;
+    }
+    setIndex([]);
+    void loadSearchIndex(locale).then((loaded) => {
+      if (!cancelled) setIndex(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [locale, open]);
 
   // Focus management: save focus before open, restore on close
   useEffect(() => {
@@ -185,7 +224,7 @@ export function SearchModal({
         ref={modalRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Search documentation"
+        aria-label={t("search.dialogLabel")}
         className="relative w-full max-w-[600px] mx-4 overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -209,11 +248,11 @@ export function SearchModal({
           <input
             ref={inputRef}
             type="text"
-            placeholder="Search documentation..."
+            placeholder={t("search.placeholder")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="flex-1 border-0 bg-transparent text-base text-[var(--fg)] outline-none placeholder:text-[var(--fg-secondary)]"
-            aria-label="Search documentation"
+            aria-label={t("search.dialogLabel")}
           />
           <kbd className="rounded border border-[var(--docs-border)] px-1.5 py-0.5 text-[10px] text-[var(--fg-secondary)]">
             Esc
@@ -224,17 +263,17 @@ export function SearchModal({
         <div className="max-h-[400px] overflow-y-auto">
           {query.trim() === "" ? (
             <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
-              Type to search across all documentation
+              {t("search.empty")}
             </div>
           ) : results.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
-              <p className="mb-3">No results found for &quot;{query}&quot;</p>
+              <p className="mb-3">{t("search.noResults", { query })}</p>
               <Link
-                to="/docs"
+                to={docsPathForSlug("getting-started", locale)}
                 onClick={onClose}
                 className="inline-flex items-center gap-1 rounded-md border border-[var(--docs-border)] px-3 py-1.5 text-xs text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)]"
               >
-                Browse all docs
+                {t("search.browseAllDocs")}
               </Link>
             </div>
           ) : (
@@ -244,7 +283,7 @@ export function SearchModal({
                   key={`${entry.path}-${entry.sectionId}`}
                   onClick={() => go(entry)}
                   onMouseEnter={() => setActiveIdx(i)}
-                  className={`flex w-full flex-col gap-1 px-4 py-3 text-left transition ${
+                  className={`flex w-full flex-col gap-1 px-4 py-3 text-start transition ${
                     i === activeIdx
                       ? "bg-[var(--docs-accent)]/10"
                       : "hover:bg-[var(--bg-secondary)]"
@@ -295,7 +334,7 @@ export function SearchModal({
                         strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        className="ml-auto shrink-0"
+                        className="ms-auto shrink-0 rtl:-scale-x-100"
                         aria-hidden="true"
                       >
                         <polyline points="9 10 4 15 9 20" />
@@ -303,7 +342,7 @@ export function SearchModal({
                       </svg>
                     )}
                   </div>
-                  <div className="pl-[22px] text-xs leading-relaxed">
+                  <div className="ps-[22px] text-xs leading-relaxed">
                     {highlightMatch(entry.text, query)}
                   </div>
                 </button>
@@ -322,19 +361,19 @@ export function SearchModal({
               <kbd className="rounded border border-[var(--docs-border)] px-1 py-0.5">
                 ↓
               </kbd>
-              navigate
+              {t("search.navigate")}
             </span>
             <span className="inline-flex items-center gap-1">
               <kbd className="rounded border border-[var(--docs-border)] px-1 py-0.5">
                 ↵
               </kbd>
-              open
+              {t("search.open")}
             </span>
             <span className="inline-flex items-center gap-1">
               <kbd className="rounded border border-[var(--docs-border)] px-1 py-0.5">
                 esc
               </kbd>
-              close
+              {t("search.close")}
             </span>
           </div>
         )}

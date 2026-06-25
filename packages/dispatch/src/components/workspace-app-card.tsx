@@ -1,4 +1,3 @@
-import { useEffect, useState, type FormEvent } from "react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconArrowUpRight,
@@ -13,9 +12,10 @@ import {
   IconWorld,
   IconTrash,
 } from "@tabler/icons-react";
+import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
+
 import { AppKeysPopover } from "@/components/app-keys-popover";
-import { AppResourceEffectiveStack } from "@/components/workspace-resource-effective-stack";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,6 +41,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { AppResourceEffectiveStack } from "@/components/workspace-resource-effective-stack";
 import { cn } from "@/lib/utils";
 import {
   isPendingBuilderHref,

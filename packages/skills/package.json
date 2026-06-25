@@ -1,25 +1,24 @@
 {
   "name": "@agent-native/skills",
-  "version": "0.2.59",
-  "type": "module",
+  "version": "0.2.103",
   "description": "Install BuilderIO skills for coding agents.",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/BuilderIO/agent-native",
     "directory": "packages/skills"
   },
-  "bugs": {
-    "url": "https://github.com/BuilderIO/agent-native/issues"
-  },
-  "homepage": "https://github.com/BuilderIO/agent-native#readme",
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
   "bin": {
     "skills": "dist/cli.js"
   },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
@@ -27,22 +26,24 @@
       "default": "./dist/index.js"
     }
   },
-  "files": [
-    "dist"
-  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
-    "build": "tsc",
-    "typecheck": "tsc --noEmit",
+    "build": "tsgo",
+    "typecheck": "tsgo --noEmit",
     "test": "vitest --run src --passWithNoTests",
     "prepublishOnly": "npm run build"
-  },
-  "devDependencies": {
-    "@types/node": "^25.9.2",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
     "@clack/prompts": "^1.5.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "@typescript/native-preview": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

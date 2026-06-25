@@ -2,13 +2,14 @@
  * Thin slides re-export of the staged dataset query helper, pre-bound to appId="slides".
  */
 import { defineAction } from "@agent-native/core";
-import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { runAggregateQuery } from "@agent-native/core/provider-api/staged-datasets-aggregate";
 import {
   getStagedDatasetMeta,
   getStagedDatasetRows,
 } from "@agent-native/core/provider-api/staged-datasets-store";
+import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
+
 import { SLIDES_APP_ID } from "../server/lib/provider-api.js";
 
 const WhereSchema = z.object({

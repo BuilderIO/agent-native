@@ -19,11 +19,14 @@
  *   - `Referrer-Policy: strict-origin-when-cross-origin` — strips path/query
  *     from outbound Referer headers when the request crosses origin, so a
  *     public-share viewer's outbound link clicks never leak the share token.
- *   - `Permissions-Policy: camera=(), microphone=(self), geolocation=(),
- *     screen-wake-lock=()` — allows the app shell to request microphone access
- *     for composer dictation while keeping camera/location/wake-lock blocked
- *     by default. Templates that need broader media capture for recording UI
- *     override this on their own routes.
+ *   - `Permissions-Policy: camera=*, microphone=(self), geolocation=(),
+ *     screen-wake-lock=()` — allows microphone access for composer dictation
+ *     and camera access for media-capture UI (the Clips recorder, and the
+ *     Clips browser extension's camera bubble, which is injected as a
+ *     cross-origin iframe and is therefore blocked outright by `camera=()`).
+ *     Location and wake-lock stay disabled. The browser still gates actual
+ *     camera/mic use behind a per-origin permission prompt, so `camera=*` only
+ *     removes the policy-level block, not the user consent.
  *   - `Cross-Origin-Opener-Policy: same-origin` — isolates window.opener so
  *     a popup-window opener reference can't read or modify our document.
  *   - `Cross-Origin-Embedder-Policy: require-corp` — emitted only for
@@ -50,12 +53,14 @@
  */
 
 import { createHash } from "node:crypto";
+
 import { defineEventHandler, getHeader, setResponseHeader } from "h3";
-import { requestHasEmbedAuthMarker } from "./embed-session.js";
+
 import {
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
+import { requestHasEmbedAuthMarker } from "./embed-session.js";
 
 /**
  * Compute the sha256-<base64> hash token for an inline script's text content.
@@ -69,7 +74,7 @@ export function computeInlineScriptHash(scriptContent: string): string {
 
 const HSTS = "max-age=31536000; includeSubDomains; preload";
 const PERMISSIONS_POLICY =
-  "camera=(), microphone=(self), geolocation=(), screen-wake-lock=()";
+  "camera=*, microphone=(self), geolocation=(), screen-wake-lock=()";
 
 /**
  * Returns true when the request was received over HTTPS. We trust both the

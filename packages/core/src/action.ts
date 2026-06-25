@@ -1,13 +1,16 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+
+import {
+  normalizeActionChatUIConfig,
+  type ActionChatUIConfig,
+} from "./action-ui.js";
 import type {
   ActionTool,
   AgentChatAttachment,
   AgentChatEvent,
 } from "./agent/types.js";
-import {
-  normalizeActionChatUIConfig,
-  type ActionChatUIConfig,
-} from "./action-ui.js";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
+import type { ActionAuditConfig } from "./audit/types.js";
 
 /**
  * How an action's `run` was invoked. Tagged at each dispatch site so the action
@@ -75,6 +78,21 @@ export interface ActionRunContext {
    * attaching an `"abort"` listener is always safe.
    */
   signal?: AbortSignal;
+  /**
+   * Name of the action being invoked (the registry key, e.g.
+   * `delete-recording`). Set at each dispatch site so cross-cutting concerns —
+   * notably the audit log — can attribute the call. `undefined` for direct
+   * programmatic `run()` calls that bypass the dispatcher.
+   */
+  actionName?: string;
+  /**
+   * Agent conversation thread + turn that triggered this call, populated only
+   * inside the agent tool loop (`caller: "tool"`). Lets the audit log link a
+   * mutation to the specific agent run/turn that caused it. `undefined` on
+   * every human/programmatic surface.
+   */
+  threadId?: string;
+  turnId?: string;
 }
 
 export interface AgentActionStopOptions {
@@ -378,6 +396,14 @@ interface DefineActionWithSchema<
         args: StandardSchemaV1.InferOutput<TSchema>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * Audit-log configuration. **Default-on for mutating actions** — you only
+   * need this to tune capture: declare the mutated `target` (so the change
+   * shows up in the owner's audit trail) and/or a `summary`, opt a read-only
+   * action in via `onRead`, or opt a noisy action out via `enabled: false`.
+   * See the `audit-log` skill.
+   */
+  audit?: ActionAuditConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -443,6 +469,9 @@ interface DefineActionWithParams<
         args: InferParams<TParams>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /** Audit-log configuration (default-on for mutations). See the schema
+   *  overload above and the `audit-log` skill. */
+  audit?: ActionAuditConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -497,6 +526,10 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly needsApproval?:
     | boolean
     | ((args: TInput, ctx?: ActionRunContext) => boolean | Promise<boolean>);
+  /** Resolved audit-log configuration. Present only when the caller passed
+   *  `audit`. The audit capture wrapper is baked into `run`; this field is for
+   *  introspection. */
+  readonly audit?: ActionAuditConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -617,6 +650,16 @@ export function defineAction(options: any) {
         ? true
         : undefined;
 
+  // Audit: wrap the validated run so every mutating call records an audit
+  // event (who/what/when/from-where, and for the agent which run). Default-on
+  // for mutations; read-only actions opt in via `audit.onRead`. The wrapper
+  // lazily imports the DB-touching recorder so `action.ts` keeps no static DB
+  // dependency.
+  const auditConfig = normalizeAuditConfig(options.audit);
+  const finalRun = resolveAuditAttach(auditConfig, readOnly)
+    ? wrapRunWithAudit(run, auditConfig)
+    : run;
+
   // toolCallable: thread through whatever the caller declared. We DO NOT
   // default to `true` here — the absence of an explicit field is meaningful
   // to the tools bridge: it lets us emit a one-shot warning when an action
@@ -675,7 +718,7 @@ export function defineAction(options: any) {
       description: options.description,
       parameters: toolParameters,
     },
-    run,
+    run: finalRun,
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
     ...(typeof options.requiresAuth === "boolean"
@@ -702,6 +745,43 @@ export function defineAction(options: any) {
     typeof options.needsApproval === "function"
       ? { needsApproval: options.needsApproval }
       : {}),
+    ...(auditConfig ? { audit: auditConfig } : {}),
+  };
+}
+
+/**
+ * Wrap an action's (already input/output-validated) run so each call records an
+ * audit event after it resolves — on success and on error. Best-effort: the
+ * recorder swallows its own failures and the original result/throw is always
+ * preserved, so auditing can never change an action's behavior. The DB-touching
+ * recorder is imported lazily so merely defining an action pulls in no DB code.
+ */
+function wrapRunWithAudit(
+  run: (args: any, ctx?: ActionRunContext) => any,
+  auditConfig: ActionAuditConfig | undefined,
+): (args: any, ctx?: ActionRunContext) => Promise<any> {
+  return async function auditedRun(args: any, ctx?: ActionRunContext) {
+    let result: any;
+    let error: unknown;
+    let threw = false;
+    try {
+      result = await run(args, ctx);
+    } catch (err) {
+      error = err;
+      threw = true;
+    }
+    try {
+      const { recordActionAudit } = await import("./audit/record.js");
+      await recordActionAudit(
+        threw
+          ? { config: auditConfig, args, ctx, status: "error", error }
+          : { config: auditConfig, args, ctx, status: "success", result },
+      );
+    } catch {
+      // Recorder failed to load/run — never affect the action.
+    }
+    if (threw) throw error;
+    return result;
   };
 }
 
@@ -908,6 +988,105 @@ function zodDefToJsonSchema(def: any): any {
 // Runtime validation wrapper
 // ---------------------------------------------------------------------------
 
+const NO_COERCE = Symbol("no-coerce");
+
+/**
+ * Coerce a single stringified value to one of the JSON-schema types the field
+ * expects. Returns NO_COERCE when nothing safe applies, so the caller leaves
+ * the original value untouched and the normal validation error still surfaces.
+ */
+function coerceStringToSchemaType(raw: string, types: string[]): unknown {
+  const trimmed = raw.trim();
+  if (types.includes("boolean")) {
+    if (trimmed === "true") return true;
+    if (trimmed === "false") return false;
+  }
+  if (
+    (types.includes("array") &&
+      trimmed.startsWith("[") &&
+      trimmed.endsWith("]")) ||
+    (types.includes("object") &&
+      trimmed.startsWith("{") &&
+      trimmed.endsWith("}"))
+  ) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (types.includes("array") && Array.isArray(parsed)) return parsed;
+      if (
+        types.includes("object") &&
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed)
+      ) {
+        return parsed;
+      }
+    } catch {
+      // fall through — leave the original so validation reports the real error
+    }
+  }
+  if (
+    (types.includes("number") || types.includes("integer")) &&
+    trimmed !== "" &&
+    Number.isFinite(Number(trimmed))
+  ) {
+    const n = Number(trimmed);
+    if (types.includes("number") || Number.isInteger(n)) return n;
+  }
+  return NO_COERCE;
+}
+
+/**
+ * Defensively coerce stringified action arguments to the types the schema
+ * expects. Two callers depend on this:
+ *
+ *   1. Model gateways (notably Builder's Gemini-backed gateway) hand back
+ *      structured tool-call arguments as JSON strings — an array param arrives
+ *      as `"[{...}]"`, a boolean as `"true"`.
+ *   2. GET actions called from the browser via `useActionQuery` / `callAction`.
+ *      Those serialize params into the query string, where `URLSearchParams`
+ *      stringifies everything — so `includeSeries: true` arrives as the string
+ *      `"true"` and `limit: 5` as `"5"` (see `action-routes.ts`).
+ *
+ * In both cases Standard Schema (zod) `validate` does not coerce, so the call
+ * fails validation ("expected boolean, received string") — the agent thrashes
+ * retrying shapes and the frontend query errors. We only touch a string value
+ * when the schema expects a non-string type and the string parses cleanly to
+ * it; anything ambiguous (schema also allows string) or unparseable is left
+ * as-is. Operates on top-level properties only — once an array/object param is
+ * parsed, its nested members are already native and validate normally.
+ *
+ * Do NOT narrow this to "gateway-only": the GET query-string path relies on it
+ * too, and `action-routes.spec.ts` guards that round-trip.
+ */
+function coerceGatewayStringifiedArgs(
+  args: unknown,
+  parameters?: ActionTool["parameters"],
+): unknown {
+  const properties = parameters?.properties as
+    | Record<string, { type?: string | string[] }>
+    | undefined;
+  if (!properties) return args;
+  if (!args || typeof args !== "object" || Array.isArray(args)) return args;
+  let out: Record<string, unknown> | null = null;
+  for (const [key, raw] of Object.entries(args as Record<string, unknown>)) {
+    if (typeof raw !== "string") continue;
+    const spec = properties[key];
+    if (!spec) continue;
+    const types = Array.isArray(spec.type)
+      ? spec.type
+      : spec.type
+        ? [spec.type]
+        : [];
+    // No declared type, or the field legitimately accepts a string → leave it.
+    if (types.length === 0 || types.includes("string")) continue;
+    const coerced = coerceStringToSchemaType(raw, types);
+    if (coerced === NO_COERCE) continue;
+    if (!out) out = { ...(args as Record<string, unknown>) };
+    out[key] = coerced;
+  }
+  return out ?? args;
+}
+
 /**
  * Wrap an action's run function with schema validation.
  * Invalid inputs get a clear error message (including what was actually passed)
@@ -919,6 +1098,7 @@ function wrapWithValidation(
   toolParameters?: ActionTool["parameters"],
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
+    args = coerceGatewayStringifiedArgs(args, toolParameters);
     const result = await schema["~standard"].validate(args);
     if (result.issues) {
       // Split issues into "missing required field" vs other validation errors

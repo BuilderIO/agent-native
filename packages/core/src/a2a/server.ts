@@ -1,23 +1,24 @@
-import * as jose from "jose";
-import { getH3App } from "../server/framework-request-handler.js";
 import {
   defineEventHandler,
   setResponseStatus,
   getMethod,
   getRequestHeader,
 } from "h3";
-import type { A2AConfig } from "./types.js";
-import { generateAgentCard } from "./agent-card.js";
-import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
-import { readBody } from "../server/h3-helpers.js";
+import * as jose from "jose";
+
 import {
   extractBearerToken,
   verifyInternalToken,
 } from "../integrations/internal-token.js";
+import { getH3App } from "../server/framework-request-handler.js";
+import { readBody } from "../server/h3-helpers.js";
+import { generateAgentCard } from "./agent-card.js";
 import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
 } from "./auth-policy.js";
+import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
+import type { A2AConfig } from "./types.js";
 
 /**
  * One-time warning when A2A is running unauthenticated in development. We

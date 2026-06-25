@@ -15,12 +15,13 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq } from "drizzle-orm";
 import { createError } from "h3";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import { nanoid } from "../server/lib/recordings.js";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { nanoid, ownerEmailMatches } from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
@@ -65,7 +66,7 @@ export default defineAction({
       .from(schema.vocabulary)
       .where(
         and(
-          eq(schema.vocabulary.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.vocabulary.ownerEmail, ownerEmail),
           eq(schema.vocabulary.term, term),
         ),
       )

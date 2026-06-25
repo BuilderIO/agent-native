@@ -1,5 +1,7 @@
-import { useTheme } from "next-themes";
+import { useT } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
+
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -11,6 +13,7 @@ import { cn } from "@/lib/utils";
 export function ThemeToggle({ className }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const t = useT();
 
   return (
     <Tooltip>
@@ -28,7 +31,7 @@ export function ThemeToggle({ className }: { className?: string }) {
           )}
         </Button>
       </TooltipTrigger>
-      <TooltipContent>Toggle theme</TooltipContent>
+      <TooltipContent>{t("root.toggleTheme")}</TooltipContent>
     </Tooltip>
   );
 }

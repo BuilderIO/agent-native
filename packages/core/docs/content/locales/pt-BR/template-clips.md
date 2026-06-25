@@ -1,0 +1,368 @@
+---
+title: "Clipes"
+description: "Gravação de tela assíncrona, notas de reuniões sincronizadas com calendário e ditado de voz push-to-talk. Cole links de clipes nos agentes e eles poderão ler transcrições, recursos visuais e resumos."
+search: "Clips navegador registra registros do desenvolvedor registros do console registros de rede buscar XHR extensão do Chrome gravador de diagnóstico aplicativo de desktop"
+---
+
+# Clipes
+
+Um aplicativo que captura tudo: gravações de tela, notas de reuniões do seu calendário e ditado de voz com Fn-hold. O agente transcreve, intitula, resume e indexa tudo. Em seguida, permite que você pergunte "encontre o clipe onde discutimos o plano de implementação" e pesquisa todas as transcrições que você já fez.
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Clips de engenharia</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Revisão de OKRs</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Fluxo de integração</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Reprodução de bug</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>Legível por agentes</span><span>Transcrição + frames prontos para links de compartilhamento</span><div style='flex:1'></div><button>Compartilhar</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Busca em transcrições</strong><div class='wf-box'>Capítulo encontrado 03:12 · riscos de rollout e repasse de proprietário</div><div class='wf-box'>Resumo da reunião e ações</div></div></div>"
+}
+```
+
+Pense nos moldes de Loom + Granola + Wispr Flow reunidos em um aplicativo - mas o agente é um editor de primeira classe em todas as superfícies, e as gravações, reuniões e ditados são seus, não de um fornecedor de SaaS. O Clips também torna as gravações compartilhadas legíveis pelo agente: cole um link de compartilhamento normal do Clips em um agente e ele poderá "ouvir" a transcrição como texto e "ver" os quadros de tela com carimbo de data e hora como imagens - sem necessidade de vídeo bruto. A visualização de quadros funciona em qualquer agente com capacidade de imagem (ChatGPT, Código Claude, Cursor, Codex); os bate-papos na web somente de texto ainda recebem a transcrição completa e podem levar um quadro que você carrega.
+
+```an-diagram title="Capture, transcreva, reutilize" summary="Três tipos de captura pousam em uma biblioteca; o agente transcreve, titula e resume, então cada transcrição pode ser pesquisada e compartilhada."
+{
+  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">Gravação de tela</div><div class=\"diagram-node\">Reunião de calendário</div><div class=\"diagram-node\">Ditado segurando Fn</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Uma biblioteca<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">título · resumo · capítulos</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">Pesquisar</div><div class=\"diagram-pill\">Compartilhar</div><div class=\"diagram-pill\">Legível por agentes links</div></div></div>",
+  "css": ".diagram-clips{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-clips .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-clips .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-clips .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## O que você pode fazer com isso
+
+- **Grave sua tela** com um gravador integrado, sobreposição de webcam, captura de áudio e pausa/corte.
+- **Capture reuniões do seu calendário.** Conecte Google Calendar, veja as próximas reuniões na barra lateral e clique em gravar em qualquer uma. Você recebe uma transcrição ao vivo, além de um resumo da IA, notas com marcadores e itens de ação no momento em que termina.
+- **Ditado push-to-talk.** Segure Fn em sua máquina, fale, e o texto limpo será exibido em qualquer aplicativo que você estiver usando. Cada ditado é mantido em um histórico pesquisável com os originais e as versões limpas por IA lado a lado.
+- **Obtenha títulos, resumos e marcadores de capítulo gerados automaticamente** para cada gravação. O agente os preenche e os mantém atualizados.
+- **Pesquise todas as transcrições** — gravações de tela, reuniões e ditados, tudo em uma biblioteca. "Encontre o clipe em que discutimos o plano de implementação."
+- **Compartilhe clipes** com permissões por clipe (público, equipe, privado). O rastreamento de links e os comentários encadeados também funcionam.
+- **Visualize clipes públicos em Slack** com um desdobramento jogável no estilo Loom após o
+  a área de trabalho instala seu aplicativo Clips Slack.
+- **Capturar registros do navegador com a extensão do Chrome.** As gravações do navegador podem
+  anexe logs de console editados e metadados fetch/XHR, que são úteis para
+  bugs de produtos e reproduções somente para navegador.
+- **Cola links de clipes nos agentes** para que eles possam descobrir o contexto legível pelo agente: metadados, segmentos de transcrição, frames recomendados e imagens de frames com carimbo de data e hora sem receber o arquivo de vídeo bruto.
+- **Visualizações inteligentes da biblioteca.** Agrupar por projeto, filtrar por palestrante e etiquetar automaticamente com base no conteúdo.
+- **Edite a transcrição através do chat.** "Corrija a palavra mal transcrita às 1:42." "Faça três citações para uma postagem no blog." O agente edita a transcrição e o UI é atualizado ao vivo.
+
+## Registros do navegador e diagnósticos do desenvolvedor
+
+Use a extensão Clips do Chrome quando precisar de uma gravação e registros do navegador de
+a guia que você está depurando. A extensão inicia uma gravação na guia ativa e pode
+salvar logs de console editados, exceções JavaScript e rede fetch/XHR
+metadados como método, URL redigido, status, duração e texto de falha. É
+não salva corpos de solicitação, corpos de resposta ou cabeçalhos.
+
+A página normal do gravador do navegador pode salvar diagnósticos da página do gravador
+em si. A extensão do Chrome é o caminho para registros de desenvolvedores de guias ativas e
+repros somente para navegador. No Clips UI, use a opção Chrome para registros do navegador e
+o aplicativo de desktop para o caminho de captura diário mais perfeito.
+
+A lista de extensões Agent-Native Clips do Chrome é
+`https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`.
+Se você hospeda seu próprio servidor Clips, mantenha a opção de extensão do Chrome oculta até
+sua listagem na Web Store está ativa. Definir `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1`
+após aprovação para mostrar a extensão ao lado dos prompts de download do aplicativo para desktop. Definir
+`VITE_CLIPS_CHROME_EXTENSION_URL` somente se você precisar substituir o padrão
+lista URL.
+
+## Clipes legíveis pelo agente
+
+Cole um link de compartilhamento público normal de clipes em um agente. A página de compartilhamento anuncia
+um contexto de agente compacto URL, e esse contexto aponta para a transcrição e o quadro
+APIs, para que modelos que aceitam apenas texto ou imagens estáticas ainda possam entender o que
+aconteceu na gravação.
+
+Qualquer agente que possa trazer uma imagem URL para sua visão — ChatGPT, Código Claude,
+Cursor, Codex e agentes conectados a MCP — lê a transcrição e vê o
+quadros. Alguns bate-papos na Web somente de texto leem a transcrição, mas não extraem imagens de quadro
+por conta própria; lá, faça upload de um quadro-chave ou abra o clipe em um formato compatível com imagem
+agente.
+
+| Ponto final                                       | O que os agentes recebem                                                                                                                          |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`        | Metadados do clipe, status da transcrição, capítulos, CTAs, frames recomendados e links para a transcrição/frame APIs                             |
+| `/api/agent-transcript.json?id=<recordingId>`     | Segmentos de transcrição com carimbo de data e hora com `startMs`, `endMs`, carimbos de data e hora legíveis, texto e rótulos de origem opcionais |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Um quadro JPEG extraído do vídeo em um carimbo de data/hora do vídeo original                                                                     |
+
+Os endpoints seguem as mesmas regras de público/senha/expiração da página de compartilhamento.
+Clipes protegidos por senha exigem a senha uma vez; retorno de respostas bem-sucedidas
+links tokenizados de curta duração para que os agentes downstream não precisem do texto simples
+senha.
+
+As visualizações Slack usam o mesmo limite de compartilhamento. O webhook `/api/slack/unfurl`
+retorna apenas um bloco Slack `video` reproduzível para clipes públicos prontos sem
+senha, hit de expiração, marcador de arquivo ou marcador de lixeira. Outros clipes ainda recebem o
+metadados normais de título/miniatura da página de compartilhamento e exigem a abertura de clipes.
+
+```an-api title="Ponto de entrada do contexto do agente"
+{
+  "method": "GET",
+  "path": "/api/agent-context.json",
+  "summary": "Descrição compacta e legível pelo agente de um clipe compartilhado",
+  "description": "Returns clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript and frame APIs. Advertised by the public share page so a text- or image-only agent can understand a recording without ingesting raw video.",
+  "auth": "Same public / password / expiry rules as the share page",
+  "params": [
+    { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
+  ],
+  "responses": [
+    { "status": "200", "description": "Clip metadata plus transcript and frame API links" }
+  ]
+}
+```
+
+```an-api title="Transcrição com carimbo de data/hora"
+{
+  "method": "GET",
+  "path": "/api/agent-transcript.json",
+  "summary": "Segmentos de transcrição com carimbo de data/hora para um clipe compartilhado",
+  "params": [
+    { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
+  ],
+  "responses": [
+    { "status": "200", "description": "Segments with startMs, endMs, readable timestamps, text, and optional source labels" }
+  ]
+}
+```
+
+```an-api title="Quadro em um carimbo de data/hora"
+{
+  "method": "GET",
+  "path": "/api/agent-frame.jpg",
+  "summary": "Um quadro JPEG extraído do vídeo em um carimbo de data/hora do vídeo original",
+  "params": [
+    { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" },
+    { "name": "atMs", "in": "query", "type": "integer", "required": true, "description": "Original-video timestamp in milliseconds" }
+  ],
+  "responses": [
+    { "status": "200", "description": "image/jpeg frame" }
+  ]
+}
+```
+
+## Primeiros passos
+
+Demonstração ao vivo: [clips.agent-native.com](https://clips.agent-native.com).
+
+1. **Abrir biblioteca.** Procure gravações de tela, gravações de reuniões, ditados,
+   pastas e espaços em um só lugar.
+2. **Grave ou importe.** Capture uma gravação de tela, comece a partir de um calendário
+   reunião ou use o ditado push-to-talk.
+3. **Deixe o agente limpar tudo.** Gere um título, resumo, capítulos, ação
+   itens ou texto de transcrição limpo.
+4. **Pesquise e reutilize.** Peça o clipe, a citação, o item de ação ou a decisão que você deseja
+   precisa e compartilhe o resultado com a visibilidade certa.
+
+### Instruções úteis
+
+- "Resuma este clipe para uma atualização do produto."
+- "Encontre a reunião em que discutimos o plano de implementação."
+- "Extraia três citações de clientes desta transcrição."
+- "Crie itens de ação da última chamada de vendas."
+- "Limpe este ditado e transforme-o em um ticket Linear."
+
+## Para desenvolvedores
+
+O restante deste documento é para qualquer pessoa que faça bifurcação do modelo Clips ou estenda-o.
+
+### Início rápido
+
+```bash
+npx @agent-native/core@latest create my-clips --standalone --template clips
+cd my-clips
+pnpm install
+pnpm dev
+```
+
+Clips é um modelo maior com um gravador nativo (ele vem com um complemento de desktop para captura local). São necessárias três etapas de configuração antes que as gravações possam ser carregadas:
+
+1. **Armazenamento de vídeo (obrigatório).** Conecte um back-end de armazenamento por meio do assistente de integração. O caminho mais fácil é Builder.io (gratuito durante a versão beta, com um clique). Para armazenamento auto-hospedado, defina `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` e, opcionalmente, `S3_REGION` e `S3_PUBLIC_BASE_URL`. Cloudflare R2 e DigitalOcean Spaces usam os mesmos env vars com o prefixo `R2_*`.
+2. **Google Calendar (opcional).** Para sincronizar as próximas reuniões, conecte uma conta Google Calendar em Configurações. O retorno de chamada OAuth URL em dev é `http://localhost:8094/_agent-native/google/callback`. Configure um cliente Google OAuth em [Google Cloud Console](https://console.cloud.google.com/) com os Gmail e Google Calendar APIs ativados.
+3. **Permissões de captura de tela.** No macOS, conceda permissão de gravação de tela ao navegador (ou ao aplicativo complementar para desktop) em Configurações do sistema → Privacidade e segurança → Gravação de tela. As gravações do navegador podem salvar o console editado e buscar diagnósticos/XHR da página do gravador. Assim que a lista de extensões do Chrome estiver disponível, ative `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` para que os usuários possam escolher a extensão para registros do navegador com guias ativas ou o aplicativo de desktop para obter o caminho de captura nativo mais suave.
+4. **Visualizações de Slack (opcional).** Crie um aplicativo Slack com `links:read`, `links:write` e `links.embed:write`; assinar `link_shared`; adicione seu domínio de compartilhamento de Clips em **App Unfurl Domains**; defina a Solicitação URL como `https://your-clips.example.com/api/slack/unfurl`; e adicione o redirecionamento OAuth URL `https://your-clips.example.com/api/slack/oauth/callback`. Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` e `SLACK_SIGNING_SECRET` e conecte os espaços de trabalho nas configurações de clipes.
+
+### Hospede seu próprio servidor Clips
+
+O aplicativo Clips hospedado em [clips.agent-native.com](https://clips.agent-native.com)
+é apenas uma cópia implantada do modelo Clips. Para executar seu próprio servidor, scaffold
+o modelo, implante-o como qualquer outro aplicativo nativo do agente e aponte para a área de trabalho
+aplicativo de bandeja na sua implantação.
+
+1. **Crie o aplicativo.**
+
+   ```bash
+   npx @agent-native/core@latest criar meus clipes --standalone --template clipes
+   cd meus clipes
+   Instalação pnpm
+   ```
+
+2. **Configurar o estado de produção.** Definir um `DATABASE_URL` persistente, o normal
+   variáveis de autorização/segredos de produção de [Deployment](/docs/deployment) e uma
+   provedor de armazenamento de vídeo. Builder.io Connect é o caminho de armazenamento mais fácil; para
+   armazenamento auto-hospedado, use variáveis `S3_*` ou `R2_*` para um compatível com S3
+   balde.
+
+3. **Implante o aplicativo Web.** Para uma implantação simples do Node:
+
+   ```bash
+   Compilação pnpm
+   nó .output/server/index.mjs
+   ```
+
+   Você também pode usar qualquer alvo Nitro de [Deployment](/docs/deployment), como
+   como Netlify, Vercel, Cloudflare Pages, AWS Lambda ou Deno Deploy. Certifique-se
+   `BETTER_AUTH_URL` é a origem pública dos clipes, por exemplo
+   `https://clips.example.com`.
+
+4. **Conecte o aplicativo da bandeja da área de trabalho.** Abra as configurações do Clips Desktop e defina
+   **Corre o servidor URL** à base pública URL da sua implantação, por exemplo
+   `https://clips.example.com`. Se o aplicativo estiver montado em um caminho de espaço de trabalho,
+   inclua esse caminho, como `https://example.com/clips`. Clique em **Conectar**,
+   em seguida, faça login com uma conta nesse servidor do Clips.
+
+5. **Ativar a extensão do Chrome após a publicação.** Manter
+   `VITE_CLIPS_CHROME_EXTENSION_ENABLED` não definido até a listagem da Chrome Web Store
+   está aprovado. Em seguida, defina-o como `1` para revelar a opção de log do navegador ao lado de
+   solicitações de aplicativos de desktop. A listagem padrão URL é
+   `https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`;
+   defina `VITE_CLIPS_CHROME_EXTENSION_URL` somente se sua implantação usar um
+   listagem de extensões diferente.
+
+6. **Conecte integrações opcionais.** Google Calendar alimenta a guia Reuniões,
+   `GEMINI_API_KEY` ou Builder.io Connect possibilitam a limpeza de transcrições e títulos,
+   `GROQ_API_KEY` pode fornecer substituto de fala para texto, e o Slack OAuth
+   A conexão em Configurações permite desdobramentos Slack jogáveis.
+
+Para desenvolvimento local, execute o aplicativo web com `pnpm dev` e aponte a área de trabalho
+aplicativo de bandeja em `http://localhost:8094`.
+
+### Principais recursos
+
+**Uma biblioteca, três tipos de captura.** Gravações de tela, reuniões de calendário e ditados push-to-talk compartilham uma biblioteca pesquisável.
+
+**Transcrição e pipeline de IA.** As gravações recebem segmentos de transcrição com carimbo de data/hora, títulos gerados, resumos e marcadores de capítulo.
+
+**Edição não destrutiva.** Corte, divisão, remoção de palavras de preenchimento, remoção de silêncio e costura permanecem em `edits_json` para que a mídia original permaneça intacta.
+
+**Links de compartilhamento legíveis pelo agente.** Links de compartilhamento público expõem APIs de transcrição e quadro para que os agentes possam entender as gravações sem consumir vídeo bruto.
+
+**Slack desdobramentos jogáveis.** Links de compartilhamento público podem renderizar um bloco Slack `video`
+que aponta para o player `/embed/:id` existente. Este é um aplicativo Slack de espaço de trabalho
+instalar, não um comportamento do rastreador global: os metadados normais do Open Graph/Twitter são
+o substituto quando o aplicativo não está instalado.
+
+### Modelo de dados
+
+Todos os dados residem em SQL com Drizzle ORM. Esquema: `templates/clips/server/db/schema.ts`. Gravações, reuniões, ditados, contas de calendário e vocabulário carregam o padrão `ownableColumns` e têm uma tabela de compartilhamentos de estrutura correspondente, portanto, eles se enquadram no modelo de compartilhamento por usuário/por organização.
+
+```an-schema title="Modelo de dados principais de clipes" summary="recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
+{
+  "entities": [
+    {
+      "id": "recordings",
+      "name": "recordings",
+      "note": "Core resource; source of truth for media. ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "title", "type": "text" },
+        { "name": "video_url", "type": "text", "note": "plus format / size / duration / thumbnails" },
+        { "name": "status", "type": "text" },
+        { "name": "edits_json", "type": "text", "note": "Edições não destrutivas" },
+        { "name": "chapters_json", "type": "text", "nullable": true },
+        { "name": "password", "type": "text", "nullable": true, "note": "Privacidade: senha/expiração" }
+      ]
+    },
+    {
+      "id": "recording_transcripts",
+      "name": "recording_transcripts",
+      "note": "Divida para que as visualizações da biblioteca e da transcrição sejam renderizadas rapidamente",
+      "fields": [
+        { "name": "recording_id", "type": "text", "fk": "recordings.id" },
+        { "name": "segments_json", "type": "text", "note": "{ startMs, endMs, text }" },
+        { "name": "full_text", "type": "text" },
+        { "name": "language", "type": "text" },
+        { "name": "status", "type": "text" }
+      ]
+    },
+    {
+      "id": "clips_meetings",
+      "name": "clips_meetings",
+      "note": "Calendar-sourced or ad-hoc; owns a recording",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "recording_id", "type": "text", "fk": "recordings.id", "nullable": true },
+        { "name": "summary_md", "type": "text", "nullable": true },
+        { "name": "bullets_json", "type": "text", "nullable": true },
+        { "name": "action_items_json", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "id": "clips_dictations",
+      "name": "clips_dictations",
+      "note": "Push-to-talk dictation history; ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "full_text", "type": "text", "note": "Cru" },
+        { "name": "cleaned_text", "type": "text", "nullable": true },
+        { "name": "source", "type": "text", "note": "uma equipe, etc." },
+        { "name": "target_app", "type": "text", "nullable": true }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "recordings", "to": "recording_transcripts", "kind": "1-1", "label": "transcript" },
+    { "from": "recordings", "to": "clips_meetings", "kind": "1-1", "label": "captured by" }
+  ]
+}
+```
+
+| Tabela                                          | O que ele contém                                                                                                                                                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recordings`                                    | O recurso principal — título, vídeo URL/formato/tamanho, duração, miniaturas, status, `edits_json` não destrutivo, `chapters_json`, privacidade (senha, expiração) e alternância de player  |
+| `recording_transcripts`                         | Transcrição por gravação: `segments_json` (`{startMs,endMs,text}`), `full_text`, idioma e status                                                                                            |
+| `recording_tags`                                | Tags de formato livre em uma gravação                                                                                                                                                       |
+| `recording_ctas`                                | Botões de call to action (rótulo, URL, cor, posicionamento) sobrepostos em uma gravação                                                                                                     |
+| `recording_comments`                            | Comentários encadeados com carimbo de data e hora, mapa de reação de emoji e sinalização resolvida                                                                                          |
+| `recording_reactions`                           | Emoji reactions fixado no carimbo de data/hora de um vídeo (permitido espectadores anônimos)                                                                                                |
+| `recording_viewers` / `recording_events`        | Ver análises: tempo de exibição e conclusão por espectador, além de eventos granulares (visualização-início, progresso da exibição, busca, pausa, cta-clique, reação)                       |
+| `clips_meetings`                                | Reuniões ad-hoc ou de origem do calendário — cronograma/períodos reais, plataforma, notas do usuário, AI `summary_md`, `bullets_json`, `action_items_json` e o link para seu `recording_id` |
+| `meeting_participants` / `meeting_action_items` | Participantes e itens de ação extraídos para uma reunião                                                                                                                                    |
+| `calendar_accounts` / `calendar_events`         | Contas de calendário conectadas (tokens OAuth ativos em `app_secrets`, mencionados apenas aqui) e instantâneos de eventos sincronizados                                                     |
+| `clips_dictations`                              | Histórico de ditado push-to-talk — `full_text` bruto, `cleaned_text` opcional, fonte (`fn-hold`, etc.) e aplicativo de destino                                                              |
+| `clips_vocabulary`                              | Correções de vocabulário pessoal (termo → substituição preferida) que influenciam ditados futuros                                                                                           |
+| `spaces` / `space_members` / `folders`          | Organização da biblioteca — espaços (contêineres com escopo de tópico), seus membros e pastas aninhadas                                                                                     |
+| `organization_settings`                         | Arquivo secundário de clipes por organização: cor da marca, logotipo, visibilidade padrão                                                                                                   |
+
+Gravações e transcrições são tabelas intencionalmente separadas para que as visualizações da biblioteca e da transcrição possam ser renderizadas rapidamente. As reuniões são compostas com gravações em vez de mídia duplicada: uma reunião é proprietária da gravação que captura, mas a linha `recordings` continua sendo a fonte da verdade para o vídeo e a transcrição por segmento.
+
+As rotas no UI ficam em `templates/clips/app/routes/` — o aplicativo autenticado fica em `_app.*` (biblioteca, espaços, pastas, reuniões, ditado, insights, lixeira, configurações), com superfícies públicas em `r.$recordingId`, `share.$shareId`, `embed.$shareId` e `invite.$token`.
+
+### Chave actions
+
+Cada operação que pode ser chamada pelo agente é um arquivo TypeScript em `templates/clips/actions/`, montado automaticamente em `POST /_agent-native/actions/:name` e executável a partir de CLI como `pnpm action <name>`. Existem ~80 actions; os agrupamentos úteis:
+
+- **Ciclo de vida de gravação** — `create-recording`, `finalize-recording`, `update-recording`, `set-thumbnail`, `archive-recording` / `restore-recording` / `trash-recording` / `delete-recording-permanent`, `move-recording`, `tag-recording`.
+- **Transcrição e IA** — `request-transcript`, `cleanup-transcript`, `regenerate-title` / `regenerate-summary` / `regenerate-chapters`, `set-chapters`, `generate-workflow`. (`cleanup-transcript` e `finalize-meeting` são chamadas de pipeline de mídia do lado do servidor; a maioria dos outros recursos de IA são delegados ao chat do agente.)
+- **Edição** — `trim-recording`, `split-recording`, `remove-filler-words`, `remove-silences` não destrutivos, além de `stitch-recordings`, `undo-edit`, `clear-edits`. As edições se acumulam em `edits_json`; o cliente concatena/exporta via ffmpeg.wasm.
+- **Reuniões** — `create-meeting`, `start-meeting-recording` / `stop-meeting-recording`, `finalize-meeting`, `update-meeting`, `get-meeting`, `list-meetings`, além de fiação de calendário `connect-calendar` / `disconnect-calendar` / `sync-calendars` / `list-calendar-accounts`.
+- **Ditado** — `create-dictation`, `cleanup-dictation`, `update-dictation`, `list-dictations` e `add-vocabulary-term` / `list-vocabulary` para polarização de vocabulário pessoal.
+- **Organização da biblioteca** — `create-space` / `rename-space` / `delete-space`, `add-space-member` / `remove-space-member`, `create-folder` / `rename-folder` / `delete-folder`, `add-recording-to-space`.
+- **Compartilhamento, comentários e engajamento** — compartilhamento de estrutura actions mais `create-cta` / `update-cta` / `delete-cta`, `add-comment` / `reply-to-comment` / `resolve-comment` / `react-to-comment` / `delete-comment`, `react-to-recording`, `list-viewers`.
+- **Organizações e membros** — `create-organization`, `set-organization-branding`, `invite-member` / `accept-invite` / `decline-invite` / `get-invite`, `remove-member`, `update-member-role`, `list-organization-state`, `list-notifications`.
+- **Pesquisa, insights e exportação** — `search-recordings` (corresponde a títulos, descrições, texto transcrito e comentários, com carimbos de data e hora), `get-recording-insights`, `get-organization-insights`, `export-insights-csv`, `export-to-brain`.
+- **Contexto e navegação** — `view-screen` (clip atual, reprodução, faixa de transcrição selecionada) e `navigate`; `refresh-list` após mutações.
+
+### Personalizando
+
+Clips é um modelo completo e clonável – bifurque-o e peça ao agente para estendê-lo. Alguns exemplos:
+
+- "Adicione um botão de remoção de palavras de preenchimento que remove um e uh da transcrição e recompõe o vídeo."
+- "Publicar automaticamente minhas notas standup no Slack #eng sempre que uma reunião termina." (Conecte Slack primeiro via [Messaging](/docs/messaging).)
+- "Adicione uma tecla de atalho que coloque o último ditado em Linear como um novo ticket."
+- "Agrupe a biblioteca por projeto — detecte o projeto a partir das primeiras palavras de cada transcrição."
+- "Adicione um botão 'Gerar postagem de blog a partir deste clipe' que rascunha uma postagem da transcrição e a salva como rascunho."
+- "Permita que os espectadores deixem o carimbo de data/hora reactions em um clipe compartilhado."
+
+O agente edita rotas, componentes, o pipeline de transcrição e o esquema conforme necessário. Consulte [Templates](/docs/cloneable-saas) para clonagem completa, personalização, fluxo de implantação e [Getting Started](/docs/getting-started) se este for seu primeiro modelo nativo de agente.
+
+## O que vem a seguir
+
+- [**Templates**](/docs/cloneable-saas) — o modelo clone e próprio
+- [**Context Awareness**](/docs/context-awareness) — como o agente conhece o clipe e o playhead atuais
+- [**Agent Teams**](/docs/agent-teams) — delegar a limpeza da transcrição a um subagente especialista

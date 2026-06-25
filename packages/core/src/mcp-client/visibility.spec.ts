@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { parseMergedKey } from "./remote-store.js";
-import { isMcpToolAllowedForRequest } from "./visibility.js";
+
 import { runWithRequestContext } from "../server/request-context.js";
+import { parseMergedKey } from "./remote-store.js";
 import { hashEmail } from "./remote-store.js";
+import { isMcpToolAllowedForRequest } from "./visibility.js";
 
 describe("parseMergedKey", () => {
   it("parses user-scope keys", () => {

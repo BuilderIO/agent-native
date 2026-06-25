@@ -1,0 +1,398 @@
+---
+title: "Kunde"
+description: "React-Hooks und Dienstprogramme für agentennative Apps: sendToAgentChat, optionaler Agent-Chat-Kontextstatus, useDbSync, useAgentChatGenerating und cn."
+---
+
+# Kunde
+
+`@agent-native/core` stellt React-Hooks und Dienstprogramme für die Browserseite agentennativer Apps bereit.
+
+Diese Client/React APIs werden sowohl aus `@agent-native/core` als auch aus `@agent-native/core/client` exportiert. Importieren Sie sie aus Gründen der Übersichtlichkeit und korrekten Bündelung aus `@agent-native/core/client` (dem Browsereintrag), da das bloße `@agent-native/core`-Root standardmäßig in den Node-Build aufgelöst wird.
+
+Informationen zum dateibasierten Routing – Hinzufügen von Seiten, dynamischen Parametern und Navigation – siehe [Routing](/docs/routing).
+
+## Daten abrufen und ändern {#fetching-mutating}
+
+Die primäre Möglichkeit, App-Daten vom Browser zu lesen und zu schreiben, sind die Aktions-Hooks. Schreiben Sie `fetch`-Aufrufe an `/_agent-native/*`-Routen niemals handschriftlich – verwenden Sie stattdessen die benannten Helfer (siehe [Actions](/docs/actions)).
+
+```an-diagram title="Die Browser-Datenschleife" summary="Hooks lesen und schreiben durch Aktionen; useDbSync überwacht die Datenbank, sodass Agent- und Hintergrundschreibvorgänge automatisch dieselben Caches erneut abrufen."
+{
+  "html": "<div class=\"diagram-client\"><div class=\"diagram-col\"><div class=\"diagram-node\">useActionQuery<br><small class=\"diagram-muted\">cached read</small></div><div class=\"diagram-node\">useActionMutation<br><small class=\"diagram-muted\">write + invalidate</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-box\" data-rough>Actions<br><small class=\"diagram-muted\">/_agent-native/actions/*</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-panel\" data-rough><strong>SQL-Datenbank</strong></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">useDbSync &rarr; refetch on change</div></div>",
+  "css": ".diagram-client{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-client .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-client .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+```tsx
+import {
+  useActionQuery,
+  useActionMutation,
+  callAction,
+} from "@agent-native/core/client";
+
+// Read: auto-cached, auto-invalidated on mutations
+const { data, isLoading } = useActionQuery("get-lead", { leadId });
+
+// Mutate: emits a change event so query caches refetch
+const { mutate, isPending } = useActionMutation("create-lead");
+mutate({ name: "Alice", company: "Acme" });
+
+// Imperative: for one-off calls outside a component
+await callAction("archive-lead", { leadId });
+```
+
+## sendToAgentChat(opts) {#sendtoagentchat}
+
+Senden Sie eine Nachricht an den Agenten-Chat über postMessage – die übliche Methode zum Delegieren einer KI-Aufgabe aus einer UI-Interaktion. Übergeben Sie `context` für versteckten Modellkontext und `submit: true`, um es sofort zu senden, oder `submit: false`, um einen Entwurf vorab auszufüllen, den der Benutzer zuerst überprüft.
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client";
+
+// Auto-submit a prompt with hidden context
+sendToAgentChat({
+  message: "Generate alt text for this image",
+  context: "Image path: /api/projects/hero.jpg",
+  submit: true,
+});
+
+// Prefill without submitting (user reviews first)
+sendToAgentChat({
+  message: "Rewrite this in a conversational tone",
+  context: selectedText,
+  submit: false,
+});
+```
+
+In einer mit `embedApp()` erstellten MCP-App-Einbettung werden automatisch Nachrichten übermittelt
+(`submit` weggelassen oder `true`) werden an die MCP App-Host-Bridge weitergeleitet, die
+fordert den enthaltenden Host auf, versteckten Kontext hinzuzufügen und den sichtbaren Benutzerzug zu senden.
+`context` bleibt für das Model sichtbar, ohne als Benutzer-Chat gepostet zu werden.
+`submit: false` behält das lokale Vorausfüll-/Überprüfungsverhalten bei, da MCP-Apps dies nicht tun
+Definieren Sie eine Standard-Entwurfsvorausfüllung API. Intern ist dies der Pfad zum übermittelten Chat
+tauchte manchmal als `agentNative.submitChat` auf; App-Code sollte aufrufen
+`sendToAgentChat()`, anstatt dieses Ereignis direkt zu veröffentlichen.
+
+### Stille Hintergrundsendungen {#background-send}
+
+Verwenden Sie `background: true`, wenn eine UI-Aktion die eigentliche Arbeit eines Agenten einleiten soll.
+Seitenleiste öffnen oder fokussieren. Dadurch wird immer noch ein normaler Chat-Thread/Lauf erstellt,
+verwendet die Tools/actions/context des Agenten und sorgt dafür, dass die Arbeit beobachtbar bleibt
+das Lauffach; Es handelt sich nicht um einen einmaligen Modellaufruf.
+
+```ts
+const tabId = sendToAgentChat({
+  message: "Analyze this import and create any missing records",
+  context: `Import batch id: ${batchId}`,
+  submit: true,
+  newTab: true,
+  background: true,
+  openSidebar: false,
+});
+```
+
+`background` soll mit `newTab` gepaart werden, damit die versteckte Arbeit nicht funktioniert
+überschreibt die aktive Konversation des Benutzers. Verwenden Sie das zurückgegebene `tabId`, wenn UI
+muss den Follow-up-Status korrelieren oder später einen Deep-Link zum Lauf erstellen.
+
+### AgentChatMessage {#agentchatmessage}
+
+| Option                | Typ         | Beschreibung                                                                                       |
+| --------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
+| `message`             | `string`    | Die sichtbare Eingabeaufforderung, die an den Chat gesendet wurde                                  |
+| `context`             | `string?`   | Versteckter Kontext angehängt (nicht im Chat-Oberfläche angezeigt)                                 |
+| `submit`              | `boolean?`  | true = automatische Übermittlung, false = nur Vorabausfüllung                                      |
+| `newTab`              | `boolean?`  | Erstellen Sie einen separaten Chat-Thread für diese Eingabeaufforderung                            |
+| `background`          | `boolean?`  | Mit `newTab` ausführen, ohne die Registerkarte zu fokussieren, und den Lauf in `RunsTray` anzeigen |
+| `openSidebar`         | `boolean?`  | Setzen Sie „false“, um zu senden/vorab auszufüllen, ohne die Seitenleiste zu öffnen                |
+| `projectSlug`         | `string?`   | Optionaler Projekt-Slug für strukturierten Kontext                                                 |
+| `preset`              | `string?`   | Optionaler voreingestellter Name für nachgeschaltete Verbraucher                                   |
+| `referenceImagePaths` | `string[]?` | Optionale Referenzbildpfade                                                                        |
+
+## Agent-Chat-Kontextstatus (Erweitert) {#agent-chat-context-state}
+
+Die Kontextstatus-APIs sind optionale Installationen für UI, die eine bidirektionale Synchronisierung mit erfordern
+Staging-Kontext-Chips: Rendern der aktuell bereitgestellten Elemente außerhalb des Verfassenrs
+zeigt an, ob ein Element bereits angehängt ist, oder stellt explizite Angaben bereit
+Steuerelemente entfernen/löschen.
+
+Nehmen Sie diese Helfer nicht für ein einfaches „Senden Sie dies an den Agenten“ oder
+Flows „Diesen Entwurf zur Überprüfung vorab ausfüllen“. Verwenden Sie `sendToAgentChat()` mit `context`
+und `submit` für diese.
+
+| API                               | Verwenden wenn                                                                                                    |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `useAgentChatContext()`           | Eine React-Komponente benötigt die live bereitgestellte Kontextliste                                              |
+| `setAgentChatContextItem(item)`   | Imperativer Code sollte ein Schlüsselkontextelement bereitstellen oder ersetzen                                   |
+| `listAgentChatContext()`          | Nicht-React-Code benötigt einen einmaligen Snapshot des bereitgestellten Kontexts                                 |
+| `removeAgentChatContextItem(key)` | UI sollte ein bereitgestelltes Kontextelement durch sein stabiles `key` entfernen                                 |
+| `clearAgentChatContext()`         | UI sollte den gesamten bereitgestellten Kontext löschen, z. B. nach einem Zurücksetzen der Ansicht oder des Modus |
+| `refreshAgentChatContext()`       | Imperativer Code sollte den neuesten persistenten Kontext-Snapshot erneut lesen                                   |
+
+`useAgentChatContext()` gibt `{ items, set, remove, clear, refresh }` zurück.
+
+## openAgentSettings(Abschnitt?) {#openagentsettings}
+
+Verwenden Sie `openAgentSettings()`, wenn eine App-Einstellungsseite oder eine Setup-Karte geöffnet werden soll
+Registerkarte „Einstellungen“ der Agent-Seitenleiste. Übergeben Sie eine Abschnitts-ID wie `"llm"`, `"secrets"`,
+`"automations"`, `"voice"` oder `"limits"`, um einen bestimmten Abschnitt zu öffnen.
+
+```ts
+import { openAgentSettings } from "@agent-native/core/client";
+
+openAgentSettings();
+openAgentSettings("secrets");
+```
+
+Ziehen Sie diesen Helfer dem direkten Versand von `agent-panel:open-settings` vor.
+
+```tsx
+import { useAgentChatContext } from "@agent-native/core/client";
+
+function SelectionContextButton({ record }: { record: { id: string } }) {
+  const chatContext = useAgentChatContext();
+  const contextKey = `selected-record:${record.id}`;
+  const isAttached = chatContext.items.some((item) => item.key === contextKey);
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (isAttached) {
+          chatContext.remove(contextKey);
+          return;
+        }
+
+        chatContext.set({
+          key: contextKey,
+          title: "Selected Record",
+          context: JSON.stringify(record, null, 2),
+          openSidebar: false,
+        });
+      }}
+    >
+      {isAttached ? "Remove from prompt context" : "Add to prompt context"}
+    </button>
+  );
+}
+```
+
+`listAgentChatContext()` ist für zwingenden Code, der nur die
+aktuelle bereitgestellte Elemente einmal. `clearAgentChatContext()` ist absichtlich breit gefasst; verwenden
+`removeAgentChatContextItem(key)`, wenn sich nur eine Auswahl geändert hat.
+
+### AgentChatContextSetOptions {#agentchatcontextsetoptions}
+
+| Option        | Typ        | Beschreibung                                                                                  |
+| ------------- | ---------- | --------------------------------------------------------------------------------------------- |
+| `key`         | `string`   | Stabile Kennung, die zum Ersetzen eines vorhandenen Nuggets verwendet wird                    |
+| `title`       | `string`   | Kurzbezeichnung wird im Verfassenr-Chip angezeigt                                             |
+| `context`     | `string`   | Versteckter Kontext in der nächsten übermittelten Eingabeaufforderung enthalten               |
+| `openSidebar` | `boolean?` | Standardmäßig ist true; Übergeben Sie „false“, um den Kontext stillschweigend bereitzustellen |
+
+## askUserQuestion(opts) {#ask-user-question}
+
+Stellen Sie dem Benutzer eine Multiple-Choice-Frage aus dem App-Code und rendern Sie diese inline im
+Agent-Panel und **warten Sie auf ihre Antwort**. Es ist der clientseitige Zwilling von
+Das integrierte `ask-question`-Tool des Agenten: Es schreibt ein `GuidedQuestionPayload` in den
+`"guided-questions"` Anwendungsstatusschlüssel (wo der gemountete
+`GuidedQuestionFlow` rendert es) und zeigt das Agentenfeld an, sodass die Frage lautet
+sichtbar. Im Gegensatz zum Agenten-Tool – dessen Antwort an den Agenten zurückfließt –
+`askUserQuestion()` **wird mit der Antwort an den Anrufer aufgelöst**, sodass UI dies kann
+darauf verzweigen.
+
+Verwenden Sie es, wenn der UI vor ihm genau eine kleine Entscheidung (2–4 Optionen) benötigt.
+startet die Agentenarbeit – anstatt ein benutzerdefiniertes Modal zu erstellen. Greifen Sie nach
+Verfassenr für Freiformdetails und ein Formular/Popover für die Eingabe mehrerer Felder.
+
+```tsx
+import { askUserQuestion, sendToAgentChat } from "@agent-native/core/client";
+
+const length = await askUserQuestion({
+  question: "How long should this deck be?",
+  header: "Deck length", // optional short chip/heading (≈12 chars)
+  options: [
+    { label: "Short (3–5 slides)", value: "short" },
+    { label: "Medium (6–10 slides)", value: "medium", recommended: true },
+    { label: "Long (11+ slides)", value: "long" },
+  ],
+  allowFreeText: false, // omit the "Other" free-text option (default adds it)
+  allowMultiple: false, // single-select (default)
+});
+
+if (length) {
+  sendToAgentChat({ message: `Generate a ${length} deck.`, submit: true });
+}
+```
+
+Jede Option ist `{ label, value?, description?, preview?, recommended? }`; `value`
+ist standardmäßig `label` und `preview` rendert ein kleines Mockup/Code-Snippet unter
+Option. Das Versprechen wird mit dem ausgewählten `value` (oder `value[]`, wenn
+`allowMultiple`), die Freitextzeichenfolge, wenn der Benutzer „Andere“ auswählt, oder `null`
+Wenn sie überspringen, bleibt es ausstehend, bis der Benutzer antwortet. Erfordert das Agentenpanel
+muss gemountet werden (ist in jeder Vorlage enthalten).
+
+Der Agent erreicht das gleiche UI über sein `ask-question`-Tool: Lassen Sie lieber das
+Agent fragt, wenn _es_ auf einen echten Fork trifft, der nicht aus dem Kontext aufgelöst werden kann; verwenden
+`askUserQuestion()`, wenn der _UI_ eine Aktion für eine Auswahl steuern muss.
+
+## MCP App Host Bridge {#mcp-app-host-bridge}
+
+Routen, die als MCP-Apps eingebettet sind, sollten URL-first sein: Laden Sie das aktuelle Artefakt von
+Pfad-/Abfrageparameter, rendern die echte React-Route oder eine fokussierte gemeinsame Komponente
+und verwenden Sie die Host-Bridge nur für Host-eigenes Verhalten. `@agent-native/core/client`
+exportiert den Aufruf der eingebetteten Routen des Helfers:
+
+```ts
+import {
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
+} from "@agent-native/core/client";
+```
+
+`getMcpAppHostContext()` liest den neuesten gepushten Host-Kontext-Snapshot;
+`useMcpAppHostContext()` abonniert React-Komponenten für Änderungen. Die Anfrage
+Helfer (`openMcpAppHostLink`, `requestMcpAppDisplayMode`,
+`updateMcpAppModelContext`) geben `false` außerhalb eines eingebetteten MCP-App-Frames zurück, oder
+`Promise<boolean>` innerhalb eines Frames. `sendToAgentChat()` verwendet dieselbe Bridge für
+Automatisch übermittelte Eingabeaufforderungen von eingebetteten Routen.
+
+Die Brücke selbst – die `ui/*` JSON-RPC-Nachrichten, die `agentNative.mcpHost.*`
+Wrapper-Relay, Transplantation vs. Controlled-Frame-Rendering, Host-Kontext und
+Anzeigemodus-Anfragen – ist Eigentum von
+[External Agents](/docs/external-agents#mcp-app-bridge).
+
+## Dynamische Vorschläge {#dynamic-suggestions}
+
+`<AgentSidebar>`, `<AgentPanel>` und `<AssistantChat>` führen standardmäßig statische `suggestions` mit kontextbezogenen Vorschlägen zusammen. Das Framework liest `navigation`, `selection`, `pending-selection-context` und den aktuellen URL aus dem Anwendungsstatus, während ein leerer Chat sichtbar ist, und bietet dann Eingabeaufforderungschips an, die zum aktuellen Bildschirm passen.
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{ max: 4 }}
+>
+  <App />
+</AgentSidebar>
+```
+
+Legen Sie `dynamicSuggestions={false}` fest, um nur statische Chips zu behalten. Übergeben Sie `getSuggestions`, wenn eine App deterministische domänenspezifische Chips aus demselben Anwendungsstatuskontext benötigt.
+
+## useAgentChatGenerating() {#useagentchatgenerating}
+
+React-Hook, der sendToAgentChat mit der Ladestatusverfolgung umschließt:
+
+```ts
+import { useAgentChatGenerating } from "@agent-native/core/client";
+
+function GenerateButton() {
+  const [isGenerating, send] = useAgentChatGenerating();
+
+  return (
+    <button
+      disabled={isGenerating}
+      onClick={() => send({
+        message: "Generate a summary",
+        context: documentContent,
+        submit: true,
+      })}
+    >
+      {isGenerating ? "Generating..." : "Generate"}
+    </button>
+  );
+}
+```
+
+`isGenerating` wird wahr, wenn Sie `send()` aufrufen, und wird automatisch auf falsch zurückgesetzt, wenn der Agent die Generierung abgeschlossen hat.
+
+## useDbSync(Optionen?) {#usedbsync}
+
+React-Hook (früher `useFileWatcher`), der über SSE auf Datenbankänderungen lauscht, auf Abfragen zurückgreift und die Framework-Abfragecaches ungültig macht, die dafür sorgen, dass UI mit Agent-Schreibvorgängen in Einklang steht:
+
+```ts
+import { useDbSync } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
+
+function App() {
+  const queryClient = useQueryClient();
+
+  useDbSync({
+    queryClient,
+    pollUrl: "/_agent-native/poll",
+    onEvent: (data) => console.log("Data changed:", data),
+  });
+
+  return <div>...</div>;
+}
+```
+
+### Optionen {#usedbsync-options}
+
+| Option             | Typ                | Beschreibung                                                                                                                         |
+| ------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `queryClient`      | `QueryClient?`     | React-Abfrage-Client für Cache-Ungültigmachung                                                                                       |
+| `queryKeys`        | `string[]?`        | Veraltet und ignoriert; für alte Anrufseiten beibehalten                                                                             |
+| `pollUrl`          | `string?`          | Polling-Endpunkt URL. Standard: `"/_agent-native/poll"`                                                                              |
+| `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only                                               |
+| `interval`         | `number?`          | Abfrageintervall in ms. Standard: `2000`                                                                                             |
+| `fallbackInterval` | `number?`          | Fallback-Abfrageintervall, wenn SSE nicht verfügbar ist. Standard: `15000`                                                           |
+| `pauseWhenHidden`  | `boolean?`         | Pausieren Sie die Abfrage, wenn die Browser-Registerkarte ausgeblendet ist. Standard: `true`                                         |
+| `ignoreSource`     | `string?`          | Anforderungsquelle pro Tab, die ignoriert werden soll, damit ein Tab nicht erneut aus seinen eigenen Schreibvorgängen abgerufen wird |
+| `onEvent`          | `(data) => void`   | Optionaler Rückruf, wenn SSE/polling ein Änderungsereignis empfängt                                                                  |
+
+Für normales CRUD bevorzugen Sie `useActionQuery` und `useActionMutation`; mutierendes actions gibt `source: "action"` aus und diese Hooks werden automatisch erneut abgerufen.
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+Das Framework verwendet Änderungsversionen, um React Abfrage-Caches mit Änderungen zu synchronisieren, die von Hintergrundagenten, Cron-Jobs oder anderen Benutzern vorgenommen wurden.
+
+Wenn eine serverseitige Datenbankmutation auftritt, zeichnet der Server ein Änderungsereignis mit einem bestimmten `source`-Schlüssel auf. Der `useDbSync`-Listener des Clients empfängt diese Ereignisse und erhöht den lokalen Änderungsversionszähler für diese Quelle. Indem Sie den Versionszähler in Ihre React-Abfrageschlüssel integrieren, werden Abfragen automatisch erneut abgerufen, wenn das Backend den Client über neue Aktivitäten benachrichtigt.
+
+- **`useChangeVersion(source: string): number`** – gibt einen Zähler zurück, der immer dann erhöht wird, wenn der angegebene `source` mutiert wird.
+- **`useChangeVersions(sources: readonly string[]): number`** – gibt die Summe der Versionszähler für mehrere Quellen zurück.
+
+### Beispiel: Synchronisieren einer Rohabfrage mit der Datenbank
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client";
+
+function DashboardView({ id }) {
+  // Get version for dashboards domain source
+  const v = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, v], // Invalidate automatically when version bumps
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev, // Prevent layout flicker during refetch
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+### Latenzmodelle und Invalidierungsverhalten
+
+- **UI-initiierte Mutationen:** Wenn Sie eine Aktion vom UI mit `useActionMutation` ausführen, löst die Mutation bei Erfolg sofort ein lokales Ereignis mit `source: "action"` aus. Dies löst abhängig von dieser Aktion einen **sofortigen, optimistischen erneuten Abruf** aller Abfrageschlüssel aus und vermeidet so visuelle Verzögerungen.
+- **Hintergrund- oder Agent-Mutationen:** Wenn der KI-Agent, ein Webhook oder ein Hintergrund-Worker Daten mutiert, wird das Update an den Client gesendet. Der `useDbSync` des Clients erfasst dies entweder sofort über SSE (vom Server gesendete Ereignisse) oder greift auf den **2-Sekunden-Polling-Tick** zurück. Die Version des Abfrageschlüssels ändert sich dann und löst einen erneuten Abruf im Hintergrund aus.
+
+```an-diagram title="Zwei Wege zu einem erneuten Abruf" summary="Eine lokale Mutation macht ihre eigenen Caches sofort ungültig; Ein Remote-Schreibvorgang erreicht diese Registerkarte über SSE oder den Polling-Tick als Fallback."
+{
+  "html": "<div class=\"diagram-latency\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill ok\">Dieser Tab</span><strong>useActionMutation</strong><small class=\"diagram-muted\">fires source: \"action\" on success &rarr; instant local refetch</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Agent · Webhook · anderer Tab</span><strong>Remote-Schreibvorgang</strong><small class=\"diagram-muted\">SSE push, or the ~2s polling tick as fallback &rarr; version bumps &rarr; background refetch</small></div></div></div>",
+  "css": ".diagram-latency .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-latency .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px}"
+}
+```
+
+## cn(...Eingaben) {#cn}
+
+Dienstprogramm zum Zusammenführen von Klassennamen (clsx + tailwind-merge):
+
+```ts
+import { cn } from "@agent-native/core/client";
+
+<div className={cn(
+  "px-4 py-2 rounded",
+  isActive && "bg-primary text-primary-foreground",
+  className
+)} />
+```

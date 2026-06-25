@@ -1,3 +1,7 @@
+import { getHeader, getMethod, type H3Event } from "h3";
+
+import { getSession } from "./auth.js";
+import { registerErrorCaptureProvider } from "./capture-error.js";
 /**
  * Nitro plugin that initializes server-side Sentry and attaches per-request
  * user context.
@@ -21,7 +25,7 @@ import {
   awaitBootstrap,
   markDefaultPluginProvided,
 } from "./framework-request-handler.js";
-import { getSession } from "./auth.js";
+import { addRequestContextObserver } from "./request-context.js";
 import {
   captureRouteError,
   initServerSentry,
@@ -29,9 +33,6 @@ import {
   setSentryRequestContext,
   setSentryUserForRequest,
 } from "./sentry.js";
-import { registerErrorCaptureProvider } from "./capture-error.js";
-import { addRequestContextObserver } from "./request-context.js";
-import { getHeader, getMethod, type H3Event } from "h3";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 

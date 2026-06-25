@@ -3,6 +3,7 @@ import {
   buildMcpToolName,
   McpClientManager,
 } from "@agent-native/core/mcp-client";
+import { getOrgA2ASecret, getOrgDomain } from "@agent-native/core/org";
 import {
   buildDeepLink,
   buildEmbedStartPath,
@@ -15,7 +16,7 @@ import {
   discoverAgents,
   type DiscoveredAgent,
 } from "@agent-native/core/server/agent-discovery";
-import { getOrgA2ASecret, getOrgDomain } from "@agent-native/core/org";
+
 import {
   getDispatchMcpAppAccessSettings,
   isAppAllowedByMcpAccess,

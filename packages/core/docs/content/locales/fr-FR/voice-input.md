@@ -1,0 +1,81 @@
+---
+title: "Saisie vocale"
+description: "Dictée vocale dans l'outil de composition de chat de l'agent : fournisseurs Builder Gemini, BYOK et solution de secours Web Speech du navigateur."
+---
+
+# Saisie vocale
+
+Chaque application native d'agent dispose d'un microphone dans l'éditeur de chat. Cliquez dessus, parlez et vos mots seront transcrits dans l'invite. Utile sur mobile, utile pour les invites longues, utile lorsque vos mains sont sur autre chose.
+
+Le framework gère tout cela automatiquement. Les utilisateurs connectés à Builder obtiennent par défaut Gemini Flash-Lite hébergé sur Builder ; sinon, les utilisateurs peuvent apporter leur propre clé de fournisseur ou recourir à la reconnaissance vocale du navigateur.
+
+## Comment ça marche {#how-it-works}
+
+Le bouton vocal du compositeur enregistre l'audio dans le navigateur, puis sélectionne un fournisseur :
+
+1. **Builder Gemini Flash-Lite (par défaut lorsque Builder est connecté).** Le navigateur POSTe l'audio sur `/_agent-native/transcribe-voice`, qui passe par proxy via Builder.io à l'aide de Gemini Flash-Lite. Aucune clé Google API requise.
+2. **Fournisseurs cloud BYOK.** Les utilisateurs peuvent choisir Google Gemini, Groq Whisper ou OpenAI Whisper dans les paramètres. La route résout les secrets chiffrés à l'échelle de l'utilisateur avant les informations d'identification de déploiement partagées.
+3. **Browser Web Speech API (repli).** Si aucun fournisseur de serveur n'est disponible, le compositeur peut utiliser la reconnaissance vocale intégrée du navigateur. Fonctionne dans les navigateurs basés sur Chromium (Chrome, Edge, Arc) et Safari. Moins précis ; diffuse en direct.
+
+Le choix du fournisseur est stocké dans l'état de l'application sous `voice-transcription-prefs` afin que l'utilisateur puisse forcer `"auto"` (par défaut : sélectionne le meilleur fournisseur disponible), `"builder-gemini"`, `"builder"`, `"gemini"`, `"groq"`, `"openai"` ou `"browser"` dans les paramètres de la barre latérale.
+
+```an-diagram title="Solution de secours du fournisseur de transcription vocale" summary="Le compositeur enregistre l'audio, puis parcourt les fournisseurs de serveur dans l'ordre, en passant au navigateur Web Speech API uniquement lorsqu'aucun fournisseur de serveur n'est disponible."
+{
+  "html": "<div class=\"diagram-voice\"><div class=\"diagram-node\">Bouton micro<br><small class=\"diagram-muted\">enregistre en webm/opus</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill accent\">1 &middot; Builder Gemini</div><small class=\"diagram-muted\">par défaut quand Builder est connecté</small><div class=\"diagram-pill\">2 &middot; BYOK cloud</div><small class=\"diagram-muted\">Gemini &middot; Groq &middot; OpenAI Whisper</small></div><div class=\"diagram-arrow diagram-warn\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box diagram-warn\" data-rough>3 &middot; Browser Web Speech<br><small class=\"diagram-muted\">fallback on 400 &middot; streams live</small></div></div>",
+  "css": ".diagram-voice{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-voice .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-voice .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+L'itinéraire est **de même origine uniquement** : les POST intersites sont rejetés afin qu'un attaquant ne puisse pas graver les crédits de transcription à partir d'une page externe.
+
+## Activation des fournisseurs {#enabling-providers}
+
+Builder est le chemin le plus simple : connectez Builder.io à partir des paramètres et le fournisseur par défaut devient Builder Gemini Flash-Lite. Pour les fournisseurs BYOK, ajoutez la clé correspondante dans Paramètres → Clés API.
+
+### Par utilisateur (recommandé pour SaaS)
+
+L'utilisateur définit sa propre clé via les paramètres de la barre latérale de l'agent UI. Il est stocké en tant que secret chiffré à l'échelle de l'utilisateur (via `readAppSecret`). Chaque utilisateur paie sa propre transcription ; aucun coût pour l'hôte.
+
+### Partagé (pour les outils internes)
+
+Définissez `GEMINI_API_KEY`, `GROQ_API_KEY` ou `OPENAI_API_KEY` en tant que variable d'environnement ou dans la table `settings`. La transcription de chaque utilisateur atteint la clé partagée.
+
+```an-callout
+{
+  "tone": "info",
+  "body": "**Ordre de résolution des informations d'identification :** la route vérifie d'abord le secret chiffré de l'utilisateur, puis la clé de déploiement partagée. Un utilisateur expérimenté disposant de sa propre clé remplace toujours celle partagée. Si aucun des deux n'existe, la route renvoie un 400 que le compositeur reconnaît et revient silencieusement au navigateur Web Speech."
+}
+```
+
+## L'itinéraire {#route}
+
+```an-api title="Parcours de transcription vocale"
+{
+  "method": "POST",
+  "path": "/_agent-native/transcribe-voice",
+  "summary": "Transcrire un clip audio enregistré en texte d'invite",
+  "auth": "Active session (Better Auth cookie). Same-origin only.",
+  "description": "The composer POSTs the recorded clip here; the route resolves a provider and returns the transcribed text. You should not call this directly.",
+  "params": [
+    { "name": "audio", "in": "body", "type": "file", "required": true, "description": "The recorded clip, webm/opus by default. Max 25 MB." },
+    { "name": "provider", "in": "body", "type": "string", "required": false, "description": "Optional override, e.g. gemini, groq, openai, builder." }
+  ],
+  "request": { "contentType": "multipart/form-data" },
+  "responses": [
+    { "status": "200", "description": "Transcription succeeded", "example": "{ \"text\": \"reply to Sara that I'll be there by 3\" }" },
+    { "status": "400", "description": "No server provider configured — the composer recognizes this and falls back to Web Speech", "example": "{ \"error\": \"no_provider\" }" }
+  ]
+}
+```
+
+Vous n'avez pas besoin de l'appeler directement : le compositeur le fait. Si vous créez une surface de saisie personnalisée, réutilisez d'abord les éléments partagés du compositeur/client vocal de `@agent-native/core/client`. Traitez cet itinéraire comme la limite de transport de bas niveau pour les assistants personnalisés qui doivent envoyer de l'audio en plusieurs parties.
+
+## Personnalisation du fournisseur {#customizing}
+
+Le champ du fournisseur est une clé d'état d'application simple, l'agent peut donc le modifier sur demande (`"use the browser speech recognizer instead"`). Si vous créez un modèle avec des exigences différentes (par exemple, un déploiement Whisper sur site), remplacez le gestionnaire de route en enregistrant votre propre route `transcribe-voice` avant que le framework ne monte la route par défaut.
+
+## Quelle est la prochaine étape
+
+- [**Drop-in Agent**](/docs/drop-in-agent) — le compositeur qui expose le bouton vocal
+- [**Onboarding**](/docs/onboarding) – enregistrement des clés du fournisseur en tant qu'étapes de configuration
+- [**Security & Data Scoping**](/docs/security) – comment les secrets chiffrés sont stockés par utilisateur

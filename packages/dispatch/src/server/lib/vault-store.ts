@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
-import { and, desc, eq, isNull, or } from "drizzle-orm";
-import { discoverAgents } from "@agent-native/core/server/agent-discovery";
+
+import { and, desc, eq, isNull, or } from "@agent-native/core/db/schema";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   deleteAppSecret,
@@ -8,12 +8,14 @@ import {
   writeAppSecret,
   type SecretScope,
 } from "@agent-native/core/secrets";
+import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import {
   getOrgSetting,
   getUserSetting,
   putOrgSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
+
 import { getDb, schema } from "../../db/index.js";
 import {
   currentOwnerEmail,

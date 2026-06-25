@@ -1,0 +1,321 @@
+---
+title: "작업공간 연결"
+description: "어디서나 연결 한 번 사용 통합을 위한 공유 공급자 메타데이터, 권한 부여 및 자격 증명 참조."
+---
+
+# 작업공간 연결
+
+작업 공간 연결은 재사용 가능한 통합 메타데이터를 위한 프레임워크 기본 요소입니다. 모든 공급자가 완전히 일반적인 것처럼 가장하지 않고도 "한 번 연결, 앱 부여, 자격 증명 재사용"이 가능해졌습니다.
+
+## 빠른 시작 {#quickstart}
+
+### 네 가지 개념
+
+- **연결** — 명명된 공급자 계정(`team-slack`, `acme-hubspot`). 공급자 ID, 계정 레이블, 상태, 범위 및 안전 구성을 기록합니다. 절대 비밀 값을 저장하지 마세요.
+- **허용** — 특정 앱이 연결을 사용할 수 있는 권한입니다. 권한이 부여되지 않은 앱은 연결 자격 증명을 볼 수 없습니다.
+- **credentialRef** — 저장소 비밀(`{ key: "SLACK_BOT_TOKEN", scope: "org" }`)에 대한 포인터입니다. 연결은 토큰이 어디에 있는지 알려줍니다. 금고에는 가치가 보관되어 있습니다.
+- **준비 상태** — 앱에 표시되는 결합 상태: `connected`(허용됨 + 자격 증명 존재), `needs_grant`, `needs_credentials`, `needs_attention` 또는 `not_configured`.
+
+```an-diagram title="한 번 연결하고 앱을 부여하고 자격 증명을 재사용하세요." summary="연결은 저장소를 가리키는 공급자 메타데이터(비밀 아님)와 credentialRef를 보유합니다. 앱별 보조금으로 잠금을 해제할 수 있습니다. 앱은 단일 준비 상태를 읽습니다."
+{
+  "html": "<div class=\"diagram-conn\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Connection</span><div class=\"diagram-box\" data-rough>named provider account<br><small class=\"diagram-muted\">provider, label, 상태, 범위, 설정 &middot; never stores secret values</small></div><div class=\"diagram-muted\">credentialRef &rarr; pointer to a vault secret</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill\">Grant</span><div class=\"diagram-box\" data-rough>per-app permission<br><small class=\"diagram-muted\">no grant = no credential access</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Readiness</span><small class=\"diagram-muted\">what the app sees</small><div class=\"sev-row\"><span class=\"diagram-pill ok\">connected</span><span class=\"diagram-pill warn\">needs_grant</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">needs_credentials</span><span class=\"diagram-pill warn\">needs_attention</span></div><div class=\"sev-row\"><span class=\"diagram-pill\">not_configured</span></div></div></div>",
+  "css": ".diagram-conn{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-conn .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-conn .diagram-arrow{font-size:22px;line-height:1}.diagram-conn .sev-row{display:flex;gap:8px;flex-wrap:wrap}"
+}
+```
+
+### 작업된 예: Slack
+
+Slack를 한 번 연결하고 Brain 및 Analytics에 부여하세요:
+
+```ts
+import {
+  upsertWorkspaceConnection,
+  upsertWorkspaceConnectionGrant,
+} from "@agent-native/core/workspace-connections";
+
+await upsertWorkspaceConnection({
+  id: "acme-slack",
+  provider: "slack",
+  label: "Acme Slack",
+  accountId: "T012345",
+  accountLabel: "Acme",
+  status: "connected",
+  scopes: ["channels:history", "groups:history", "chat:write"],
+  config: {
+    teamDomain: "acme",
+    channelHints: ["product", "dev-fusion", "customer-success"],
+  },
+  credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+});
+
+await upsertWorkspaceConnectionGrant({
+  connectionId: "acme-slack",
+  appId: "brain",
+});
+await upsertWorkspaceConnectionGrant({
+  connectionId: "acme-slack",
+  appId: "analytics",
+});
+```
+
+```an-schema title="연결 모델" summary="A connection records safe provider metadata and credentialRefs (pointers, not secrets). Each grant unlocks one app — one connection, many grants."
+{
+  "entities": [
+    {
+      "id": "conn",
+      "name": "workspace_connections",
+      "note": "지정된 공급자 계정. 절대 비밀 값을 저장하지 마세요.",
+      "fields": [
+        { "name": "id", "type": "string", "pk": true, "note": "e.g. acme-slack" },
+        { "name": "provider", "type": "string", "note": "안정적인 공급자 ID, e.g. 느슨하게" },
+        { "name": "label", "type": "string" },
+        { "name": "accountId", "type": "string", "nullable": true },
+        { "name": "accountLabel", "type": "string", "nullable": true },
+        { "name": "status", "type": "string", "note": "e.g. connected" },
+        { "name": "scopes", "type": "string[]", "nullable": true },
+        { "name": "config", "type": "json", "nullable": true, "note": "안전하고 비밀이 아닌 구성" },
+        { "name": "credentialRefs", "type": "json", "nullable": true, "note": "pointers to vault keys, e.g. { key, scope }" }
+      ]
+    },
+    {
+      "id": "grant",
+      "name": "workspace_connection_grants",
+      "note": "연결을 사용하기 위한 앱별 권한입니다.",
+      "fields": [
+        { "name": "connectionId", "type": "string", "fk": "conn.id" },
+        { "name": "appId", "type": "string", "note": "e.g. 두뇌, 분석" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "conn", "to": "grant", "kind": "1-n", "label": "grants apps" }
+  ]
+}
+```
+
+### 어떤 앱이 호출하는지
+
+사용자에게 새 키를 붙여넣도록 요청하기 전에 먼저 준비 상태를 확인하세요.
+
+```ts
+import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
+
+const catalog = await listWorkspaceConnectionProviderCatalogForApp({
+  appId: "brain",
+  templateUse: "brain",
+  provider: "slack",
+  includeConnections: "all",
+});
+
+const slack = catalog.providers[0];
+if (slack.workspaceConnection.grantState === "needs_grant") {
+  // Show "Grant Brain access" instead of asking for a second Slack token.
+}
+if (slack.readiness.status === "needs_credentials") {
+  // Show the missing credential ref names, never a secret value.
+}
+```
+
+## 참조 {#reference}
+
+### 제공자 카탈로그
+
+`@agent-native/core/connections`에서 카탈로그 가져오기:
+
+```ts
+import {
+  getWorkspaceConnectionProvider,
+  listWorkspaceConnectionProvidersForTemplate,
+  workspaceConnectionProviderSupports,
+} from "@agent-native/core/connections";
+
+const brainProviders = listWorkspaceConnectionProvidersForTemplate("brain");
+const slack = getWorkspaceConnectionProvider("slack");
+
+if (workspaceConnectionProviderSupports("slack", "messages")) {
+  // Offer a Slack source, sync check, or onboarding step.
+}
+```
+
+초기 공급자 ID는 다음과 같습니다:
+
+| 제공자         | 기능                       | 일반적인 용도                     |
+| -------------- | -------------------------- | --------------------------------- |
+| `slack`        | 검색, 가져오기, 메시지     | 브레인, 파견, 분석                |
+| `github`       | 검색, 가져오기, 코드, 문서 | 뇌, 분석, 파견                    |
+| `notion`       | 검색, 가져오기, 문서       | 뇌, 콘텐츠, 파견                  |
+| `gmail`        | 검색, 가져오기, 메시지     | 우편, 두뇌, 파견                  |
+| `google_drive` | 검색, 가져오기, 문서       | 브레인, 콘텐츠, 슬라이드          |
+| `hubspot`      | 검색, 가져오기, crm        | 분석, 브레인, 메일                |
+| `granola`      | 검색, 가져오기, 회의, 문서 | 뇌, 달력, 파견                    |
+| `clips`        | 검색, 가져오기, 회의       | 뇌, 클립, 비디오                  |
+| `generic`      | 검색, 가져오기, 문서       | 사용자 정의 webhooks 및 파일 삭제 |
+
+자격 증명 키는 `SLACK_BOT_TOKEN` 또는 `GITHUB_TOKEN`와 같이 이름일 뿐입니다. 공급자 메타데이터에는 실제 자격 증명 값이 포함되어서는 안 됩니다.
+
+### 연결 저장소 API
+
+```ts
+import {
+  listWorkspaceConnectionProviderCatalogForApp,
+  listWorkspaceConnectionGrants,
+  listWorkspaceConnections,
+  summarizeWorkspaceConnectionProviderForApp,
+  summarizeWorkspaceConnectionProviderReadiness,
+  upsertWorkspaceConnection,
+  upsertWorkspaceConnectionGrant,
+  revokeWorkspaceConnectionGrant,
+} from "@agent-native/core/workspace-connections";
+
+const connections = await listWorkspaceConnections({ includeDisabled: true });
+const grants = await listWorkspaceConnectionGrants({ appId: "brain" });
+
+const appGrant = summarizeWorkspaceConnectionProviderForApp({
+  providerId: "slack",
+  appId: "brain",
+  connections,
+  grants,
+});
+
+const readiness = summarizeWorkspaceConnectionProviderReadiness({
+  provider: slack!,
+  appId: "brain",
+  connections,
+  grants,
+});
+
+const brainCatalog = await listWorkspaceConnectionProviderCatalogForApp({
+  appId: "brain",
+  templateUse: "brain",
+});
+```
+
+`credentialRefs` 배열은 볼트 키를 가리킵니다. 자격 증명 저장소가 아닙니다. 예를 들어 `{ key: "SLACK_BOT_TOKEN", scope: "org" }`는 부여된 앱에 Slack를 호출해야 할 때 `SLACK_BOT_TOKEN`라는 조직 범위 Vault 비밀을 조회하도록 지시합니다. 연결 수준 참조는 공급자 계정을 설명합니다. 부여 수준 참조는 특정 앱이 사용해야 하는 항목을 좁히거나 재정의할 수 있습니다.
+
+연결 행은 활성 조직이 있는 경우 해당 조직으로 범위가 지정됩니다. 조직이 없으면 인증된 사용자로 범위가 지정됩니다. 부여 행은 동일한 범위를 사용합니다.
+
+**레거시 `allowedApps` 필드:** `allowedApps: []`는 동일한 범위에 있는 모든 앱이 연결을 사용할 수 있음을 의미합니다. `allowedApps: ["dispatch"]`는 레거시 필드를 통해 액세스 권한을 부여합니다. 새 설정에 명시적인 `workspace_connection_grants` 행을 사용하면 취소, 감사 및 앱별 준비가 더 쉬워집니다. `revokeWorkspaceConnectionGrant(connectionId, appId)`는 명시적 허가를 제거하지만 레거시 `allowedApps`를 변경하지 않습니다.
+
+수동 승인 확인 대신 앱 표시 상태에 `summarizeWorkspaceConnectionProviderForApp()` 및 `summarizeWorkspaceConnectionProviderReadiness()`를 사용하세요. 공유 요약은 `grantState`, `grantAvailability`, 안전한 자격 증명 참조 이름, 앱별 연결 행, `readyConnectionCount` 및 `missingRequiredCredentialKeys`와 같은 준비 필드를 반환합니다.
+
+새로운 앱 설정 화면의 경우 상위 수준 경계로 `listWorkspaceConnectionProviderCatalogForApp()`를 선호합니다. 이는 공급자 카탈로그, 범위 연결, 명시적 권한 부여, 앱별 액세스 요약 및 공급자 준비 상태를 하나의 안전한 형태로 결합합니다.
+
+### 이것이 금고를 보완하는 방법
+
+자격증명 저장소는 "비밀은 어디에 저장되어 있으며, 누가 액세스할 수 있으며 어떤 앱에 비밀이 부여됩니까?"라고 대답합니다.
+
+작업 공간 연결 공급자 메타데이터 답변: "이 공급자는 누구이며, 무엇을 할 수 있고, 어떤 자격 증명 키가 필요할 수 있으며, 어떤 템플릿을 제공해야 합니까?"
+
+```an-diagram title="연결 저장소와 Vault" summary="볼트는 비밀 값을 소유합니다. 연결은 공급자 메타데이터와 credentialRef(포인터)를 소유합니다. 실행 시 앱은 부여된 연결을 통해 참조를 확인하고 자격 증명 모음에서 값을 읽습니다."
+{
+  "html": "<div class=\"diagram-vault\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">연결 저장소</span><div class=\"diagram-box\" data-rough>provider account + metadata<br><small class=\"diagram-muted\">상태, 범위, 설정</small></div><div class=\"diagram-box\" data-rough>credentialRef<br><small class=\"diagram-muted\">{ key: SLACK_BOT_TOKEN, scope: org }</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">앱 action</span><small class=\"diagram-muted\">resolves at execution time through a granted ref</small><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Vault</span><div class=\"diagram-box\" data-rough>secret value<br><small class=\"diagram-muted\">에이전트나 UI에 반환되지 않음</small></div></div></div>",
+  "css": ".diagram-vault{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-vault .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-vault .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-vault .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+둘 다 함께 사용:
+
+1. 디스패치(또는 다른 작업공간 설정 흐름)는 기본 저장소 비밀 또는 OAuth 자격 증명 참조를 생성합니다.
+2. 작업공간 연결 저장소는 공급자 계정, 안전한 메타데이터, 자격 증명 참조 및 앱 부여를 기록합니다.
+3. 각 앱은 카탈로그에서 공급자 메타데이터를 읽고 공유 저장소에서 연결/부여 요약을 읽습니다.
+4. UI 앱은 연결됨, 부여되었지만 비정상, 부여 필요, 자격 증명 누락 또는 메타데이터 전용 등의 준비 상태를 보여줍니다.
+5. 앱별 SQL는 앱별 소스 ID, 커서, 필터, 동기화 창, 측정항목 정의, 검토 규칙 및 사용자 선택만 저장합니다.
+6. 앱 actions는 부여된 연결 참조 및 저장소를 통해 실행 시 자격 증명을 확인하고 비밀 값을 반환하지 않습니다.
+
+### 제공자 리더 런타임
+
+제공자-리더 계층은 모든 제공자가 공유된 라이브 리더를 갖는다는 약속이 아니라 먼저 계약입니다. 리더 정의는 지원되는 작업, 자격 증명 요구 사항 및 구현 상태(`metadata-only`, `template-owned` 또는 `shared`)를 설명합니다. 런타임은 앱에 대해 부여된 작업공간 연결 및 자격 증명 참조를 확인하고, 등록된 핸들러를 호출하고, 비밀 값을 노출하지 않고 정규화된 항목을 반환합니다.
+
+현재 대부분의 라이브 핸들러는 템플릿을 소유하고 있습니다. 즉, Brain은 여전히 Slack/GitHub 수집 동작을 소유하고 Analytics는 여전히 분석 해석을 소유하고 있습니다. 공급자별 API 호출, 페이지 매김, 권한 및 결과 의미 체계가 템플릿 전체에서 실제로 재사용 가능한 경우에만 리더를 `shared`로 승격하세요.
+
+### 앱 준비 패턴
+
+공유 공급자 자격 증명을 사용하는 앱은 읽기 전용 준비 작업과 다음을 포함하는 작은 설정 표면을 노출해야 합니다.
+
+- **공급자 카탈로그:** `@agent-native/core/connections`의 공급자 ID, 레이블, 기능, 권장 템플릿 사용 및 필수 자격 증명 키 이름.
+- **작업 공간 요약:** `@agent-native/core/workspace-connections`의 연결 수, 활성/허가된 수, 부여 상태, 자격 증명 참조 이름, 비밀이 아닌 계정 라벨.
+- **공급자 준비 상태:** `ready`, `needs_credentials`, `needs_attention`, `checking`, `disabled` 또는 `summarizeWorkspaceConnectionProviderReadiness()`를 통한 `not_configured`.
+- **소스 상태:** 앱-로컬로 구성된 소스, 커서, 동기화 상태 및 다음 작업.
+
+Brain의 소스 페이지는 참조 구현입니다. Brain 소스 레코드 옆에 재사용 가능한 작업 공간 연결 제공자를 표시하고 부여 상태를 `connected`, `granted`, `needs_grant` 또는 `not_connected`로 레이블 지정하고 제공자 상태를 준비됨, 누락된 키, 부여 필요, 복구 필요 또는 메타데이터만으로 표시합니다.
+
+### 재사용 가능한 커넥터 만들기
+
+새 제공업체가 여러 템플릿에서 작업해야 하는 경우:
+
+1. **공급자 메타데이터:** `@agent-native/core/connections`에서 공급자를 추가하거나 재사용합니다. 이는 안정적인 ID, 표시 레이블, 기능 목록, 권장 템플릿 사용 및 자격 증명 키 이름입니다.
+2. **작업 공간 연결:** 디스패치 또는 다른 작업 공간 설정 화면은 연결된 계정의 안전한 메타데이터, 상태, 범위, `credentialRefs` 및 `@agent-native/core/workspace-connections`를 통한 앱 부여를 저장합니다.
+3. **앱 로컬 소스:** Brain, Analytics, Mail 또는 기타 앱은 Slack 채널, GitHub 저장소, HubSpot 개체 필터, 동기화 커서 또는 폴링 흐름과 같이 자신이 소유한 앱별 선택 사항만 저장합니다.
+
+각 앱에 OAuth/토큰 저장소를 중복하지 마세요. 연결 기록에는 "이것은 Acme Slack이며 해당 토큰은 `SLACK_BOT_TOKEN`에 있습니다"라고 나와 있습니다. 앱 로컬 소스에 "Brain은 해당 Slack 연결에서 `#product` 및 `#dev-fusion`를 수집할 수 있습니다."라고 나와 있습니다.
+
+### 디스패치 제어 평면 설정
+
+Dispatch는 앱이 직접 호출할 수 있는 동일한 공유 저장소 기능을 작성하는 제어 평면 actions를 노출합니다.
+
+```ts
+// templates/dispatch/actions/upsert-workspace-connection.ts delegates to this.
+await upsertWorkspaceConnection({
+  id: "team-slack",
+  provider: "slack",
+  label: "Acme Slack",
+  accountId: "T012345",
+  accountLabel: "acme",
+  status: "connected",
+  scopes: ["channels:history", "groups:history"],
+  config: { teamDomain: "acme", preferredChannels: ["product", "dev-fusion"] },
+  credentialRefs: [
+    {
+      key: "SLACK_BOT_TOKEN",
+      scope: "org",
+      provider: "slack",
+      label: "Slack bot token",
+    },
+  ],
+});
+
+// Then grant the apps that should reuse the provider.
+await upsertWorkspaceConnectionGrant({
+  connectionId: "team-slack",
+  appId: "brain",
+});
+await upsertWorkspaceConnectionGrant({
+  connectionId: "team-slack",
+  appId: "analytics",
+});
+```
+
+동일한 범위에 있는 모든 앱에 연결을 사용할 수 있어야 하는 경우에만 `allowedApps: []`를 사용하세요. 프로덕션 설정에는 명시적 승인 행을 선호합니다.
+
+### 자격증명 확인
+
+앱 실행 코드는 활성 요청 범위의 자격 증명 모음을 통해 부여된 `credentialRefs`의 자격 증명 값을 확인합니다. Brain의 `source-credentials.ts`는 현재 참조 구현입니다. 공급자에 대한 작업 공간 연결을 나열하고, `getWorkspaceConnectionAppAccess`에서 `appId: "brain"`를 확인하고, 연결 수준 및 권한 부여 수준 자격 증명 참조를 병합하고, 일치하는 첫 번째 범위 지정 저장소 비밀을 읽습니다. 다른 앱은 `process.env`에 도달하는 대신 그 형태를 따라야 합니다.
+
+## 디자인 노트 {#design-notes}
+
+<details>
+<summary>리더 프로모션 정책 및 "한 번 연결하면 어디에서나 사용 가능" </summary>
+
+### 앱-로컬 경계
+
+공유 연결과 앱-로컬 소스 사이의 경계는 의도적인 것입니다. 오늘날 재사용할 수 있는 것은 공급자 ID, 자격 증명 참조 확인, 앱별 부여, 공급자 준비, 안전한 계정 메타데이터 및 정규화된 공급자-독자 계약입니다. 아직 일반적이지 않은 것은 대부분의 라이브 공급자 API 읽기, OAuth 흐름 소유권, 수집 커서, 소스 필터, 동기화 케이던스 및 도메인 해석입니다. 리더 구현이 명시적으로 공유로 승격되지 않는 한 워크플로를 소유한 앱에 유지됩니다.
+
+앱 소스 커넥터는 사용자/조직 소스 자격 증명에 대한 대체 수단으로 배포 수준 환경 변수를 읽어서는 안 됩니다. 환경 변수는 배포에 전역적이며 작업 공간 부여를 표현하지 않습니다.
+
+에이전트는 간단한 규칙을 따라야 합니다. 사용자가 Slack, GitHub, HubSpot, Gmail, Google Drive, Granola 또는 다른 공유 공급자 연결을 요청하는 경우 먼저 작업 공간 연결 카탈로그를 검사하세요. 공급자가 `connected`인 경우 이를 사용합니다. `needs_grant`인 경우 앱 부여를 요청하거나 수행합니다. `needs_credentials`인 경우 누락된 볼트 키를 요청하세요. 재사용 가능한 연결이 없는 경우에만 새 원시 키를 요청하세요.
+
+### "한 번 연결하면 어디에서나 사용 가능" 경로
+
+공급자 카탈로그와 보조금 저장소는 더 넓은 작업 공간 계층을 위한 기반입니다.
+
+- 공유 제공자 ID 및 기능 이름은 템플릿을 정렬된 상태로 유지합니다.
+- 작업 공간 수준 인벤토리는 Brain, Mail, Analytics, Dispatch 및 향후 앱 전반에 걸쳐 구성된 공급자를 표시할 수 있습니다.
+- 연결 행은 템플릿 관련 공급자 ID를 변경하지 않고도 계정 레이블, 상태, 허용된 앱, 자격 증명 참조 및 상태 확인을 기록합니다.
+- 행 부여를 통해 작업 공간 소유자는 한 번 연결한 다음 작업 공간에서 개별 앱을 채택할 때 개별 앱을 활성화할 수 있습니다.
+- 에이전트는 이미 연결되어 있는 제공업체와 권한이 부여된 앱을 파악하여 앱 간에 작업을 라우팅할 수 있습니다.
+- 통합 검색은 모든 앱의 커넥터 목록을 하드코딩하는 대신 `search`, `docs`, `messages`, `meetings`, `crm` 또는 `code` 기능을 갖춘 공급자를 요청할 수 있습니다.
+- 공급자별 리더, OAuth 새로 고침 흐름, 수집 체크포인트, 앱 소유 데이터 모델은 나중에 공유될 수 있지만 현재 작업 공간 연결에 의해 암시되지는 않습니다.
+
+경계를 엄격하게 유지하십시오. 제공자 메타데이터는 표시해도 안전합니다. 자격 증명 값은 저장소에 유지됩니다.
+
+</details>

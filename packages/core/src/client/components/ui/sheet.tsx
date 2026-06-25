@@ -1,6 +1,6 @@
-import * as React from "react";
 import * as SheetPrimitive from "@radix-ui/react-dialog";
 import { IconX } from "@tabler/icons-react";
+import * as React from "react";
 
 import { cn } from "../../utils.js";
 
@@ -44,7 +44,7 @@ const SheetContent = React.forwardRef<
       {...props}
     >
       {children}
-      <SheetPrimitive.Close className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+      <SheetPrimitive.Close className="absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
         <IconX className="h-4 w-4" />
         <span className="sr-only">Close</span>
       </SheetPrimitive.Close>

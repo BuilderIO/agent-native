@@ -1,0 +1,111 @@
+---
+title: "Registro de auditoría"
+description: "Un registro duradero, solo para agregar, de quién cambió qué datos de la aplicación, cuándo y si fue usted o el agente, capturado automáticamente en la unión de acción."
+---
+
+# Registro de auditoría
+
+Cada aplicación nativa del agente obtiene un registro de auditoría listo para usar: un registro duradero, completo, con alcance de acceso y solo para agregar de **quién mutó qué datos de la aplicación, cuándo, desde dónde y (cuándo fue el agente) en qué ejecución.** La captura es automática en el punto de acción; no escribes ningún código para ello.
+
+Debido a que el agente puede cambiar los datos en su nombre, la pregunta principal que responde un registro de auditoría aquí no es solo "quién editó este registro", sino **"¿fui yo o el agente, y qué turno lo causó?"** Ningún otro sistema en el marco puede responder eso.
+
+## Auditoría versus observabilidad versus seguimiento {#which}
+
+Tres sistemas registran "lo que sucedió", por tres razones diferentes. Elija según la pregunta que esté haciendo:
+
+| Sistema                                  | La pregunta que responde                               | Fidelidad                            | Audiencia                                |
+| ---------------------------------------- | ------------------------------------------------------ | ------------------------------------ | ---------------------------------------- |
+| **Registro de auditoría** (esta página)  | "¿Quién cambió este registro, cuándo y fue el agente?" | **Completo, duradero y con alcance** | Usuario, administrador, el propio agente |
+| **[Observability](/docs/observability)** | "¿Por qué el agente hizo eso y cuánto costó?"          | Telemetría de tramo muestreado       | Desarrollador                            |
+| **[Tracking](/docs/tracking)**           | "¿Cómo utiliza la gente el producto?"                  | Dispare y olvídese en SaaS externo   | PM / crecimiento                         |
+
+Un registro de auditoría que se muestrea o se envía a un proveedor de análisis es inútil; la cuestión es que sea completo, local y consultable. Por lo tanto, es su propio subsistema, no un modo de los otros dos.
+
+## Qué se captura automáticamente {#captured}
+
+Cuando se ejecuta cualquier acción **mutante** (cualquier cosa que no sea un `GET` de solo lectura), el marco agrega una fila a `agent_audit_log` con:
+
+- **Acción**: el nombre de la acción (por ejemplo, `delete-recording`).
+- **Actor**: `agent`, `human` o `system`, más el correo electrónico del actor, completado **incluso para llamadas de agentes**, por lo que obtienes "el agente, que actúa para alice@,...".
+- **Ejecutar vínculo**: el agente `threadId` / `turnId` que activó la llamada (una llamada de herramienta), por lo que una mutación se remonta al turno exacto del agente.
+- **Superficie**: `tool` (agente), `frontend`, `http`, `cli`, `mcp` o `a2a`.
+- **Resultado**: `success`, `error` (con un código de error) o `denied` (bloqueado por una puerta de aprobación humana).
+- **Entradas**: los argumentos de llamada, con valores en forma de credencial [redacted](#privacy).
+- **Objetivo y propietario**: el recurso que cambió la acción, utilizado para [scope reads](#reading).
+
+No se necesita cableado: la captura se engancha en `defineAction` de forma transparente. Se omiten los actions de solo lectura y algunos actions del marco de alta frecuencia (sincronización de estado de aplicación, rayos X de contexto, navegación) se omiten de forma predeterminada para evitar inundar el registro.
+
+## Declarar qué cambió una acción {#target}
+
+De forma predeterminada, un evento tiene como alcance el **actor**: usted ve sus propios cambios y los cambios del agente en su nombre. Para realizar un cambio en un recurso _compartido_ que también aparezca en el registro del **propietario** y para etiquetar eventos por recurso, declare un `target`:
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({
+      type: "recording",
+      id: args.id,
+      // Optional — defaults to the actor. Set when editing someone else's resource.
+      ownerEmail: result?.ownerEmail,
+      visibility: "org",
+    }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+Todo en `audit` es opcional. La adición mínima útil es `target: () => ({ type, id })`.
+
+### Captura de ajuste {#tuning}
+
+| Opción               | Efecto                                                                     |
+| -------------------- | -------------------------------------------------------------------------- |
+| `audit.target`       | Etiquete el evento con el recurso y el alcance lee a su propietario.       |
+| `audit.summary`      | Una breve línea legible por humanos para el evento.                        |
+| `audit.onRead`       | Auditar una **lectura** confidencial (acceso secreto, exportación masiva). |
+| `audit.enabled`      | `true` fuerza la captura; `false` excluye una mutación ruidosa.            |
+| `audit.recordInputs` | `false` omite la captura de los argumentos (ya redactados).                |
+
+## Leyendo el rastro {#reading}
+
+Hay dos lecturas actions disponibles para el agente **y** la interfaz de cada aplicación, con alcance en SQL para la persona que llama; nunca devuelven las filas de otro inquilino:
+
+- **`list-audit-events`** — filtrar por `targetType` / `targetId`, `actorKind` (`agent` | `human` | `system`), `status`, `threadId` / `turnId`, `action`, `sinceMs` y `limit`.
+- **`get-audit-event`**: un evento por ID, incluida su carga útil de entrada redactada.
+
+Cree una fuente de actividad o una línea "quién cambió esto" llamando a `list-audit-events` desde UI con `useActionQuery`; nunca escriba a mano una búsqueda en la tabla de auditoría:
+
+```tsx
+import { useActionQuery } from "@agent-native/core/client";
+
+const { data } = useActionQuery("list-audit-events", {
+  targetType: "recording",
+  targetId: recordingId,
+});
+// data.events → [{ action, actorKind, actorEmail, turnId, status, summary, createdAt }, …]
+```
+
+El agente puede realizar la misma acción: preguntarle "¿qué cambiaste en esta grabación?" y responde desde el rastro.
+
+## Privacidad y retención {#privacy}
+
+- **Redacción**: antes de almacenar cualquier entrada, se eliminan las claves y valores en forma de credenciales (tokens, secretos, contraseñas, cadenas de portador) y se truncan las cargas útiles de gran tamaño. El registro de auditoría nunca se convierte en un almacén secundario de secretos. Mantenga también el texto `summary` libre de datos confidenciales.
+- **Solo agregar**: no hay ninguna acción de actualización o eliminación para las filas de auditoría. La única eliminación es la eliminación de retención, lo que hace que el registro sea confiable como pista de auditoría.
+- **Aislamiento de inquilinos**: las lecturas tienen como alcance la identidad y la organización de la persona que llama; sin identidad, nada coincide.
+
+Configurar a través del entorno:
+
+- `AGENT_NATIVE_AUDIT_RETENTION_DAYS`: cuánto tiempo se conservan las filas (predeterminado `365`; `0` = conservar para siempre).
+- `AGENT_NATIVE_AUDIT_ENABLED=false`: desconexión global.
+
+## ¿Qué sigue?
+
+- [**Actions**](/docs/actions): la costura `defineAction` donde se produce la captura
+- [**Human-in-the-Loop Approvals**](/docs/human-approval): actions cerrado, registrado como `denied`
+- [**Security & Data Scoping**](/docs/security): la auditoría del modelo de propiedad dice reutilización
+- [**Observability**](/docs/observability): telemetría ejecutada por el agente (el otro "qué pasó")

@@ -1,35 +1,20 @@
-import { useMemo, useState } from "react";
 import {
   useActionQuery,
   useActionMutation,
   useSendToAgentChat,
+  useT,
 } from "@agent-native/core/client";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  IconBook2,
+  IconPencil,
+  IconPlus,
+  IconTrash,
+  IconSearch,
+  IconExternalLink,
+} from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,15 +25,32 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
-  IconBook2,
-  IconPencil,
-  IconPlus,
-  IconTrash,
-  IconSearch,
-  IconExternalLink,
-} from "@tabler/icons-react";
-import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface DictionaryEntry {
   id: string;
@@ -151,6 +153,7 @@ function DictionaryBadge({
 }
 
 export default function DataDictionary() {
+  const t = useT();
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Partial<DictionaryEntry> | null>(null);
   const [toDelete, setToDelete] = useState<DictionaryEntry | null>(null);
@@ -174,16 +177,14 @@ export default function DataDictionary() {
   useSetHeaderActions(
     <Button size="sm" onClick={() => setEditing({ ...EMPTY_ENTRY })}>
       <IconPlus className="h-4 w-4 mr-1" />
-      New entry
+      {t("dataDictionary.newDictionaryEntry")}
     </Button>,
   );
 
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground max-w-2xl">
-        The catalog of metrics, tables, and business definitions the analytics
-        agent uses when building dashboards from prompts. Keep entries accurate
-        and the agent will stop guessing about your data.
+        {t("dataDictionary.intro")}
       </p>
 
       <div className="relative max-w-md">
@@ -191,7 +192,7 @@ export default function DataDictionary() {
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search metrics, definitions…"
+          placeholder={t("dataDictionary.searchPlaceholder")}
           className="pl-9"
         />
       </div>
@@ -208,11 +209,11 @@ export default function DataDictionary() {
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 mb-4">
               <IconBook2 className="h-7 w-7 text-primary" />
             </div>
-            <h3 className="text-lg font-semibold mb-2">No entries yet</h3>
+            <h3 className="text-lg font-semibold mb-2">
+              {t("dataDictionary.noEntriesTitle")}
+            </h3>
             <p className="text-sm text-muted-foreground max-w-md mb-4">
-              Define the metrics and tables your team uses most. The agent reads
-              these before writing SQL so dashboards match your definitions —
-              not its guesses.
+              {t("dataDictionary.noEntriesDescription")}
             </p>
             <div className="flex gap-2">
               <Button
@@ -220,19 +221,18 @@ export default function DataDictionary() {
                 onClick={() => setEditing({ ...EMPTY_ENTRY })}
               >
                 <IconPlus className="h-4 w-4 mr-1" />
-                Add an entry
+                {t("dataDictionary.addEntry")}
               </Button>
               <Button
                 variant="ghost"
                 onClick={() =>
                   send({
-                    message:
-                      "Help me populate the data dictionary. Ask me where my team's metric definitions currently live (docs, spreadsheets, dbt, Notion, Confluence, a wiki, etc.) and then save each one via the save-data-dictionary-entry action.",
+                    message: t("dataDictionary.populateAgentPrompt"),
                     submit: false,
                   })
                 }
               >
-                Ask the agent to help populate it
+                {t("dataDictionary.askAgent")}
               </Button>
             </div>
           </CardContent>
@@ -294,21 +294,21 @@ export default function DataDictionary() {
                       variant="outline"
                       className={`${ENTRY_BADGE_CLASS} bg-green-500/10 text-green-600 dark:text-green-400 border-0`}
                     >
-                      approved
+                      {t("dataDictionary.approved")}
                     </Badge>
                   ) : e.aiGenerated ? (
                     <Badge
                       variant="outline"
                       className={`${ENTRY_BADGE_CLASS} bg-amber-500/10 text-amber-600 dark:text-amber-400 border-0`}
                     >
-                      suggestion
+                      {t("dataDictionary.suggestion")}
                     </Badge>
                   ) : (
                     <Badge
                       variant="outline"
                       className={`${ENTRY_BADGE_CLASS} bg-muted text-muted-foreground border-0`}
                     >
-                      unreviewed
+                      {t("dataDictionary.unreviewed")}
                     </Badge>
                   )}
                   {e.aiGenerated && e.approved && (
@@ -316,7 +316,7 @@ export default function DataDictionary() {
                       variant="outline"
                       className={`${ENTRY_BADGE_CLASS} bg-sky-500/10 text-sky-600 dark:text-sky-400 border-0`}
                     >
-                      AI
+                      {t("dataDictionary.ai")}
                     </Badge>
                   )}
                 </div>
@@ -328,7 +328,7 @@ export default function DataDictionary() {
                     className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary"
                   >
                     <IconExternalLink className="h-3 w-3" />
-                    source
+                    {t("dataDictionary.source")}
                   </a>
                 )}
               </CardContent>
@@ -356,14 +356,17 @@ export default function DataDictionary() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete "{toDelete?.metric}"?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("dataDictionary.deleteTitle", {
+                metric: toDelete?.metric ?? "",
+              })}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the entry from the data dictionary. The agent will no
-              longer consult this definition when building dashboards.
+              {t("dataDictionary.deleteDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={async () => {
                 if (toDelete) {
@@ -372,7 +375,7 @@ export default function DataDictionary() {
                 }
               }}
             >
-              Delete
+              {t("sidebar.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -394,6 +397,7 @@ function EditEntryDialog({
   onSave,
   saving,
 }: EditEntryDialogProps) {
+  const t = useT();
   const [draft, setDraft] = useState<Partial<DictionaryEntry>>({});
 
   // Reset the form when a new entry is opened
@@ -415,44 +419,45 @@ function EditEntryDialog({
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {entry?.id ? "Edit entry" : "New dictionary entry"}
+            {entry?.id
+              ? t("dataDictionary.editEntry")
+              : t("dataDictionary.newDictionaryEntry")}
           </DialogTitle>
           <DialogDescription>
-            Document a metric, table, or concept the analytics agent should know
-            about.
+            {t("dataDictionary.dialogDescription")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 py-2">
-          <Field label="Metric" required>
+          <Field label={t("dataDictionary.metric")} required>
             <Input
               value={draft.metric ?? ""}
               onChange={(e) => set("metric", e.target.value)}
-              placeholder="e.g. Active Paying Accounts"
+              placeholder={t("dataDictionary.metricPlaceholder")}
             />
           </Field>
-          <Field label="Definition" required>
+          <Field label={t("dataDictionary.definition")} required>
             <Textarea
               value={draft.definition ?? ""}
               onChange={(e) => set("definition", e.target.value)}
               rows={3}
-              placeholder="Plain-English description of what this metric means"
+              placeholder={t("dataDictionary.definitionPlaceholder")}
             />
           </Field>
 
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Department">
+            <Field label={t("dataDictionary.department")}>
               <Input
                 value={draft.department ?? ""}
                 onChange={(e) => set("department", e.target.value)}
-                placeholder="Sales / Marketing / Product / Data"
+                placeholder={t("dataDictionary.departmentPlaceholder")}
               />
             </Field>
-            <Field label="Owner">
+            <Field label={t("dataDictionary.owner")}>
               <Input
                 value={draft.owner ?? ""}
                 onChange={(e) => set("owner", e.target.value)}
-                placeholder="e.g. data-team@"
+                placeholder={t("dataDictionary.ownerPlaceholder")}
               />
             </Field>
           </div>
@@ -465,9 +470,11 @@ function EditEntryDialog({
                 className="mt-0.5"
               />
               <span>
-                <span className="block font-medium">Approved</span>
+                <span className="block font-medium">
+                  {t("dataDictionary.approvedTitle")}
+                </span>
                 <span className="block text-xs text-muted-foreground">
-                  Approved entries are treated as canonical by the agent.
+                  {t("dataDictionary.approvedDescription")}
                 </span>
               </span>
             </label>
@@ -481,98 +488,97 @@ function EditEntryDialog({
               />
               <span>
                 <span className="block font-medium">
-                  AI-generated suggestion
+                  {t("dataDictionary.aiGeneratedTitle")}
                 </span>
                 <span className="block text-xs text-muted-foreground">
-                  Unapproved AI suggestions are visible for review but are not
-                  treated as truth.
+                  {t("dataDictionary.aiGeneratedDescription")}
                 </span>
               </span>
             </label>
           </div>
 
-          <Field label="Source table(s)">
+          <Field label={t("dataDictionary.sourceTables")}>
             <Input
               value={draft.table ?? ""}
               onChange={(e) => set("table", e.target.value)}
-              placeholder="e.g. analytics.fact_signups"
+              placeholder={t("dataDictionary.sourceTablesPlaceholder")}
             />
           </Field>
 
-          <Field label="Columns used">
+          <Field label={t("dataDictionary.columnsUsed")}>
             <Input
               value={draft.columnsUsed ?? ""}
               onChange={(e) => set("columnsUsed", e.target.value)}
-              placeholder="e.g. user_id, signup_at, plan_tier"
+              placeholder={t("dataDictionary.columnsUsedPlaceholder")}
             />
           </Field>
 
-          <Field label="Standard cuts / dimensions">
+          <Field label={t("dataDictionary.standardCuts")}>
             <Input
               value={draft.cuts ?? ""}
               onChange={(e) => set("cuts", e.target.value)}
-              placeholder="e.g. week, channel, region"
+              placeholder={t("dataDictionary.standardCutsPlaceholder")}
             />
           </Field>
 
-          <Field label="Query template">
+          <Field label={t("dataDictionary.queryTemplate")}>
             <Textarea
               value={draft.queryTemplate ?? ""}
               onChange={(e) => set("queryTemplate", e.target.value)}
               rows={5}
               className="font-mono text-xs"
-              placeholder="SELECT date_trunc('week', signup_at) AS week, COUNT(*) …"
+              placeholder={t("dataDictionary.queryTemplatePlaceholder")}
             />
           </Field>
 
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Update frequency">
+            <Field label={t("dataDictionary.updateFrequency")}>
               <Input
                 value={draft.updateFrequency ?? ""}
                 onChange={(e) => set("updateFrequency", e.target.value)}
-                placeholder="hourly / daily"
+                placeholder={t("dataDictionary.updateFrequencyPlaceholder")}
               />
             </Field>
-            <Field label="Data lag">
+            <Field label={t("dataDictionary.dataLag")}>
               <Input
                 value={draft.dataLag ?? ""}
                 onChange={(e) => set("dataLag", e.target.value)}
-                placeholder="~15min / next day"
+                placeholder={t("dataDictionary.dataLagPlaceholder")}
               />
             </Field>
           </div>
 
-          <Field label="Known gotchas">
+          <Field label={t("dataDictionary.knownGotchas")}>
             <Textarea
               value={draft.knownGotchas ?? ""}
               onChange={(e) => set("knownGotchas", e.target.value)}
               rows={2}
-              placeholder="Edge cases, nulls, known data quality issues"
+              placeholder={t("dataDictionary.knownGotchasPlaceholder")}
             />
           </Field>
 
-          <Field label="Common questions">
+          <Field label={t("dataDictionary.commonQuestions")}>
             <Textarea
               value={draft.commonQuestions ?? ""}
               onChange={(e) => set("commonQuestions", e.target.value)}
               rows={2}
-              placeholder="Frequently-asked questions about this metric"
+              placeholder={t("dataDictionary.commonQuestionsPlaceholder")}
             />
           </Field>
 
-          <Field label="Example use case">
+          <Field label={t("dataDictionary.exampleUseCase")}>
             <Textarea
               value={draft.exampleUseCase ?? ""}
               onChange={(e) => set("exampleUseCase", e.target.value)}
               rows={2}
-              placeholder="When should someone reach for this metric?"
+              placeholder={t("dataDictionary.exampleUseCasePlaceholder")}
             />
           </Field>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
+            {t("sidebar.cancel")}
           </Button>
           <Button
             onClick={() => onSave(draft)}
@@ -580,7 +586,9 @@ function EditEntryDialog({
               saving || !draft.metric?.trim() || !draft.definition?.trim()
             }
           >
-            {saving ? "Saving…" : "Save entry"}
+            {saving
+              ? t("dataDictionary.saving")
+              : t("dataDictionary.saveEntry")}
           </Button>
         </DialogFooter>
       </DialogContent>

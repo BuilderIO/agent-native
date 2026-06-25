@@ -1,0 +1,321 @@
+---
+title: "Workspace-Verbindungen"
+description: "Gemeinsam genutzte Anbietermetadaten, Berechtigungen und Anmeldeinformationsreferenzen für Connect-Once-Use-Everywhere-Integrationen."
+---
+
+# Workspace-Verbindungen
+
+Workspace-Verbindungen sind das Grundgerüst für wiederverwendbare Integrationsmetadaten. Sie ermöglichen „einmalige Verbindung, Gewährung von Apps, Wiederverwendung von Anmeldeinformationen“, ohne vorzutäuschen, dass jeder Anbieter vollständig generisch sei.
+
+## Schnellstart {#quickstart}
+
+### Die vier Konzepte
+
+- **Verbindung** – ein benanntes Anbieterkonto (`team-slack`, `acme-hubspot`). Zeichnet Anbieter-ID, Kontobezeichnung, Status, Bereiche und sichere Konfiguration auf. Speichert niemals geheime Werte.
+- **Grant** – Berechtigung für eine bestimmte App, eine Verbindung zu verwenden. Eine App ohne Gewährung kann die Anmeldeinformationen der Verbindung nicht sehen.
+- **credentialRef** – ein Zeiger auf ein Tresorgeheimnis (`{ key: "SLACK_BOT_TOKEN", scope: "org" }`). Die Verbindung gibt an, wo sich der Token befindet; Der Tresor speichert den Wert.
+- **Bereitschaft** – der kombinierte Status, den eine App sieht: `connected` (erteilt + Anmeldeinformationen vorhanden), `needs_grant`, `needs_credentials`, `needs_attention` oder `not_configured`.
+
+```an-diagram title="Einmal verbinden, Apps gewähren, Anmeldeinformationen wiederverwenden" summary="Eine Verbindung enthält Anbietermetadaten (niemals Geheimnisse) und CredentialRefs, die auf den Tresor verweisen. Per App-Zuschüsse wird es freigeschaltet. Apps lesen einen einzelnen Bereitschaftsstatus."
+{
+  "html": "<div class=\"diagram-conn\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Connection</span><div class=\"diagram-box\" data-rough>named provider account<br><small class=\"diagram-muted\">provider, label, Status, Scopes, Konfiguration &middot; never stores secret values</small></div><div class=\"diagram-muted\">credentialRef &rarr; pointer to a vault secret</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill\">Grant</span><div class=\"diagram-box\" data-rough>per-app permission<br><small class=\"diagram-muted\">no grant = no credential access</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Readiness</span><small class=\"diagram-muted\">what the app sees</small><div class=\"sev-row\"><span class=\"diagram-pill ok\">connected</span><span class=\"diagram-pill warn\">needs_grant</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">needs_credentials</span><span class=\"diagram-pill warn\">needs_attention</span></div><div class=\"sev-row\"><span class=\"diagram-pill\">not_configured</span></div></div></div>",
+  "css": ".diagram-conn{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-conn .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-conn .diagram-arrow{font-size:22px;line-height:1}.diagram-conn .sev-row{display:flex;gap:8px;flex-wrap:wrap}"
+}
+```
+
+### Arbeitsbeispiel: Slack
+
+Verbinden Sie Slack einmal und gewähren Sie es Brain and Analytics:
+
+```ts
+import {
+  upsertWorkspaceConnection,
+  upsertWorkspaceConnectionGrant,
+} from "@agent-native/core/workspace-connections";
+
+await upsertWorkspaceConnection({
+  id: "acme-slack",
+  provider: "slack",
+  label: "Acme Slack",
+  accountId: "T012345",
+  accountLabel: "Acme",
+  status: "connected",
+  scopes: ["channels:history", "groups:history", "chat:write"],
+  config: {
+    teamDomain: "acme",
+    channelHints: ["product", "dev-fusion", "customer-success"],
+  },
+  credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+});
+
+await upsertWorkspaceConnectionGrant({
+  connectionId: "acme-slack",
+  appId: "brain",
+});
+await upsertWorkspaceConnectionGrant({
+  connectionId: "acme-slack",
+  appId: "analytics",
+});
+```
+
+```an-schema title="Das Verbindungsmodell" summary="A connection records safe provider metadata and credentialRefs (pointers, not secrets). Each grant unlocks one app — one connection, many grants."
+{
+  "entities": [
+    {
+      "id": "conn",
+      "name": "workspace_connections",
+      "note": "Benanntes Anbieterkonto. Speichert niemals geheime Werte.",
+      "fields": [
+        { "name": "id", "type": "string", "pk": true, "note": "e.g. acme-slack" },
+        { "name": "provider", "type": "string", "note": "stabile Anbieter-ID, z.B. locker" },
+        { "name": "label", "type": "string" },
+        { "name": "accountId", "type": "string", "nullable": true },
+        { "name": "accountLabel", "type": "string", "nullable": true },
+        { "name": "status", "type": "string", "note": "e.g. connected" },
+        { "name": "scopes", "type": "string[]", "nullable": true },
+        { "name": "config", "type": "json", "nullable": true, "note": "sichere, nicht geheime Konfiguration" },
+        { "name": "credentialRefs", "type": "json", "nullable": true, "note": "pointers to vault keys, e.g. { key, scope }" }
+      ]
+    },
+    {
+      "id": "grant",
+      "name": "workspace_connection_grants",
+      "note": "Berechtigung pro App, eine Verbindung zu verwenden.",
+      "fields": [
+        { "name": "connectionId", "type": "string", "fk": "conn.id" },
+        { "name": "appId", "type": "string", "note": "z.B. Gehirn, Analytik" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "conn", "to": "grant", "kind": "1-n", "label": "grants apps" }
+  ]
+}
+```
+
+### Was Apps aufrufen
+
+Bevor Sie einen Benutzer auffordern, einen neuen Schlüssel einzufügen, prüfen Sie zunächst die Bereitschaft:
+
+```ts
+import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
+
+const catalog = await listWorkspaceConnectionProviderCatalogForApp({
+  appId: "brain",
+  templateUse: "brain",
+  provider: "slack",
+  includeConnections: "all",
+});
+
+const slack = catalog.providers[0];
+if (slack.workspaceConnection.grantState === "needs_grant") {
+  // Show "Grant Brain access" instead of asking for a second Slack token.
+}
+if (slack.readiness.status === "needs_credentials") {
+  // Show the missing credential ref names, never a secret value.
+}
+```
+
+## Referenz {#reference}
+
+### Anbieterkatalog
+
+Katalog aus `@agent-native/core/connections` importieren:
+
+```ts
+import {
+  getWorkspaceConnectionProvider,
+  listWorkspaceConnectionProvidersForTemplate,
+  workspaceConnectionProviderSupports,
+} from "@agent-native/core/connections";
+
+const brainProviders = listWorkspaceConnectionProvidersForTemplate("brain");
+const slack = getWorkspaceConnectionProvider("slack");
+
+if (workspaceConnectionProviderSupports("slack", "messages")) {
+  // Offer a Slack source, sync check, or onboarding step.
+}
+```
+
+Die anfänglichen Anbieter-IDs sind:
+
+| Anbieter       | Fähigkeiten                             | Häufige Verwendungszwecke                        |
+| -------------- | --------------------------------------- | ------------------------------------------------ |
+| `slack`        | Suche, Import, Nachrichten              | Gehirn, Versand, Analyse                         |
+| `github`       | Suche, Import, Code, Dokumente          | Gehirn, Analyse, Versand                         |
+| `notion`       | Suche, Import, Dokumente                | Gehirn, Inhalt, Versand                          |
+| `gmail`        | Suche, Import, Nachrichten              | Post, Gehirn, Versand                            |
+| `google_drive` | Suche, Import, Dokumente                | Gehirn, Inhalte, Folien                          |
+| `hubspot`      | Suche, Import, CRM                      | Analyse, Gehirn, E-Mail                          |
+| `granola`      | Suche, Import, Besprechungen, Dokumente | Gehirn, Kalender, Versand                        |
+| `clips`        | Suche, Import, Besprechungen            | Gehirn, Clips, Videos                            |
+| `generic`      | Suche, Import, Dokumente                | benutzerdefiniertes webhooks und Dateilöschungen |
+
+Anmeldeinformationsschlüssel sind nur Namen, wie z. B. `SLACK_BOT_TOKEN` oder `GITHUB_TOKEN`. Anbietermetadaten dürfen niemals tatsächliche Anmeldeinformationswerte enthalten.
+
+### Verbindungsspeicher API
+
+```ts
+import {
+  listWorkspaceConnectionProviderCatalogForApp,
+  listWorkspaceConnectionGrants,
+  listWorkspaceConnections,
+  summarizeWorkspaceConnectionProviderForApp,
+  summarizeWorkspaceConnectionProviderReadiness,
+  upsertWorkspaceConnection,
+  upsertWorkspaceConnectionGrant,
+  revokeWorkspaceConnectionGrant,
+} from "@agent-native/core/workspace-connections";
+
+const connections = await listWorkspaceConnections({ includeDisabled: true });
+const grants = await listWorkspaceConnectionGrants({ appId: "brain" });
+
+const appGrant = summarizeWorkspaceConnectionProviderForApp({
+  providerId: "slack",
+  appId: "brain",
+  connections,
+  grants,
+});
+
+const readiness = summarizeWorkspaceConnectionProviderReadiness({
+  provider: slack!,
+  appId: "brain",
+  connections,
+  grants,
+});
+
+const brainCatalog = await listWorkspaceConnectionProviderCatalogForApp({
+  appId: "brain",
+  templateUse: "brain",
+});
+```
+
+Das `credentialRefs`-Array zeigt auf Tresorschlüssel; Es handelt sich nicht um einen Anmeldeinformationsspeicher. Beispielsweise weist `{ key: "SLACK_BOT_TOKEN", scope: "org" }` eine berechtigte App an, das organisationsweite Tresorgeheimnis mit dem Namen `SLACK_BOT_TOKEN` nachzuschlagen, wenn sie Slack aufrufen muss. Referenzen auf Verbindungsebene beschreiben das Anbieterkonto. Refs auf Grant-Ebene können einschränken oder überschreiben, was eine bestimmte App verwenden soll.
+
+Verbindungszeilen beziehen sich auf die aktive Organisation, sofern eine solche vorhanden ist. Ohne eine Organisation sind sie auf den authentifizierten Benutzer beschränkt. Grant-Zeilen verwenden denselben Bereich.
+
+**Legacy `allowedApps`-Feld:** `allowedApps: []` bedeutet, dass jede App im gleichen Bereich die Verbindung verwenden darf; `allowedApps: ["dispatch"]` gewährt Zugriff über das Legacy-Feld. Verwenden Sie explizite `workspace_connection_grants`-Zeilen für die Neueinrichtung – sie erleichtern den Widerruf, die Prüfung und die Bereitschaft pro App. `revokeWorkspaceConnectionGrant(connectionId, appId)` entfernt eine explizite Erteilung, ändert jedoch nichts an der Vorgängerversion `allowedApps`.
+
+Verwenden Sie `summarizeWorkspaceConnectionProviderForApp()` und `summarizeWorkspaceConnectionProviderReadiness()` für den App-bezogenen Status, anstatt Zuschussschecks manuell durchzuführen. Die freigegebenen Zusammenfassungen geben `grantState`, `grantAvailability`, Referenznamen für sichere Anmeldeinformationen, Verbindungszeilen pro App und Bereitschaftsfelder wie `readyConnectionCount` und `missingRequiredCredentialKeys` zurück.
+
+Für neue App-Setup-Bildschirme bevorzugen Sie `listWorkspaceConnectionProviderCatalogForApp()` als übergeordnete Grenze – es kombiniert den Anbieterkatalog, bereichsbezogene Verbindungen, explizite Gewährungen, Zugriffszusammenfassungen pro App und Anbieterbereitschaft in einer sicheren Form.
+
+### Wie dies den Tresor ergänzt
+
+Der Anmeldeinformations-Tresor antwortet: „Wo wird das Geheimnis gespeichert, wer kann darauf zugreifen und welche Apps erhalten es?“
+
+Metadaten des Workspace-Verbindungsanbieters antworten: „Welcher Anbieter ist das, was kann er, welche Anmeldeinformationsschlüssel benötigt er möglicherweise und welche Vorlagen sollten ihn anbieten?“
+
+```an-diagram title="Verbindungsspeicher vs. Tresor" summary="Der Tresor ist Eigentümer des geheimen Werts. Die Verbindung besitzt Provider-Metadaten sowie CredentialRefs (Zeiger). Zur Ausführungszeit löst die App den Verweis über eine gewährte Verbindung auf und liest den Wert aus dem Tresor."
+{
+  "html": "<div class=\"diagram-vault\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Verbindungsspeicher</span><div class=\"diagram-box\" data-rough>provider account + metadata<br><small class=\"diagram-muted\">Status, Scopes, Konfiguration</small></div><div class=\"diagram-box\" data-rough>credentialRef<br><small class=\"diagram-muted\">{ key: SLACK_BOT_TOKEN, scope: org }</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">App-Action</span><small class=\"diagram-muted\">resolves at execution time through a granted ref</small><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Vault</span><div class=\"diagram-box\" data-rough>secret value<br><small class=\"diagram-muted\">nie an Agent oder UI zurückgegeben</small></div></div></div>",
+  "css": ".diagram-vault{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-vault .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-vault .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-vault .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+Beides zusammen verwenden:
+
+1. Dispatch (oder ein anderer Workspace-Setup-Flow) erstellt das zugrunde liegende Tresorgeheimnis oder die OAuth-Anmeldeinformationsreferenz.
+2. Der Workspace-Verbindungsspeicher zeichnet das Anbieterkonto, sichere Metadaten, Anmeldeinformationsreferenzen und App-Zuweisungen auf.
+3. Jede App liest Anbietermetadaten aus dem Katalog und Verbindungs-/Gewährungszusammenfassungen aus dem freigegebenen Speicher.
+4. Die App UI zeigt Bereitschaft an: verbunden, gewährt, aber fehlerhaft, benötigt Genehmigung, fehlende Anmeldeinformationen oder nur Metadaten.
+5. App-spezifisch SQL speichert nur app-spezifische Quell-IDs, Cursor, Filter, Synchronisierungsfenster, Metrikdefinitionen, Überprüfungsregeln und Benutzerauswahlen.
+6. App-Actions löst Anmeldeinformationen zur Ausführungszeit über gewährte Verbindungsreferenzen und den Tresor auf und gibt niemals geheime Werte zurück.
+
+### Laufzeit des Anbieterlesers
+
+Die Anbieter-Reader-Ebene ist zunächst ein Vertrag und kein Versprechen, dass jeder Anbieter über einen gemeinsamen Live-Reader verfügt. Leserdefinitionen beschreiben unterstützte Vorgänge, Anmeldeinformationsanforderungen und Implementierungsstatus: `metadata-only`, `template-owned` oder `shared`. Die Laufzeit löst die gewährten Workspace-Verbindungs- und Anmeldeinformationsreferenzen für eine App auf, ruft einen registrierten Handler auf und gibt normalisierte Elemente zurück, ohne geheime Werte preiszugeben.
+
+Die meisten Live-Handler bleiben auch heute noch im Besitz von Vorlagen, was bedeutet, dass Brain immer noch das Slack/GitHub-Aufnahmeverhalten besitzt und Analytics immer noch die Analyseinterpretation besitzt. Befördern Sie einen Leser nur dann zu `shared`, wenn die anbieterspezifischen API-Aufrufe, Paginierung, Berechtigungen und Ergebnissemantik wirklich vorlagenübergreifend wiederverwendbar sind.
+
+### App-Bereitschaftsmuster
+
+Apps, die gemeinsam genutzte Anbieteranmeldeinformationen nutzen, sollten eine schreibgeschützte Bereitschaftsaktion und eine kleine Setup-Oberfläche bereitstellen, die Folgendes abdeckt:
+
+- **Anbieterkatalog:** Anbieter-ID, Bezeichnung, Funktionen, empfohlene Vorlagenverwendungen und erforderliche Anmeldeinformationsschlüsselnamen von `@agent-native/core/connections`.
+- **Zusammenfassung des Arbeitsbereichs:** Verbindungsanzahl, aktive/gewährte Anzahl, Gewährungsstatus, Namen von Anmeldeinformationsreferenzen und nicht geheime Kontobezeichnungen von `@agent-native/core/workspace-connections`.
+- **Anbieterbereitschaft:** `ready`, `needs_credentials`, `needs_attention`, `checking`, `disabled` oder `not_configured` über `summarizeWorkspaceConnectionProviderReadiness()`.
+- **Quellenstatus:** App-lokal konfigurierte Quellen, Cursor, Synchronisierungsstatus und nächste Aktion.
+
+Die Quellenseite von Brain ist die Referenzimplementierung. Es zeigt wiederverwendbare Workspace-Verbindungsanbieter neben Brain-Quelldatensätzen an, beschriftet Gewährungsstatus als `connected`, `granted`, `needs_grant` oder `not_connected` und zeigt den Anbieterzustand als „Bereit“, „Fehlende Schlüssel“, „Genehmigung erforderlich“, „Reparatur erforderlich“ oder nur „Metadaten“ an.
+
+### Erstellen eines wiederverwendbaren Connectors
+
+Wenn ein neuer Anbieter über mehrere Vorlagen hinweg funktionieren soll:
+
+1. **Anbietermetadaten:** Fügen Sie einen Anbieter in `@agent-native/core/connections` hinzu oder verwenden Sie ihn wieder. Dabei handelt es sich um die stabile ID, die Anzeigebezeichnung, die Funktionsliste, die empfohlenen Vorlagenverwendungen und die Namen der Anmeldeinformationsschlüssel.
+2. **Workspace-Verbindung:** Dispatch oder eine andere Workspace-Setup-Oberfläche speichert die sicheren Metadaten, den Status, die Bereiche, `credentialRefs` und App-Zuweisungen des verbundenen Kontos über `@agent-native/core/workspace-connections`.
+3. **App-lokale Quelle:** Brain, Analytics, Mail oder eine andere App speichert nur die app-spezifischen Auswahlmöglichkeiten, die sie besitzt, wie z. B. Slack-Kanäle, GitHub-Repositorys, HubSpot-Objektfilter, Synchronisierungscursor oder Abfragerhythmus.
+
+ZxQ6QXZ/Token-Speicher nicht in jeder App duplizieren. Im Verbindungsdatensatz steht: „Dies ist Acme Slack und sein Token befindet sich bei `SLACK_BOT_TOKEN`“; In der App-lokalen Quelle heißt es: „Brain kann `#product` und `#dev-fusion` von dieser Slack-Verbindung aufnehmen.“
+
+### Einrichtung der Dispatch-Steuerungsebene
+
+Dispatch macht die Steuerungsebene actions verfügbar, die dieselben gemeinsam genutzten Store-Funktionen schreibt, die eine App direkt aufrufen könnte:
+
+```ts
+// templates/dispatch/actions/upsert-workspace-connection.ts delegates to this.
+await upsertWorkspaceConnection({
+  id: "team-slack",
+  provider: "slack",
+  label: "Acme Slack",
+  accountId: "T012345",
+  accountLabel: "acme",
+  status: "connected",
+  scopes: ["channels:history", "groups:history"],
+  config: { teamDomain: "acme", preferredChannels: ["product", "dev-fusion"] },
+  credentialRefs: [
+    {
+      key: "SLACK_BOT_TOKEN",
+      scope: "org",
+      provider: "slack",
+      label: "Slack bot token",
+    },
+  ],
+});
+
+// Then grant the apps that should reuse the provider.
+await upsertWorkspaceConnectionGrant({
+  connectionId: "team-slack",
+  appId: "brain",
+});
+await upsertWorkspaceConnectionGrant({
+  connectionId: "team-slack",
+  appId: "analytics",
+});
+```
+
+Verwenden Sie `allowedApps: []` nur, wenn eine Verbindung für jede App im gleichen Bereich verfügbar sein soll. Bevorzugen Sie explizite Gewährungszeilen für die Produktionseinrichtung.
+
+### Anmeldeinformationsauflösung
+
+App-Ausführungscode löst Anmeldeinformationswerte aus gewährten `credentialRefs` über den Tresor im aktiven Anforderungsbereich auf. Brains `source-credentials.ts` ist die aktuelle Referenzimplementierung: Es listet Workspace-Verbindungen für den Anbieter auf, überprüft `getWorkspaceConnectionAppAccess` auf `appId: "brain"`, führt Referenzen für Anmeldeinformationen auf Verbindungs- und Gewährungsebene zusammen und liest das erste passende, bereichsbezogene Tresorgeheimnis. Andere Apps sollten dieser Form folgen, anstatt nach `process.env` zu greifen.
+
+## Designhinweise {#design-notes}
+
+<details>
+<summary>Reader-Promotion-Richtlinie und Pfad zu „Einmal verbinden, überall verwenden“</summary>
+
+### App-lokale Grenze
+
+Die Grenze zwischen gemeinsam genutzten Verbindungen und lokalen App-Quellen ist beabsichtigt. Was heute wiederverwendbar ist, ist die Anbieteridentität, die Auflösung von Anmeldeinformationsreferenzen, Gewährungen pro App, die Anbieterbereitschaft, sichere Kontometadaten und der normalisierte Anbieter-Leser-Vertrag. Was noch nicht generisch ist, sind die meisten Live-Provider-API-Lesungen, OAuth-Flow-Besitz, Aufnahmecursor, Quellfilter, Synchronisierungsrhythmus und Domäneninterpretation. Diese bleiben in der App, die den Workflow besitzt, es sei denn, eine Leserimplementierung wird ausdrücklich auf „Freigegeben“ hochgestuft.
+
+App-Quellkonnektoren sollten keine Umgebungsvariablen auf Bereitstellungsebene als Ersatz für Benutzer-/Organisations-Quellanmeldeinformationen lesen. Umgebungsvariablen gelten global für die Bereitstellung und stellen keine Arbeitsbereichszuweisungen dar.
+
+Agenten sollten einer einfachen Regel folgen: Wenn ein Benutzer eine Verbindung zu Slack, GitHub, HubSpot, Gmail, Google Drive, Granola oder einem anderen gemeinsam genutzten Anbieter wünscht, überprüfen Sie zuerst den Workspace-Verbindungskatalog. Wenn der Anbieter `connected` ist, verwenden Sie ihn. Wenn es sich um `needs_grant` handelt, beantragen Sie die App-Bewilligung oder führen Sie sie durch. Wenn es `needs_credentials` ist, fragen Sie nach dem fehlenden Tresorschlüssel. Fordern Sie nur dann einen neuen Rohschlüssel an, wenn keine wiederverwendbare Verbindung besteht.
+
+### Pfad zu „Einmal verbinden, überall verwenden“
+
+Der Anbieterkatalog und der Grant Store bilden die Grundlage für eine breitere Arbeitsbereichsebene:
+
+- Gemeinsame Anbieter-IDs und Funktionsnamen sorgen für eine einheitliche Ausrichtung der Vorlagen.
+- Das Inventar auf Workspace-Ebene kann zeigen, welche Anbieter in Brain, Mail, Analytics, Dispatch und zukünftigen Apps konfiguriert sind.
+- Verbindungszeilen zeichnen Kontobezeichnungen, Status, zugelassene Apps, Anmeldeinformationsreferenzen und Integritätsprüfungen auf, ohne die vorlagenbezogenen Anbieter-IDs zu ändern.
+- Grant-Zeilen ermöglichen es einem Arbeitsbereichsbesitzer, einmal eine Verbindung herzustellen und dann einzelne Apps zu aktivieren, wenn der Arbeitsbereich sie übernimmt.
+- Agenten können Arbeit über Apps hinweg weiterleiten und wissen, welche Anbieter bereits verbunden sind und welche Apps Berechtigungen haben.
+- Die Verbundsuche kann nach Anbietern mit `search`-, `docs`-, `messages`-, `meetings`-, `crm`- oder `code`-Funktionen fragen, anstatt die Connector-Liste jeder App fest zu codieren.
+- Anbieterspezifische Leser, OAuth-Aktualisierungsflüsse, Aufnahmeprüfpunkte und App-eigene Datenmodelle können später gemeinsam genutzt werden, sind jedoch heute nicht durch eine Workspace-Verbindung impliziert.
+
+Halten Sie die Grenze streng: Anbietermetadaten können sicher angezeigt werden; Anmeldeinformationswerte bleiben im Tresor.
+
+</details>

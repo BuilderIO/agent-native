@@ -1,0 +1,227 @@
+---
+title: "适配器"
+description: "框架的两个适配器接缝：沙箱适配器交换运行代理运行代码工具的后端，CLI适配器为代理提供对命令行工具的结构化访问。"
+search: "适配器沙箱适配器cli适配器运行代码SandboxAdapter CliAdapter ShellCliAdapter持久运行器远程沙箱边缘无服务器child_process"
+---
+
+# 适配器
+
+> **这是谁的：**扩展运行时的主机作者。应用程序开发人员很少
+> 需要这个——默认值开箱即用。
+
+Agent-Native 有两个适配器接缝，可消除狭窄后面的问题，
+可交换接口：
+
+- **沙盒适配器**交换运行代理的 `run-code` 工具的后端 -
+  默认为本地子进程，或 Docker/远程/持久运行程序。
+- **CLI 适配器**为代理提供对命令行工具的结构化访问
+  （`gh`、`ffmpeg`、`stripe`），具有发现、可用性检查和
+  一致的结果形状。
+
+两者共享一个运行时约束：它们依赖于 Node.js 系统绑定并执行
+不在边缘/工作运行时上运行 - 请参阅 [Edge and serverless](#edge-serverless)。
+
+## 我需要哪个编码文档？ {#which-doc}
+
+| 你想要……                                               | 使用                                         |
+| ------------------------------------------------------ | -------------------------------------------- |
+| 交换运行代理 **`run-code` 工具**的后端                 | **沙盒适配器**（本页）                       |
+| 封装一个CLI工具（`gh`、`ffmpeg`）供代理调用            | **CLI 适配器**（本页）                       |
+| 渲染 Claude-Code/Codex-style **编码工作区 UI**         | [Agent-Native Code UI](/docs/code-agents-ui) |
+| 使用自己的循环+工具**作为代理**运行Claude代码/Codex/Pi | [Harness Agents](/docs/harness-agents)       |
+
+# 沙盒适配器
+
+`run-code` 工具在隔离环境中运行代理提供的 JavaScript。 **沙箱适配器**将 _execution_ 问题从该工具中剔除，以便可以交换后端（默认情况下为本地子进程，或 Docker/远程/持久运行程序），而无需触及代理循环、`run-code.ts`、本地主机桥、环境清理或输出格式。
+
+## 为什么要接缝 {#why}
+
+默认后端会生成一个锁定的本地 Node 子进程。这受到托管进程的限制：在托管平台上，它共享代理循环的软执行上限（超时/继续冲击之前约 40 秒）。远程或持久适配器是超越该上限的杠杆 - 它独立于请求生命周期运行大型数据作业直至完成。
+
+保持契约范围窄意味着远程适配器继承相同的安全状态。父进程保留所有秘密的所有权：它构建沙箱模块，运行本地主机桥（它保存请求上下文并应用主机允许列表+ SSRF 防护），清理环境并格式化输出。适配器仅接收已准备好的、**非秘密**模块源加上资源限制 - 它仅负责*运行*它并捕获 stdout/stderr/exit 状态。
+
+```an-diagram title="父母保守秘密；适配器仅运行代码" summary="run-code 构建模块并运行环回桥；适配器接收非秘密模块+限制并返回stdout/stderr/exit。"
+{
+  "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>父进程</strong><small class=\"diagram-muted\">构建模块 · loopback 桥 · 环境清理 · 输出格式</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">本地子进程 · Docker · 远程 · 持久</small></div></div>",
+  "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## 界面 {#interface}
+
+接缝位于 `packages/core/src/coding-tools/sandbox/` 的核心 - `adapter.ts`（合约）、`index.ts`（选择：`getSandboxAdapter()` / `registerSandboxAdapter()`）和 `local-child-process-adapter.ts`（默认）。采用`run-code.ts`封装内接线；主机通过 `index.ts` 注册助手插入不同的后端（或者，对于 Docker 后端，通过直接编辑这些文件的 [blueprint](/docs/blueprint-installer)）。
+
+```an-file-tree title="core 中的 sandbox 接缝"
+{
+  "title": "packages/core/src/coding-tools/sandbox/",
+  "entries": [
+    { "path": "adapter.ts", "note": "SandboxAdapter 合约（SandboxRunRequest / SandboxRunResult）" },
+    { "path": "index.ts", "note": "选择：getSandboxAdapter() / registerSandboxAdapter()" },
+    { "path": "local-child-process-adapter.ts", "note": "默认后端：受限的 Node 子进程" },
+    { "path": "../run-code.ts", "note": "连接这个接缝；替换 backend 时永远不变" }
+  ]
+}
+```
+
+每个后端都实现 `SandboxAdapter`：
+
+```ts
+interface SandboxAdapter {
+  /** Stable id, surfaced for diagnostics and adapter selection. */
+  readonly id: string;
+  /** Execute one prepared sandbox module and capture its output. */
+  run(request: SandboxRunRequest): Promise<SandboxRunResult>;
+}
+```
+
+请求和结果故意很小且不透明：
+
+```ts
+interface SandboxRunRequest {
+  /**
+   * The complete ESM module source to execute. Already wraps the user's code
+   * and embeds the loopback bridge URL/token; the adapter does NOT parse or
+   * rewrite it.
+   */
+  moduleSource: string;
+  /**
+   * Scrubbed environment — only safe POSIX vars (PATH/HOME/TMPDIR/…), never app
+   * secrets. Adapters must not augment this with the parent's own environment.
+   */
+  env: Record<string, string>;
+  /** Hard wall-clock timeout in milliseconds. The adapter must enforce it. */
+  timeoutMs: number;
+  /**
+   * Loopback port of the parent's bridge server (reachable over 127.0.0.1). A
+   * remote adapter that can't reach the parent's loopback must tunnel or proxy
+   * this to support bridge-backed globals (`appAction`, `providerFetch`, …).
+   */
+  bridgePort: number;
+}
+
+interface SandboxRunResult {
+  stdout: string;
+  stderr: string;
+  /** `0` on clean exit, non-zero on failure, `null` when killed by a signal. */
+  exitCode: number | null;
+  /** True when the run was killed for exceeding `timeoutMs`. */
+  timedOut: boolean;
+}
+```
+
+## 默认：`LocalChildProcessAdapter` {#default}
+
+开箱即用，`getSandboxAdapter()` 返回 `LocalChildProcessAdapter` (`id: "local-child-process"`)。它逐字节保留历史 `run-code` 行为：
+
+- 准备好的模块源被写入新的临时目录。
+- 子进程使用清理后的环境（没有秘密）运行，`TMPDIR`/`TEMP`/`TMP` 指向沙箱目录内。
+- 当节点权限模型可用（节点 20 上的 `--permission` 或 `--experimental-permission`）时，子进程将被拒绝访问其临时目录之外的文件系统，以及子进程、工作进程和本机插件。出站网络不会被权限模型阻止，但环境清理意味着此类请求不携带凭据，并且所有经过身份验证的调用都会通过父级的环回桥。
+- 超时发送 `SIGTERM`，然后在 2 秒宽限期后发送 `SIGKILL`。
+- 运行后会尽力清理临时文件。
+
+> [!WARNING]
+> 默认适配器使用 `node:child_process`，该适配器在边缘/工作运行时上不存在。在标准 Node.js 环境中运行 `run-code`，或注册远程适配器 - 请参阅 [Edge and serverless](#edge-serverless)。
+
+## 选择适配器 {#selection}
+
+解决顺序——显式注册的适配器获胜；否则环境变量选择内置的；否则使用本地默认值：
+
+```text
+registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
+```
+
+### `AGENT_NATIVE_SANDBOX` 环境变量 {#env}
+
+通过 id 选择内置适配器。目前仅有线`local`（默认）；未知值回退到本地而不是运行失败。
+
+```bash
+AGENT_NATIVE_SANDBOX=local   # 默认值——显式
+```
+
+### `registerSandboxAdapter()` {#register}
+
+主机进程通过接缝的 `index.ts` 覆盖所有后续 `run-code` 调用的后端 - 例如，运行远程容器中的每个调用：
+
+```ts
+import {
+  registerSandboxAdapter,
+  type SandboxAdapter,
+} from "./coding-tools/sandbox/index.js";
+
+class RemoteSandboxAdapter implements SandboxAdapter {
+  readonly id = "remote";
+  async run(request) {
+    // Ship request.moduleSource to the durable runner, enforce request.timeoutMs,
+    // proxy bridge calls back to request.bridgePort, and return stdout/stderr/exitCode.
+  }
+}
+
+registerSandboxAdapter(new RemoteSandboxAdapter());
+// Pass `null` to clear the override and fall back to env-var / default resolution.
+```
+
+## 耐用跑鞋的接缝 {#durable}
+
+这个接口是特意为未来的远程/持久沙箱做的接缝。远程或持久适配器（Docker、Vercel-Sandbox 式运行程序或排队后台工作程序）将：
+
+1. 针对进程外运行时实现 `SandboxAdapter.run`。
+2. 通过隧道环回网桥（或代理网桥回调至父级）。
+3. 让大数据作业独立于请求生命周期运行直至完成 - 超过限制本地子进程适配器的托管约 40 秒代码执行上限。
+
+将其注册为新的 `AGENT_NATIVE_SANDBOX` 值（例如 `remote`）和/或通过 `registerSandboxAdapter()`。代理循环和 `run-code.ts` 永远不会改变。
+
+> [!TIP]
+> `agent-native add sandbox docker` 蓝图发出了一个完整的、独立的配方，用于针对此接缝实现 Docker 适配器。参见[Blueprint Installer](/docs/blueprint-installer)。
+
+# CLI 适配器
+
+另一个适配器接缝包装单个命令行工具（`gh`、`ffmpeg`、`stripe`、`aws`），以便代理可以发现它，检查它是否已安装，并以一致的 stdout/stderr/exit-code 结果运行它。每个 CLI 适配器都实现 `CliAdapter`：
+
+```ts
+import type { CliAdapter, CliResult } from "@agent-native/core/adapters/cli";
+
+interface CliAdapter {
+  name: string; // "gh", "stripe", "ffmpeg"
+  description: string; // What the agent sees during discovery
+  isAvailable(): Promise<boolean>;
+  execute(args: string[]): Promise<CliResult>;
+}
+
+interface CliResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+```
+
+对于大多数 CLI，`ShellCliAdapter` 使用合理的默认值包装任何二进制文件，而 `CliRegistry` 收集适配器以进行运行时发现：
+
+```ts
+import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
+
+const cliRegistry = new CliRegistry();
+cliRegistry.register(
+  new ShellCliAdapter({
+    command: "gh",
+    description: "GitHub CLI — manage repos, PRs, issues, and releases",
+  }),
+);
+
+await cliRegistry.describe(); // [{ name, description, available }] for discovery
+const gh = cliRegistry.get("gh");
+const result = await gh?.execute(["pr", "list", "--json", "title,url"]);
+```
+
+将 CLI 调用包装在 `defineAction` 中以将其公开在操作界面上。请参阅 [CLI Adapters](/docs/cli-adapters) 快速参考，了解 `ShellCliAdapter` 选项、自定义适配器和操作包装模式。
+
+## 边缘和无服务器 {#edge-serverless}
+
+> [!WARNING]
+> 两个适配器接缝均依赖于 Node.js 系统绑定。沙箱 `LocalChildProcessAdapter` 和 CLI 适配器（`ShellCliAdapter` 和自定义适配器）使用 `node:child_process` (`execFile` / `spawn`)，这在 Cloudflare Workers 或 Netlify Edge Functions 等边缘/工作线程运行时上**不存在**。如果将服务器路由部署到这些边缘预设，则执行这些适配器会引发运行时异常。在标准 Node.js 环境（传统服务器容器或无服务器节点功能）中运行适配器端点和任务 - 或者，对于沙箱接缝，注册一个在进程外传送工作的远程适配器。
+
+## 下一步是什么
+
+- [**CLI Adapters**](/docs/cli-adapters) — CLI 接缝的快速参考
+- [**Blueprint Installer**](/docs/blueprint-installer) - `agent-native add sandbox docker` 打印 Docker 适配器配方
+- [**Agent Teams**](/docs/agent-teams) — 将繁重的工作委派给子代理
+- [**Security**](/docs/security) — env 清理和桥允许名单姿势

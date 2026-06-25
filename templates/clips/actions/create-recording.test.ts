@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createRecordingSchema } from "./lib/create-recording-schema";
 
 describe("create-recording schema", () => {

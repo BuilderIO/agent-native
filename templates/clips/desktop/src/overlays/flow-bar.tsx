@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { IconX } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
-import { IconX } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
+
 import {
   onAudioLevel,
   onFinalTranscript,

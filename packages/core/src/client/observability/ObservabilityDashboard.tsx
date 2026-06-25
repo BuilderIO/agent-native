@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   IconActivity,
   IconMessages,
@@ -16,6 +15,9 @@ import {
   IconLoader2,
   IconAlertTriangle,
 } from "@tabler/icons-react";
+import { useState } from "react";
+
+import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
 import {
   useObservabilityOverview,
@@ -170,40 +172,41 @@ function LoadingState() {
 // ─── Tab: Overview ──────────────────────────────────────────────────────
 
 function OverviewTab({ days }: { days: number }) {
+  const t = useT();
   const { data, isLoading } = useObservabilityOverview(days);
 
   if (isLoading) return <LoadingState />;
-  if (!data) return <EmptyState message="No data available" />;
+  if (!data) return <EmptyState message={t("observability.noData")} />;
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
       <MetricCard
-        label="Total runs"
+        label={t("observability.totalRuns")}
         value={String(data.totalRuns)}
         icon={<IconActivity size={16} />}
       />
       <MetricCard
-        label="Total cost"
+        label={t("observability.totalCost")}
         value={formatCostCents(data.totalCostCents)}
         icon={<IconCoin size={16} />}
       />
       <MetricCard
-        label="Avg latency"
+        label={t("observability.avgLatency")}
         value={formatDuration(data.avgDurationMs)}
         icon={<IconClock size={16} />}
       />
       <MetricCard
-        label="Tool success"
+        label={t("observability.toolSuccess")}
         value={formatPercent(data.toolSuccessRate)}
         icon={<IconTool size={16} />}
       />
       <MetricCard
-        label="Thumbs up"
+        label={t("observability.thumbsUp")}
         value={formatPercent(data.thumbsUpRate)}
         icon={<IconThumbUp size={16} />}
       />
       <MetricCard
-        label="Avg eval score"
+        label={t("observability.avgEvalScore")}
         value={data.avgEvalScore.toFixed(2)}
         icon={<IconMoodSmile size={16} />}
       />
@@ -214,6 +217,7 @@ function OverviewTab({ days }: { days: number }) {
 // ─── Tab: Conversations ─────────────────────────────────────────────────
 
 function ConversationsTab({ days }: { days: number }) {
+  const t = useT();
   const { data: traces, isLoading } = useTraces(days);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 
@@ -228,7 +232,7 @@ function ConversationsTab({ days }: { days: number }) {
 
   if (isLoading) return <LoadingState />;
   if (!traces || traces.length === 0)
-    return <EmptyState message="No conversations recorded yet" />;
+    return <EmptyState message={t("observability.noConversations")} />;
 
   return (
     <div className="rounded-lg border border-border overflow-hidden">
@@ -236,55 +240,57 @@ function ConversationsTab({ days }: { days: number }) {
         <thead>
           <tr className="border-b border-border bg-muted/30">
             <th className="px-3 py-2 font-medium text-muted-foreground w-[15%]">
-              Run
+              {t("observability.run")}
             </th>
             <th className="px-3 py-2 font-medium text-muted-foreground w-[20%]">
-              Model
+              {t("observability.model")}
             </th>
             <th className="px-3 py-2 font-medium text-muted-foreground">
-              Duration
+              {t("observability.duration")}
             </th>
             <th className="px-3 py-2 font-medium text-muted-foreground">
-              Cost
+              {t("observability.cost")}
             </th>
             <th className="px-3 py-2 font-medium text-muted-foreground">
-              Tools
+              {t("observability.tools")}
             </th>
             <th className="px-3 py-2 font-medium text-muted-foreground">
-              Time
+              {t("observability.time")}
             </th>
             <th className="w-8" />
           </tr>
         </thead>
         <tbody>
-          {traces.map((t: TraceSummary) => (
+          {traces.map((trace: TraceSummary) => (
             <tr
-              key={t.runId}
-              onClick={() => setSelectedRunId(t.runId)}
+              key={trace.runId}
+              onClick={() => setSelectedRunId(trace.runId)}
               className="border-b border-border last:border-b-0 cursor-pointer hover:bg-accent/30"
             >
               <td className="px-3 py-2 font-mono text-foreground truncate">
-                {truncateId(t.runId)}
+                {truncateId(trace.runId)}
               </td>
               <td className="px-3 py-2 text-muted-foreground truncate">
-                {t.model || "unknown"}
+                {trace.model || "unknown"}
               </td>
               <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                {formatDuration(t.totalDurationMs)}
+                {formatDuration(trace.totalDurationMs)}
               </td>
               <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                {formatCost(t.totalCostCentsX100)}
+                {formatCost(trace.totalCostCentsX100)}
               </td>
               <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                {t.toolCalls}
-                {t.failedTools > 0 && (
+                {trace.toolCalls}
+                {trace.failedTools > 0 && (
                   <span className="ml-1 text-red-500">
-                    ({t.failedTools} failed)
+                    {t("observability.failedCount", {
+                      count: trace.failedTools,
+                    })}
                   </span>
                 )}
               </td>
               <td className="px-3 py-2 text-muted-foreground truncate">
-                {timeAgo(t.createdAt)}
+                {timeAgo(trace.createdAt)}
               </td>
               <td className="px-3 py-2">
                 <IconChevronRight size={14} className="text-muted-foreground" />
@@ -304,6 +310,7 @@ function TraceDetailView({
   runId: string;
   onBack: () => void;
 }) {
+  const t = useT();
   const { data, isLoading } = useTraceDetail(runId);
 
   return (
@@ -313,7 +320,7 @@ function TraceDetailView({
         className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3"
       >
         <IconArrowLeft size={14} />
-        Back to list
+        {t("observability.backToList")}
       </button>
 
       {isLoading && <LoadingState />}
@@ -323,7 +330,7 @@ function TraceDetailView({
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-lg border border-border p-3">
               <div className="text-[10px] text-muted-foreground mb-1">
-                Model
+                {t("observability.model")}
               </div>
               <div className="text-sm font-medium text-foreground truncate">
                 {data.summary.model || "unknown"}
@@ -331,21 +338,23 @@ function TraceDetailView({
             </div>
             <div className="rounded-lg border border-border p-3">
               <div className="text-[10px] text-muted-foreground mb-1">
-                Duration
+                {t("observability.duration")}
               </div>
               <div className="text-sm font-medium tabular-nums text-foreground">
                 {formatDuration(data.summary.totalDurationMs)}
               </div>
             </div>
             <div className="rounded-lg border border-border p-3">
-              <div className="text-[10px] text-muted-foreground mb-1">Cost</div>
+              <div className="text-[10px] text-muted-foreground mb-1">
+                {t("observability.cost")}
+              </div>
               <div className="text-sm font-medium tabular-nums text-foreground">
                 {formatCost(data.summary.totalCostCentsX100)}
               </div>
             </div>
             <div className="rounded-lg border border-border p-3">
               <div className="text-[10px] text-muted-foreground mb-1">
-                Spans
+                {t("observability.spans")}
               </div>
               <div className="text-sm font-medium tabular-nums text-foreground">
                 {data.summary.totalSpans}
@@ -358,19 +367,19 @@ function TraceDetailView({
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th className="px-3 py-2 font-medium text-muted-foreground w-[15%]">
-                    Type
+                    {t("observability.type")}
                   </th>
                   <th className="px-3 py-2 font-medium text-muted-foreground w-[35%]">
-                    Name
+                    {t("observability.name")}
                   </th>
                   <th className="px-3 py-2 font-medium text-muted-foreground">
-                    Duration
+                    {t("observability.duration")}
                   </th>
                   <th className="px-3 py-2 font-medium text-muted-foreground">
-                    Tokens
+                    {t("observability.tokens")}
                   </th>
                   <th className="px-3 py-2 font-medium text-muted-foreground">
-                    Status
+                    {t("observability.status")}
                   </th>
                 </tr>
               </thead>
@@ -413,11 +422,12 @@ function TraceDetailView({
 // ─── Tab: Evals ─────────────────────────────────────────────────────────
 
 function EvalsTab({ days }: { days: number }) {
+  const t = useT();
   const { data, isLoading } = useEvalStats(days);
 
   if (isLoading) return <LoadingState />;
   if (!data || data.totalEvals === 0)
-    return <EmptyState message="No eval results recorded yet" />;
+    return <EmptyState message={t("observability.noEvals")} />;
 
   const maxCount = Math.max(...data.byCriteria.map((c) => c.count), 1);
 
@@ -425,12 +435,12 @@ function EvalsTab({ days }: { days: number }) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <MetricCard
-          label="Total evals"
+          label={t("observability.totalEvals")}
           value={String(data.totalEvals)}
           icon={<IconChartBar size={16} />}
         />
         <MetricCard
-          label="Avg score"
+          label={t("observability.avgScore")}
           value={data.avgScore.toFixed(2)}
           icon={<IconMoodSmile size={16} />}
         />
@@ -439,7 +449,7 @@ function EvalsTab({ days }: { days: number }) {
       {data.byCriteria.length > 0 && (
         <div>
           <h3 className="text-xs font-medium text-foreground mb-2">
-            Scores by criteria
+            {t("observability.scoresByCriteria")}
           </h3>
           <div className="space-y-2">
             {data.byCriteria.map((c) => (
@@ -470,6 +480,7 @@ function EvalsTab({ days }: { days: number }) {
 // ─── Tab: Experiments ───────────────────────────────────────────────────
 
 function ExperimentsTab() {
+  const t = useT();
   const { data: experiments, isLoading } = useExperiments();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -484,7 +495,7 @@ function ExperimentsTab() {
 
   if (isLoading) return <LoadingState />;
   if (!experiments || experiments.length === 0)
-    return <EmptyState message="No experiments created yet" />;
+    return <EmptyState message={t("observability.noExperiments")} />;
 
   return (
     <div className="rounded-lg border border-border overflow-hidden">
@@ -492,16 +503,16 @@ function ExperimentsTab() {
         <thead>
           <tr className="border-b border-border bg-muted/30">
             <th className="px-3 py-2 font-medium text-muted-foreground w-[40%]">
-              Name
+              {t("observability.name")}
             </th>
             <th className="px-3 py-2 font-medium text-muted-foreground">
-              Status
+              {t("observability.status")}
             </th>
             <th className="px-3 py-2 font-medium text-muted-foreground">
-              Variants
+              {t("observability.variants")}
             </th>
             <th className="px-3 py-2 font-medium text-muted-foreground">
-              Created
+              {t("observability.created")}
             </th>
             <th className="w-8" />
           </tr>
@@ -543,6 +554,7 @@ function ExperimentDetailView({
   id: string;
   onBack: () => void;
 }) {
+  const t = useT();
   const { data: exp, isLoading } = useExperimentDetail(id);
   const { data: results } = useExperimentResults(id);
 
@@ -553,7 +565,7 @@ function ExperimentDetailView({
         className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3"
       >
         <IconArrowLeft size={14} />
-        Back to experiments
+        {t("observability.backToExperiments")}
       </button>
 
       {isLoading && <LoadingState />}
@@ -570,7 +582,7 @@ function ExperimentDetailView({
           <div className="grid grid-cols-3 gap-3">
             <div className="rounded-lg border border-border p-3">
               <div className="text-[10px] text-muted-foreground mb-1">
-                Variants
+                {t("observability.variants")}
               </div>
               <div className="text-sm font-medium tabular-nums text-foreground">
                 {exp.variants.length}
@@ -578,7 +590,7 @@ function ExperimentDetailView({
             </div>
             <div className="rounded-lg border border-border p-3">
               <div className="text-[10px] text-muted-foreground mb-1">
-                Metrics
+                {t("observability.metrics")}
               </div>
               <div className="text-sm font-medium tabular-nums text-foreground">
                 {exp.metrics.length}
@@ -586,7 +598,7 @@ function ExperimentDetailView({
             </div>
             <div className="rounded-lg border border-border p-3">
               <div className="text-[10px] text-muted-foreground mb-1">
-                Level
+                {t("observability.level")}
               </div>
               <div className="text-sm font-medium text-foreground capitalize">
                 {exp.assignmentLevel}
@@ -597,7 +609,7 @@ function ExperimentDetailView({
           {exp.variants.length > 0 && (
             <div>
               <h4 className="text-xs font-medium text-foreground mb-2">
-                Variants
+                {t("observability.variants")}
               </h4>
               <div className="space-y-1">
                 {exp.variants.map((v) => (
@@ -620,20 +632,20 @@ function ExperimentDetailView({
           {results && results.length > 0 && (
             <div>
               <h4 className="text-xs font-medium text-foreground mb-2">
-                Results
+                {t("observability.results")}
               </h4>
               <div className="rounded-lg border border-border overflow-hidden">
                 <table className="w-full table-fixed text-left text-xs">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
                       <th className="px-3 py-2 font-medium text-muted-foreground w-[20%]">
-                        Variant
+                        {t("observability.variant")}
                       </th>
                       <th className="px-3 py-2 font-medium text-muted-foreground w-[25%]">
-                        Metric
+                        {t("observability.metric")}
                       </th>
                       <th className="px-3 py-2 font-medium text-muted-foreground">
-                        Value
+                        {t("observability.value")}
                       </th>
                       <th className="px-3 py-2 font-medium text-muted-foreground">
                         CI
@@ -681,6 +693,7 @@ function ExperimentDetailView({
 // ─── Tab: Feedback ──────────────────────────────────────────────────────
 
 function FeedbackTab({ days }: { days: number }) {
+  const t = useT();
   const { data: stats, isLoading: statsLoading } = useFeedbackStats(days);
   const { data: entries, isLoading: listLoading } = useFeedbackList(days);
   const { data: satisfaction } = useSatisfaction(days);
@@ -700,22 +713,22 @@ function FeedbackTab({ days }: { days: number }) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MetricCard
-          label="Total feedback"
+          label={t("observability.totalFeedback")}
           value={String(stats?.total ?? 0)}
           icon={<IconMessageReport size={16} />}
         />
         <MetricCard
-          label="Thumbs up"
+          label={t("observability.thumbsUp")}
           value={String(stats?.thumbsUp ?? 0)}
           icon={<IconThumbUp size={16} />}
         />
         <MetricCard
-          label="Thumbs down"
+          label={t("observability.thumbsDown")}
           value={String(stats?.thumbsDown ?? 0)}
           icon={<IconThumbDown size={16} />}
         />
         <MetricCard
-          label="Frustration"
+          label={t("observability.frustration")}
           value={avgFrustration.toFixed(2)}
           icon={<IconAlertTriangle size={16} />}
         />
@@ -724,7 +737,7 @@ function FeedbackTab({ days }: { days: number }) {
       {thumbsTotal > 0 && (
         <div className="rounded-lg border border-border p-3">
           <div className="text-xs text-muted-foreground mb-2">
-            Thumbs up rate
+            {t("observability.thumbsUpRate")}
           </div>
           <div className="flex items-center gap-3">
             <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
@@ -743,7 +756,7 @@ function FeedbackTab({ days }: { days: number }) {
       {stats?.categories && Object.keys(stats.categories).length > 0 && (
         <div>
           <h3 className="text-xs font-medium text-foreground mb-2">
-            Categories
+            {t("observability.categories")}
           </h3>
           <div className="flex flex-wrap gap-1.5">
             {Object.entries(stats.categories).map(([cat, count]) => (
@@ -807,11 +820,23 @@ function FeedbackTab({ days }: { days: number }) {
 // ─── Main Dashboard ─────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "overview", label: "Overview", icon: IconActivity },
-  { id: "conversations", label: "Conversations", icon: IconMessages },
-  { id: "evals", label: "Evals", icon: IconChartBar },
-  { id: "experiments", label: "Experiments", icon: IconAB2 },
-  { id: "feedback", label: "Feedback", icon: IconMessageReport },
+  { id: "overview", labelKey: "observability.overview", icon: IconActivity },
+  {
+    id: "conversations",
+    labelKey: "observability.conversations",
+    icon: IconMessages,
+  },
+  { id: "evals", labelKey: "observability.evals", icon: IconChartBar },
+  {
+    id: "experiments",
+    labelKey: "observability.experiments",
+    icon: IconAB2,
+  },
+  {
+    id: "feedback",
+    labelKey: "observability.feedback",
+    icon: IconMessageReport,
+  },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -823,6 +848,7 @@ export interface ObservabilityDashboardProps {
 export function ObservabilityDashboard({
   className,
 }: ObservabilityDashboardProps) {
+  const t = useT();
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [days, setDays] = useState(7);
 
@@ -844,7 +870,7 @@ export function ObservabilityDashboard({
                 )}
               >
                 <Icon size={14} />
-                {tab.label}
+                {t(tab.labelKey)}
               </button>
             );
           })}

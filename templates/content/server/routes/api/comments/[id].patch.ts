@@ -1,4 +1,3 @@
-import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
 import {
   getSession,
   readBody,
@@ -6,6 +5,8 @@ import {
 } from "@agent-native/core/server";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
+import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
+
 import { getDb, schema } from "../../../db/index.js";
 
 /**

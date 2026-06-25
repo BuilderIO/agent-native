@@ -1,8 +1,8 @@
-import { useState, useMemo } from "react";
+import { useT } from "@agent-native/core/client";
 import { IconCheck, IconSelector } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useState, useMemo } from "react";
+
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Command,
   CommandEmpty,
@@ -16,6 +16,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+
 import { KNOWN_PROPERTIES, ENRICHED_PROPERTY_MAP } from "../types";
 import { useDynamicProperties } from "../use-dynamic-schema";
 
@@ -33,6 +36,7 @@ export function PropertyCombobox({
   triggerLabel,
   autoOpen,
 }: PropertyComboboxProps) {
+  const t = useT();
   const [open, setOpen] = useState(autoOpen ?? false);
   const { properties: dynamicProps, isLoading } = useDynamicProperties();
   const [search, setSearch] = useState("");
@@ -73,7 +77,7 @@ export function PropertyCombobox({
           size="sm"
         >
           <span className="truncate">
-            {value || triggerLabel || "Select property..."}
+            {value || triggerLabel || t("explorer.selectProperty")}
           </span>
           <IconSelector className="ml-1 h-3 w-3 shrink-0 opacity-50" />
         </Button>
@@ -81,7 +85,7 @@ export function PropertyCombobox({
       <PopoverContent className="w-[280px] p-0" align="start">
         <Command shouldFilter={true}>
           <CommandInput
-            placeholder="Search or type property..."
+            placeholder={t("explorer.searchOrTypeProperty")}
             value={search}
             onValueChange={setSearch}
             onKeyDown={(e) => {
@@ -111,10 +115,10 @@ export function PropertyCombobox({
                     setSearch("");
                   }}
                 >
-                  Use "<strong>{search.trim()}</strong>"
+                  {t("explorer.useValue", { value: search.trim() })}
                 </button>
               ) : (
-                "No properties found."
+                t("explorer.noPropertiesFound")
               )}
             </CommandEmpty>
             {KNOWN_PROPERTIES.map((group) => (
@@ -136,7 +140,7 @@ export function PropertyCombobox({
                       {enriched?.label ?? prop}
                       {enriched && (
                         <span className="ml-auto text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-                          joined
+                          {t("explorer.joined")}
                         </span>
                       )}
                     </CommandItem>
@@ -145,7 +149,11 @@ export function PropertyCombobox({
               </CommandGroup>
             ))}
             {extraProps.length > 0 && (
-              <CommandGroup heading={`Data Properties (${extraProps.length})`}>
+              <CommandGroup
+                heading={t("explorer.dataProperties", {
+                  count: extraProps.length,
+                })}
+              >
                 {extraProps.map((p) => (
                   <CommandItem
                     key={p.name}

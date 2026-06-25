@@ -1,6 +1,8 @@
-import { FormEvent, useState } from "react";
+import { useT } from "@agent-native/core/client";
 import { IconLoader2 } from "@tabler/icons-react";
+import { FormEvent, useState } from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,8 +14,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
 import { useCreateSpace } from "@/hooks/use-library";
+import { cn } from "@/lib/utils";
 
 const SPACE_COLORS = [
   "#2563EB",
@@ -39,6 +41,7 @@ export function CreateSpaceDialog({
   organizationId,
   onCreated,
 }: CreateSpaceDialogProps) {
+  const t = useT();
   const createSpace = useCreateSpace();
   const [name, setName] = useState("");
   const [color, setColor] = useState(SPACE_COLORS[0]);
@@ -62,13 +65,13 @@ export function CreateSpaceDialog({
       },
       {
         onSuccess: (space) => {
-          toast.success("Space created");
+          toast.success(t("createSpaceDialog.spaceCreated"));
           reset();
           onOpenChange(false);
           onCreated?.(space);
         },
         onError: (err: any) => {
-          toast.error(err?.message ?? "Could not create space");
+          toast.error(err?.message ?? t("createSpaceDialog.createFailed"));
         },
       },
     );
@@ -84,14 +87,14 @@ export function CreateSpaceDialog({
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>New space</DialogTitle>
+          <DialogTitle>{t("createSpaceDialog.newSpace")}</DialogTitle>
           <DialogDescription className="sr-only">
-            Create a space in the current organization.
+            {t("createSpaceDialog.description")}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-1.5">
-            <Label htmlFor="space-name">Name</Label>
+            <Label htmlFor="space-name">{t("createSpaceDialog.name")}</Label>
             <Input
               id="space-name"
               autoFocus
@@ -103,13 +106,15 @@ export function CreateSpaceDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Color</Label>
+            <Label>{t("createSpaceDialog.color")}</Label>
             <div className="grid grid-cols-8 gap-2">
               {SPACE_COLORS.map((value) => (
                 <button
                   key={value}
                   type="button"
-                  aria-label={`Use color ${value}`}
+                  aria-label={t("createSpaceDialog.useColor", {
+                    color: value,
+                  })}
                   aria-pressed={color === value}
                   onClick={() => setColor(value)}
                   className={cn(
@@ -129,7 +134,7 @@ export function CreateSpaceDialog({
               onClick={() => onOpenChange(false)}
               disabled={createSpace.isPending}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
@@ -138,7 +143,7 @@ export function CreateSpaceDialog({
               {createSpace.isPending && (
                 <IconLoader2 className="h-4 w-4 animate-spin" />
               )}
-              Create
+              {t("common.create")}
             </Button>
           </DialogFooter>
         </form>

@@ -1,13 +1,3 @@
-import { agentNativePath } from "../api-path.js";
-/**
- * <OnboardingPanel /> — the setup checklist that sits above the agent chat.
- *
- * The active step is expanded; completed steps collapse with a green check;
- * remaining steps sit dimmed below. Each method renders differently based on
- * its `kind` (link / form / builder-cli-auth / agent-task).
- */
-
-import React, { useState, useEffect } from "react";
 import {
   IconCheck,
   IconChecklist,
@@ -18,20 +8,30 @@ import {
   IconKey,
   IconLoader2,
 } from "@tabler/icons-react";
-import { useOnboarding } from "./use-onboarding.js";
-import { useOnboardingPreviewMode } from "./use-preview-mode.js";
-import { sendToAgentChat } from "../agent-chat.js";
-import { useDevMode } from "../use-dev-mode.js";
-import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+/**
+ * <OnboardingPanel /> — the setup checklist that sits above the agent chat.
+ *
+ * The active step is expanded; completed steps collapse with a green check;
+ * remaining steps sit dimmed below. Each method renders differently based on
+ * its `kind` (link / form / builder-cli-auth / agent-task).
+ */
+import React, { useState, useEffect } from "react";
+
 import type {
   OnboardingMethod,
   OnboardingStepStatus,
 } from "../../onboarding/types.js";
+import { sendToAgentChat } from "../agent-chat.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import { useDevMode } from "../use-dev-mode.js";
+import { useOnboarding } from "./use-onboarding.js";
+import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
 type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
 
@@ -108,7 +108,11 @@ export function OnboardingPanel({
                 {completeCount} of {totalCount}
               </span>
               <span
-                style={{ marginLeft: "auto", opacity: 0.5, display: "flex" }}
+                style={{
+                  marginInlineStart: "auto",
+                  opacity: 0.5,
+                  display: "flex",
+                }}
               >
                 <IconChevronDown size={14} />
               </span>
@@ -226,7 +230,7 @@ function StepCard({
           {expanded ? (
             <IconChevronDown size={14} />
           ) : (
-            <IconChevronRight size={14} />
+            <IconChevronRight size={14} className="rtl:-scale-x-100" />
           )}
         </span>
       </button>
@@ -360,7 +364,7 @@ function ManagedProviderMethodGroup({
               {showKeyForm ? (
                 <IconChevronDown size={14} />
               ) : (
-                <IconChevronRight size={14} />
+                <IconChevronRight size={14} className="rtl:-scale-x-100" />
               )}
             </span>
           </button>
@@ -550,7 +554,9 @@ function LinkMethod({
       style={{ ...buttonPrimary(method.primary), textDecoration: "none" }}
     >
       Continue
-      {external && <IconExternalLink size={12} style={{ marginLeft: 4 }} />}
+      {external && (
+        <IconExternalLink size={12} style={{ marginInlineStart: 4 }} />
+      )}
     </a>
   );
 }
@@ -657,7 +663,7 @@ function BuilderCliAuthMethod({
           <>
             <IconLoader2
               size={12}
-              style={{ marginRight: 4 }}
+              style={{ marginInlineEnd: 4 }}
               className="animate-spin"
             />
             Waiting for Builder...
@@ -740,7 +746,7 @@ function badgeStyle(
     soon: { bg: "rgba(148,163,184,0.15)", fg: "#cbd5e1" },
   }[kind];
   return {
-    marginLeft: 6,
+    marginInlineStart: 6,
     fontSize: 10,
     padding: "1px 6px",
     borderRadius: 4,
@@ -798,7 +804,7 @@ const styles: Record<string, React.CSSProperties> = {
   headerCounter: {
     opacity: 0.5,
     fontSize: 11,
-    marginLeft: 4,
+    marginInlineStart: 4,
   },
   dismissBtn: {
     background: "transparent",
@@ -837,7 +843,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "inherit",
     padding: "7px 9px",
     cursor: "pointer",
-    textAlign: "left" as const,
+    textAlign: "start" as const,
   },
   cardHeaderLeft: {
     display: "flex",
@@ -880,7 +886,8 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid rgba(255,255,255,0.2)",
   },
   cardBody: {
-    padding: "0 10px 10px 34px",
+    paddingBlock: "0 10px",
+    paddingInline: "34px 10px",
     display: "flex",
     flexDirection: "column",
     gap: 8,
@@ -934,7 +941,7 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     fontSize: 11,
     fontWeight: 500,
-    textAlign: "left" as const,
+    textAlign: "start" as const,
   },
   secondaryToggleLeft: {
     display: "flex",

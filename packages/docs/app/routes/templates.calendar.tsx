@@ -1,7 +1,9 @@
-import { Link } from "react-router";
+import { useT } from "@agent-native/core/client";
 import { useState } from "react";
-import { templates, trackEvent } from "../components/TemplateCard";
+import { Link } from "react-router";
+
 import { TemplateDocsLink } from "../components/template-docs";
+import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
@@ -96,6 +98,7 @@ function CliCopy() {
 }
 
 export default function CalendarTemplate() {
+  const t = useT();
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
@@ -118,7 +121,7 @@ export default function CalendarTemplate() {
             >
               <polyline points="15 18 9 12 15 6" />
             </svg>
-            All Templates
+            {t("templateLanding.calendar.s005")}
           </Link>
         </div>
 
@@ -133,13 +136,11 @@ export default function CalendarTemplate() {
             </div>
 
             <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              The open-source Google Calendar &amp; Calendly alternative
+              {t("templateLanding.calendar.s006")}
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              Multi-account Google Calendar sync, configurable availability, and
-              customizable Calendly-style booking links — with an AI agent that
-              schedules on your behalf.
+              {t("templateLanding.calendar.s007")}
             </p>
 
             <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
@@ -155,7 +156,7 @@ export default function CalendarTemplate() {
                   })
                 }
               >
-                Try It
+                {t("templateLanding.calendar.s008")}
                 <svg
                   width="16"
                   height="16"
@@ -179,7 +180,7 @@ export default function CalendarTemplate() {
           <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
             <img
               src={template.screenshot}
-              alt="Calendar template screenshot"
+              alt={t("templateLanding.calendar.s001")}
               className="w-full object-cover object-top"
             />
           </div>
@@ -190,13 +191,10 @@ export default function CalendarTemplate() {
       <section className="border-t border-[var(--docs-border)] py-8">
         <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
           <h2 className="mb-2 text-base font-semibold">
-            Google may ask for approval
+            {t("templateLanding.calendar.s057")}
           </h2>
           <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-            Signing in only uses basic Google identity, but connecting Calendar
-            sync asks for calendar access. Some Workspace admins may require
-            approval for the hosted demo. Run locally to use your own Google
-            OAuth client.
+            {t("templateLanding.calendar.s009")}
           </p>
         </div>
       </section>
@@ -205,10 +203,10 @@ export default function CalendarTemplate() {
       <section className="border-t border-[var(--docs-border)] py-16">
         <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">
           {[
-            { number: "3", label: "Calendar views" },
-            { number: "4", label: "Agent actions" },
-            { number: "N", label: "Booking link types" },
-            { number: "2-way", label: "Google sync" },
+            { number: "3", label: t("templateLanding.calendar.s002") },
+            { number: "4", label: t("templateLanding.calendar.s003") },
+            { number: "N", label: t("templateLanding.calendar.s004") },
+            { number: "2-way", label: t("templateLanding.calendar.s058") },
           ].map((stat) => (
             <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
               <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
@@ -225,10 +223,10 @@ export default function CalendarTemplate() {
       {/* Core capabilities */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          What you can do
+          {t("templateLanding.calendar.s010")}
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          Everything you need to replace your calendar and scheduling stack.
+          {t("templateLanding.calendar.s011")}
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -250,10 +248,10 @@ export default function CalendarTemplate() {
               </svg>
             </div>
             <h3 className="mb-1 text-sm font-semibold">
-              Multiple Calendar Views
+              {t("templateLanding.calendar.s012")}
             </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Month, week, and day views with drag-and-drop event management.
+              {t("templateLanding.calendar.s013")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -272,11 +270,10 @@ export default function CalendarTemplate() {
               </svg>
             </div>
             <h3 className="mb-1 text-sm font-semibold">
-              Natural Language Scheduling
+              {t("templateLanding.calendar.s014")}
             </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Tell the agent to find a slot, create an event, or reschedule — it
-              handles the rest.
+              {t("templateLanding.calendar.s015")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -298,11 +295,10 @@ export default function CalendarTemplate() {
               </svg>
             </div>
             <h3 className="mb-1 text-sm font-semibold">
-              Customizable Booking Links
+              {t("templateLanding.calendar.s016")}
             </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Create multiple Calendly-style booking pages with different
-              durations and availability. Visitors pick a slot that works.
+              {t("templateLanding.calendar.s017")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -321,10 +317,11 @@ export default function CalendarTemplate() {
                 <polyline points="8 6 2 12 8 18" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">Self-Improving</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.calendar.s018")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              The agent modifies the app itself. Need a new view or booking
-              flow? Just ask.
+              {t("templateLanding.calendar.s019")}
             </p>
           </div>
         </div>
@@ -338,8 +335,7 @@ export default function CalendarTemplate() {
               Google Calendar Sync
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              Connect multiple Google accounts via OAuth 2.0. Pull events from
-              all your calendars and create events that sync back to Google.
+              {t("templateLanding.calendar.s020")}
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -356,7 +352,7 @@ export default function CalendarTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Multi-account OAuth 2.0 with automatic token refresh
+                {t("templateLanding.calendar.s021")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -372,7 +368,7 @@ export default function CalendarTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Pull-based sync — no webhooks needed
+                {t("templateLanding.calendar.s022")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -388,7 +384,7 @@ export default function CalendarTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Create, update, and delete events on Google
+                {t("templateLanding.calendar.s023")}
               </li>
             </ul>
           </div>
@@ -397,8 +393,7 @@ export default function CalendarTemplate() {
               Calendly-Style Booking
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              Create customizable booking links where anyone can book time with
-              you. Configurable availability settings per booking type.
+              {t("templateLanding.calendar.s024")}
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -415,7 +410,7 @@ export default function CalendarTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Date picker + time slot selection
+                {t("templateLanding.calendar.s025")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -431,7 +426,7 @@ export default function CalendarTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Respects your availability and existing events
+                {t("templateLanding.calendar.s026")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -447,7 +442,7 @@ export default function CalendarTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Visitor info capture + confirmation
+                {t("templateLanding.calendar.s027")}
               </li>
             </ul>
           </div>
@@ -459,11 +454,10 @@ export default function CalendarTemplate() {
         <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
             <h2 className="mb-3 text-2xl font-bold tracking-tight">
-              Agent-powered scheduling
+              {t("templateLanding.calendar.s028")}
             </h2>
             <p className="mb-6 text-base text-[var(--fg-secondary)]">
-              The agent runs scripts to sync calendars, create events, check
-              availability, and manage bookings. All through natural language.
+              {t("templateLanding.calendar.s029")}
             </p>
             <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -480,7 +474,7 @@ export default function CalendarTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Sync my Google Calendar for this month"
+                {t("templateLanding.calendar.s030")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -496,7 +490,7 @@ export default function CalendarTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Find a 30-minute slot next Tuesday for a team meeting"
+                {t("templateLanding.calendar.s031")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -512,7 +506,7 @@ export default function CalendarTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Create a recurring standup at 9am every weekday"
+                {t("templateLanding.calendar.s032")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -528,7 +522,7 @@ export default function CalendarTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Show me my availability for next week"
+                {t("templateLanding.calendar.s033")}
               </li>
             </ul>
           </div>
@@ -572,7 +566,7 @@ export default function CalendarTemplate() {
       {/* Comparison table */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          How it compares
+          {t("templateLanding.calendar.s034")}
         </h2>
         <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table min-w-[42rem] w-full text-sm">
@@ -593,50 +587,68 @@ export default function CalendarTemplate() {
             <tbody className="text-[var(--fg-secondary)]">
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Calendar UI
+                  {t("templateLanding.calendar.s035")}
                 </td>
-                <td className="px-5 py-3">Full, rigid</td>
-                <td className="px-5 py-3">Minimal</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.calendar.s036")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.calendar.s037")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Full, fully customizable
+                  {t("templateLanding.calendar.s038")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  AI scheduling
+                  {t("templateLanding.calendar.s039")}
                 </td>
                 <td className="px-5 py-3">None</td>
                 <td className="px-5 py-3">None</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Natural language, full control
+                  {t("templateLanding.calendar.s040")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Booking page
+                  {t("templateLanding.calendar.s041")}
                 </td>
-                <td className="px-5 py-3">Appointment slots</td>
-                <td className="px-5 py-3">Yes, limited branding</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.calendar.s042")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.calendar.s043")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Fully customizable, own domain
+                  {t("templateLanding.calendar.s044")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Customization
+                  {t("templateLanding.calendar.s045")}
                 </td>
-                <td className="px-5 py-3">Settings only</td>
-                <td className="px-5 py-3">Branding only</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Full source code</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.calendar.s046")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.calendar.s047")}
+                </td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  {t("templateLanding.calendar.s048")}
+                </td>
               </tr>
               <tr>
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Pricing
+                  {t("templateLanding.calendar.s049")}
                 </td>
-                <td className="px-5 py-3">Free / Workspace</td>
-                <td className="px-5 py-3">$10+/mo per seat</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.calendar.s050")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.calendar.s051")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Free & open source
+                  {t("templateLanding.calendar.s052")}
                 </td>
               </tr>
             </tbody>
@@ -647,11 +659,10 @@ export default function CalendarTemplate() {
       {/* CTA */}
       <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Get started in minutes
+          {t("templateLanding.calendar.s053")}
         </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Fork the template, connect Google Calendar, and start scheduling with
-          AI.
+          {t("templateLanding.calendar.s054")}
         </p>
         <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink
@@ -659,14 +670,14 @@ export default function CalendarTemplate() {
             location="landing_page_cta"
             className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
-            Read the docs
+            {t("templateLanding.calendar.s055")}
           </TemplateDocsLink>
           <Link
             data-an-prefetch="render"
             to="/templates"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
-            View all templates
+            {t("templateLanding.calendar.s056")}
           </Link>
         </div>
       </section>

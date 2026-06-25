@@ -41,7 +41,7 @@ pub async fn native_speech_start(
         // contextual_strings (personal vocabulary) is staged separately via
         // `native_speech_set_vocabulary` so mic metadata can flow through
         // meeting capture without coupling vocabulary into that path.
-        macos::native_speech_start_impl(app, locale, mic_device_id, mic_device_label).await
+        macos::native_speech_start_impl(app, locale, mic_device_id, mic_device_label)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -85,7 +85,7 @@ pub async fn native_speech_request_permission() -> Result<bool, String> {
 pub async fn native_speech_stop(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        macos::native_speech_stop_impl(app).await
+        macos::native_speech_stop_impl(app)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -98,7 +98,7 @@ pub async fn native_speech_stop(app: AppHandle) -> Result<(), String> {
 pub async fn native_speech_cancel(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        macos::native_speech_cancel_impl(app).await
+        macos::native_speech_cancel_impl(app)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -112,7 +112,7 @@ pub(crate) mod macos {
     use std::ffi::c_void;
     use std::mem::size_of;
     use std::ptr::NonNull;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
 
     use block2::{RcBlock, StackBlock};
@@ -163,6 +163,11 @@ pub(crate) mod macos {
         /// Set by `stop()` so the result handler suppresses further partials
         /// but still emits the final transcript when it arrives.
         stopped: Arc<AtomicBool>,
+        /// Guards against double-removal of the audio tap. `removeTapOnBus`
+        /// throws NSException (aborting the process) if called when no tap is
+        /// installed; we swap this to false on the first removal and skip
+        /// subsequent calls.
+        tap_installed: AtomicBool,
     }
 
     // SAFETY: see the doc comment on `SpeechSession`. We never alias the
@@ -175,6 +180,14 @@ pub(crate) mod macos {
     fn session_slot() -> &'static Mutex<Option<SpeechSession>> {
         static SLOT: OnceLock<Mutex<Option<SpeechSession>>> = OnceLock::new();
         SLOT.get_or_init(|| Mutex::new(None))
+    }
+
+    /// Bumped at the start of every `native_speech_start_impl` call. The
+    /// auto-restart thread captures the value at decision time and skips the
+    /// restart if a newer session has since been requested.
+    fn session_generation() -> &'static AtomicU64 {
+        static GEN: OnceLock<AtomicU64> = OnceLock::new();
+        GEN.get_or_init(|| AtomicU64::new(0))
     }
 
     #[derive(Serialize, Clone)]
@@ -475,9 +488,16 @@ pub(crate) mod macos {
         // message-thread-safe per Apple's docs. `inputNode` returns a
         // singleton already retained by the engine; both calls are
         // fire-and-forget and have no return value.
+        //
+        // Guard against double-removal: `removeTapOnBus` throws NSException
+        // (which Rust cannot catch, aborting the process) when called on a
+        // node that has no tap installed. The swap ensures only the first
+        // caller executes the remove.
         unsafe {
-            let input = session.engine.inputNode();
-            input.removeTapOnBus(0);
+            if session.tap_installed.swap(false, Ordering::SeqCst) {
+                let input = session.engine.inputNode();
+                input.removeTapOnBus(0);
+            }
             if session.engine.isRunning() {
                 session.engine.stop();
             }
@@ -509,6 +529,18 @@ pub(crate) mod macos {
         }
     }
 
+    /// Benign end-of-utterance errors from SFSpeechRecognizer allow auto-restart;
+    /// config/auth errors do not. Keys off the stable NSError domain + code rather
+    /// than localizedDescription, which is locale-dependent.
+    ///
+    /// kAFAssistantErrorDomain codes (internal but stable across macOS versions):
+    ///   203 — no speech detected
+    ///   1110 — recognition request timed out
+    fn is_transient_recognizer_error(err: &NSError) -> bool {
+        let domain: Retained<NSString> = unsafe { objc2::msg_send![err, domain] };
+        domain.to_string() == "kAFAssistantErrorDomain" && matches!(err.code(), 203 | 1110)
+    }
+
     /// Pending personal-vocabulary list staged by
     /// `native_speech_set_vocabulary`. Consumed (taken) by the next
     /// `native_speech_start_impl` call.
@@ -530,19 +562,19 @@ pub(crate) mod macos {
             .unwrap_or_default()
     }
 
-    pub async fn native_speech_start_impl(
+    pub fn native_speech_start_impl(
         app: AppHandle,
         locale: Option<String>,
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
     ) -> Result<(), String> {
-        let contextual_strings: Option<Vec<String>> = {
+        // Bump the generation so any pending auto-restart for the previous
+        // session's transient error will see the counter has changed and abort.
+        let my_gen = session_generation().fetch_add(1, Ordering::SeqCst) + 1;
+
+        let contextual_strings = {
             let v = take_pending_vocabulary();
-            if v.is_empty() {
-                None
-            } else {
-                Some(v)
-            }
+            (!v.is_empty()).then_some(v)
         };
         // Cancel any prior session first — there's only one mic tap per input
         // node, and we want a deterministic state going in.
@@ -597,7 +629,12 @@ pub(crate) mod macos {
             mic_device_label.as_deref(),
         )?;
         let input_node = unsafe { engine.inputNode() };
-        let format = unsafe { input_node.outputFormatForBus(0) };
+        // `prepare()` must run after pinning the device so the AUHAL adopts
+        // the new hardware format before we install a tap. It can throw
+        // NSException when a Bluetooth device (e.g. AirPods) is mid-SCO↔A2DP
+        // codec switch — catch it and surface as a recoverable Rust error.
+        objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe { engine.prepare() }))
+            .map_err(|e| format!("AVAudioEngine prepare threw: {e:?}"))?;
 
         // Install a tap that forwards every PCM buffer into the recognition
         // request. The tap callback runs on the realtime audio thread —
@@ -648,30 +685,33 @@ pub(crate) mod macos {
                 dyn Fn(std::ptr::NonNull<AVAudioPCMBuffer>, std::ptr::NonNull<AVAudioTime>)
                     + 'static,
             > = (&*tap_block) as *const _ as *mut _;
-            unsafe {
+            // `installTapOnBus` throws NSException if the hardware is
+            // unavailable. Catch it so we return a clean Err instead of
+            // aborting the process.
+            objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
                 input_node.installTapOnBus_bufferSize_format_block(
-                    0,
-                    1024,
-                    Some(&format),
+                    0, 1024,
+                    None, // use hardware's current format — avoids SCO↔A2DP stale-format race
                     block_ptr,
                 );
-            }
+            }))
+            .map_err(|e| format!("installTapOnBus threw: {e:?}"))?;
         }
 
-        // Start the engine. If this fails the tap stays installed; tear it
-        // down so the next start() doesn't trip "only one tap may be
-        // installed".
-        // SAFETY: `prepare` and `startAndReturnError` are documented as the
-        // standard kick-off; they touch the audio HAL and may fail when the
-        // input device is in a weird state.
-        if let Err(err) = unsafe {
+        // Start the engine; if it fails tear down the tap so the next start
+        // doesn't see a stale tap on the input node.
+        objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
             engine.prepare();
             engine.startAndReturnError()
-        } {
-            let msg = ns_error_message(&err);
+        }))
+        .map_err(|e| format!("AVAudioEngine start threw: {e:?}"))
+        .and_then(|r| {
+            r.map_err(|e| format!("AVAudioEngine start failed: {}", ns_error_message(&e)))
+        })
+        .map_err(|msg| {
             unsafe { input_node.removeTapOnBus(0) };
-            return Err(format!("AVAudioEngine start failed: {msg}"));
-        }
+            msg
+        })?;
 
         // Cancel + stop flags shared with the result handler.
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -680,41 +720,64 @@ pub(crate) mod macos {
         // Build the result handler. SFSpeechRecognizer invokes this once
         // per partial result and once with `isFinal=true` when the request
         // ends.
-        let app_for_handler = app.clone();
-        let cancelled_for_handler = cancelled.clone();
-        let stopped_for_handler = stopped.clone();
         // SAFETY: the block runs on the recognizer's queue (default = main).
         // We capture clones of `AppHandle` (cheap, refcounted) and the two
         // atomics. We never touch ObjC objects from outside their native
         // lifetime — both `result` and `error` are passed in raw and we
         // wrap them via `&*ptr` only after a null check.
-        let result_handler = RcBlock::new(
+        let result_handler = RcBlock::new({
+            let app = app.clone();
+            let cancelled = cancelled.clone();
+            let stopped = stopped.clone();
+            let locale = locale.clone();
+            let mic_device_id = mic_device_id.clone();
+            let mic_device_label = mic_device_label.clone();
             move |result_ptr: *mut SFSpeechRecognitionResult, error_ptr: *mut NSError| {
-                let cancelled = cancelled_for_handler.load(Ordering::SeqCst);
-                let stopped = stopped_for_handler.load(Ordering::SeqCst);
+                let is_cancelled = cancelled.load(Ordering::SeqCst);
+                let is_stopped = stopped.load(Ordering::SeqCst);
                 // Error path: surface and clean up the slot.
                 if !error_ptr.is_null() && result_ptr.is_null() {
-                    if !cancelled {
-                        // SAFETY: `error_ptr` non-null per the check above;
-                        // the recognizer keeps it alive for the duration of
-                        // this callback.
-                        let err = unsafe { &*error_ptr };
-                        let msg = ns_error_message(err);
-                        let _ = app_for_handler.emit(
+                    let err = unsafe { &*error_ptr };
+                    let msg = ns_error_message(err);
+                    let transient = is_transient_recognizer_error(err);
+                    eprintln!(
+                        "[speech] recognizer ended with error (code {}, transient={transient}): {msg}",
+                        err.code()
+                    );
+
+                    if !is_cancelled && !transient {
+                        let _ = app.emit(
                             "voice:speech-error",
-                            ErrorPayload {
-                                error: msg,
-                                source: "mic",
-                            },
+                            ErrorPayload { error: msg, source: "mic" },
                         );
                     }
                     clear_session_slot();
+
+                    if !is_cancelled && !is_stopped && transient {
+                        let gen = my_gen;
+                        let app = app.clone();
+                        let locale = locale.clone();
+                        let mic_device_id = mic_device_id.clone();
+                        let mic_device_label = mic_device_label.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(300));
+                            // A newer session was started during the wait — don't clobber it.
+                            if session_generation().load(Ordering::SeqCst) != gen {
+                                return;
+                            }
+                            if let Err(e) = native_speech_start_impl(
+                                app.clone(), locale, mic_device_id, mic_device_label,
+                            ) {
+                                let _ = app.emit(
+                                    "voice:speech-error",
+                                    ErrorPayload { error: e, source: "mic" },
+                                );
+                            }
+                        });
+                    }
                     return;
                 }
-                if result_ptr.is_null() {
-                    return;
-                }
-                if cancelled {
+                if result_ptr.is_null() || is_cancelled {
                     return;
                 }
                 // SAFETY: `result_ptr` was non-null per the check above; the
@@ -722,11 +785,9 @@ pub(crate) mod macos {
                 // this callback.
                 let result = unsafe { &*result_ptr };
                 let transcription = unsafe { result.bestTranscription() };
-                let formatted = unsafe { transcription.formattedString() };
-                let text = formatted.to_string();
-                let is_final = unsafe { result.isFinal() };
-                if is_final {
-                    let _ = app_for_handler.emit(
+                let text = unsafe { transcription.formattedString() }.to_string();
+                if unsafe { result.isFinal() } {
+                    let _ = app.emit(
                         "voice:final-transcript",
                         FinalPayload {
                             text,
@@ -734,8 +795,8 @@ pub(crate) mod macos {
                         },
                     );
                     clear_session_slot();
-                } else if !stopped {
-                    let _ = app_for_handler.emit(
+                } else if !is_stopped {
+                    let _ = app.emit(
                         "voice:partial-transcript",
                         PartialPayload {
                             text,
@@ -743,8 +804,8 @@ pub(crate) mod macos {
                         },
                     );
                 }
-            },
-        );
+            }
+        });
 
         // Kick off the recognition task. This retains the request + handler
         // and returns a task we can later cancel().
@@ -763,6 +824,7 @@ pub(crate) mod macos {
                 task,
                 cancelled,
                 stopped,
+                tap_installed: AtomicBool::new(true),
             });
         }
 
@@ -822,16 +884,9 @@ pub(crate) mod macos {
                 );
             }
         }
-        // Finalize VPIO format negotiation before reading the format.
-        unsafe { engine.prepare() };
-
-        let format = unsafe { input_node.outputFormatForBus(0) };
-        let sample_rate = unsafe { format.sampleRate() };
-        eprintln!(
-            "[whisper-mic] tap format after prepare: {} Hz, {} ch",
-            sample_rate as u32,
-            unsafe { format.channelCount() }
-        );
+        // Finalize VPIO format negotiation.
+        objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe { engine.prepare() }))
+            .map_err(|e| format!("AVAudioEngine prepare threw: {e:?}"))?;
 
         {
             let on_samples = on_samples.clone();
@@ -868,14 +923,14 @@ pub(crate) mod macos {
                 dyn Fn(std::ptr::NonNull<AVAudioPCMBuffer>, std::ptr::NonNull<AVAudioTime>)
                     + 'static,
             > = (&*tap_block) as *const _ as *mut _;
-            unsafe {
+            objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
                 input_node.installTapOnBus_bufferSize_format_block(
-                    0,
-                    1024,
-                    Some(&format),
+                    0, 1024,
+                    None, // use hardware's current format — avoids SCO↔A2DP stale-format race
                     block_ptr,
                 );
-            }
+            }))
+            .map_err(|e| format!("installTapOnBus threw: {e:?}"))?;
         }
 
         if let Err(err) = unsafe { engine.startAndReturnError() } {
@@ -883,6 +938,17 @@ pub(crate) mod macos {
             unsafe { input_node.removeTapOnBus(0) };
             return Err(format!("AVAudioEngine start failed: {msg}"));
         }
+
+        // Read the format only after the engine has started — at this point the
+        // engine has committed to its I/O configuration and the sample rate
+        // matches what the tap will actually deliver.
+        let format = unsafe { input_node.outputFormatForBus(0) };
+        let sample_rate = unsafe { format.sampleRate() };
+        eprintln!(
+            "[whisper-mic] tap format after start: {} Hz, {} ch",
+            sample_rate as u32,
+            unsafe { format.channelCount() }
+        );
 
         // Disable other-audio ducking so the separately-captured system audio
         // isn't dropped to near-silent while the mic VPIO runs.
@@ -908,7 +974,7 @@ pub(crate) mod macos {
         })
     }
 
-    pub async fn native_speech_stop_impl(_app: AppHandle) -> Result<(), String> {
+    pub fn native_speech_stop_impl(_app: AppHandle) -> Result<(), String> {
         // Take the session out so subsequent `stop()` calls are no-ops. We
         // KEEP the recognition task running — calling `endAudio()` lets it
         // deliver a final result via the handler, which then emits
@@ -940,7 +1006,7 @@ pub(crate) mod macos {
         Ok(())
     }
 
-    pub async fn native_speech_cancel_impl(_app: AppHandle) -> Result<(), String> {
+    pub fn native_speech_cancel_impl(_app: AppHandle) -> Result<(), String> {
         let session = {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
             slot.take()

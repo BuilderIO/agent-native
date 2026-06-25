@@ -1,4 +1,3 @@
-import React, { useState, useRef, useCallback } from "react";
 import {
   IconChevronRight,
   IconChevronDown,
@@ -18,15 +17,17 @@ import {
   IconLoader2,
   IconHelpCircle,
 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
-import type { TreeNode, ResourceMeta, JobMetadata } from "./use-resources.js";
-import type { McpServer } from "./use-mcp-servers.js";
+import React, { useState, useRef, useCallback } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { cn } from "../utils.js";
+import type { McpServer } from "./use-mcp-servers.js";
+import type { TreeNode, ResourceMeta, JobMetadata } from "./use-resources.js";
 
 function StatusDot({
   className,

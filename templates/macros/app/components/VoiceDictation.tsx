@@ -1,12 +1,13 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useAgentChatGenerating, useT } from "@agent-native/core/client";
 import {
   IconMicrophone,
   IconMicrophoneOff,
   IconLoader2,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { toast } from "sonner";
-import { useAgentChatGenerating } from "@agent-native/core/client";
+
+import { cn } from "@/lib/utils";
 
 interface VoiceDictationProps {
   currentDate: Date;
@@ -15,6 +16,7 @@ interface VoiceDictationProps {
 type VoiceState = "idle" | "listening" | "processing";
 
 export function VoiceDictation({ currentDate }: VoiceDictationProps) {
+  const t = useT();
   const [state, setState] = useState<VoiceState>("idle");
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef<any>(null);
@@ -58,7 +60,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
     if (!isGenerating && state === "processing") {
       setState("idle");
       setTranscript("");
-      toast.success("Done");
+      toast.success(t("voice.done"));
     }
   }, [isGenerating, state]);
 
@@ -78,7 +80,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
         }, 15000);
       } catch (error) {
         console.error("Error sending voice command:", error);
-        toast.error("Failed to process voice command");
+        toast.error(t("voice.processFailed"));
         setState("idle");
         setTranscript("");
       }
@@ -88,7 +90,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
 
   const startListening = useCallback(() => {
     if (!isSupported) {
-      toast.error("Voice dictation is not supported in your browser");
+      toast.error(t("voice.unsupported"));
       return;
     }
 
@@ -136,15 +138,15 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
         setTranscript("");
       }
       if (event.error === "not-allowed") {
-        toast.error("Microphone access denied", {
-          description: "Please allow microphone access",
+        toast.error(t("voice.microphoneDenied"), {
+          description: t("voice.allowMicrophone"),
         });
       } else if (event.error === "no-speech") {
-        toast.error("No speech detected", {
-          description: "Please try again",
+        toast.error(t("voice.noSpeech"), {
+          description: t("voice.tryAgain"),
         });
       } else if (event.error !== "aborted") {
-        toast.error("Could not capture audio");
+        toast.error(t("voice.captureFailed"));
       }
     };
 
@@ -158,7 +160,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
       recognition.start();
     } catch {
       setState("idle");
-      toast.error("Could not start voice recognition");
+      toast.error(t("voice.startFailed"));
     }
   }, [isSupported, processCommand]);
 
@@ -200,7 +202,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
                   <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse delay-150" />
                 </div>
                 <span className="text-sm text-muted-foreground">
-                  {transcript || "Listening..."}
+                  {transcript || t("voice.listening")}
                 </span>
               </div>
             )}
@@ -208,7 +210,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
               <div className="flex items-center gap-2">
                 <IconLoader2 className="h-4 w-4 animate-spin text-primary" />
                 <span className="text-sm text-muted-foreground">
-                  Processing: &quot;{transcript}&quot;
+                  {t("voice.processing", { transcript })}
                 </span>
               </div>
             )}
@@ -252,7 +254,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
 
       {state === "idle" && (
         <p className="text-xs text-muted-foreground/60 text-center whitespace-nowrap animate-in fade-in duration-500 md:hidden">
-          Tap to speak
+          {t("voice.tapToSpeak")}
         </p>
       )}
     </div>

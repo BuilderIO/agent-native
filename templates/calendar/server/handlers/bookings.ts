@@ -1,3 +1,14 @@
+import { emit } from "@agent-native/core/event-bus";
+import {
+  getSession,
+  recordChange,
+  readBody,
+  runWithRequestContext,
+  verifyCaptcha,
+} from "@agent-native/core/server";
+import { getSetting, getUserSetting } from "@agent-native/core/settings";
+import { accessFilter } from "@agent-native/core/sharing";
+import { eq, and, gt, gte, lt, lte, ne, inArray } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -8,16 +19,7 @@ import {
   type H3Event,
 } from "h3";
 import { nanoid } from "nanoid";
-import { eq, and, gt, gte, lt, lte, ne, inArray } from "drizzle-orm";
-import {
-  getSession,
-  recordChange,
-  readBody,
-  runWithRequestContext,
-  verifyCaptcha,
-} from "@agent-native/core/server";
-import { emit } from "@agent-native/core/event-bus";
-import { accessFilter } from "@agent-native/core/sharing";
+
 import type {
   Booking,
   CalendarEvent,
@@ -26,20 +28,15 @@ import type {
   CustomField,
   TimeSlot,
 } from "../../shared/api.js";
-import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { getDb, schema } from "../db/index.js";
-import * as googleCalendar from "../lib/google-calendar.js";
-import { eventBlocksAvailability } from "../lib/calendar-availability.js";
 import {
   parseBookingLinkDurations,
   resolveAvailabilityDuration,
 } from "../lib/booking-durations.js";
-import { createZoomMeeting } from "../lib/zoom.js";
 import {
   sendBookingCancellationEmails,
   sendBookingConfirmationEmails,
 } from "../lib/booking-emails.js";
-import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import {
   buildBookingEventAttendees,
   buildBookingEventTitle,
@@ -48,6 +45,10 @@ import {
   getBookingLinkCoHostEmails,
   getBookingLinkRequiredHostEmails,
 } from "../lib/booking-link-utils.js";
+import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
+import { eventBlocksAvailability } from "../lib/calendar-availability.js";
+import * as googleCalendar from "../lib/google-calendar.js";
+import { createZoomMeeting } from "../lib/zoom.js";
 
 async function requireRequestContext<T>(
   event: H3Event,

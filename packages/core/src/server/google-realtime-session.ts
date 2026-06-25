@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+
 import {
   defineEventHandler,
   getMethod,
@@ -7,12 +8,13 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { readAppSecret } from "../secrets/storage.js";
+
 import { resolveCredential } from "../credentials/index.js";
-import { getSession } from "./auth.js";
 import { getOrgContext } from "../org/context.js";
-import { runWithRequestContext } from "./request-context.js";
+import { readAppSecret } from "../secrets/storage.js";
+import { getSession } from "./auth.js";
 import { resolveBuilderCredentials } from "./credential-provider.js";
+import { runWithRequestContext } from "./request-context.js";
 
 interface GoogleRealtimeSessionResponse {
   websocketUrl: string;

@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -60,6 +61,34 @@ describe("content database migrations", () => {
     expect(source).toContain("direction TEXT NOT NULL DEFAULT 'incoming'");
     expect(source).toContain("push_mode TEXT");
     expect(source).toContain("local_only INTEGER NOT NULL DEFAULT 1");
+  });
+
+  it("adds inline database ownership columns additively", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("owner_document_id TEXT");
+    expect(source).toContain("owner_block_id TEXT");
+    expect(source).toContain(
+      "ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_document_id TEXT",
+    );
+    expect(source).toContain(
+      "ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_block_id TEXT",
+    );
+  });
+
+  it("adds content database soft-delete marker additively", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("deleted_at TEXT");
+    expect(source).toContain(
+      "ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS deleted_at TEXT",
+    );
   });
 
   it("cleans source review and execution rows when database pages are deleted", () => {

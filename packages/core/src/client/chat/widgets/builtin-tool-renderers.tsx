@@ -1,4 +1,16 @@
 import {
+  ACTION_CHAT_UI_DATA_CHART_RENDERER,
+  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+  ACTION_CHAT_UI_DATA_TABLE_RENDERER,
+  ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+} from "../../../action-ui.js";
+import {
+  registerReservedActionChatRenderer,
+  registerReservedFallbackToolRenderer,
+  type ToolRendererContext,
+  type ToolRendererComponent,
+} from "../tool-render-registry.js";
+import {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,
   DATA_TABLE_WIDGET,
@@ -6,21 +18,9 @@ import {
   normalizeDataWidgetResult,
   type DataWidgetResult,
 } from "./data-widget-types.js";
-import {
-  ACTION_CHAT_UI_DATA_CHART_RENDERER,
-  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
-  ACTION_CHAT_UI_DATA_TABLE_RENDERER,
-  ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
-} from "../../../action-ui.js";
 import { DataChartWidget } from "./DataChartWidget.js";
 import { DataInsightsWidget } from "./DataInsightsWidget.js";
 import { DataTableWidget } from "./DataTableWidget.js";
-import {
-  registerReservedActionChatRenderer,
-  registerReservedFallbackToolRenderer,
-  type ToolRendererContext,
-  type ToolRendererComponent,
-} from "../tool-render-registry.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);

@@ -1,20 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
-import {
-  createEmbeddedAppBridge,
-  type EmbeddedAppBridge,
-} from "@agent-native/core/embedding/bridge";
 import {
   agentNativePath,
   appPath,
   getBrowserTabId,
   getEmbedAuthToken,
+  isEmbedMcpChatBridgeActive,
   isEmbedAuthActive,
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
   useActionMutation,
   useActionQuery,
+  useT,
 } from "@agent-native/core/client";
+import {
+  createEmbeddedAppBridge,
+  type EmbeddedAppBridge,
+} from "@agent-native/core/embedding/bridge";
 import {
   IconArrowUpRight,
   IconCheck,
@@ -24,17 +24,19 @@ import {
   IconPhotoPlus,
   IconX,
 } from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -45,13 +47,16 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+import type { ImageQualityTier, StyleStrength } from "../../shared/api";
 import { DEFAULT_LIBRARY_PRESETS } from "../../shared/library-presets";
 
 type AssetTab = "all" | "generated" | "references";
@@ -72,7 +77,7 @@ const GENERATION_COUNTS = [1, 2, 3, 4, 6] as const;
 const STARTER_PRESET = DEFAULT_LIBRARY_PRESETS[0];
 const STARTER_LIBRARY_ID = `starter:${STARTER_PRESET.id}`;
 const PICKER_INLINE_SELECT_CLASS =
-  "h-7 w-auto min-w-0 max-w-full rounded-md border-0 bg-transparent px-1.5 py-1 text-xs font-medium text-muted-foreground shadow-none ring-offset-transparent transition hover:bg-accent/50 hover:text-foreground focus:ring-0 focus:ring-offset-0 sm:px-2 [&>svg]:ml-1 [&>svg]:size-3.5 [&>svg]:opacity-60";
+  "h-7 w-auto min-w-0 max-w-full rounded-md border-0 bg-transparent px-1.5 py-1 text-xs font-medium text-muted-foreground shadow-none ring-offset-transparent transition hover:bg-accent/50 hover:text-foreground focus:ring-0 focus:ring-offset-0 sm:px-2 [&>svg]:ms-1 [&>svg]:size-3.5 [&>svg]:opacity-60";
 type PickerMediaType = "image" | "video";
 
 type Asset = {
@@ -127,11 +132,43 @@ type HostConfig = {
   prompt?: string;
   query?: string;
   libraryId?: string;
+  libraryHint?: string;
   aspectRatio?: string;
   presetId?: string;
   count?: number;
+  tier?: ImageQualityTier;
+  styleStrength?: StyleStrength;
+  includeLogo?: boolean;
+  callerAppId?: string;
   autoGenerate?: boolean;
+  candidateRunIds?: string[];
 };
+
+// Preselect the library whose title/description best matches a free-text brand
+// or use-case hint. Falls back to no match (caller uses the first library).
+function matchLibraryByHint(
+  libraries: Library[],
+  hint: string | undefined,
+): string | undefined {
+  const needle = hint?.trim().toLowerCase();
+  if (!needle) return undefined;
+  const terms = needle.split(/\s+/).filter(Boolean);
+  let best: { id: string; score: number } | null = null;
+  for (const library of libraries) {
+    const haystack =
+      `${library.title ?? ""} ${library.description ?? ""}`.toLowerCase();
+    if (!haystack.trim()) continue;
+    let score = 0;
+    if (haystack.includes(needle)) score += 10;
+    for (const term of terms) {
+      if (haystack.includes(term)) score += 1;
+    }
+    if (score > 0 && (!best || score > best.score)) {
+      best = { id: library.id, score };
+    }
+  }
+  return best?.id;
+}
 
 function isEmbeddedWindow() {
   if (typeof window === "undefined") return false;
@@ -154,6 +191,40 @@ function normalizeMediaType(value: unknown): PickerMediaType {
   return value === "video" ? "video" : "image";
 }
 
+function normalizeBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["", "0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
+function normalizeTier(value: unknown): ImageQualityTier | undefined {
+  return value === "auto" || value === "fast" || value === "best"
+    ? value
+    : undefined;
+}
+
+function normalizeStyleStrength(value: unknown): StyleStrength | undefined {
+  return value === "subtle" || value === "balanced" || value === "strong"
+    ? value
+    : undefined;
+}
+
+function normalizeCandidateRunIds(value: unknown): string[] | undefined {
+  if (value === null || value === undefined) return undefined;
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+  const ids = raw
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+  return ids;
+}
+
 function normalizeHostConfig(value: unknown): HostConfig {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const record = value as Record<string, unknown>;
@@ -166,17 +237,22 @@ function normalizeHostConfig(value: unknown): HostConfig {
     query: typeof record.query === "string" ? record.query : undefined,
     libraryId:
       typeof record.libraryId === "string" ? record.libraryId : undefined,
+    libraryHint:
+      typeof record.libraryHint === "string" ? record.libraryHint : undefined,
     aspectRatio:
       typeof record.aspectRatio === "string" ? record.aspectRatio : undefined,
     presetId: typeof record.presetId === "string" ? record.presetId : undefined,
     count:
       record.count === undefined ? undefined : normalizeCount(record.count),
+    tier: normalizeTier(record.tier),
+    styleStrength: normalizeStyleStrength(record.styleStrength),
+    includeLogo: normalizeBoolean(record.includeLogo),
+    callerAppId:
+      typeof record.callerAppId === "string" ? record.callerAppId : undefined,
+    candidateRunIds: normalizeCandidateRunIds(record.candidateRunIds),
   };
   if (Object.prototype.hasOwnProperty.call(record, "autoGenerate")) {
-    config.autoGenerate =
-      record.autoGenerate === true ||
-      record.autoGenerate === "true" ||
-      record.autoGenerate === "1";
+    config.autoGenerate = normalizeBoolean(record.autoGenerate) ?? false;
   }
   return config;
 }
@@ -440,32 +516,53 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+const MCP_IMAGE_CONTENT_MAX_BYTES = 4 * 1024 * 1024;
+
+function base64ByteLength(data: string) {
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return Math.floor((data.length * 3) / 4) - padding;
+}
+
+async function fetchImageContent(url: string, fallbackMimeType: string) {
+  const credentials =
+    typeof window !== "undefined" &&
+    new URL(url, window.location.href).origin === window.location.origin
+      ? "same-origin"
+      : "omit";
+  const response = await fetch(url, { credentials });
+  if (!response.ok) return null;
+  const blob = await response.blob();
+  const detectedMimeType = blob.type.startsWith("image/")
+    ? blob.type
+    : fallbackMimeType;
+  return {
+    type: "image",
+    data: await blobToBase64(blob),
+    mimeType: detectedMimeType,
+  };
+}
+
 async function imageContentForAsset(payload: ReturnType<typeof assetPayload>) {
   const url = payload.url ?? payload.downloadUrl ?? payload.previewUrl;
   const mimeType = payload.mimeType?.startsWith("image/")
     ? payload.mimeType
     : "image/png";
   if (!url || payload.mediaType !== "image") return null;
-  try {
-    const credentials =
-      typeof window !== "undefined" &&
-      new URL(url, window.location.href).origin === window.location.origin
-        ? "same-origin"
-        : "omit";
-    const response = await fetch(url, { credentials });
-    if (!response.ok) return null;
-    const blob = await response.blob();
-    const detectedMimeType = blob.type.startsWith("image/")
-      ? blob.type
-      : mimeType;
-    return {
-      type: "image",
-      data: await blobToBase64(blob),
-      mimeType: detectedMimeType,
-    };
-  } catch {
-    return null;
+  const sources = uniqueSources([url, payload.thumbnailUrl]);
+  for (const source of sources) {
+    try {
+      const content = await fetchImageContent(source, mimeType);
+      if (
+        content &&
+        base64ByteLength(content.data) <= MCP_IMAGE_CONTENT_MAX_BYTES
+      ) {
+        return content;
+      }
+    } catch {
+      // Try the next smaller source.
+    }
   }
+  return null;
 }
 
 function notifyMcpHost(payload: ReturnType<typeof assetPayload>) {
@@ -490,16 +587,18 @@ function notifyMcpHost(payload: ReturnType<typeof assetPayload>) {
         }) || false,
       )
         .catch(() => false)
-        .then(() =>
-          Promise.resolve(
+        .then((contextOk) => {
+          return Promise.resolve(
             sendMcpAppHostMessage({
               message,
               context: JSON.stringify(context, null, 2),
               content: chatContent,
               structuredContent: context,
             }) || false,
-          ).catch(() => false),
-        );
+          )
+            .catch(() => false)
+            .then((chatOk) => contextOk || chatOk);
+        });
     });
 }
 
@@ -584,6 +683,7 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
 }
 
 function AssetOverlayImage({ asset }: { asset: Asset }) {
+  const t = useT();
   const sources = assetOverlaySources(asset);
   const sourcesKey = sources.join("\n");
   const [sourceIndex, setSourceIndex] = useState(0);
@@ -596,7 +696,7 @@ function AssetOverlayImage({ asset }: { asset: Asset }) {
   if (!source) {
     return (
       <div className="flex aspect-square w-full items-center justify-center rounded-lg bg-muted text-sm text-muted-foreground">
-        Preview unavailable
+        {t("brandKitDetail.previewUnavailable")}
       </div>
     );
   }
@@ -617,8 +717,12 @@ function AssetOverlayImage({ asset }: { asset: Asset }) {
 }
 
 export default function AssetPicker() {
+  const t = useT();
   const [searchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();
+  const mcpChatBridgeActive =
+    searchParams.get("__an_mcp_chat_bridge") === "1" ||
+    isEmbedMcpChatBridgeActive();
   const urlHostConfig = useMemo(() => {
     const params = new URLSearchParams(searchParamsKey);
     return {
@@ -626,12 +730,20 @@ export default function AssetPicker() {
       prompt: params.get("prompt") ?? undefined,
       query: params.get("q") ?? undefined,
       libraryId: params.get("libraryId") ?? undefined,
+      libraryHint: params.get("libraryHint") ?? undefined,
       aspectRatio: params.get("aspectRatio") ?? undefined,
       presetId: params.get("presetId") ?? undefined,
       count: normalizeCount(params.get("count")),
-      autoGenerate:
-        params.get("autoGenerate") === "1" ||
-        params.get("autoGenerate") === "true",
+      tier: normalizeTier(params.get("tier")),
+      styleStrength: normalizeStyleStrength(params.get("styleStrength")),
+      includeLogo: normalizeBoolean(params.get("includeLogo")),
+      callerAppId: params.get("callerAppId") ?? undefined,
+      candidateRunIds: normalizeCandidateRunIds(
+        params.getAll("candidateRunIds").length > 0
+          ? params.getAll("candidateRunIds")
+          : params.get("candidateRunIds"),
+      ),
+      autoGenerate: normalizeBoolean(params.get("autoGenerate")) ?? false,
     } satisfies HostConfig;
   }, [searchParamsKey]);
   const bridgeRef = useRef<EmbeddedAppBridge | null>(null);
@@ -655,6 +767,9 @@ export default function AssetPicker() {
     useState<Library | null>(null);
   const autoGenerateKeyRef = useRef<string | null>(null);
   const autoCreateLibraryRef = useRef(false);
+  const [visibleCandidateRunIds, setVisibleCandidateRunIds] = useState<
+    string[]
+  >(() => hostConfig.candidateRunIds ?? []);
 
   useEffect(() => {
     setHostConfig((current) => ({ ...current, ...urlHostConfig }));
@@ -665,6 +780,7 @@ export default function AssetPicker() {
     setAspectRatio(urlHostConfig.aspectRatio ?? "16:9");
     setPresetId(urlHostConfig.presetId ?? "none");
     setCount(urlHostConfig.count ?? 3);
+    setVisibleCandidateRunIds(urlHostConfig.candidateRunIds ?? []);
   }, [urlHostConfig]);
 
   const librariesQuery = useActionQuery("list-libraries", {
@@ -678,10 +794,10 @@ export default function AssetPicker() {
   const starterLibrary: Library = useMemo(
     () => ({
       id: STARTER_LIBRARY_ID,
-      title: "Starter assets",
+      title: t("assetPicker.starterAssets"),
       description: STARTER_PRESET.description,
     }),
-    [],
+    [t],
   );
   const displayLibraries = libraries.length
     ? libraries
@@ -693,7 +809,10 @@ export default function AssetPicker() {
     const firstLibraryId = displayLibraries[0]?.id;
     if (!firstLibraryId) return;
     if (!selectedLibraryId) {
-      setSelectedLibraryId(firstLibraryId);
+      setSelectedLibraryId(
+        matchLibraryByHint(displayLibraries, hostConfig.libraryHint) ??
+          firstLibraryId,
+      );
       return;
     }
     if (!libraryListReady) return;
@@ -703,7 +822,12 @@ export default function AssetPicker() {
     if (!selectedLibraryExists) {
       setSelectedLibraryId(firstLibraryId);
     }
-  }, [displayLibraries, libraryListReady, selectedLibraryId]);
+  }, [
+    displayLibraries,
+    hostConfig.libraryHint,
+    libraryListReady,
+    selectedLibraryId,
+  ]);
 
   const { data: config } = useActionQuery(
     "get-image-generation-config",
@@ -741,10 +865,10 @@ export default function AssetPicker() {
     !usingStarterLibrary &&
     Boolean(selectedLibraryId) &&
     (presetsLoading || presetsFetching || presetsPending || !selectedPreset);
-  const mediaLabel = mediaType === "video" ? "video" : "image";
-  const [visibleCandidateRunIds, setVisibleCandidateRunIds] = useState<
-    string[]
-  >([]);
+  const mediaLabelText =
+    mediaType === "video"
+      ? t("brandKitDetail.video").toLowerCase()
+      : t("brandKitDetail.image").toLowerCase();
   const generateBatch = useActionMutation(
     "generate-image-batch" as any,
     {
@@ -761,28 +885,21 @@ export default function AssetPicker() {
         );
         if (generatedCount > 0) {
           toast.success(
-            `Generated ${generatedCount} image candidate${
-              generatedCount === 1 ? "" : "s"
-            }`,
+            t("assetPicker.generatedCandidates", { count: generatedCount }),
             {
               description:
                 failedCount > 0
-                  ? `${failedCount} candidate${
-                      failedCount === 1 ? "" : "s"
-                    } failed.`
-                  : "Pick the one you want to send back.",
+                  ? t("assetPicker.failedCandidates", { count: failedCount })
+                  : t("assetPicker.pickCandidate"),
             },
           );
           setQuery("");
         } else {
-          toast.error(
-            images[0]?.error ||
-              "Image generation finished without usable candidates.",
-          );
+          toast.error(images[0]?.error || t("assetPicker.noUsableCandidates"));
         }
       },
       onError: (error: Error) => {
-        toast.error(error.message || "Image generation failed");
+        toast.error(error.message || t("assetPicker.generationFailed"));
       },
     } as any,
   );
@@ -865,11 +982,25 @@ export default function AssetPicker() {
       try {
         await navigator.clipboard.writeText(text);
         setStandaloneCopyOk(true);
-        toast.success("Selection copied");
+        toast.success(t("assetPicker.selectionCopied"));
         return true;
       } catch {
         setStandaloneCopyOk(false);
-        toast.info("Selection ready");
+        toast.info(t("assetPicker.selectionReady"));
+        return false;
+      }
+    },
+    [t],
+  );
+
+  const postEmbeddedSelectionMessage = useCallback(
+    (
+      name: "chooseAsset" | "chooseImage",
+      payload: ReturnType<typeof assetPayload>,
+    ) => {
+      try {
+        return bridgeRef.current?.postMessage(name, payload) ?? false;
+      } catch {
         return false;
       }
     },
@@ -879,15 +1010,21 @@ export default function AssetPicker() {
   const chooseAsset = (asset: Asset) => {
     const payload = assetPayload(asset, mediaType);
     if (embedded) {
-      bridgeRef.current?.postMessage("chooseAsset", payload);
-      if (payload.mediaType === "image") {
-        bridgeRef.current?.postMessage("chooseImage", payload);
+      if (!mcpChatBridgeActive) {
+        postEmbeddedSelectionMessage("chooseAsset", payload);
+        if (payload.mediaType === "image") {
+          postEmbeddedSelectionMessage("chooseImage", payload);
+        }
       }
       void notifyMcpHost(payload).then((ok) => {
         if (ok) {
-          toast.success(`Selected ${selectedAssetLabel(payload)}`);
+          toast.success(
+            t("assetPicker.selectedAsset", {
+              title: selectedAssetLabel(payload),
+            }),
+          );
         } else {
-          toast.error("Could not send the selected asset back to chat");
+          toast.error(t("assetPicker.sendBackFailed"));
         }
       });
       return;
@@ -904,7 +1041,7 @@ export default function AssetPicker() {
         if (!result?.id) return;
         const library = {
           id: result.id,
-          title: result.title || "MCP image picks",
+          title: result.title || t("assetPicker.mcpImagePicks"),
           description: result.description ?? null,
         };
         setCreatedPickerLibrary(library);
@@ -912,7 +1049,10 @@ export default function AssetPicker() {
         setQuery("");
       },
       onError: (error: Error) => {
-        toast.error(error.message || "Could not prepare an image library");
+        // Allow the auto-create effect to retry after a transient failure;
+        // otherwise the picker stays stuck on "Preparing..." until reload.
+        autoCreateLibraryRef.current = false;
+        toast.error(error.message || t("assetPicker.prepareLibraryFailed"));
       },
     } as any,
   );
@@ -931,12 +1071,20 @@ export default function AssetPicker() {
         imageSize: selectedPreset?.imageSize || "2K",
         dismissible: false,
       })),
+      tier: hostConfig.tier,
+      styleStrength: hostConfig.styleStrength ?? "balanced",
+      includeLogo: hostConfig.includeLogo ?? false,
       source: "ui",
+      callerAppId: hostConfig.callerAppId,
     } as any);
   }, [
     count,
     effectiveAspectRatio,
     generateBatch,
+    hostConfig.callerAppId,
+    hostConfig.includeLogo,
+    hostConfig.styleStrength,
+    hostConfig.tier,
     prompt,
     setVisibleCandidateRunIds,
     selectedLibraryId,
@@ -945,8 +1093,35 @@ export default function AssetPicker() {
   ]);
 
   useEffect(() => {
+    const hostCandidateFilterMatches =
+      hostConfig.candidateRunIds?.length &&
+      normalizeMediaType(hostConfig.mediaType) === mediaType &&
+      (hostConfig.libraryId ?? "") === (selectedLibraryId ?? "") &&
+      (hostConfig.prompt ?? "") === prompt &&
+      (hostConfig.aspectRatio ?? "16:9") === aspectRatio &&
+      (hostConfig.presetId ?? "none") === presetId &&
+      (hostConfig.count ?? 3) === count;
+    if (hostCandidateFilterMatches) return;
     setVisibleCandidateRunIds([]);
-  }, [aspectRatio, count, mediaType, presetId, prompt, selectedLibraryId]);
+  }, [
+    aspectRatio,
+    count,
+    hostConfig.aspectRatio,
+    hostConfig.candidateRunIds,
+    hostConfig.count,
+    hostConfig.callerAppId,
+    hostConfig.includeLogo,
+    hostConfig.libraryId,
+    hostConfig.mediaType,
+    hostConfig.presetId,
+    hostConfig.prompt,
+    hostConfig.styleStrength,
+    hostConfig.tier,
+    mediaType,
+    presetId,
+    prompt,
+    selectedLibraryId,
+  ]);
 
   useEffect(() => {
     const bridge = createEmbeddedAppBridge({
@@ -961,6 +1136,9 @@ export default function AssetPicker() {
         if (next.aspectRatio !== undefined) setAspectRatio(next.aspectRatio);
         if (next.presetId !== undefined) setPresetId(next.presetId || "none");
         if (next.count !== undefined) setCount(next.count);
+        if (next.candidateRunIds !== undefined) {
+          setVisibleCandidateRunIds(next.candidateRunIds);
+        }
       },
     });
     bridgeRef.current = bridge;
@@ -1006,8 +1184,8 @@ export default function AssetPicker() {
     typeof config?.lastIssue?.message === "string"
       ? config.lastIssue.message
       : config?.builderEnabled === false
-        ? "Add a generation key in Settings."
-        : "Connect generation models.";
+        ? t("assetPicker.addGenerationKey")
+        : t("assetPicker.connectGenerationModels");
   const needsGenerationLibrary =
     mediaType === "image" &&
     libraryListReady &&
@@ -1016,6 +1194,31 @@ export default function AssetPicker() {
     usingStarterLibrary;
   const preparingGenerationLibrary =
     needsGenerationLibrary && createPickerLibrary.isPending;
+  const waitingForLibraries = mediaType === "image" && !libraryListReady;
+  const preparingAutoLibrary =
+    mediaType === "image" &&
+    Boolean(prompt.trim()) &&
+    (waitingForLibraries ||
+      needsGenerationLibrary ||
+      preparingGenerationLibrary);
+  const generationButtonLabel = generateBatch.isPending
+    ? t("brandKitDetail.generating")
+    : waitingForRequestedPreset
+      ? t("assetPicker.loadingPreset")
+      : setupNeeded
+        ? t("assetPicker.setupNeeded")
+        : preparingAutoLibrary
+          ? t("assetPicker.preparing")
+          : t("brandKitDetail.generate");
+  const generationStatus = generateBatch.isPending
+    ? t("assetPicker.generatingCandidates")
+    : preparingAutoLibrary
+      ? waitingForLibraries
+        ? t("assetPicker.checkingLibraries")
+        : t("assetPicker.preparingImageLibrary")
+      : waitingForRequestedPreset
+        ? t("assetPicker.loadingRequestedPreset")
+        : null;
 
   useEffect(() => {
     if (!selectedPreset?.aspectRatio) return;
@@ -1025,8 +1228,8 @@ export default function AssetPicker() {
   const prepareGenerationLibrary = useCallback(() => {
     createPickerLibrary.mutate({
       presetId: STARTER_PRESET.id,
-      title: "MCP image picks",
-      description: "Generated and selected images from MCP chat hosts.",
+      title: t("assetPicker.mcpImagePicks"),
+      description: t("assetPicker.mcpImagePicksDescription"),
     } as any);
   }, [createPickerLibrary]);
 
@@ -1084,7 +1287,7 @@ export default function AssetPicker() {
     >
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
         <div className="min-w-0 truncate text-sm font-semibold">
-          {embedded ? "Assets" : "Library"}
+          {embedded ? t("navigation.brand") : t("navigation.library")}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {mediaType === "image" && (
@@ -1099,12 +1302,19 @@ export default function AssetPicker() {
               ) : (
                 <IconPhotoPlus className="h-3.5 w-3.5" />
               )}
-              {showCreatePane ? "Close" : "Create"}
+              {showCreatePane
+                ? t("brandKitDetail.close")
+                : t("navigation.create")}
             </Button>
           )}
           {embedded && (
             <>
-              <Button asChild variant="ghost" size="icon" title="Open Assets">
+              <Button
+                asChild
+                variant="ghost"
+                size="icon"
+                title={t("assetPicker.openAssets")}
+              >
                 <a href={absoluteAppUrl("/")} target="_blank" rel="noreferrer">
                   <IconArrowUpRight className="h-4 w-4" />
                 </a>
@@ -1112,7 +1322,7 @@ export default function AssetPicker() {
               <Button
                 variant="ghost"
                 size="icon"
-                title="Close"
+                title={t("brandKitDetail.close")}
                 onClick={() => bridgeRef.current?.close()}
               >
                 <IconX className="h-4 w-4" />
@@ -1142,14 +1352,14 @@ export default function AssetPicker() {
                   event.preventDefault();
                   if (canGenerate) runGenerate();
                 }}
-                placeholder="Generate an image asset"
+                placeholder={t("assetPicker.generatePlaceholder")}
                 className="min-h-11 max-h-40 border-0 bg-transparent px-3 py-2.5 leading-6 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
               />
               <div className="flex items-center gap-1 px-2 pb-2">
                 <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">
                   <Select value={aspectRatio} onValueChange={setAspectRatio}>
                     <SelectTrigger
-                      aria-label="Aspect ratio"
+                      aria-label={t("brandKitDetail.aspectRatio")}
                       className={`${PICKER_INLINE_SELECT_CLASS} shrink-0`}
                     >
                       <span>{aspectRatio}</span>
@@ -1169,7 +1379,7 @@ export default function AssetPicker() {
                     onValueChange={(value) => setCount(normalizeCount(value))}
                   >
                     <SelectTrigger
-                      aria-label="Candidate count"
+                      aria-label={t("assetPicker.candidateCount")}
                       className={`${PICKER_INLINE_SELECT_CLASS} shrink-0`}
                     >
                       <span>{count}x</span>
@@ -1190,14 +1400,16 @@ export default function AssetPicker() {
                       onValueChange={(value) => setPresetId(value)}
                     >
                       <SelectTrigger
-                        aria-label="Preset"
+                        aria-label={t("brandKitDetail.preset")}
                         className={`${PICKER_INLINE_SELECT_CLASS} max-w-[7.5rem] sm:max-w-[10rem]`}
                       >
-                        <SelectValue placeholder="Preset" />
+                        <SelectValue placeholder={t("brandKitDetail.preset")} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectGroup>
-                          <SelectItem value="none">No preset</SelectItem>
+                          <SelectItem value="none">
+                            {t("brandKitDetail.noPreset")}
+                          </SelectItem>
                           {generationPresets.map((preset) => (
                             <SelectItem key={preset.id} value={preset.id}>
                               {preset.title}
@@ -1213,9 +1425,14 @@ export default function AssetPicker() {
                   disabled={!canGenerate}
                   onClick={runGenerate}
                 >
-                  {generateBatch.isPending ? "Generating..." : "Generate"}
+                  {generationButtonLabel}
                 </Button>
               </div>
+              {generationStatus && (
+                <div className="-mt-1 px-3 pb-2 text-[11px] leading-4 text-muted-foreground">
+                  {generationStatus}
+                </div>
+              )}
             </div>
           ) : null}
 
@@ -1233,7 +1450,7 @@ export default function AssetPicker() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Settings
+                  {t("navigation.settings")}
                 </a>
               </Button>
             </div>
@@ -1243,8 +1460,8 @@ export default function AssetPicker() {
             <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
               <span className="min-w-0 truncate">
                 {preparingGenerationLibrary
-                  ? "Preparing an image library for generated candidates..."
-                  : "Create an image library to generate new candidates."}
+                  ? t("assetPicker.preparingGeneratedLibrary")
+                  : t("assetPicker.createLibraryForCandidates")}
               </span>
               <Button
                 variant="outline"
@@ -1253,7 +1470,9 @@ export default function AssetPicker() {
                 onClick={prepareGenerationLibrary}
                 disabled={preparingGenerationLibrary}
               >
-                {preparingGenerationLibrary ? "Preparing..." : "Create library"}
+                {preparingGenerationLibrary
+                  ? t("assetPicker.preparing")
+                  : t("assetPicker.createLibrary")}
               </Button>
             </div>
           )}
@@ -1285,7 +1504,9 @@ export default function AssetPicker() {
                 ) : (
                   <IconClipboard className="h-3.5 w-3.5" />
                 )}
-                {standaloneCopyOk ? "Copied" : "Copy"}
+                {standaloneCopyOk
+                  ? t("assetPicker.copied")
+                  : t("assetPicker.copy")}
               </Button>
               {canOpenStandaloneAsset && (
                 <Button
@@ -1300,15 +1521,15 @@ export default function AssetPicker() {
                     )}`}
                   >
                     <IconArrowUpRight className="h-3.5 w-3.5" />
-                    Open
+                    {t("brandKitDetail.open")}
                   </Link>
                 </Button>
               )}
               <Button
                 variant="ghost"
                 size="icon"
-                title="Close"
-                aria-label="Close"
+                title={t("brandKitDetail.close")}
+                aria-label={t("brandKitDetail.close")}
                 className="h-8 w-8"
                 onClick={() => {
                   setStandaloneSelection(null);
@@ -1321,13 +1542,12 @@ export default function AssetPicker() {
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             {standaloneCopyOk
-              ? "Copied to your clipboard — paste it into your agent chat to use it"
-              : "Copy the text below and paste it into your agent chat"}
-            , or just tell your agent which one (e.g. “use this”).
+              ? t("assetPicker.copiedHelp")
+              : t("assetPicker.copyHelp")}
           </p>
           <details className="mt-2">
             <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
-              Show paste text
+              {t("assetPicker.showPasteText")}
             </summary>
             <Textarea
               readOnly
@@ -1348,7 +1568,7 @@ export default function AssetPicker() {
                 onValueChange={setSelectedLibraryId}
               >
                 <SelectTrigger className="h-9 w-full border-border/70 bg-background sm:w-48">
-                  <SelectValue placeholder="Library" />
+                  <SelectValue placeholder={t("navigation.library")} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
@@ -1366,9 +1586,15 @@ export default function AssetPicker() {
                   onValueChange={(value) => setAssetTab(value as AssetTab)}
                 >
                   <TabsList>
-                    <TabsTrigger value="all">All</TabsTrigger>
-                    <TabsTrigger value="generated">Generated</TabsTrigger>
-                    <TabsTrigger value="references">References</TabsTrigger>
+                    <TabsTrigger value="all">
+                      {t("brandKitDetail.all")}
+                    </TabsTrigger>
+                    <TabsTrigger value="generated">
+                      {t("brandKitDetail.generated")}
+                    </TabsTrigger>
+                    <TabsTrigger value="references">
+                      {t("brandKitDetail.references")}
+                    </TabsTrigger>
                   </TabsList>
                 </Tabs>
               )}
@@ -1379,7 +1605,9 @@ export default function AssetPicker() {
                 value={query}
                 onInput={(event) => setQuery(event.currentTarget.value)}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder={`Search ${mediaLabel}s`}
+                placeholder={t("assetPicker.searchMedia", {
+                  media: mediaLabelText,
+                })}
                 className="h-9 border-border/70 bg-background sm:max-w-xs"
               />
             )}
@@ -1389,7 +1617,7 @@ export default function AssetPicker() {
         {!selectedLibraryId && (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             <Button asChild variant="outline">
-              <Link to="/brand-kits">Create a brand kit</Link>
+              <Link to="/brand-kits">{t("brandKits.createDialogTitle")}</Link>
             </Button>
           </div>
         )}
@@ -1406,8 +1634,10 @@ export default function AssetPicker() {
           <div className="flex h-full items-center justify-center text-center">
             <div className="max-w-sm text-sm text-muted-foreground">
               {query
-                ? `No matching ${mediaLabel} assets in this library.`
-                : `No ${mediaLabel} assets in this library yet.`}
+                ? t("assetPicker.noMatchingAssets", {
+                    media: mediaLabelText,
+                  })
+                : t("assetPicker.noAssetsYet", { media: mediaLabelText })}
             </div>
           </div>
         )}
@@ -1421,7 +1651,9 @@ export default function AssetPicker() {
               >
                 <button
                   type="button"
-                  aria-label={`Open ${assetDisplayTitle(asset)}`}
+                  aria-label={t("assetPicker.openAsset", {
+                    title: assetDisplayTitle(asset),
+                  })}
                   onClick={() => {
                     if (embedded) {
                       chooseAsset(asset);
@@ -1430,7 +1662,7 @@ export default function AssetPicker() {
                     }
                   }}
                   title={assetDisplayTitle(asset)}
-                  className="block w-full text-left focus-visible:outline-none"
+                  className="block w-full text-start focus-visible:outline-none"
                 >
                   <div className="aspect-square bg-muted">
                     {asset.mediaType === "video" ||
@@ -1452,17 +1684,21 @@ export default function AssetPicker() {
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        aria-label={`Copy ${assetDisplayTitle(asset)}`}
+                        aria-label={t("assetPicker.copyAsset", {
+                          title: assetDisplayTitle(asset),
+                        })}
                         onClick={(event) => {
                           event.stopPropagation();
                           chooseAsset(asset);
                         }}
-                        className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-sm backdrop-blur transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+                        className="absolute end-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-sm backdrop-blur transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
                       >
                         <IconClipboard className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Copy to clipboard</TooltipContent>
+                    <TooltipContent>
+                      {t("assetPicker.copyToClipboard")}
+                    </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>
@@ -1504,7 +1740,9 @@ export default function AssetPicker() {
                   {assetDisplayTitle(previewAsset)}
                 </DialogTitle>
                 <DialogDescription className="sr-only">
-                  Full-size preview of {assetDisplayTitle(previewAsset)}
+                  {t("assetPicker.fullSizePreview", {
+                    title: assetDisplayTitle(previewAsset),
+                  })}
                 </DialogDescription>
                 <div className="relative">
                   <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
@@ -1512,11 +1750,11 @@ export default function AssetPicker() {
                       <Link
                         to={`/asset/${encodeURIComponent(previewAsset.id)}`}
                       >
-                        View details
+                        {t("brandKitDetail.viewDetails")}
                       </Link>
                     </Button>
                     <DialogClose
-                      aria-label="Close preview"
+                      aria-label={t("assetPicker.closePreview")}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                     >
                       <IconX className="h-5 w-5" />
@@ -1544,7 +1782,7 @@ export default function AssetPicker() {
                   <div className="mt-5 flex justify-center gap-2">
                     <button
                       type="button"
-                      aria-label="Previous image"
+                      aria-label={t("assetPicker.previousImage")}
                       onClick={showPreviousAsset}
                       disabled={!hasPrev}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
@@ -1553,7 +1791,7 @@ export default function AssetPicker() {
                     </button>
                     <button
                       type="button"
-                      aria-label="Next image"
+                      aria-label={t("assetPicker.nextImage")}
                       onClick={showNextAsset}
                       disabled={!hasNext}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"

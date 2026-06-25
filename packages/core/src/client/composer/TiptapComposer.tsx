@@ -1,22 +1,4 @@
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  useImperativeHandle,
-  useMemo,
-} from "react";
 import { useComposer, useComposerRuntime } from "@assistant-ui/react";
-import { useEditor, EditorContent } from "@tiptap/react";
-import type { EditorView } from "@tiptap/pm/view";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import { FileReference } from "./extensions/FileReference.js";
-import { SkillReference } from "./extensions/SkillReference.js";
-import { MentionReference } from "./extensions/MentionReference.js";
-import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
-import { useMentionSearch } from "./use-mention-search.js";
-import { useSkills } from "./use-skills.js";
 import {
   IconArrowUp,
   IconCheck,
@@ -31,7 +13,48 @@ import {
   IconPencil,
   IconPlugConnected,
 } from "@tabler/icons-react";
+import Placeholder from "@tiptap/extension-placeholder";
+import type { EditorView } from "@tiptap/pm/view";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useImperativeHandle,
+  useMemo,
+} from "react";
+
+import {
+  getReasoningEffortOptionsForModel,
+  reasoningEffortLabel,
+  type ReasoningEffort,
+} from "../../shared/reasoning-effort.js";
+import { sendToAgentChat, type AgentChatContextItem } from "../agent-chat.js";
+import { tryDelegateBuildRequestToBuilder } from "../builder-frame.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
+import { getComposerDraftKey } from "./draft-key.js";
+import { FileReference } from "./extensions/FileReference.js";
+import { MentionReference } from "./extensions/MentionReference.js";
+import { SkillReference } from "./extensions/SkillReference.js";
+import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
+import {
+  createPastedAttachmentFile,
+  readClipboardPaste,
+  shouldConvertClipboardToAttachment,
+} from "./pasted-text.js";
 import type {
   MentionItem,
   SkillResult,
@@ -40,32 +63,10 @@ import type {
   ComposerMode,
   AgentComposerLayoutVariant,
 } from "./types.js";
+import { useMentionSearch } from "./use-mention-search.js";
+import { useSkills } from "./use-skills.js";
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
-import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
-import { sendToAgentChat, type AgentChatContextItem } from "../agent-chat.js";
-import { tryDelegateBuildRequestToBuilder } from "../builder-frame.js";
-import { getComposerDraftKey } from "./draft-key.js";
-import {
-  createPastedAttachmentFile,
-  readClipboardPaste,
-  shouldConvertClipboardToAttachment,
-} from "./pasted-text.js";
-import {
-  getReasoningEffortOptionsForModel,
-  reasoningEffortLabel,
-  type ReasoningEffort,
-} from "../../shared/reasoning-effort.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
 
 export interface TiptapComposerHandle {
   focus(): void;
@@ -323,7 +324,7 @@ function ComposerModeChip({
       <button
         type="button"
         onClick={onRemove}
-        className="ml-0.5 rounded-sm text-muted-foreground hover:text-foreground cursor-pointer"
+        className="ms-0.5 rounded-sm text-muted-foreground hover:text-foreground cursor-pointer"
       >
         <IconX className="h-3 w-3" />
       </button>
@@ -417,6 +418,11 @@ export interface TiptapComposerProps {
    * Used by the Electron desktop app to route through the native IPC handler.
    */
   onConnectProvider?: () => void;
+  /**
+   * Optional secondary model menu (e.g. an image-generation model) rendered as
+   * an extra section inside the model picker. Opt-in; omit for chat-only apps.
+   */
+  imageModelMenu?: ComposerImageModelMenu;
   /** Stable scope for persisted drafts, usually the active thread or tab id. */
   draftScope?: string;
   /** Keyed context nuggets staged for the next submitted prompt. */
@@ -534,7 +540,7 @@ function ModeSelector({
             onChange("build");
             setOpen(false);
           }}
-          className="flex w-full items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left"
+          className="flex w-full items-center gap-3 px-3 py-2 hover:bg-accent/50 text-start"
         >
           <IconPencil className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="flex-1 min-w-0">
@@ -556,7 +562,7 @@ function ModeSelector({
             onChange("plan");
             setOpen(false);
           }}
-          className={`flex w-full items-center gap-3 px-3 py-2 text-left ${
+          className={`flex w-full items-center gap-3 px-3 py-2 text-start ${
             planModeDisabled
               ? "cursor-not-allowed opacity-60"
               : "hover:bg-accent/50"
@@ -590,6 +596,11 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
 };
+
+export const MODEL_SELECTOR_POPOVER_STYLE = {
+  fontSize: 13,
+  maxHeight: "min(500px, var(--radix-popover-content-available-height, 500px))",
+} satisfies React.CSSProperties;
 
 function friendlyModelName(model: string): string {
   if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
@@ -669,6 +680,24 @@ function latestModelsOnly(models: string[]): string[] {
   });
 }
 
+/**
+ * Optional secondary model menu for apps that drive a separate generation model
+ * alongside the chat LLM (e.g. the Assets app's image-generation model). When
+ * provided, the model picker renders an extra collapsible section so the user
+ * can see and pick both "what reasons about my request" (the chat model) and
+ * "what produces the output" (this model). Opt-in — omit it and nothing changes.
+ */
+export interface ComposerImageModelMenu {
+  /** Currently-selected model id for this secondary menu. */
+  value: string;
+  /** Selectable options (stable id + human label). */
+  options: Array<{ value: string; label: string }>;
+  /** Invoked when the user picks a different option. */
+  onChange: (value: string) => void;
+  /** Section header. Defaults to "Image model". */
+  label?: string;
+}
+
 function ModelSelector({
   model,
   effort = "auto",
@@ -677,6 +706,7 @@ function ModelSelector({
   onEffortChange,
   providerConnectStatusEnabled = true,
   onConnectProvider,
+  imageModel,
 }: {
   model: string;
   effort?: ReasoningEffort;
@@ -690,6 +720,7 @@ function ModelSelector({
   onEffortChange?: (effort: ReasoningEffort) => void;
   providerConnectStatusEnabled?: boolean;
   onConnectProvider?: () => void;
+  imageModel?: ComposerImageModelMenu;
 }) {
   const [open, setOpen] = useState(false);
   const autoModelGroup = engines.find((group) => group.models.includes("auto"));
@@ -744,6 +775,24 @@ function ModelSelector({
     });
   }, []);
 
+  // The reasoning effort list is collapsed by default — it's a secondary
+  // control most users don't touch, so it stays tucked behind a header that
+  // reveals the current effort at a glance. Reset to collapsed on each open.
+  const [reasoningExpanded, setReasoningExpanded] = useState(false);
+  useEffect(() => {
+    if (open) setReasoningExpanded(false);
+  }, [open]);
+
+  // The optional image-model section follows the same collapsed-by-default
+  // pattern; the current selection shows next to the header.
+  const [imageExpanded, setImageExpanded] = useState(false);
+  useEffect(() => {
+    if (open) setImageExpanded(false);
+  }, [open]);
+  const imageModelLabel =
+    imageModel?.options.find((option) => option.value === imageModel.value)
+      ?.label ?? imageModel?.value;
+
   // When Builder.io isn't connected, surface a one-click connect path —
   // it unlocks every model family (Claude, OpenAI, Gemini) without the
   // user having to paste individual API keys.
@@ -792,19 +841,7 @@ function ModelSelector({
         collisionPadding={8}
         data-agent-native-composer-popover="true"
         className="z-[260] box-border w-72 overflow-y-auto rounded-lg border-border p-0 py-1 shadow-lg"
-        style={
-          providerGroups.length > 0
-            ? {
-                fontSize: 13,
-                height:
-                  "min(500px, var(--radix-popover-content-available-height, 500px))",
-              }
-            : {
-                fontSize: 13,
-                maxHeight:
-                  "min(500px, var(--radix-popover-content-available-height, 500px))",
-              }
-        }
+        style={MODEL_SELECTOR_POPOVER_STYLE}
       >
         {showBuilderCta && (
           <>
@@ -818,7 +855,7 @@ function ModelSelector({
                 }
               }}
               disabled={!onConnectProvider && builderFlow.connecting}
-              className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-accent/50 disabled:opacity-60"
+              className="flex w-full items-start gap-2 px-3 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
             >
               <IconPlugConnected className="h-4 w-4 shrink-0 mt-0.5 text-blue-500" />
               <span className="flex-1 min-w-0">
@@ -835,6 +872,52 @@ function ModelSelector({
             <div className="my-1 border-t border-border" />
           </>
         )}
+        {imageModel && imageModel.options.length > 0 && (
+          <>
+            <div className="flex items-center hover:bg-accent/30">
+              <button
+                type="button"
+                aria-expanded={imageExpanded}
+                onClick={() => setImageExpanded((prev) => !prev)}
+                className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
+              >
+                {imageExpanded ? (
+                  <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                ) : (
+                  <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
+                )}
+                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
+                  {imageModel.label ?? "Image model"}
+                </span>
+                {!imageExpanded && imageModelLabel && (
+                  <span className="text-[11px] text-muted-foreground/80 truncate">
+                    {imageModelLabel}
+                  </span>
+                )}
+              </button>
+            </div>
+            {imageExpanded &&
+              imageModel.options.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    imageModel.onChange(option.value);
+                    setImageExpanded(false);
+                  }}
+                  className="flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start hover:bg-accent/50"
+                >
+                  <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                    {option.label}
+                  </span>
+                  {option.value === imageModel.value && (
+                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                  )}
+                </button>
+              ))}
+            <div className="my-1 border-t border-border" />
+          </>
+        )}
         {autoModelGroup && (
           <button
             type="button"
@@ -842,7 +925,7 @@ function ModelSelector({
               onChange("auto", autoModelGroup.engine);
               setOpen(false);
             }}
-            className="flex w-full items-center gap-3 px-3 py-1.5 text-left hover:bg-accent/50"
+            className="flex w-full items-center gap-3 px-3 py-1.5 text-start hover:bg-accent/50"
           >
             <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
               Auto
@@ -867,9 +950,9 @@ function ModelSelector({
                   type="button"
                   aria-expanded={isExpanded}
                   onClick={() => toggleGroup(groupKey)}
-                  className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-left"
+                  className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
                 >
-                  <ChevronIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <ChevronIcon className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
                   <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
                     {group.label}
                   </span>
@@ -882,7 +965,7 @@ function ModelSelector({
                 {!group.configured && (
                   <button
                     type="button"
-                    className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pr-3 py-1.5"
+                    className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
                     onClick={openLlmSettings}
                   >
                     needs API key
@@ -910,7 +993,7 @@ function ModelSelector({
                       }
                       setOpen(false);
                     }}
-                    className={`flex w-full items-center gap-3 pl-7 pr-3 py-1.5 text-left ${
+                    className={`flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start ${
                       group.configured
                         ? "hover:bg-accent/50"
                         : "opacity-40 cursor-default"
@@ -930,24 +1013,44 @@ function ModelSelector({
         {effortOptions.length > 0 && (
           <>
             <div className="my-1 border-t border-border" />
-            <div className="px-3 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-              Reasoning
-            </div>
-            {effortOptions.map((option) => (
+            <div className="flex items-center hover:bg-accent/30">
               <button
-                key={option}
                 type="button"
-                onClick={() => onEffortChange?.(option)}
-                className="flex w-full items-center gap-3 px-3 py-1.5 text-left hover:bg-accent/50"
+                aria-expanded={reasoningExpanded}
+                onClick={() => setReasoningExpanded((prev) => !prev)}
+                className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
               >
-                <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                  {reasoningEffortLabel(option)}
+                {reasoningExpanded ? (
+                  <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                ) : (
+                  <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
+                )}
+                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
+                  Reasoning
                 </span>
-                {option === effort && (
-                  <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                {!reasoningExpanded && (
+                  <span className="text-[11px] text-muted-foreground/80 truncate">
+                    {reasoningEffortLabel(effort)}
+                  </span>
                 )}
               </button>
-            ))}
+            </div>
+            {reasoningExpanded &&
+              effortOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => onEffortChange?.(option)}
+                  className="flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start hover:bg-accent/50"
+                >
+                  <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                    {reasoningEffortLabel(option)}
+                  </span>
+                  {option === effort && (
+                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                  )}
+                </button>
+              ))}
           </>
         )}
       </PopoverContent>
@@ -994,6 +1097,7 @@ export function TiptapComposer({
   onEffortChange,
   providerConnectStatusEnabled,
   onConnectProvider,
+  imageModelMenu,
   draftScope,
   contextItems = [],
   onRemoveContextItem,
@@ -2044,7 +2148,7 @@ export function TiptapComposer({
                 type="button"
                 onClick={() => onRemoveContextItem?.(item.key)}
                 aria-label={`Remove ${item.title} context`}
-                className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <IconX className="h-3 w-3" />
               </button>
@@ -2091,6 +2195,7 @@ export function TiptapComposer({
             onEffortChange={onEffortChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}
             onConnectProvider={onConnectProvider}
+            imageModel={imageModelMenu}
           />
         )}
         {execMode && onExecModeChange && (

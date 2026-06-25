@@ -1,5 +1,9 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import type { CSSProperties } from "react";
+import { useAgentChatGenerating, useT } from "@agent-native/core/client";
+import {
+  appendSignatureToBody,
+  splitAppendedSignature,
+} from "@shared/signature";
+import type { ComposeState } from "@shared/types";
 import {
   IconX,
   IconMinus,
@@ -15,8 +19,10 @@ import {
   IconTrash,
   IconPlus,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useState, useEffect, useRef, useMemo } from "react";
+import type { CSSProperties } from "react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -24,45 +30,41 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useSendEmail, useAddOptimisticReply } from "@/hooks/use-emails";
-import { useSettings } from "@/hooks/use-emails";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useAliases } from "@/hooks/use-aliases";
 import { useUpdateQueuedDraft } from "@/hooks/use-draft-queue";
+import { useSendEmail, useAddOptimisticReply } from "@/hooks/use-emails";
+import { useSettings } from "@/hooks/use-emails";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
-import { SendLaterButton } from "./SendLaterButton";
+import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
-import { useAgentChatGenerating } from "@agent-native/core/client";
-import { toast } from "sonner";
-import type { ComposeState } from "@shared/types";
-import {
-  appendSignatureToBody,
-  splitAppendedSignature,
-} from "@shared/signature";
+import { openFilePicker, uploadFiles } from "@/lib/upload";
+import { cn } from "@/lib/utils";
+
+import { AttachmentStrip } from "./AttachmentStrip";
 import {
   getCurrentDraftBodyFromEditor,
   splitQuotedContent,
 } from "./compose-draft-context";
+import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import {
   RecipientInput,
   computeRecipientMove,
   type RecipientField,
 } from "./RecipientInput";
-import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
-import { openFilePicker, uploadFiles } from "@/lib/upload";
-import { useAccountFilter } from "@/hooks/use-account-filter";
-import { canUseAgentGenerate } from "@/lib/agent-generate";
-import { AttachmentStrip } from "./AttachmentStrip";
+import { SendLaterButton } from "./SendLaterButton";
 
 const LAST_SEND_ACCOUNT_KEY = "mail:lastSendAccount";
 
@@ -152,6 +154,7 @@ export function ComposeModal({
   onReopen,
   onInitialExpandedConsumed,
 }: ComposeModalProps) {
+  const t = useT();
   const isMobile = useIsMobile();
   const [minimized, setMinimized] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -221,7 +224,7 @@ export function ComposeModal({
     if (!activeDraft || !activeId) return;
     if (sendingIdsRef.current.has(activeId)) return;
     if (!activeDraft.to.trim()) {
-      toast.error("Please add at least one recipient");
+      toast.error(t("mail.toasts.pleaseAddRecipient"));
       return;
     }
     sendingIdsRef.current.add(activeId);
@@ -306,7 +309,7 @@ export function ComposeModal({
             }
           },
           onError: () => {
-            toast.error("Failed to send email");
+            toast.error(t("mail.toasts.failedToSendEmail"));
             // Reopen composer on failure
             const { id: _id, ...reopenData } = draftSnapshot;
             onReopen(reopenData);
@@ -319,7 +322,7 @@ export function ComposeModal({
   const handleSendLater = async (runAt: number) => {
     if (!activeDraft || !activeId) return;
     if (!activeDraft.to.trim()) {
-      toast.error("Please add at least one recipient");
+      toast.error(t("mail.toasts.pleaseAddRecipient"));
       return;
     }
 
@@ -351,7 +354,7 @@ export function ComposeModal({
       });
       toast(`Scheduled for ${scheduledDate}`);
     } catch {
-      toast.error("Failed to schedule email — draft kept open");
+      toast.error(t("mail.toasts.failedToScheduleEmailDraftKeptOpen"));
     }
   };
 
@@ -375,9 +378,7 @@ export function ComposeModal({
   const handleGenerate = async () => {
     if (!generatePrompt.trim() || !activeId || !activeDraft) return;
     if (!(await canUseAgentGenerate())) {
-      toast.error(
-        "Connect Builder or another AI engine before using Generate.",
-      );
+      toast.error(t("mail.toasts.aiEngineRequired"));
       window.dispatchEvent(new CustomEvent("agent-panel:open"));
       return;
     }
@@ -444,7 +445,7 @@ export function ComposeModal({
       const existing = activeDraft.attachments ?? [];
       onUpdate(activeId, { attachments: [...existing, ...attachments] });
     } catch {
-      toast.error("Failed to attach file");
+      toast.error(t("mail.toasts.failedToAttachFile"));
     }
   };
 
@@ -570,7 +571,7 @@ export function ComposeModal({
                 <IconPlus className="h-3 w-3" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>New draft</TooltipContent>
+            <TooltipContent>{t("mail.compose.newDraft")}</TooltipContent>
           </Tooltip>
         </div>
 
@@ -582,7 +583,11 @@ export function ComposeModal({
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7"
-                aria-label={minimized ? "Restore compose" : "Minimize compose"}
+                aria-label={
+                  minimized
+                    ? t("mail.compose.restoreCompose")
+                    : t("mail.compose.minimizeCompose")
+                }
                 onClick={() => {
                   setIsExpanded(false);
                   setMinimized(!minimized);
@@ -592,7 +597,9 @@ export function ComposeModal({
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {minimized ? "Restore" : "Minimize"}
+              {minimized
+                ? t("mail.compose.restore")
+                : t("mail.compose.minimize")}
             </TooltipContent>
           </Tooltip>
           {!minimized && (
@@ -603,7 +610,9 @@ export function ComposeModal({
                   size="icon"
                   className="h-7 w-7"
                   aria-label={
-                    isExpanded ? "Restore compose size" : "Full screen compose"
+                    isExpanded
+                      ? t("mail.compose.restoreComposeSize")
+                      : t("mail.compose.fullScreenCompose")
                   }
                   aria-pressed={isExpanded}
                   onClick={() => {
@@ -619,7 +628,9 @@ export function ComposeModal({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {isExpanded ? "Restore size" : "Full screen"}
+                {isExpanded
+                  ? t("mail.compose.restoreSize")
+                  : t("mail.compose.fullScreen")}
               </TooltipContent>
             </Tooltip>
           )}
@@ -714,7 +725,7 @@ export function ComposeModal({
                 onChange={(e) =>
                   onUpdate(activeId!, { subject: e.target.value })
                 }
-                placeholder="Subject"
+                placeholder={t("mail.compose.subject")}
                 className="flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground"
               />
             </div>
@@ -759,7 +770,7 @@ export function ComposeModal({
                     <IconBold className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Bold</TooltipContent>
+                <TooltipContent>{t("mail.compose.bold")}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -772,7 +783,7 @@ export function ComposeModal({
                     <IconItalic className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Italic</TooltipContent>
+                <TooltipContent>{t("mail.compose.italic")}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -785,7 +796,7 @@ export function ComposeModal({
                     <IconLink className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Insert link</TooltipContent>
+                <TooltipContent>{t("mail.compose.insertLink")}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -798,7 +809,7 @@ export function ComposeModal({
                     <IconPaperclip className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Attach file</TooltipContent>
+                <TooltipContent>{t("mail.compose.attachFile")}</TooltipContent>
               </Tooltip>
 
               <div className="mx-1 h-4 w-px bg-border" />
@@ -806,7 +817,7 @@ export function ComposeModal({
               {isGenerating ? (
                 <div className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
                   <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Generating…</span>
+                  <span>{t("mail.compose.generating")}</span>
                 </div>
               ) : (
                 <Popover open={generateOpen} onOpenChange={setGenerateOpen}>
@@ -816,13 +827,13 @@ export function ComposeModal({
                       size="sm"
                       className="h-7 gap-1.5 px-2 text-xs"
                     >
-                      Generate
+                      {t("mail.compose.generate")}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent side="top" align="start" className="w-80 p-3">
                     <div className="flex flex-col gap-2">
                       <label className="text-xs font-medium text-muted-foreground">
-                        What should the agent write?
+                        {t("mail.compose.agentPromptLabel")}
                       </label>
                       <textarea
                         ref={promptRef}
@@ -838,13 +849,14 @@ export function ComposeModal({
                             setGenerateOpen(false);
                           }
                         }}
-                        placeholder="e.g. Write a polite follow-up..."
+                        placeholder={t("mail.compose.agentPromptPlaceholder")}
                         className="min-h-[60px] w-full resize-none rounded-md border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
                         autoFocus
                       />
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] text-muted-foreground">
-                          <kbd className="kbd-hint">↵</kbd> to submit
+                          <kbd className="kbd-hint">↵</kbd>{" "}
+                          {t("mail.compose.toSubmit")}
                         </span>
                         <Button
                           size="sm"
@@ -852,7 +864,7 @@ export function ComposeModal({
                           disabled={!generatePrompt.trim()}
                           className="h-7 gap-1.5 px-3 text-xs"
                         >
-                          Generate
+                          {t("mail.compose.generate")}
                         </Button>
                       </div>
                     </div>
@@ -871,7 +883,7 @@ export function ComposeModal({
                     <IconTrash className="h-4 w-4" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Delete draft</TooltipContent>
+                <TooltipContent>{t("mail.compose.deleteDraft")}</TooltipContent>
               </Tooltip>
               <SendLaterButton
                 onSend={handleSend}
@@ -924,6 +936,7 @@ function ComposeBody({
   setShowQuoted: (show: boolean) => void;
   signature?: string;
 }) {
+  const t = useT();
   const [editableContent, quotedContent] = useMemo(
     () => splitQuotedContent(activeDraft.body),
     [activeDraft.body],
@@ -994,7 +1007,11 @@ function ComposeBody({
         <>
           <button
             type="button"
-            aria-label={showQuoted ? "Hide quoted text" : "Show quoted text"}
+            aria-label={
+              showQuoted
+                ? t("mail.thread.hideQuotedText")
+                : t("mail.thread.showQuotedText")
+            }
             onClick={() => setShowQuoted(!showQuoted)}
             className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground"
           >

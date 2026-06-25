@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { stagingExecuteRequest } from "@agent-native/core/provider-api/staging";
+import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
+
 import {
   SLIDES_APP_ID,
   SLIDES_PROVIDER_API_IDS,

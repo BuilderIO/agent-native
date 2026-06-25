@@ -31,16 +31,15 @@
  * `mountMCP` — the Node bits are dynamically imported inside `run()`.
  */
 
+import type { Task } from "../a2a/types.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import { buildDeepLink } from "../server/deep-link.js";
+import type { ActionTool } from "../agent/types.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
+import { buildDeepLink } from "../server/deep-link.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 import type { MCPConfig } from "./build-server.js";
-import { fetchOrgApps, type OrgApp } from "./org-directory.js";
 import { embedApp } from "./embed-app.js";
-
-import type { ActionTool } from "../agent/types.js";
-import type { Task } from "../a2a/types.js";
+import { fetchOrgApps, type OrgApp } from "./org-directory.js";
 
 /** Flat map of param name → JSON-schema property. */
 type Params = Record<

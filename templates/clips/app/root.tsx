@@ -1,14 +1,3 @@
-import {
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-  useLocation,
-} from "react-router";
-import { useCallback, useEffect, useState } from "react";
-import { useNavigationState } from "@/hooks/use-navigation-state";
-import { useQueryClient } from "@tanstack/react-query";
 import { getBrowserTabId, useDbSync } from "@agent-native/core/client";
 import {
   AppProviders,
@@ -16,13 +5,32 @@ import {
   DevOverlay,
   appPath,
   createAgentNativeQueryClient,
+  getLocaleInitScript,
   getThemeInitScript,
+  type LocaleCode,
+  type LocaleMessages,
+  type LocalizationPreference,
   useCommandMenuShortcut,
+  useT,
 } from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client";
+import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import { IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import changelog from "../CHANGELOG.md?raw";
-import { Toaster } from "@/components/ui/sonner";
+import { useCallback, useEffect, useState } from "react";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLoaderData,
+  useLocation,
+  useRouteLoaderData,
+} from "react-router";
+import type { LinksFunction, LoaderFunctionArgs } from "react-router";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -32,9 +40,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { LinksFunction } from "react-router";
+import { Toaster } from "@/components/ui/sonner";
+import { useNavigationState } from "@/hooks/use-navigation-state";
+
+import { i18nCatalog, loadI18nMessages } from "./i18n";
+
 import stylesheet from "./global.css?url";
-import { configureTracking } from "@agent-native/core/client";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -47,11 +58,77 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
-const THEME_INIT_SCRIPT = getThemeInitScript();
+interface RootLoaderData {
+  locale: LocaleCode;
+  preference: LocalizationPreference;
+  dir: "ltr" | "rtl";
+  messages: LocaleMessages;
+}
+
+export async function loader({
+  request,
+}: LoaderFunctionArgs): Promise<RootLoaderData> {
+  const resolved = resolveLocaleFromRequest({ request });
+  const messages =
+    (await loadI18nMessages(resolved.locale)) ?? i18nCatalog.messages;
+  return {
+    locale: resolved.locale,
+    preference: resolved.preference,
+    dir: resolved.dir,
+    messages,
+  };
+}
+
+const THEME_INIT_SCRIPT_SELECTOR = "script[data-agent-native-theme-init]";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
+
+function getHydrationStableThemeInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      THEME_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getThemeInitScript();
+}
+
+function getHydrationStableLocaleInitScript(
+  options: Parameters<typeof getLocaleInitScript>[0],
+) {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      LOCALE_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getLocaleInitScript(options);
+}
+
+const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+
+const DEFAULT_LOADER_DATA: RootLoaderData = {
+  locale: "en-US",
+  preference: { locale: "system" },
+  dir: "ltr",
+  messages: i18nCatalog.messages,
+};
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const loaderData =
+    useRouteLoaderData<typeof loader>("root") ?? DEFAULT_LOADER_DATA;
+  const localeInitScript = getHydrationStableLocaleInitScript({
+    locale: loaderData.locale,
+    preference: loaderData.preference,
+    messages: loaderData.messages,
+  });
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang={loaderData.locale}
+      dir={loaderData.dir}
+      data-locale={loaderData.locale}
+      suppressHydrationWarning
+    >
       <head>
         <meta charSet="utf-8" />
         <meta
@@ -59,8 +136,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
         <script
+          data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: localeInitScript }}
         />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#18181B" />
@@ -106,6 +189,7 @@ function DbSyncSetup() {
 
 function ThemeToggleItem() {
   const { resolvedTheme, setTheme } = useTheme();
+  const t = useT();
   const isDark = resolvedTheme === "dark";
   return (
     <CommandMenu.Item
@@ -113,7 +197,7 @@ function ThemeToggleItem() {
       keywords={["theme", "dark", "light", "mode"]}
     >
       {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-      Toggle theme
+      {t("root.toggleTheme")}
     </CommandMenu.Item>
   );
 }
@@ -150,6 +234,7 @@ const CLIPS_COMMAND_DOCS = [
 
 function ClipsExtensionAuthBridge() {
   const location = useLocation();
+  const t = useT();
   const [showAuthSuccess, setShowAuthSuccess] = useState(false);
 
   useEffect(() => {
@@ -213,14 +298,14 @@ function ClipsExtensionAuthBridge() {
           <IconCheck className="h-9 w-9" strokeWidth={2.5} />
         </div>
         <DialogHeader className="items-center text-center sm:text-center">
-          <DialogTitle>Signed in</DialogTitle>
+          <DialogTitle>{t("root.extensionSignedInTitle")}</DialogTitle>
           <DialogDescription className="max-w-xs">
-            Open the Clips extension again to start recording.
+            {t("root.extensionSignedInDescription")}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="sm:justify-center">
           <Button type="button" onClick={() => setShowAuthSuccess(false)}>
-            Got it
+            {t("root.gotIt")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -246,6 +331,7 @@ function isStandalonePublicPath(pathname: string): boolean {
 
 function AppContent() {
   const location = useLocation();
+  const t = useT();
   const standalonePublic = isStandalonePublicPath(location.pathname);
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(
@@ -262,14 +348,17 @@ function AppContent() {
         <CommandMenu
           open={cmdkOpen}
           onOpenChange={setCmdkOpen}
-          changelog={changelog}
+          changelog={t("settings.changelogMarkdown")}
+          changelogLabel={t("settings.whatsNew")}
           changelogKey="clips"
         >
-          <CommandMenu.Group heading="Actions">
-            <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+          <CommandMenu.Group heading={t("root.commandActions")}>
+            <CommandMenu.Item onSelect={() => {}}>
+              {t("root.commandSearch")}
+            </CommandMenu.Item>
           </CommandMenu.Group>
           <CommandMenu.DocsGroup docs={CLIPS_COMMAND_DOCS} />
-          <CommandMenu.Group heading="Appearance">
+          <CommandMenu.Group heading={t("root.commandAppearance")}>
             <ThemeToggleItem />
           </CommandMenu.Group>
         </CommandMenu>
@@ -289,11 +378,19 @@ function AppContent() {
  */
 export default function Root() {
   const location = useLocation();
+  const loaderData = useLoaderData<typeof loader>();
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
     <AppProviders
       queryClient={queryClient}
       isPublicPath={isStandalonePublicPath(location.pathname)}
+      i18n={{
+        catalog: i18nCatalog,
+        initialLocale: loaderData.locale,
+        initialPreference: loaderData.preference,
+        initialMessages: loaderData.messages,
+        persistPreference: !isStandalonePublicPath(location.pathname),
+      }}
     >
       <AppContent />
     </AppProviders>

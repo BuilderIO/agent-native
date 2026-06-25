@@ -1,10 +1,11 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentNativePath } from "@agent-native/core/client";
-import { nanoid } from "nanoid";
-import type { ComposeState, UserSettings } from "@shared/types";
-import { appendSignatureToBody } from "@shared/signature";
 import { appApiPath } from "@agent-native/core/client";
+import { appendSignatureToBody } from "@shared/signature";
+import type { ComposeState, UserSettings } from "@shared/types";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { nanoid } from "nanoid";
+import { useState, useRef, useCallback, useEffect } from "react";
+
 import { TAB_ID } from "@/lib/tab-id";
 
 export const FOCUS_COMPOSE_DRAFT_EVENT = "mail:focus-compose-draft";
@@ -77,6 +78,16 @@ async function saveDraftToEmails(
     }),
   });
   return result?.draftId;
+}
+
+export async function saveDraftToEmailsBestEffort(
+  draft: ComposeState,
+): Promise<string | undefined> {
+  try {
+    return await saveDraftToEmails(draft);
+  } catch {
+    return undefined;
+  }
 }
 
 export function useComposeState() {
@@ -224,7 +235,7 @@ export function useComposeState() {
       ).find((d) => d.id === id);
       if (!current || !hasDraftContent(current)) return;
 
-      saveDraftToEmails(current).then((draftId) => {
+      void saveDraftToEmailsBestEffort(current).then((draftId) => {
         if (draftId && draftId !== current.savedDraftId) {
           // Store the Gmail draft ID back so subsequent saves update rather than create
           qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
@@ -305,8 +316,8 @@ export function useComposeState() {
 
       // Auto-save to persistent drafts if there's any content
       if (draft && hasDraftContent(draft)) {
-        saveDraftToEmails(draft).then(() => {
-          qc.invalidateQueries({ queryKey: ["emails"] });
+        void saveDraftToEmailsBestEffort(draft).then((draftId) => {
+          if (draftId) qc.invalidateQueries({ queryKey: ["emails"] });
         });
       }
 
@@ -376,8 +387,8 @@ export function useComposeState() {
     // Save all drafts with content
     for (const draft of currentDrafts) {
       if (hasDraftContent(draft)) {
-        saveDraftToEmails(draft).then(() => {
-          qc.invalidateQueries({ queryKey: ["emails"] });
+        void saveDraftToEmailsBestEffort(draft).then((draftId) => {
+          if (draftId) qc.invalidateQueries({ queryKey: ["emails"] });
         });
       }
     }

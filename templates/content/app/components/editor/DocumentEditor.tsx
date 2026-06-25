@@ -1,3 +1,19 @@
+import { BlockRegistryProvider } from "@agent-native/core/blocks";
+import {
+  useCollaborativeDoc,
+  generateTabId,
+  emailToColor,
+  emailToName,
+  useSession,
+  useT,
+  appApiPath,
+  agentNativePath,
+  type CollabUser,
+} from "@agent-native/core/client";
+import type { Document, DocumentSyncStatus } from "@shared/api";
+import { IconArrowLeft, IconDatabase } from "@tabler/icons-react";
+import { IconLock } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -8,57 +24,45 @@ import {
 } from "react";
 import type { ClipboardEvent } from "react";
 import { useNavigate } from "react-router";
-import { IconArrowLeft, IconDatabase } from "@tabler/icons-react";
-import { VisualEditor } from "./VisualEditor";
-import { DocumentToolbar } from "./DocumentToolbar";
-import { DocumentDatabase } from "./DocumentDatabase";
-import { DocumentProperties } from "./DocumentProperties";
-import { NotionConflictBanner } from "./NotionConflictBanner";
-import { EmojiPicker } from "./EmojiPicker";
+import { toast } from "sonner";
+
+import {
+  contentBlockRegistry,
+  createContentBlockRenderContext,
+} from "@/blocks/contentBlockRegistry";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useComments } from "@/hooks/use-comments";
 import {
   useDocument,
   useDocuments,
   useUpdateDocument,
 } from "@/hooks/use-documents";
-import { useDocumentSyncStatus } from "@/hooks/use-notion";
-import {
-  useCollaborativeDoc,
-  generateTabId,
-  emailToColor,
-  emailToName,
-  useSession,
-  appApiPath,
-  agentNativePath,
-  type CollabUser,
-} from "@agent-native/core/client";
-import { CommentsSidebar } from "./CommentsSidebar";
-import { useComments } from "@/hooks/use-comments";
-import type { CommentTextAnchor } from "./comment-anchors";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useLocalStorage } from "@/hooks/use-local-storage";
-import { useQueryClient } from "@tanstack/react-query";
-import { IconLock } from "@tabler/icons-react";
-import { BlockRegistryProvider } from "@agent-native/core/blocks";
-import {
-  contentBlockRegistry,
-  createContentBlockRenderContext,
-} from "@/blocks/contentBlockRegistry";
-import type { Document, DocumentSyncStatus } from "@shared/api";
-import type { NotionPageLink } from "./VisualEditor";
-import { toast } from "sonner";
-import {
-  normalizeTitleText,
-  stripMarkdownHeadingPrefixFromTitlePaste,
-} from "./title-text";
-import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useDocumentSyncStatus } from "@/hooks/use-notion";
 import {
   canWriteLinkedLocalSource,
   readDocumentFromLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
+import { cn } from "@/lib/utils";
+
+import type { CommentTextAnchor } from "./comment-anchors";
+import { CommentsSidebar } from "./CommentsSidebar";
+import { DocumentBlockFields } from "./DocumentBlockFields";
+import { DocumentDatabase } from "./DocumentDatabase";
+import { DocumentProperties } from "./DocumentProperties";
+import { DocumentToolbar } from "./DocumentToolbar";
+import { EmojiPicker } from "./EmojiPicker";
+import { NotionConflictBanner } from "./NotionConflictBanner";
+import {
+  normalizeTitleText,
+  stripMarkdownHeadingPrefixFromTitlePaste,
+} from "./title-text";
+import { VisualEditor } from "./VisualEditor";
+import type { NotionPageLink } from "./VisualEditor";
 
 const TAB_ID = generateTabId();
 
@@ -102,6 +106,8 @@ function DocumentEditorSkeleton() {
 }
 
 function DocumentUnavailable({ onOpenHome }: { onOpenHome: () => void }) {
+  const t = useT();
+
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center bg-background px-6">
       <div className="flex max-w-sm flex-col items-center text-center">
@@ -109,14 +115,13 @@ function DocumentUnavailable({ onOpenHome }: { onOpenHome: () => void }) {
           <IconLock size={22} />
         </div>
         <h1 className="text-2xl font-semibold tracking-normal">
-          Document unavailable
+          {t("empty.documentUnavailable")}
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          This page may have been deleted, or it has not been shared with your
-          account.
+          {t("empty.documentUnavailableDescription")}
         </p>
         <Button className="mt-6" variant="outline" onClick={onOpenHome}>
-          Go to documents
+          {t("empty.goToDocuments")}
         </Button>
       </div>
     </div>
@@ -208,21 +213,23 @@ function DatabaseMembershipBreadcrumb({
 }
 
 function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
+  const t = useT();
   const updateDocument = useUpdateDocument();
   const queryClient = useQueryClient();
+  const canEdit = document.canEdit ?? true;
   // The block render context (asset/upload resolvers, inline markdown reader,
   // panel popover) is stable for the editor's lifetime. Created once here and
   // provided alongside the content block registry so every registry block in the
   // editor subtree renders through the same wiring.
   const blockRenderContext = useMemo(
-    () => createContentBlockRenderContext({ documentId }),
-    [documentId],
+    () => createContentBlockRenderContext({ documentId, canEdit }),
+    [documentId, canEdit],
   );
   const navigate = useNavigate();
-  const { data: documents = [] } = useDocuments();
+  const documentsQuery = useDocuments();
+  const documents: Document[] = documentsQuery.data ?? [];
   // Shared with DocumentToolbar via the same localStorage key — both read it.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
-  const canEdit = document.canEdit ?? true;
   const isLocalFileDocument = document.source?.mode === "local-files";
   const isLinkedLocalSourceDocument = canWriteLinkedLocalSource(
     documentId,
@@ -370,7 +377,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       .then((result) => {
         if (cancelled) return;
         if (!result.ok) {
-          toast.error("Could not read local source file", {
+          toast.error(t("editor.couldNotReadLocalSourceFile"), {
             description: result.error,
           });
           return;
@@ -409,9 +416,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       })
       .catch((error) => {
         if (cancelled) return;
-        toast.error("Could not read local source file", {
+        toast.error(t("editor.couldNotReadLocalSourceFile"), {
           description:
-            error instanceof Error ? error.message : "Something went wrong",
+            error instanceof Error ? error.message : t("empty.genericError"),
         });
       });
 
@@ -532,7 +539,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         );
         if (!result.ok) {
           if (!localSourceWriteErrorShownRef.current) {
-            toast.error("Could not save local file", {
+            toast.error(t("editor.couldNotSaveLocalFile"), {
               description: result.error,
             });
             localSourceWriteErrorShownRef.current = true;
@@ -550,9 +557,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         });
       } catch (error) {
         if (!isLinkedLocalSource) throw error;
-        toast.warning("Local file saved, but history was not updated", {
+        toast.warning(t("editor.localFileSavedHistoryNotUpdated"), {
           description:
-            error instanceof Error ? error.message : "Something went wrong",
+            error instanceof Error ? error.message : t("empty.genericError"),
         });
         queryClient.setQueryData(
           ["action", "get-document", { id: documentId }],
@@ -928,8 +935,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                     pm?.focus();
                   }
                 }}
-                aria-label="Document title"
-                placeholder="Title"
+                aria-label={t("editor.documentTitle")}
+                placeholder={t("editor.title")}
                 readOnly={!canEdit}
                 style={{ fieldSizing: "content" } as any}
                 className={cn(
@@ -958,37 +965,65 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                 }
               }}
             >
-              <VisualEditor
-                key={documentId}
-                documentId={documentId}
-                content={isLocalFileDocument ? localContent : document.content}
-                contentUpdatedAt={
-                  isLocalFileDocument
-                    ? (localContentUpdatedAt ?? document.updatedAt)
-                    : document.updatedAt
+              {(() => {
+                // The primary "Content" Blocks field IS the document body, with
+                // the full collaborative editor. It renders chromeless when it's
+                // the only Blocks field, or inside a header/collapsible shell
+                // when the row has multiple Blocks fields.
+                const primaryEditor = (
+                  <VisualEditor
+                    key={documentId}
+                    documentId={documentId}
+                    content={
+                      isLocalFileDocument ? localContent : document.content
+                    }
+                    contentUpdatedAt={
+                      isLocalFileDocument
+                        ? (localContentUpdatedAt ?? document.updatedAt)
+                        : document.updatedAt
+                    }
+                    onChange={handleContentChange}
+                    ydoc={canEdit && !isLocalFileDocument ? ydoc : null}
+                    awareness={
+                      canEdit && !isLocalFileDocument ? awareness : null
+                    }
+                    user={currentUser}
+                    editable={canEdit}
+                    localFileMode={isLocalFileDocument}
+                    onComment={
+                      canEdit && !isLocalFileDocument
+                        ? handleComment
+                        : undefined
+                    }
+                    commentThreads={threads ?? []}
+                    activeThreadId={activeThreadId}
+                    pendingHighlight={pendingComment?.range ?? null}
+                    onActivateThread={
+                      canEdit && !isLocalFileDocument
+                        ? setActiveThreadId
+                        : undefined
+                    }
+                    onJoinTitle={joinFirstBodyBlockToTitle}
+                    notionPageLinks={notionPageLinks}
+                    onOpenNotionPageLink={handleOpenNotionPageLink}
+                    notionPageId={document.notionPageId}
+                  />
+                );
+
+                // Only database rows have Blocks fields. Standalone pages and
+                // local-file documents keep the plain chromeless body.
+                if (document.databaseMembership && !isLocalFileDocument) {
+                  return (
+                    <DocumentBlockFields
+                      documentId={documentId}
+                      canEdit={canEdit}
+                      primaryEditor={primaryEditor}
+                    />
+                  );
                 }
-                onChange={handleContentChange}
-                ydoc={canEdit && !isLocalFileDocument ? ydoc : null}
-                awareness={canEdit && !isLocalFileDocument ? awareness : null}
-                user={currentUser}
-                editable={canEdit}
-                localFileMode={isLocalFileDocument}
-                onComment={
-                  canEdit && !isLocalFileDocument ? handleComment : undefined
-                }
-                commentThreads={threads ?? []}
-                activeThreadId={activeThreadId}
-                pendingHighlight={pendingComment?.range ?? null}
-                onActivateThread={
-                  canEdit && !isLocalFileDocument
-                    ? setActiveThreadId
-                    : undefined
-                }
-                onJoinTitle={joinFirstBodyBlockToTitle}
-                notionPageLinks={notionPageLinks}
-                onOpenNotionPageLink={handleOpenNotionPageLink}
-                notionPageId={document.notionPageId}
-              />
+
+                return primaryEditor;
+              })()}
             </div>
           </div>
         </div>

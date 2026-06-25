@@ -1,0 +1,324 @@
+---
+title: "Cerveau"
+description: "Un chat d'entreprise propre soutenu par une mémoire institutionnelle citée, une ingestion de sources révisables et des intégrations d'espaces de travail réutilisables."
+---
+
+# Cerveau
+
+Brain est un chat d'entreprise propre soutenu par la mémoire institutionnelle citée. Les gens demandent
+questions en anglais simple ; Réponses cérébrales issues des connaissances approuvées de l'entreprise avec
+liens vers le fil de discussion, la réunion, la transcription, le problème ou la capture de webhook Slack
+qui soutient la réponse.
+
+Le cerveau ingère les chaînes Slack approuvées, les enregistrements de clips et l'espace Granola Team
+notes, problèmes/PR GitHub et charges utiles génériques de transcription/webhook. Il stocke brut
+capture, distille des faits/décisions/processus durables et achemine les informations sensibles ou
+Les souvenirs peu fiables sont examinés avant qu'ils ne deviennent des connaissances de l'entreprise.
+
+La surface du produit reste volontairement simple : **Ask** est le chat principal
+expérience, tandis que **Sources**, **Review** et **Knowledge** sont administrateur/support
+surfaces permettant de connecter les données, d'approuver les propositions et d'inspecter la mémoire citée.
+
+```an-diagram title="De la source à la réponse citée" summary="Le cerveau ingère les sources approuvées dans des captures brutes, distille une mémoire durable, la contrôle et répond ensuite seulement par des citations."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Sources</span><small class=\"diagram-muted\">Slack · Granola · GitHub · Clips · webhooks</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Captures brutes<br><small class=\"diagram-muted\">dédupliqué, expurgé</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Distill<br><small class=\"diagram-muted\">faits · décisions · processus</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Review</span><small class=\"diagram-muted\">sensitive / low-confidence queue</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Knowledge</span><small class=\"diagram-muted\">approuvé, atomique</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Ask</span><small class=\"diagram-muted\">cited answer</small></div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px}.diagram-flow .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-flow .diagram-arrow{font-size:20px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Interroger la mémoire de l’entreprise</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='Rechercher'></span><strong style='flex:1'>Pourquoi avons-nous choisi la tarification à l’usage ?</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>L’équipe a choisi une tarification à l’usage après que les pilotes ont montré que le nombre de sièges sous-estimait la valeur de l’automatisation.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>RFC de tarification</span><span class='wf-pill'>Rétro de lancement</span><span class='wf-pill'>Notes commerciales</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Chronologie des sources</strong><div class='wf-box'>3 mai · Décision capturée</div><div class='wf-box'>8 mai · Preuve client ajoutée</div><div class='wf-box'>12 mai · Note juridique approuvée</div></div></div>"
+}
+```
+
+Lorsque vous ouvrez l'application, **Ask** est au premier plan : une conversation claire et révisée
+mémoire de l'entreprise. **Sources**, **Review** et **Knowledge** se trouvent à côté de lui comme
+interfaces d'administration permettant de connecter les données, d'approuver les propositions et d'inspecter les données citées
+entrées.
+
+## Quand le choisir
+
+Utilisez Brain lorsque votre équipe souhaite que les agents répondent à des questions telles que "Pourquoi avons-nous créé
+cette décision concernant le produit ?", "Comment fonctionne cette fonctionnalité en développement ?" ou "quoi
+a changé au cours de ce processus ? » avec des liens vers la conversation source, la réunion,
+ou problème.
+
+Brain et Dispatch sont complémentaires mais font des tâches différentes :
+
+- **Brain possède la mémoire de l'entreprise.** Il ingère les sources, examine les captures brutes,
+  distille des faits/décisions/processus durables, des réponses à partir de preuves citées, et
+  expose les connaissances approuvées aux agents.
+- **Dispatch est propriétaire du plan de contrôle de l'espace de travail.** Il centralise la messagerie,
+  secrets, tâches récurrentes, approbations, orchestration A2A et distribution
+  et approbation des ressources à l'échelle de l'espace de travail.
+
+Dans un espace de travail multi-applications, Dispatch peut acheminer une question vers Brain via A2A et
+peut accorder les informations d'identification du fournisseur partagé Brain. Brain reste le spécialiste des
+Ingestion, examen, récupération de sources approuvées et réponses citées de Company Brain.
+Brain expose la récupération en lecture seule basée sur des citations en tant que capacité publique A2A
+afin que les applications Dispatch et sœurs puissent poser des questions à la mémoire de l'entreprise – l'agent A2A
+la carte est une métadonnée de découverte publique, tandis que la récupération se produit toujours dans Brain's
+surface d'action authentifiée.
+
+## Ce que vous pouvez en faire
+
+- **Posez les questions citées.** Poser est la surface principale du produit : une discussion claire terminée
+  Mémoire de l'entreprise examinée, avec état de la source, nombre d'avis et suggestions
+  questions restées secondaires. Chaque réponse renvoie au fil de discussion Slack,
+  réunion, problème ou capture qui le prend en charge.
+- **Connectez les sources approuvées.** Configurez le manuel, le webhook générique, les clips, Slack,
+  Sources Granola et GitHub. Les sources sont partagées par l'organisation par défaut, donc l'entreprise
+  la mémoire est utile à tout l'espace de travail.
+- **Révisez avant de publier.** Les souvenirs proposés bénéficient d'un itinéraire de révision de première classe
+  où les réviseurs modifient le libellé, inspectent les liens vers les preuves/sources et approuvent ou
+  rejeter. Les entrées hautement fiables et non sensibles peuvent être publiées immédiatement ;
+  Les entrées sensibles ou au niveau de l'entreprise sont mises en file d'attente en tant que propositions.
+- **Inspectez les connaissances citées.** L'itinéraire des connaissances montre des connaissances distillées et atomiques
+  entrées avec type, sujet, entités, confiance, citations de preuves exactes et
+  remplacer les liens.
+- **Réutilisez les intégrations de l'espace de travail.** Les sources cérébrales peuvent réutiliser l'espace de travail partagé
+  octrois de connexion au lieu de ressaisir les jetons du fournisseur. La page Sources
+  affiche les enregistrements source Brain à côté des autorisations de connexion réutilisables et du fournisseur
+  préparation.
+- **Mémoire approuvée par miroir comme contexte ambiant.**Les entrées canoniques approuvées peuvent
+  miroir sur les ressources de l'espace de travail sous `context/company-brain/...` donc autre
+  les applications peuvent les utiliser comme contexte. Les deux flux prévisualisent le Markdown exact avant le
+  la ressource est écrite ou supprimée.
+
+## Démarrer
+
+Démo en direct : [brain.agent-native.com](https://brain.agent-native.com).
+
+1. **Essayez la démo.** Ouvrez Ask et choisissez **Démarrer la démo**. Le cerveau engendre un petit
+   corpus de décision produit, exécute les contrôles de confiance et pose une question citée ainsi
+   vous pouvez voir les réponses, les citations, les avis et les comportements introuvables avant d'ajouter
+   données réelles de l'entreprise.
+2. **Ajoutez une source.** Commencez avec une seule chaîne Slack, Granola Team-space
+   flux, référentiel GitHub, exportation de clips ou webhook de transcription générique. Conserver
+   la portée est réduite jusqu'à ce que les citations et la qualité des critiques semblent correctes.
+3. **Révisez avant de publier.** Utilisez Révision pour inspecter les preuves, modifier le libellé,
+   et approuvez uniquement la mémoire durable de l'entreprise.
+4. **Demandez à la source.** Utilisez Demandez des questions qui doivent être fondées
+   connaissances approuvées, pas de journaux de discussion bruts.
+
+Pour une démonstration publique, le corpus prédéfini démontre le rappel de décision de produit,
+liens de citation, comportement de remplacement, contrôle des avis, rédaction, contenu personnel
+exclusion et comportement honnête introuvable sans connexion à un véritable espace de travail.
+
+### Invites utiles
+
+- "Qu'avons-nous décidé concernant la tarification annuelle, et où en a-t-on discuté ?"
+- "Recherchez la modification la plus récente du processus d'intégration et citez la source."
+- "Résumez ce que cette discussion sur GitHub signifie pour le plan de lancement."
+- "Examinez les propositions de mémoire en attente et signalez tout ce qui est trop vague pour être publié."
+- "Quelles sources sont obsolètes ou la synchronisation échoue ?"
+
+## Pour les développeurs
+
+Le reste de ce document s'adresse à toute personne qui crée ou étend le modèle Brain.
+
+### Démarrage rapide
+
+```bash
+npx @agent-native/core@latest create my-brain --standalone --template brain
+cd my-brain
+pnpm install
+pnpm dev
+```
+
+Ouvrez l'application et choisissez **Démarrer la démo** pour voir la mémoire citée sans connecter un espace de travail réel.
+
+### Modèle de données
+
+Brain utilise intentionnellement la recherche de texte SQL et l'expansion des requêtes agentiques – il y en a
+aucune exigence de base de données vectorielles, le modèle reste donc portable sur SQLite,
+Postgres, Neon, D1, Turso et hôtes similaires. L'état de l'application reflète le
+itinéraire actuel, filtres et ID sélectionnés afin que l'agent connaisse toujours l'itinéraire actuel
+navigation et sélection.
+
+Le schéma du cerveau réside dans `templates/brain/server/db/schema.ts`. Huit tableaux :
+
+| Tableau                  | Ce qu'il contient                                                                                                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `brain_sources`          | Configuration du connecteur : fournisseur, canaux/dépôts sur liste autorisée, curseurs de synchronisation, posture de révision, `ingest_token_hash`, `status`, `last_synced_at` |
+| `brain_source_shares`    | Attributions de partage par source (spectateur/éditeur/administrateur)                                                                                                          |
+| `brain_raw_captures`     | Transcriptions, exportations de canaux, notes et importations de webhooks avec clé de déduplication `external_id`, `content_hash`, type et état de distillation                 |
+| `brain_knowledge`        | Entrées atomiques distillées – genre (décision/fait/processus/…), sujet, entités, citations de preuves, confiance, `publish_tier`, liens de remplacement                        |
+| `brain_knowledge_shares` | Subventions par partage de connaissances                                                                                                                                        |
+| `brain_proposals`        | Éléments d'examen en attente – proposition de création/mise à jour/archive avec preuves et notes du réviseur                                                                    |
+| `brain_proposal_shares`  | Attribution d'actions par proposition                                                                                                                                           |
+| `brain_sync_runs`        | Journal d'audit de synchronisation : fournisseur, statut, statistiques JSON, erreur, horodatages de début/fin                                                                   |
+| `brain_ingest_queue`     | File d'attente de distillation en arrière-plan : opération, état, priorité, nombre de tentatives, `run_after`                                                                   |
+
+```an-schema title="Modèle de données Brain" summary="Les connecteurs produisent des captures brutes ; la distillation les transforme en connaissances révisables ; les propositions contrôlent les entrées sensibles. Les exécutions de synchronisation et la file d’ingestion suivent le travail en arrière-plan."
+{
+  "entities": [
+    { "id": "sources", "name": "brain_sources", "note": "Configuration du connecteur", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "provider", "type": "text", "note": "slack / granola / github / clips / webhook" },
+      { "name": "ingest_token_hash", "type": "text" },
+      { "name": "status", "type": "text" },
+      { "name": "last_synced_at", "type": "timestamp", "nullable": true }
+    ] },
+    { "id": "source_shares", "name": "brain_source_shares", "note": "viewer / editor / admin", "fields": [
+      { "name": "source_id", "type": "id", "fk": "brain_sources.id" }
+    ] },
+    { "id": "captures", "name": "brain_raw_captures", "note": "Charges utiles brutes ingérées", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "source_id", "type": "id", "fk": "brain_sources.id" },
+      { "name": "external_id", "type": "text", "note": "dedupe key" },
+      { "name": "content_hash", "type": "text" },
+      { "name": "kind", "type": "text" }
+    ] },
+    { "id": "knowledge", "name": "brain_knowledge", "note": "Entrées atomiques distillées", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "kind", "type": "text", "note": "decision / fact / process" },
+      { "name": "topic", "type": "text" },
+      { "name": "entities", "type": "json" },
+      { "name": "confidence", "type": "real" },
+      { "name": "publish_tier", "type": "text" }
+    ] },
+    { "id": "knowledge_shares", "name": "brain_knowledge_shares", "fields": [
+      { "name": "knowledge_id", "type": "id", "fk": "brain_knowledge.id" }
+    ] },
+    { "id": "proposals", "name": "brain_proposals", "note": "Éléments en attente d'examen", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "op", "type": "text", "note": "create / update / archive" }
+    ] },
+    { "id": "proposal_shares", "name": "brain_proposal_shares", "fields": [
+      { "name": "proposal_id", "type": "id", "fk": "brain_proposals.id" }
+    ] },
+    { "id": "sync_runs", "name": "brain_sync_runs", "note": "Journal d'audit de synchronisation", "fields": [
+      { "name": "source_id", "type": "id", "fk": "brain_sources.id" },
+      { "name": "status", "type": "text" },
+      { "name": "stats", "type": "json" }
+    ] },
+    { "id": "ingest_queue", "name": "brain_ingest_queue", "note": "File d'attente de distillation en arrière-plan", "fields": [
+      { "name": "operation", "type": "text" },
+      { "name": "status", "type": "text" },
+      { "name": "priority", "type": "int" },
+      { "name": "run_after", "type": "timestamp", "nullable": true }
+    ] }
+  ],
+  "relations": [
+    { "from": "sources", "to": "captures", "kind": "1-n", "label": "ingested into" },
+    { "from": "knowledge", "to": "captures", "kind": "n-n", "label": "evidence" },
+    { "from": "knowledge", "to": "proposals", "kind": "1-n", "label": "gated by" },
+    { "from": "sources", "to": "sync_runs", "kind": "1-n", "label": "audited by" }
+  ]
+}
+```
+
+### Clé actions
+
+Regroupés par zone (`templates/brain/actions/`) :
+
+- **Gestion des sources** — `create-source`, `update-source`, `delete-source`, `get-source`, `list-sources`, `sync-source`, `sync-due-sources`, `run-slack-pilot`, `test-slack-connection`
+- **Ingestion de capture** – `import-capture`, `import-transcript`, `list-captures`, `get-capture`, `mark-capture-distilled`, `resanitize-captures`
+- **Distillation** — `enqueue-distillation`, `enqueue-captures-distillation`, `claim-distillation`, `retry-distillation`, `list-distillation-queue`
+- **Connaissances et avis** — `write-knowledge`, `get-knowledge`, `list-knowledge`, `set-knowledge-canonical`, `preview-canonical-resource`, `list-proposals`, `review-proposal`, `approve-proposal`, `reject-proposal`, `update-proposal`
+- **Recherche et récupération** — `ask-brain`, `search-knowledge`, `search-everything`
+- **Paramètres** — `get-brain-settings`, `update-brain-settings`, `set-settings`, `get-settings`
+- **Évaluation et démo** — `seed-demo-data`, `run-demo-eval`, `run-retrieval-eval`
+- **Contexte et navigation** — `view-screen`, `navigate`
+- **Fournisseur APIs** — `provider-api-catalog`, `provider-api-docs`, `provider-api-request`
+
+### Connexion des sources
+
+Brain résout d'abord les informations d'identification du fournisseur à partir d'une connexion à un espace de travail accordée
+puis à partir d'informations d'identification Brain-local ou de coffre-fort enregistrées rétrocompatibles.
+Les informations d'identification de la source Brain ne dépendent pas des variables d'environnement au niveau du déploiement.
+Si un fournisseur partagé existe déjà, accordez l'accès à Brain au lieu de copier le
+même secret dans un paramètre spécifique au cerveau.
+
+**Slack.** Créez une source limitée à des ID de canal spécifiques. Le connecteur
+vérifie chaque conversation configurée, rejette les DM et MPIM et stocke le curseur
+état afin que chaque synchronisation reprenne là où la dernière s'est arrêtée. Un flux de déploiement sécurisé sur
+chaque carte source Slack vous permet de **Tester** les informations d'identification et la liste d'autorisation sans
+lecture de l'historique, exécution d'un petit échantillon **Safe pilot** plafonné, **Examen des captures**,
+et approuvez dans la **file d'attente de révision** avant que quoi que ce soit ne devienne interrogeable. Accorde le
+botez uniquement les étendues dont la source a besoin (validation des informations d'identification, liste verte
+vérification, historique des chaînes sur liste blanche et permaliens durables).
+
+**Granola.** Créez une source avec une fenêtre d'interrogation et une taille de page. Granola
+Les clés Enterprise API exposent les notes de l’espace d’équipe, et non les notes ou dossiers privés. Cerveau
+stocke le résumé des notes, la transcription, les participants, les métadonnées du calendrier et la source
+URL comme capture brute avant distillation.
+
+**GitHub.** Créez une source étendue aux référentiels approuvés. Le connecteur
+importe le contexte de problème limité et de demande d'extraction avec des sources stables URL qui peuvent
+être distillé comme Slack ou un contexte de réunion. Il s'agit d'une ingestion de contexte cérébral, pas
+un remplacement pour les rapports GitHub de style Analytics.
+
+**Clips et webhooks générique.** Brain expose un webhook signé pour les clips et
+importations de transcriptions/captures génériques sur `/api/_agent-native/brain/ingest`. Créer
+une source avec un `sourceKey` pour recevoir un jeton de porteur, puis envoyer un
+`RawCapturePayload` avec `Authorization: Bearer <ingestToken>`. Sources génériques
+utiliser la même forme de charge utile pour les transcriptions d'appels, la recherche client, importées
+notes, ou toute autre source pouvant produire une capture limitée.
+
+```an-api title="Webhook d'ingestion signé" summary="Les importations Clips et transcript/capture génériques affichent un RawCapturePayload avec un jeton de porteur par source."
+{
+  "method": "POST",
+  "path": "/api/_agent-native/brain/ingest",
+  "summary": "Importer une capture brute depuis Clips ou une source générique",
+  "auth": "Bearer <ingestToken> issued per source via its sourceKey",
+  "request": {
+    "contentType": "application/json",
+    "example": "RawCapturePayload — bounded transcript / capture body"
+  },
+  "responses": [
+    { "status": "200", "description": "Capture accepted and queued for distillation" },
+    { "status": "401", "description": "Missing or invalid ingest bearer token" }
+  ]
+}
+```
+
+Les sources Slack, Granola et GitHub peuvent activer `autoSync` en arrière-plan avec un
+cadence d'interrogation une fois la qualité des avis prouvée.
+
+### Confidentialité et contrôle
+
+Le cerveau est conçu pour la mémoire de l'entreprise, pas pour la surveillance personnelle :
+
+- La synchronisation Slack lit uniquement les canaux explicitement configurés et rejette les DM/MPIM.
+- La synchronisation Granola lit les notes de l'espace d'équipe exposées par le API de Granola, non privées
+  notes ou dossiers privés.
+- Les captures brutes sont supprimées des surfaces de liste/de recherche par défaut ; réviseurs
+  et les flux de distillation demandent des aperçus ou du contenu brut uniquement lorsque cela est nécessaire.
+- Les configurations sources peuvent nécessiter un examen avant que les connaissances distillées ne deviennent durables
+  mémoire de l'entreprise.
+- Les paramètres contrôlent le niveau de publication par défaut, si les connaissances au niveau de l'entreprise l'exigent
+  approbation, exigences de citation, rédaction d'e-mails et erreur de connecteur
+  notifications.
+
+### Le personnaliser
+
+Le cerveau suit le contrat à quatre domaines natif de l'agent – changez le comportement en modifiant
+la zone correspondante, et l'agent peut effectuer ces modifications pour vous :
+
+- `templates/brain/app/routes/` — la surface UI : demander, rechercher, connaissances,
+  Révision, sources, paramètres et itinéraires d'équipe.
+- `templates/brain/actions/` — chaque opération appelable par un agent (importations, source
+  gestion, rapports pilotes, distillation, examen des propositions, recherche citée,
+  navigation/contexte). Ajoutez un nouveau fichier avec `defineAction` pour exposer un nouveau
+  capacité.
+- `templates/brain/.agents/skills/` — Conseils spécifiques au cerveau pour la distillation
+  et récupération. Mettez à jour ou ajoutez une compétence lorsque vous enseignez à l'agent un nouveau flux de travail.
+- `templates/brain/AGENTS.md` : guide de l'agent de niveau supérieur. Mettez à jour lorsque vous ajoutez un majeur
+  fonctionnalités.
+- `templates/brain/server/db/schema.ts` — modèle de données. Migrations additives uniquement ;
+  l'itinéraire, les filtres et les ID sélectionnés sont mis en miroir dans `application_state` pour l'agent
+  contexte.
+
+Demandez à l'agent d'apporter des modifications à votre place : il peut modifier sa propre source. Voir
+[Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+
+## Quelle est la prochaine étape
+
+- [**Dispatch**](/docs/dispatch) — le plan de contrôle de l'espace de travail
+- [**Dispatch template**](/docs/template-dispatch) — l'application de coordination d'échafaudage
+- [**Workspace**](/docs/workspace) – ressources partagées entre les applications
+- [**A2A Protocol**](/docs/a2a-protocol) – délégation inter-applications

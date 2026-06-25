@@ -1,19 +1,26 @@
-import { reactRouter } from "@react-router/dev/vite";
 import fs from "node:fs";
 import path from "node:path";
-import { defineConfig } from "@agent-native/core/vite";
+
 import {
   findAgentNativeManifest,
   getLocalArtifactApp,
   type LocalArtifactOptions,
 } from "@agent-native/core/local-artifacts";
-import type { Plugin } from "vite";
+import { agentNative } from "@agent-native/core/vite";
+import { reactRouter } from "@react-router/dev/vite";
+import { defineConfig, type Plugin } from "vite";
+
 import {
   isLocalComponentWorkspaceStoreFile,
   localComponentWorkspaceStoreDir,
   localComponentWorkspaceStorePath,
   registeredLocalComponentRootsSync,
 } from "./shared/local-component-workspaces";
+
+const reactRouterPlugins = reactRouter as unknown as () => any[];
+const agentNativePlugins = agentNative as unknown as (
+  options?: Parameters<typeof agentNative>[0],
+) => any[];
 
 const CONTENT_APP_ID = "content";
 const LOCAL_COMPONENTS_MODULE_ID =
@@ -383,14 +390,19 @@ const cloudflareSsrStubs =
     : [];
 
 export default defineConfig({
-  plugins: [contentLocalComponentsPlugin(), reactRouter()],
-  fsAllow: [
-    ...(localWorkspaceRoot ? [localWorkspaceRoot] : []),
-    ...dynamicLocalComponentDirs,
+  plugins: [
+    contentLocalComponentsPlugin(),
+    ...reactRouterPlugins(),
+    ...agentNativePlugins({
+      fsAllow: [
+        ...(localWorkspaceRoot ? [localWorkspaceRoot] : []),
+        ...dynamicLocalComponentDirs,
+      ],
+      // shiki only runs in AssistantChat's useEffect — keep it out of the
+      // CF Pages Functions bundle (25 MiB limit).
+      ssrStubs: ["shiki", ...cloudflareSsrStubs],
+    }),
   ],
-  // shiki only runs in AssistantChat's useEffect — keep it out of the
-  // CF Pages Functions bundle (25 MiB limit).
-  ssrStubs: ["shiki", ...cloudflareSsrStubs],
   optimizeDeps: {
     include: [
       "yjs",

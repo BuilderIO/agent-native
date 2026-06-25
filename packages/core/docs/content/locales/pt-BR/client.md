@@ -1,0 +1,398 @@
+---
+title: "Cliente"
+description: "Ganchos e utilitários React para aplicativos nativos do agente: sendToAgentChat, estado de contexto de bate-papo do agente opcional, useDbSync, useAgentChatGenerating e cn."
+---
+
+# Cliente
+
+`@agent-native/core` fornece ganchos e utilitários React para o lado do navegador de aplicativos nativos do agente.
+
+Esses clientes/React APIs são exportados de `@agent-native/core` e `@agent-native/core/client`. Importe-os de `@agent-native/core/client` (a entrada do navegador) para maior clareza e agrupamento correto, já que a raiz `@agent-native/core` simples é resolvida para a compilação do Node por padrão.
+
+Para roteamento baseado em arquivo — adição de páginas, parâmetros dinâmicos e navegação — consulte [Routing](/docs/routing).
+
+## Busca e mutação de dados {#fetching-mutating}
+
+A principal maneira de ler e gravar dados de aplicativos no navegador é por meio de ganchos de ação. Nunca escreva manualmente chamadas `fetch` para rotas `/_agent-native/*`; em vez disso, use os auxiliares nomeados (consulte [Actions](/docs/actions)).
+
+```an-diagram title="O loop de dados do navegador" summary="Ganchos leem e escrevem por meio de ações; useDbSync observa o banco de dados para que as gravações do agente e em segundo plano busquem novamente os mesmos caches automaticamente."
+{
+  "html": "<div class=\"diagram-client\"><div class=\"diagram-col\"><div class=\"diagram-node\">useActionQuery<br><small class=\"diagram-muted\">cached read</small></div><div class=\"diagram-node\">useActionMutation<br><small class=\"diagram-muted\">write + invalidate</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-box\" data-rough>Actions<br><small class=\"diagram-muted\">/_agent-native/actions/*</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-panel\" data-rough><strong>banco de dados SQL</strong></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">useDbSync &rarr; refetch on change</div></div>",
+  "css": ".diagram-client{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-client .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-client .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+```tsx
+import {
+  useActionQuery,
+  useActionMutation,
+  callAction,
+} from "@agent-native/core/client";
+
+// Read: auto-cached, auto-invalidated on mutations
+const { data, isLoading } = useActionQuery("get-lead", { leadId });
+
+// Mutate: emits a change event so query caches refetch
+const { mutate, isPending } = useActionMutation("create-lead");
+mutate({ name: "Alice", company: "Acme" });
+
+// Imperative: for one-off calls outside a component
+await callAction("archive-lead", { leadId });
+```
+
+## sendToAgentChat(opções) {#sendtoagentchat}
+
+Envie uma mensagem para o chat do agente via postMessage — a maneira comum de delegar uma tarefa de IA de uma interação UI. Passe `context` para contexto de modelo oculto e `submit: true` para enviar imediatamente ou `submit: false` para preencher previamente um rascunho que o usuário analisará primeiro.
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client";
+
+// Auto-submit a prompt with hidden context
+sendToAgentChat({
+  message: "Generate alt text for this image",
+  context: "Image path: /api/projects/hero.jpg",
+  submit: true,
+});
+
+// Prefill without submitting (user reviews first)
+sendToAgentChat({
+  message: "Rewrite this in a conversational tone",
+  context: selectedText,
+  submit: false,
+});
+```
+
+Dentro de um aplicativo MCP incorporado criado com `embedApp()`, mensagens enviadas automaticamente
+(`submit` omitido ou `true`) são encaminhados para a ponte de host do aplicativo MCP, que
+pede ao host que o contém para adicionar contexto oculto e enviar a vez do usuário visível.
+`context` permanece visível para o modelo sem ser postado como bate-papo voltado para o usuário.
+`submit: false` mantém o comportamento de pré-preenchimento/revisão local porque os aplicativos MCP não o fazem
+defina um rascunho pré-preenchido API padrão. Internamente, este é o caminho do chat enviado
+às vezes aparecia como `agentNative.submitChat`; o código do aplicativo deve chamar
+`sendToAgentChat()` em vez de postar esse evento diretamente.
+
+### Envios silenciosos em segundo plano {#background-send}
+
+Use `background: true` quando uma ação UI iniciar o trabalho real do agente sem
+abrindo ou focando a barra lateral. Isso ainda cria uma conversa/execução de bate-papo normal,
+usa as ferramentas/actions/contexto do agente e mantém o trabalho observável por meio
+a bandeja de corridas; não é uma chamada de modelo única e bruta.
+
+```ts
+const tabId = sendToAgentChat({
+  message: "Analyze this import and create any missing records",
+  context: `Import batch id: ${batchId}`,
+  submit: true,
+  newTab: true,
+  background: true,
+  openSidebar: false,
+});
+```
+
+`background` deve ser emparelhado com `newTab` para que o trabalho oculto não ocorra
+substituir a conversa ativa do usuário. Use o `tabId` retornado se o UI
+precisa correlacionar o status de acompanhamento ou criar um link direto para a execução posteriormente.
+
+### AgentChatMessage {#agentchatmessage}
+
+| Opção                 | Tipo        | Descrição                                                               |
+| --------------------- | ----------- | ----------------------------------------------------------------------- |
+| `message`             | `string`    | O prompt visível enviado para o chat                                    |
+| `context`             | `string?`   | Contexto oculto anexado (não mostrado no chat UI)                       |
+| `submit`              | `boolean?`  | true = envio automático, false = somente preenchimento prévio           |
+| `newTab`              | `boolean?`  | Crie um tópico de bate-papo separado para este prompt                   |
+| `background`          | `boolean?`  | Com `newTab`, execute sem focar a aba e mostre a execução em `RunsTray` |
+| `openSidebar`         | `boolean?`  | Defina false para enviar/preencher sem abrir a barra lateral            |
+| `projectSlug`         | `string?`   | Slug de projeto opcional para contexto estruturado                      |
+| `preset`              | `string?`   | Nome predefinido opcional para consumidores downstream                  |
+| `referenceImagePaths` | `string[]?` | Caminhos de imagem de referência opcionais                              |
+
+## Estado do contexto do chat do agente (avançado) {#agent-chat-context-state}
+
+Os APIs de estado de contexto são encanamentos opcionais para UI que precisam de sincronização bidirecional com
+chips de contexto de teste: renderizando os itens de teste atuais fora do compositor,
+refletindo se um item já está anexado ou fornecendo informações explícitas
+remover/limpar controles.
+
+Não procure esses ajudantes para simplesmente "enviar isto para o agente" ou
+"preencher este rascunho para revisão". Use `sendToAgentChat()` com `context`
+e `submit` para esses.
+
+| API                               | Usar quando                                                                                 |
+| --------------------------------- | ------------------------------------------------------------------------------------------- |
+| `useAgentChatContext()`           | Um componente React precisa da lista de contexto preparada ao vivo                          |
+| `setAgentChatContextItem(item)`   | O código imperativo deve preparar ou substituir um item de contexto digitado                |
+| `listAgentChatContext()`          | O código não React precisa de um instantâneo único do contexto preparado                    |
+| `removeAgentChatContextItem(key)` | UI deve remover um item de contexto preparado por seu `key` estável                         |
+| `clearAgentChatContext()`         | UI deve limpar todo o contexto preparado, como após uma visualização ou redefinição de modo |
+| `refreshAgentChatContext()`       | O código imperativo deve reler o instantâneo de contexto persistido mais recente            |
+
+`useAgentChatContext()` retorna `{ items, set, remove, clear, refresh }`.
+
+## openAgentSettings(seção?) {#openagentsettings}
+
+Use `openAgentSettings()` quando uma página de configurações de aplicativo ou um cartão de configuração for aberto
+guia Configurações da barra lateral do agente. Passe um ID de seção como `"llm"`, `"secrets"`,
+`"automations"`, `"voice"` ou `"limits"` para abrir uma seção específica.
+
+```ts
+import { openAgentSettings } from "@agent-native/core/client";
+
+openAgentSettings();
+openAgentSettings("secrets");
+```
+
+Prefira este auxiliar ao despachar `agent-panel:open-settings` diretamente.
+
+```tsx
+import { useAgentChatContext } from "@agent-native/core/client";
+
+function SelectionContextButton({ record }: { record: { id: string } }) {
+  const chatContext = useAgentChatContext();
+  const contextKey = `selected-record:${record.id}`;
+  const isAttached = chatContext.items.some((item) => item.key === contextKey);
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (isAttached) {
+          chatContext.remove(contextKey);
+          return;
+        }
+
+        chatContext.set({
+          key: contextKey,
+          title: "Selected Record",
+          context: JSON.stringify(record, null, 2),
+          openSidebar: false,
+        });
+      }}
+    >
+      {isAttached ? "Remove from prompt context" : "Add to prompt context"}
+    </button>
+  );
+}
+```
+
+`listAgentChatContext()` é para código imperativo que só precisa inspecionar o
+itens atualmente preparados uma vez. `clearAgentChatContext()` é intencionalmente amplo; usar
+`removeAgentChatContextItem(key)` quando apenas uma seleção foi alterada.
+
+### AgentChatContextSetOptions {#agentchatcontextsetoptions}
+
+| Opção         | Tipo       | Descrição                                                                   |
+| ------------- | ---------- | --------------------------------------------------------------------------- |
+| `key`         | `string`   | Identificador estável usado para substituir um nugget existente             |
+| `title`       | `string`   | Etiqueta abreviada mostrada no chip do compositor                           |
+| `context`     | `string`   | Contexto oculto incluído no próximo prompt enviado                          |
+| `openSidebar` | `boolean?` | O padrão é verdadeiro; passe false para preparar o contexto silenciosamente |
+
+## askUserQuestion(opções) {#ask-user-question}
+
+Faça ao usuário uma pergunta de múltipla escolha no código do aplicativo e coloque-a em linha no
+painel do agente e **aguarde a resposta**. É o gêmeo do lado do cliente do
+ferramenta `ask-question` integrada do agente: ela grava um `GuidedQuestionPayload` no
+Chave de estado do aplicativo `"guided-questions"` (onde está montada
+`GuidedQuestionFlow` renderiza) e revela o painel do agente, então a pergunta é
+visível. Ao contrário da ferramenta do agente — cuja resposta retorna ao agente —
+`askUserQuestion()` **resolve com a resposta ao chamador**, então o UI pode
+ramifique-o.
+
+Use-o quando o UI precisar de exatamente uma pequena decisão (2–4 opções) antes dele
+inicia o trabalho do agente — em vez de criar um modal personalizado. Alcance o
+composer para detalhes de forma livre e um formulário/popover para entrada de vários campos.
+
+```tsx
+import { askUserQuestion, sendToAgentChat } from "@agent-native/core/client";
+
+const length = await askUserQuestion({
+  question: "How long should this deck be?",
+  header: "Deck length", // optional short chip/heading (≈12 chars)
+  options: [
+    { label: "Short (3–5 slides)", value: "short" },
+    { label: "Medium (6–10 slides)", value: "medium", recommended: true },
+    { label: "Long (11+ slides)", value: "long" },
+  ],
+  allowFreeText: false, // omit the "Other" free-text option (default adds it)
+  allowMultiple: false, // single-select (default)
+});
+
+if (length) {
+  sendToAgentChat({ message: `Generate a ${length} deck.`, submit: true });
+}
+```
+
+Cada opção é `{ label, value?, description?, preview?, recommended? }`; `value`
+o padrão é `label` e `preview` renderiza um pequeno trecho de maquete/código sob o
+opção. A promessa é resolvida com o `value` selecionado (ou `value[]` quando
+`allowMultiple`), a string de texto livre quando o usuário escolhe "Outro" ou `null`
+se pularem — fica pendente até que o usuário responda. Requer o painel do agente
+para ser montado (está em todos os modelos).
+
+O agente chega ao mesmo UI através de sua ferramenta `ask-question`: prefira deixar o
+o agente pergunta quando _it_ atinge uma bifurcação genuína que não consegue resolver no contexto; usar
+`askUserQuestion()` quando _UI_ precisa definir uma ação em uma escolha.
+
+## Ponte de host do aplicativo MCP {#mcp-app-host-bridge}
+
+As rotas incorporadas como aplicativos MCP devem ser URL primeiro: carregue o artefato atual de
+parâmetros de caminho/consulta, renderize a rota React real ou um componente compartilhado focado,
+e use a ponte de host apenas para comportamento de propriedade do host. `@agent-native/core/client`
+exporta a chamada de rotas incorporadas dos auxiliares:
+
+```ts
+import {
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
+} from "@agent-native/core/client";
+```
+
+`getMcpAppHostContext()` lê o último instantâneo de contexto do host enviado;
+`useMcpAppHostContext()` subscreve componentes React para alterações. A solicitação
+ajudantes (`openMcpAppHostLink`, `requestMcpAppDisplayMode`,
+`updateMcpAppModelContext`) retorna `false` fora de um quadro de aplicativo MCP incorporado ou
+`Promise<boolean>` dentro de um quadro. `sendToAgentChat()` usa a mesma ponte para
+prompts enviados automaticamente a partir de rotas incorporadas.
+
+A ponte em si — as mensagens `ui/*` JSON-RPC, o `agentNative.mcpHost.*`
+retransmissão de wrapper, transplante versus renderização de quadro controlado, contexto de host e
+solicitações de modo de exibição — propriedade de
+[External Agents](/docs/external-agents#mcp-app-bridge).
+
+## Sugestões dinâmicas {#dynamic-suggestions}
+
+`<AgentSidebar>`, `<AgentPanel>` e `<AssistantChat>` mesclam `suggestions` estático com sugestões baseadas no contexto por padrão. A estrutura lê `navigation`, `selection`, `pending-selection-context` e o URL atual do estado do aplicativo enquanto um bate-papo vazio está visível e, em seguida, oferece chips de prompt que correspondem à tela atual.
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{ max: 4 }}
+>
+  <App />
+</AgentSidebar>
+```
+
+Defina `dynamicSuggestions={false}` para manter apenas chips estáticos. Passe `getSuggestions` quando um aplicativo deseja chips determinísticos específicos de domínio do mesmo contexto de estado do aplicativo.
+
+## useAgentChatGenerating() {#useagentchatgenerating}
+
+Gancho React que envolve sendToAgentChat com rastreamento de estado de carregamento:
+
+```ts
+import { useAgentChatGenerating } from "@agent-native/core/client";
+
+function GenerateButton() {
+  const [isGenerating, send] = useAgentChatGenerating();
+
+  return (
+    <button
+      disabled={isGenerating}
+      onClick={() => send({
+        message: "Generate a summary",
+        context: documentContent,
+        submit: true,
+      })}
+    >
+      {isGenerating ? "Generating..." : "Generate"}
+    </button>
+  );
+}
+```
+
+`isGenerating` se torna verdadeiro quando você chama `send()` e é redefinido automaticamente para falso quando o agente termina de gerar.
+
+## useDbSync(opções?) {#usedbsync}
+
+Gancho React (anteriormente `useFileWatcher`) que escuta alterações no banco de dados em SSE, recorre à pesquisa e invalida os caches de consulta da estrutura que mantêm o UI alinhado com as gravações do agente:
+
+```ts
+import { useDbSync } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
+
+function App() {
+  const queryClient = useQueryClient();
+
+  useDbSync({
+    queryClient,
+    pollUrl: "/_agent-native/poll",
+    onEvent: (data) => console.log("Data changed:", data),
+  });
+
+  return <div>...</div>;
+}
+```
+
+### Opções {#usedbsync-options}
+
+| Opção              | Tipo               | Descrição                                                                                                      |
+| ------------------ | ------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `queryClient`      | `QueryClient?`     | Cliente de consulta React para invalidação de cache                                                            |
+| `queryKeys`        | `string[]?`        | Obsoleto e ignorado; mantido para sites de chamada antigos                                                     |
+| `pollUrl`          | `string?`          | Polling endpoint URL. Padrão: `"/_agent-native/poll"`                                                          |
+| `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only                         |
+| `interval`         | `number?`          | Intervalo de pesquisa em ms. Padrão: `2000`                                                                    |
+| `fallbackInterval` | `number?`          | Intervalo de pesquisa de fallback quando SSE não está disponível. Padrão: `15000`                              |
+| `pauseWhenHidden`  | `boolean?`         | Pausar a pesquisa quando a guia do navegador estiver oculta. Padrão: `true`                                    |
+| `ignoreSource`     | `string?`          | Origem de solicitação por guia a ser ignorada para que uma guia não seja recuperada de suas próprias gravações |
+| `onEvent`          | `(data) => void`   | Retorno de chamada opcional quando SSE/polling recebe um evento de alteração                                   |
+
+Para CRUD normal, prefira `useActionQuery` e `useActionMutation`; actions mutante emite `source: "action"` e esses ganchos são buscados novamente automaticamente.
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+A estrutura usa versões alteradas para sincronizar caches de consulta React com alterações feitas por agentes em segundo plano, cron jobs ou outros usuários.
+
+Quando ocorre qualquer mutação no banco de dados do lado do servidor, o servidor registra um evento de alteração com uma chave `source` específica. O ouvinte `useDbSync` do cliente recebe esses eventos e aumenta o contador de versão de alteração local dessa origem. Ao incluir o contador de versões em suas chaves de consulta React, as consultas são buscadas automaticamente sempre que o back-end notifica o cliente sobre novas atividades.
+
+- **`useChangeVersion(source: string): number`** — retorna um contador que aumenta sempre que o `source` especificado sofre mutação.
+- **`useChangeVersions(sources: readonly string[]): number`** — retorna a soma dos contadores de versão para múltiplas fontes.
+
+### Exemplo: sincronizando uma consulta bruta com o banco de dados
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client";
+
+function DashboardView({ id }) {
+  // Get version for dashboards domain source
+  const v = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, v], // Invalidate automatically when version bumps
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev, // Prevent layout flicker during refetch
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+### Modelos de latência e comportamento de invalidação
+
+- **Mutações iniciadas por UI:** Quando você executa uma ação do UI usando `useActionMutation`, a mutação dispara imediatamente um evento local com `source: "action"` em caso de sucesso. Isso aciona uma **nova busca instantânea e otimista** de todas as chaves de consulta dependendo da ação, evitando atraso visual.
+- **Mutações em segundo plano ou de agente:** Quando o agente de IA, um webhook ou um trabalhador em segundo plano altera dados, a atualização é transmitida para o cliente. O `useDbSync` do cliente captura isso instantaneamente por meio de SSE (eventos enviados pelo servidor) ou recorre ao **tique de pesquisa de 2 segundos**. A versão da chave de consulta então falha, acionando uma nova busca em segundo plano.
+
+```an-diagram title="Dois caminhos para uma nova busca" summary="Uma mutação local invalida instantaneamente seus próprios caches; uma gravação remota chega a esta guia por meio de SSE ou o tick de votação como substituto."
+{
+  "html": "<div class=\"diagram-latency\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill ok\">Esta aba</span><strong>useActionMutation</strong><small class=\"diagram-muted\">fires source: \"action\" on success &rarr; instant local refetch</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Agente · webhook · outra aba</span><strong>Escrita remota</strong><small class=\"diagram-muted\">SSE push, or the ~2s polling tick as fallback &rarr; version bumps &rarr; background refetch</small></div></div></div>",
+  "css": ".diagram-latency .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-latency .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px}"
+}
+```
+
+## cn(...entradas) {#cn}
+
+Utilitário para mesclar nomes de classes (clsx + tailwind-merge):
+
+```ts
+import { cn } from "@agent-native/core/client";
+
+<div className={cn(
+  "px-4 py-2 rounded",
+  isActive && "bg-primary text-primary-foreground",
+  className
+)} />
+```

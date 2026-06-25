@@ -1,29 +1,37 @@
-import { Link, useLocation } from "react-router";
-import {
-  IconStack2,
-  IconPalette,
-  IconUsers,
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
-} from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
+  useT,
 } from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import {
+  IconStack2,
+  IconPalette,
+  IconSettings,
+  IconUsers,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+} from "@tabler/icons-react";
+import { Link, useLocation } from "react-router";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 const navItems = [
-  { icon: IconStack2, label: "Decks", href: "/" },
-  { icon: IconPalette, label: "Design Systems", href: "/design-systems" },
-  { icon: IconUsers, label: "Team", href: "/team" },
+  { icon: IconStack2, labelKey: "navigation.decks", href: "/" },
+  {
+    icon: IconPalette,
+    labelKey: "navigation.designSystems",
+    href: "/design-systems",
+  },
+  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
+  { icon: IconUsers, labelKey: "navigation.team", href: "/team" },
 ];
 
 interface SidebarProps {
@@ -35,6 +43,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   const location = useLocation();
+  const t = useT();
 
   const isItemActive = (href: string) =>
     href === "/"
@@ -43,19 +52,21 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
 
   if (collapsed) {
     return (
-      <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 overflow-hidden border-r border-border bg-sidebar py-2 text-sidebar-foreground">
+      <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 overflow-hidden border-e border-border bg-sidebar py-2 text-sidebar-foreground">
         {onToggleCollapsed && (
           <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>
               <button
                 onClick={onToggleCollapsed}
-                aria-label="Expand sidebar"
+                aria-label={t("sidebar.expandSidebar")}
                 className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
               >
-                <IconLayoutSidebarLeftExpand className="h-4 w-4" />
+                <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="right">Expand sidebar</TooltipContent>
+            <TooltipContent side="right">
+              {t("sidebar.expandSidebar")}
+            </TooltipContent>
           </Tooltip>
         )}
         <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto pt-1">
@@ -67,7 +78,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                 <TooltipTrigger asChild>
                   <Link
                     to={item.href}
-                    aria-label={item.label}
+                    aria-label={t(item.labelKey)}
                     className={cn(
                       "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
                       isActive
@@ -78,7 +89,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                     <Icon className="h-4 w-4" />
                   </Link>
                 </TooltipTrigger>
-                <TooltipContent side="right">{item.label}</TooltipContent>
+                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
               </Tooltip>
             );
           })}
@@ -88,7 +99,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   }
 
   return (
-    <aside className="flex h-full w-56 min-w-0 shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground">
+    <aside className="flex h-full w-56 min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         <div className="flex items-center gap-2">
           <img
@@ -103,20 +114,22 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             aria-hidden="true"
             className="hidden h-4 w-auto dark:block"
           />
-          <span className="text-sm font-semibold tracking-tight">Slides</span>
+          <span className="text-sm font-semibold tracking-tight">
+            {t("navigation.brand")}
+          </span>
         </div>
         {onToggleCollapsed && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 onClick={onToggleCollapsed}
-                aria-label="Collapse sidebar"
+                aria-label={t("sidebar.collapseSidebar")}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
               >
-                <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
+                <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Collapse sidebar</TooltipContent>
+            <TooltipContent>{t("sidebar.collapseSidebar")}</TooltipContent>
           </Tooltip>
         )}
       </div>
@@ -138,7 +151,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                {item.label}
+                {t(item.labelKey)}
               </Link>
             );
           })}

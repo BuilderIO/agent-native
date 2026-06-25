@@ -90,7 +90,7 @@ export interface InstallSkillsResult {
 }
 
 interface ParsedArgs {
-  command: "add" | "list" | "help";
+  command: "add" | "list" | "status" | "update" | "help";
   source?: string;
   copySource: boolean;
   skillNames: string[];
@@ -147,6 +147,8 @@ const HELP = `@agent-native/skills
 Usage:
   npx @agent-native/skills@latest add [options]
   npx @agent-native/skills@latest list
+  npx @agent-native/skills@latest status [skill|scaffold] [options]
+  npx @agent-native/skills@latest update [skill|scaffold] [options]
 
 Options:
   --skill <name>              Install only this skill (repeatable)
@@ -178,6 +180,7 @@ Examples:
   npx @agent-native/skills@latest add
   npx @agent-native/skills@latest add --skill quick-recap
   npx @agent-native/skills@latest add --skill visual-recap --with-github-action
+  npx @agent-native/skills@latest update scaffold --project
 `;
 
 const CLIENTS: SkillClient[] = [
@@ -199,8 +202,20 @@ export function parseSkillsCliArgs(argv: string[]): ParsedArgs {
     return defaultArgs("help");
   }
 
-  const command = first === "list" ? "list" : "add";
-  const args = first === "add" || first === "list" ? argv.slice(1) : argv;
+  const command =
+    first === "list" ||
+    first === "status" ||
+    first === "update" ||
+    first === "add"
+      ? first
+      : "add";
+  const args =
+    first === "add" ||
+    first === "list" ||
+    first === "status" ||
+    first === "update"
+      ? argv.slice(1)
+      : argv;
   const out = defaultArgs(command);
 
   for (let i = 0; i < args.length; i += 1) {
@@ -268,12 +283,21 @@ export function parseSkillsCliArgs(argv: string[]): ParsedArgs {
     else throw new Error(`Unexpected argument: ${arg}`);
   }
 
-  if (out.source && out.source !== DEFAULT_SKILLS_SOURCE && !out.copySource) {
+  if (
+    out.command === "add" &&
+    out.source &&
+    out.source !== DEFAULT_SKILLS_SOURCE &&
+    !out.copySource
+  ) {
     throw new Error(
       `Unexpected argument: ${out.source}. @agent-native/skills installs the BuilderIO skills collection; use --skill <name> to choose a skill.`,
     );
   }
-  if (out.source === DEFAULT_SKILLS_SOURCE && !out.copySource) {
+  if (
+    out.command === "add" &&
+    out.source === DEFAULT_SKILLS_SOURCE &&
+    !out.copySource
+  ) {
     out.source = undefined;
   }
 
@@ -316,11 +340,24 @@ function toCoreSkillsArgv(parsed: ParsedArgs): string[] {
         for (const skill of parsed.skillNames) out.push("--skill", skill);
       }
     }
+  } else if (parsed.command === "status" || parsed.command === "update") {
+    if (parsed.source) out.push(parsed.source);
+    else if (parsed.skillNames.length === 1) out.push(parsed.skillNames[0]);
   }
-  if (parsed.command === "add" && parsed.clients.length) {
+  if (
+    (parsed.command === "add" ||
+      parsed.command === "status" ||
+      parsed.command === "update") &&
+    parsed.clients.length
+  ) {
     out.push("--client", parsed.clients.join(","));
   }
-  if (parsed.command === "add" && parsed.scopeExplicit) {
+  if (
+    (parsed.command === "add" ||
+      parsed.command === "status" ||
+      parsed.command === "update") &&
+    parsed.scopeExplicit
+  ) {
     out.push("--scope", parsed.scope);
   }
   if (parsed.command === "add" && parsed.yes) out.push("--yes");
@@ -358,6 +395,18 @@ const HIDDEN_STANDALONE_BUILT_INS = [
   "context-xray",
 ];
 
+function shouldShowDelegatedStartupProgress(
+  parsed: ParsedArgs,
+  options: Pick<InstallSkillsOptions, "isInteractive">,
+): boolean {
+  return (
+    parsed.command !== "help" &&
+    !parsed.printJson &&
+    !parsed.quiet &&
+    cliInteractive(parsed, options)
+  );
+}
+
 export async function runSkillsCli(
   argv: string[],
   options: Pick<
@@ -385,6 +434,9 @@ export async function runSkillsCli(
     if (parsed.command === "help") {
       process.stdout.write(`${HELP}\n`);
       return;
+    }
+    if (shouldShowDelegatedStartupProgress(parsed, options)) {
+      process.stderr.write("Preparing Agent Native skills...\n");
     }
     const loadedSource = shouldLoadPublicCatalog(parsed)
       ? await materializeSource(parsed.source ?? DEFAULT_SKILLS_SOURCE)

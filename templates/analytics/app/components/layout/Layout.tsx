@@ -1,9 +1,3 @@
-import { useMemo } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { Sidebar } from "./Sidebar";
-import { MobileNav } from "./MobileNav";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import {
   AgentSidebar,
   GuidedQuestionFlow,
@@ -12,10 +6,19 @@ import {
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
   useGuidedQuestionFlow,
+  useT,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { useMemo } from "react";
+import { useLocation, useNavigate } from "react-router";
+
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
+
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { MobileNav } from "./MobileNav";
+import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -27,6 +30,7 @@ export function Layout({ children }: LayoutProps) {
   useNavigationState();
   const location = useLocation();
   const navigate = useNavigate();
+  const t = useT();
 
   // Analytics has two distinct "primary resources" — dashboards
   // (`/dashboards/:id`, legacy `/adhoc/:id`) and ad-hoc analyses
@@ -119,11 +123,8 @@ export function Layout({ children }: LayoutProps) {
             questions={guidedQuestions}
             onSubmit={handleGuidedSubmit}
             onSkip={handleGuidedSkip}
-            title={guidedTitle ?? "Clarify the dashboard"}
-            description={
-              guidedDescription ??
-              "A few choices help the agent pick the right source, metrics, cuts, and layout before it writes SQL."
-            }
+            title={guidedTitle ?? t("guidedQuestions.title")}
+            description={guidedDescription ?? t("guidedQuestions.description")}
             skipLabel={guidedSkipLabel}
             submitLabel={guidedSubmitLabel}
           />
@@ -149,12 +150,12 @@ export function Layout({ children }: LayoutProps) {
             browserTabId={TAB_ID}
             openOnChatRunning={chatHomeHandoffActive}
             onFullscreenRequest={openAskAgentFullscreen}
-            emptyStateText="Ask me to analyze a dashboard, compare trends, or dig into data..."
+            emptyStateText={t("chat.emptyState")}
             suggestions={[
-              "What's driving ARR growth this quarter?",
-              "Show me churn trends over the last 6 months",
-              "Analyze the HubSpot Sales dashboard for anomalies",
-              "Compare MRR between enterprise and SMB",
+              t("chat.suggestionArrGrowth"),
+              t("chat.suggestionChurn"),
+              t("chat.suggestionAnomalies"),
+              t("chat.suggestionMrr"),
             ]}
             scope={sidebarScope}
           >

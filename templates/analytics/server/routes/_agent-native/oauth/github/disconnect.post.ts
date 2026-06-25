@@ -1,8 +1,9 @@
-import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
 import {
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
+import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
+
 import {
   deleteCredential,
   getCredentialContextFromEvent,

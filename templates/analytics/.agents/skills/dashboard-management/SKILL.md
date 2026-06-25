@@ -174,6 +174,47 @@ pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
 
 After a mutation, navigate to the dashboard if the user is elsewhere. The app syncs through the framework's polling/query invalidation path.
 
+## Building Large First-Party Dashboards (compose-dashboard)
+
+For a **first-party analytics** dashboard, prefer `compose-dashboard` over hand-authoring a big `update-dashboard` config. You name the metrics; the SERVER expands each into a full, validated panel (SQL + chart config) from the shipped metric catalog and saves them in ONE atomic call. This avoids the failure mode where the agent must stream a giant multi-panel `update-dashboard` argument inside the ~40s budget — that big tool-call can't be resumed mid-stream and is all-or-nothing on validation, so the agent thrashes (repeated update-dashboard + tool-search, never landing).
+
+- **Never hand-author large first-party configs panel-by-panel.** Call `compose-dashboard` with the metric keys instead.
+- Unknown metric keys are skipped and reported in `unknownMetrics` (not fatal). Each panel's SQL is validated independently — valid panels save, invalid ones are reported in `invalidMetrics`.
+- By default (no `overwrite`), composing into an existing dashboard APPENDS the new panels and skips ids already present. `overwrite: true` replaces the whole config.
+- Each metric accepts an optional per-metric `window` of `'30d' | '90d' | 'all'` (only affects windowed virality/time metrics) and `title` / `chartType` / `width` overrides.
+- Returns `{ dashboardId, panelCount, createdMetrics, unknownMetrics, invalidMetrics, skippedExistingIds }` — report `panelCount` as proof-of-done.
+
+Available metric keys: `total-signups`, `signups-over-time`, `signups-by-template`, `sessions-by-app`, `sessions-over-time`, `signed-in-vs-anon`, `total-template-clicks`, `total-demo-clicks`, `total-cli-copies`, `template-interest-over-time`, `clicks-by-template`, `demo-clicks-by-template`, `cli-copies-by-template`, `cli-copies-over-time`, `pageviews-over-time`, `top-referrer-domains`, `referred-signups-30d`, `viral-signup-share-30d`, `clip-share-signups-30d`, `signups-by-referral-source`, `referred-signups-over-time`, `top-referrers`, `share-funnel-30d`, `viral-participation-rate-90d`, `viral-coefficient-90d`, `activated-referrers-90d`.
+
+```bash
+# Build a large first-party dashboard in ONE call (server generates the panels)
+pnpm action compose-dashboard --dashboardId first-party-overview --title "First-Party Overview" \
+  --metrics '["total-signups","signups-over-time","signups-by-template","sessions-by-app","viral-coefficient-90d","top-referrers","share-funnel-30d"]'
+```
+
+## Reliable Bulk Edits
+
+This is the dashboard-specific application of the framework-wide `reliable-mutations` skill — read that for the general rule (one atomic write, verify end state, report proof-of-done).
+
+Hosted agent runs have a **~40s budget**. Many sequential `update-dashboard` calls (one per panel, plus schema-discovery calls) will blow that budget and leave the dashboard in a partial state — earlier inserts looked like they succeeded (✓), but nothing actually persisted. Avoid this:
+
+- **For a large first-party dashboard, use `compose-dashboard`** (see the section above): name the metrics, the server generates the panels in one call. Do not hand-author the big config.
+- **Batch ALL changes into ONE `update-dashboard` call.** A single `update-dashboard` is atomic: it applies every op to an in-memory config, validates all panel SQL, then upserts once. Never loop the action.
+  - To add N panels, pass N ops in one call: `ops: [{op:"insert", path:"/panels/-", value:<panel>}, … ]` (`/panels/-` appends to the end).
+  - The `ops` format needs no discovery: each op is `{ op, path, from?, value? }`, `op ∈ set | replace | remove | insert | move | move-before`, and `path` is a JSON Pointer (e.g. `/panels/3`, `/panels/3/title`, `/name`).
+- **To add a shipped template's panels, prefer `install-dashboard-template` with `mergePanels: true`** and the existing `dashboardId`. It appends only the template panels whose id is not already present (preserving existing panels and order) in one atomic save — you don't author each panel yourself.
+- **Always verify the returned proof-of-done and report it.** `update-dashboard` returns `panelCount`, `appliedOps`, and a `summary` string; `install-dashboard-template --mergePanels` returns `addedPanelIds`, `skippedExistingIds`, and `panelCount`. Tell the user the resulting panel count instead of assuming success.
+
+```bash
+# Add several panels in ONE atomic call (never one call per panel)
+pnpm action update-dashboard --dashboardId weekly-metrics \
+  --ops '[{"op":"insert","path":"/panels/-","value":{"id":"p1","title":"A","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}},
+          {"op":"insert","path":"/panels/-","value":{"id":"p2","title":"B","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(DISTINCT user_id) AS value FROM analytics_events"}}]'
+
+# Append a template's panels to an existing dashboard in one call
+pnpm action install-dashboard-template --templateId skills-cli-funnel --dashboardId weekly-metrics --mergePanels true
+```
+
 ## Archiving vs deleting
 
 Dashboards have a soft-delete state. The default user-facing destructive action is **Archive** (recoverable). Hard delete still exists, but lives behind a "Delete permanently" confirm in both the page header and the sidebar dropdown — and in the agent surface, behind the older `delete-dashboard` action. Archived rows stay in the `dashboards` table with `archived_at` set, are hidden from the default sidebar list, and remain accessible by id (so deep links in chat history keep working) until explicitly purged.

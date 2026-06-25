@@ -3,6 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH,
   JSON_EXPLORER_MAX_COLLAPSED_DEPTH,

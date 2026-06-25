@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { mailLabelsInclude, mailLabelsIncludeAny } from "./gmail-labels.js";
 
 describe("mail label matching", () => {

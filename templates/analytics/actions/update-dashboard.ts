@@ -1,20 +1,21 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
+  hasCollabState,
+  applyText,
+  seedFromText,
+} from "@agent-native/core/collab";
+import {
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
-import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
-import { dryRunQuery } from "../server/lib/bigquery";
-import { parseDemoDescriptor } from "../server/lib/demo-source";
+
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
+import { dryRunQuery } from "../server/lib/bigquery";
+import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
+import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
-import {
-  hasCollabState,
-  applyText,
-  seedFromText,
-} from "@agent-native/core/collab";
 
 /**
  * Same validation shape used in the sql-dashboard save path.
@@ -265,9 +266,8 @@ function validateDashboardConfig(
     if (!p || typeof p !== "object") {
       return `panel[${i}] must be an object`;
     }
-    // Section panels are pure layout dividers — they have no query, so source
-    // and sql are optional. They still need id/title/chartType/width so the
-    // grid renders them.
+    // Section panels are pure layout dividers, so source and sql are optional.
+    // Width stays required for backward-compatible dashboard payloads.
     const isSection = p.chartType === "section";
     const required = isSection
       ? (["id", "title", "chartType", "width"] as const)
@@ -276,7 +276,7 @@ function validateDashboardConfig(
       const v = p[field];
       if (field === "width") {
         if (!isValidColumnCount(v)) {
-          return `panel[${i}].width must be an integer between 1 and 6 (number of grid columns to span)`;
+          return `panel[${i}].width must be an integer between 1 and 6 (legacy layout field)`;
         }
         continue;
       }
@@ -378,6 +378,11 @@ function resolveScope() {
   return { orgId, email };
 }
 
+/** Resulting panel count, used for the proof-of-done return summary. */
+function countPanels(config: Record<string, unknown>): number {
+  return Array.isArray(config.panels) ? config.panels.length : 0;
+}
+
 /**
  * Push a config update through the collab layer so open dashboard editors
  * receive the change in real time. Seeds the collab state if it doesn't
@@ -407,11 +412,19 @@ async function syncToCollab(
 
 export default defineAction({
   description:
-    "Edit a SQL dashboard config (scope-aware). Prefer this over raw db-patch on the settings table — " +
+    "Edit a SQL dashboard config (scope-aware) atomically in ONE call. Prefer this over raw db-patch on the settings table — " +
     "it resolves org vs. user scope correctly so the edit lands on the row the UI actually renders. " +
-    "Use `ops` for structural changes (reorder/insert/remove panels, update field values via JSON Pointer paths). " +
-    "Use `config` to replace the entire dashboard config. " +
-    "For a large dashboard, build it up incrementally: save a small dashboard first, then add panels one at a time with `ops` rather than authoring the whole `config` in one call — a very large single `config` payload can get cut off mid-stream and stall the turn. " +
+    "BATCH ALL EDITS INTO A SINGLE CALL. Never call this action repeatedly in a loop: hosted agent runs have a ~40s budget, and many sequential update-dashboard calls time out mid-way and leave the dashboard in a partial state even though earlier calls looked like they succeeded. Put every change you want to make into one `ops` array (or one `config`). " +
+    "`ops` is an array of { op, path, from?, value? } applied in order in a single atomic save. " +
+    "`op` is one of: set | replace | remove | insert | move | move-before. " +
+    "`path` is a JSON Pointer into the config (e.g. `/panels/3` is the 4th panel, `/panels/3/title` is its title, `/name` is the dashboard name). The special index `-` means the end of an array: `/panels/-` appends. " +
+    "`value` is the panel or object to set/insert. `from` is the source JSON Pointer for move / move-before. " +
+    "To ADD N panels in one call, pass N entries of { op: 'insert', path: '/panels/-', value: <panel> }. " +
+    "To reorder: [{ op: 'move', from: '/panels/2', path: '/panels/0' }]. " +
+    "To edit a field: [{ op: 'replace', path: '/panels/0/title', value: 'Events by Day' }]. " +
+    "Use `config` to replace the entire dashboard config in one call. Provide `ops` OR `config`, not both. " +
+    "To add a shipped catalog template's panels to an existing dashboard, prefer `install-dashboard-template` with `mergePanels: true` — it appends the template's panels in one call without you having to author each panel. " +
+    "The result includes `panelCount` (resulting number of panels), `appliedOps` (count), and a `summary` string — use them as proof-of-done and report the new panel count back to the user instead of assuming success. " +
     "The UI auto-refreshes after this action — do NOT call `refresh-screen`.",
   schema: z.object({
     dashboardId: z
@@ -440,8 +453,11 @@ export default defineAction({
       )
       .optional()
       .describe(
-        "Array of JSON-patch-style ops applied in order (or a JSON string). " +
-          "Example reorder: [{op:'move', from:'/panels/2', path:'/panels/0'}]",
+        "Array of JSON-patch-style ops applied in order in ONE atomic save (or a JSON string). " +
+          "Each op is { op, path, from?, value? }. op ∈ set|replace|remove|insert|move|move-before. " +
+          "path is a JSON Pointer (e.g. '/panels/3', and '/panels/-' appends to the end). " +
+          "Add N panels at once with N {op:'insert', path:'/panels/-', value:<panel>} entries. " +
+          "Example reorder: [{op:'move', from:'/panels/2', path:'/panels/0'}].",
       ),
     config: z
       .preprocess(
@@ -451,7 +467,9 @@ export default defineAction({
       .optional()
       .describe("Replace the whole dashboard config (or a JSON string)."),
   }),
-  http: false,
+  // The SQL dashboard editor persists user edits through callAction(), which
+  // needs this action mounted under /_agent-native/actions/update-dashboard.
+  http: { method: "POST" },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
@@ -482,6 +500,7 @@ export default defineAction({
       if (sqlError) throw new Error(sqlError);
       await upsertDashboard(args.dashboardId, "sql", args.config, ctx);
       await syncToCollab(args.dashboardId, args.config);
+      const panelCount = countPanels(args.config);
       return {
         id: args.dashboardId,
         dashboardId: args.dashboardId,
@@ -489,6 +508,11 @@ export default defineAction({
           typeof args.config.name === "string"
             ? args.config.name
             : args.dashboardId,
+        // Proof-of-done: lead with verifiable state so the agent/UI can
+        // confirm the new shape cheaply instead of assuming success.
+        panelCount,
+        appliedOps: 0,
+        summary: `Replaced dashboard "${args.dashboardId}"; it now has ${panelCount} panel(s).`,
         config: args.config,
         urlPath: `/dashboards/${args.dashboardId}`,
         deepLink: buildDeepLink({
@@ -528,10 +552,16 @@ export default defineAction({
     );
     await syncToCollab(args.dashboardId, root as Record<string, unknown>);
 
+    const panelCount = countPanels(root as Record<string, unknown>);
     return {
       id: args.dashboardId,
       dashboardId: args.dashboardId,
       name: typeof root.name === "string" ? root.name : args.dashboardId,
+      // Proof-of-done: lead with verifiable state (op count + resulting panel
+      // count) so the agent/UI can confirm success without re-fetching.
+      panelCount,
+      appliedOps: details.length,
+      summary: `Applied ${details.length} op(s); dashboard "${args.dashboardId}" now has ${panelCount} panel(s).`,
       config: root,
       urlPath: `/dashboards/${args.dashboardId}`,
       deepLink: buildDeepLink({
@@ -541,7 +571,8 @@ export default defineAction({
       }),
       message:
         `Dashboard "${args.dashboardId}" updated. ` +
-        `Applied ${details.length} op(s): ${details.join("; ")}.`,
+        `Applied ${details.length} op(s): ${details.join("; ")}. ` +
+        `Now ${panelCount} panel(s).`,
     };
   },
   link: ({ result }) => {

@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { callAction } from "@agent-native/core/client";
+import { callAction, useT } from "@agent-native/core/client";
 import {
   IconSearch,
   IconX,
   IconUserPlus,
   IconLoader2,
 } from "@tabler/icons-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+
 import {
   Dialog,
   DialogContent,
@@ -40,6 +41,7 @@ export function PeopleSearchDialog({
   open,
   onOpenChange,
 }: PeopleSearchDialogProps) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [scopeRequired, setScopeRequired] = useState(false);
@@ -153,7 +155,9 @@ export function PeopleSearchDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[440px] gap-0 p-0">
         <DialogHeader className="px-4 pt-4 pb-0">
-          <DialogTitle className="text-base">People</DialogTitle>
+          <DialogTitle className="text-base">
+            {t("eventForm.people")}
+          </DialogTitle>
         </DialogHeader>
 
         {/* Search input */}
@@ -164,7 +168,7 @@ export function PeopleSearchDialog({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search by name or type an email..."
+            placeholder={t("eventForm.searchPeoplePlaceholder")}
             className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             autoFocus
           />
@@ -214,7 +218,9 @@ export function PeopleSearchDialog({
                     </div>
                   </div>
                   {alreadyAdded && (
-                    <span className="text-xs text-muted-foreground">Added</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t("eventForm.added")}
+                    </span>
                   )}
                 </button>
               );
@@ -225,8 +231,7 @@ export function PeopleSearchDialog({
         {/* Scope hint */}
         {scopeRequired && (
           <div className="px-4 py-2 text-xs text-muted-foreground">
-            Directory search is limited. Type a full email address and press
-            Enter to add directly.
+            {t("eventForm.directorySearchLimited")}
           </div>
         )}
 
@@ -236,11 +241,11 @@ export function PeopleSearchDialog({
           !searching &&
           EMAIL_REGEX.test(query.trim()) && (
             <div className="border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
-              Press{" "}
+              {t("eventForm.press")}{" "}
               <kbd className="rounded border border-border bg-muted px-1 font-mono">
                 Enter
               </kbd>{" "}
-              to add{" "}
+              {t("eventForm.toAdd")}{" "}
               <span className="font-medium text-foreground">
                 {query.trim()}
               </span>
@@ -251,7 +256,7 @@ export function PeopleSearchDialog({
         {overlayPeople.length > 0 && (
           <div className="border-t border-border px-4 py-3">
             <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              Showing calendars
+              {t("eventForm.showingCalendars")}
             </p>
             <div className="space-y-1.5">
               {overlayPeople.map((person) => (

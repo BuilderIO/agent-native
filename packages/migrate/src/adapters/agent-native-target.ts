@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+
 import type {
   MigrationContext,
   TargetAdapter,
@@ -174,20 +175,20 @@ function packageJson(): string {
         h3: "^2.0.1-rc.20",
         isbot: "^5",
         "next-themes": "^0.4.6",
-        react: "^19.2.5",
-        "react-dom": "^19.2.5",
-        "react-router": "^7.13.1",
+        react: "^19.2.7",
+        "react-dom": "^19.2.7",
+        "react-router": "^8.0.1",
         zod: "^4.3.6",
       },
       devDependencies: {
-        "@react-router/dev": "^7.13.1",
-        "@react-router/fs-routes": "^7.13.1",
+        "@react-router/dev": "^8.0.1",
+        "@react-router/fs-routes": "^8.0.1",
         "@tailwindcss/vite": "^4.2.4",
         "@types/node": "^25.8.0",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
         typescript: "^6.0.3",
-        vite: "8.0.3",
+        vite: "8.1.0",
       },
     },
     null,
@@ -225,18 +226,22 @@ export default {
   appDirectory: "app",
   ssr: true,
   routeDiscovery: { mode: "initial" },
-  future: { v8_viteEnvironmentApi: true },
 } satisfies Config;
 `;
 }
 
 function viteConfig(): string {
   return `import { reactRouter } from "@react-router/dev/vite";
-import { defineConfig } from "@agent-native/core/vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [reactRouter()],
-  ssrStubs: ["shiki"],
+  plugins: [
+    reactRouter(),
+    agentNative({
+      ssrStubs: ["shiki"],
+    }),
+  ],
 });
 `;
 }
@@ -335,7 +340,7 @@ export default flatRoutes() satisfies RouteConfig;
 }
 
 function entryServerTsx(): string {
-  return `import type { AppLoadContext, EntryContext } from "react-router";
+  return `import type { EntryContext, RouterContextProvider } from "react-router";
 import { ServerRouter } from "react-router";
 import ReactDOMServer from "react-dom/server.browser";
 const { renderToReadableStream } = ReactDOMServer;
@@ -349,7 +354,7 @@ export default async function handleRequest(
   responseStatusCode: number,
   responseHeaders: Headers,
   routerContext: EntryContext,
-  _loadContext: AppLoadContext,
+  _loadContext: RouterContextProvider,
 ) {
   if (request.method.toUpperCase() === "HEAD") {
     return new Response(null, {

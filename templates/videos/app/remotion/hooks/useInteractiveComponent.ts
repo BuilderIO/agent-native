@@ -6,20 +6,22 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { useCurrentFrame } from "remotion";
-import { useHoverAnimationSmooth } from "./useHoverAnimationSmooth";
-import { useRegisterInteractiveElement } from "./useRegisterInteractiveElement";
-import { useCursorTypeFromHover } from "./useCursorTypeFromHover";
+
 import { useCurrentElement } from "@/contexts/CurrentElementContext";
+import { getEasingFunction, type EasingKey } from "@/remotion/easingFunctions";
 import {
   getCursorTypeForElement,
   type InteractiveElementType,
 } from "@/remotion/utils/interactiveElements";
-import type { CursorFrame } from "./useCursorHistory";
-import type { HoverZone } from "./useHoverAnimation";
+import type { AnimationTrack } from "@/types";
 import type { ElementAnimation } from "@/types/elementAnimations";
 import { getAnimationValue } from "@/types/elementAnimations";
-import { getEasingFunction, type EasingKey } from "@/remotion/easingFunctions";
-import type { AnimationTrack } from "@/types";
+
+import type { CursorFrame } from "./useCursorHistory";
+import { useCursorTypeFromHover } from "./useCursorTypeFromHover";
+import type { HoverZone } from "./useHoverAnimation";
+import { useHoverAnimationSmooth } from "./useHoverAnimationSmooth";
+import { useRegisterInteractiveElement } from "./useRegisterInteractiveElement";
 
 /**
  * Shorthand for defining animation properties

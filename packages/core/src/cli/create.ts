@@ -1,19 +1,20 @@
+import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
-import { execFileSync } from "child_process";
-import { setupAgentSymlinks } from "./setup-agents.js";
-import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
+
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
+import { setupAgentSymlinks } from "./setup-agents.js";
 import {
   coreTemplates,
   getTemplate,
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
+import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,10 +23,23 @@ const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
-  "@react-router/dev": "7.16.0",
-  "@react-router/fs-routes": "7.16.0",
-  "react-router": "7.16.0",
+  "@react-router/dev": "8.0.1",
+  "@react-router/fs-routes": "8.0.1",
+  "react-router": "8.0.1",
 };
+const SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES = [
+  '"@sentry/browser"',
+  '"@sentry/browser-utils"',
+  '"@sentry/conventions"',
+  '"@sentry/core"',
+  '"@sentry/feedback"',
+  '"@sentry/node"',
+  '"@sentry/node-core"',
+  '"@sentry/opentelemetry"',
+  '"@sentry/replay"',
+  '"@sentry/replay-canvas"',
+  '"@sentry/server-utils"',
+];
 const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
@@ -1053,7 +1067,12 @@ function postProcessStandalone(
         '"@assistant-ui/tap"': '"^0.5.14"',
       };
     }
-    const updated = mergeWorkspaceYamlSections(existing, sections);
+    let updated = mergeWorkspaceYamlSections(existing, sections);
+    updated = mergeWorkspaceYamlListItems(
+      updated,
+      "minimumReleaseAgeExclude",
+      SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES,
+    );
     if (updated !== existing) {
       fs.writeFileSync(wsPath, updated);
     }
@@ -1360,6 +1379,31 @@ function mergeWorkspaceYamlSections(
           (result ? "\n" : "") +
           `\n${section}:\n  ${key}: ${value}\n`;
       }
+    }
+  }
+  return result;
+}
+
+function mergeWorkspaceYamlListItems(
+  yaml: string,
+  section: string,
+  items: string[],
+): string {
+  let result = yaml;
+  for (const item of items) {
+    const rendered = `  - ${item}`;
+    if (result.includes(rendered)) continue;
+    const sectionHeader = new RegExp(`^${section}:\\s*$`, "m");
+    const match = sectionHeader.exec(result);
+    if (match) {
+      const insertAt = match.index + match[0].length;
+      result =
+        result.slice(0, insertAt) + `\n${rendered}` + result.slice(insertAt);
+    } else {
+      result =
+        result.trimEnd() +
+        (result ? "\n" : "") +
+        `\n${section}:\n${rendered}\n`;
     }
   }
   return result;
@@ -1893,7 +1937,7 @@ function copyDir(src: string, dest: string, root?: string): void {
 
 function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
   if (
-    name === "settings.json" &&
+    /^settings(?:\..*)?\.json$/.test(name) &&
     srcPath?.split(path.sep).includes(".claude")
   ) {
     return true;

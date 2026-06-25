@@ -1,0 +1,183 @@
+---
+title: "데이터베이스"
+description: "이식 가능한 SQL 데이터베이스를 에이전트 기반 앱에 연결하고 공급자에 구애받지 않는 Drizzle 코드를 작성하세요."
+---
+
+# 데이터베이스
+
+에이전트 기본 앱은 [Drizzle ORM](https://orm.drizzle.team)를 사용하고 휴대용 SQL 백엔드를 지원합니다. 로컬 개발 이상의 작업을 위해서는 `DATABASE_URL`를 설정하여 영구 SQL 데이터베이스(Postgres, libSQL/Turso 또는 다른 Drizzle 호환 백엔드)를 연결하세요. 해당 변수가 설정 해제되면 앱은 구성이 0인 로컬 SQLite 파일로 대체되므로 즉시 개발을 시작할 수 있습니다.
+
+```an-diagram title="하나의 스키마, 많은 백엔드" summary="앱 코드는 프레임워크의 방언에 구애받지 않는 도우미를 사용합니다. 방언은 런타임 시 DATABASE_URL에서 자동 감지됩니다. unset은 로컬 SQLite 파일을 의미합니다."
+{
+  "html": "<div class=\"diagram-db\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">@agent-native/core/db/schema</span><small class=\"diagram-muted\">table · text · integer · real · now</small><small class=\"diagram-muted\">+ Drizzle query DSL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>DATABASE_URL<br><small class=\"diagram-muted\">dialect auto-detected</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Postgres<br><small class=\"diagram-muted\">Neon · Supabase</small></span><span class=\"diagram-pill\">libSQL / Turso</span><span class=\"diagram-pill\">Cloudflare D1</span><span class=\"diagram-pill warn\">SQLite file<br><small class=\"diagram-muted\">unset = local dev only</small></span></div></div>",
+  "css": ".diagram-db{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-db .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-db .diagram-arrow{font-size:22px;line-height:1}.diagram-db .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
+}
+```
+
+## 로컬 기본값: SQLite 파일 {#default-sqlite}
+
+`DATABASE_URL`가 설정되지 않은 경우 앱은 `data/app.db`에 SQLite 데이터베이스를 생성합니다. 이는 로컬 개발을 위한 구성이 필요 없는 기본값입니다. 설정이 필요하지 않습니다. 이는 개발용으로만 사용됩니다. 프로덕션의 경우 `DATABASE_URL`를 영구 SQL 데이터베이스로 설정하세요.
+
+배포된 앱에 대해 해당 로컬 파일에 의존하지 마십시오. 컨테이너, 서버리스 기능 및 미리 보기 환경은 파일 시스템을 재설정할 수 있습니다. 즉, 다시 시작하는 사이에 로컬 SQLite 파일이 사라질 수 있습니다. 프로덕션 사용 전에 `DATABASE_URL`를 영구 호스팅 데이터베이스로 설정하세요.
+
+## 프로덕션 데이터베이스 연결 {#production}
+
+호스팅된 데이터베이스를 연결하려면 `.env` 파일 또는 배포 제공자 환경에서 `DATABASE_URL`를 설정하세요. Turso는 필요하지 않습니다. 배포에 맞는 Drizzle 호환 SQL 백엔드를 사용하세요.
+
+```bash
+# Neon용 Postgres 데이터베이스
+DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/mydb?sslmode=require
+
+# Supabase용 Postgres 데이터베이스
+DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+
+# 일반 Postgres 데이터베이스
+DATABASE_URL=postgres://user:pass@localhost:5432/mydb
+
+# Turso (libSQL)
+DATABASE_URL=libsql://my-db-org.turso.io
+DATABASE_AUTH_TOKEN=your-token
+```
+
+프레임워크는 URL에서 방언을 자동 감지하고 이에 따라 Drizzle를 구성합니다. 내장 어댑터는 Postgres URL, libSQL/Turso URL, SQLite 파일 URL 및 Cloudflare D1 바인딩을 포함합니다. 일반적인 프로덕션 선택에는 Neon, Supabase, Turso/libSQL, 일반 Postgres, 내구성 있는 SQLite 및 가능한 경우 Builder.io 관리 환경이 포함됩니다.
+
+## Builder.io 관리형 데이터베이스 {#builder-managed}
+
+_계획됨(아직 사용할 수 없음):_ Builder.io에 연결되면 앱은 연결 문자열이 필요 없이 자동으로 프로비저닝된 관리형 데이터베이스를 사용할 수 있습니다.
+
+## DB 클라이언트가 사는 곳 {#db-client}
+
+각 템플릿은 `@agent-native/core/db`에서 `createGetDb(schema)`를 호출하여 게으른 싱글톤 Drizzle 클라이언트를 생성합니다. 정식 위치는 `server/db/index.ts`입니다:
+
+```ts
+// server/db/index.ts
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+```
+
+`@agent-native/core`에서 직접 가져오는 대신 이 템플릿 로컬 경로(경로의 `../../server/db/index.js`, actions의 `../server/db/index.js`)에서 `getDb`를 가져옵니다. 핵심 내보내기는 형식화되지 않은 일반 인스턴스를 반환합니다. 템플릿의 `getDb()`에는 스키마 유형이 포함됩니다. actions 및 사용자 정의 경로가 각각 이를 가져오는 방법은 [Server](/docs/server#request-context)를 참조하세요.
+
+## 방언에 구애받지 않는 스키마 및 쿼리 {#schema}
+
+앱 데이터베이스 코드는 Drizzle의 스키마를 사용하고 DSL를 쿼리하여 공급자 간에 실행할 수 있어야 합니다. 제품 코드에 SQLite 전용 구문(`INSERT OR REPLACE`, `AUTOINCREMENT`, `datetime('now')`) 또는 Postgres 전용 구문을 작성하지 마세요.
+
+`@agent-native/core/db/schema`의 프레임워크 스키마 도우미를 사용하세요:
+
+```ts
+import { table, text, integer, real, now } from "@agent-native/core/db/schema";
+
+export const tasks = table("tasks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  priority: integer("priority").notNull().default(0),
+  weight: real("weight"),
+  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+```
+
+| 도우미    | 목적                                                          |
+| --------- | ------------------------------------------------------------- |
+| `table`   | 테이블 정의 — `pgTable` 또는 `sqliteTable`에 위임             |
+| `text`    | 텍스트 열, `{ enum: [...] }` 지원                             |
+| `integer` | 정수 열, `{ mode: "boolean" }`는 Postgres 부울에 매핑됩니다.  |
+| `real`    | 부동 열 — SQLite의 `real`, Postgres의 `double precision`      |
+| `now`     | `.default(now())`에 대한 방언에 구애받지 않는 현재 타임스탬프 |
+
+위의 `tasks` 테이블은 모든 백엔드에서 동일한 열을 정의합니다.
+
+```an-schema title="작업 테이블" summary="Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
+{
+  "entities": [
+    {
+      "id": "tasks",
+      "name": "tasks",
+      "note": "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true, "nullable": false },
+        { "name": "title", "type": "text", "nullable": false },
+        { "name": "priority", "type": "integer", "nullable": false, "note": "default 0" },
+        { "name": "weight", "type": "real", "nullable": true },
+        { "name": "done", "type": "integer (boolean mode)", "nullable": false, "note": "default false; maps to a Postgres boolean" },
+        { "name": "owner_email", "type": "text", "nullable": false, "note": "enables data scoping" },
+        { "name": "created_at", "type": "text", "nullable": false, "note": "default now()" }
+      ]
+    }
+  ]
+}
+```
+
+`drizzle-orm/sqlite-core` 또는 `drizzle-orm/pg-core`에서 직접 가져오지 마십시오. 항상 `@agent-native/core/db/schema`를 사용하세요.
+
+사용자 대상 데이터를 저장하는 테이블에는 `owner_email` 열이 포함되어야 프레임워크의 SQL 수준 범위 지정이 인증된 사용자에 대한 행을 필터링할 수 있습니다. [Security](/docs/security#data-scoping)를 참조하세요. 다른 사용자 또는 조직과의 공유도 지원하는 테이블은 대신 `...ownableColumns()`를 확산해야 하며, 이는 한 번의 호출로 `owner_email`, `org_id` 및 `visibility`를 추가합니다. [Sharing](/docs/sharing#building)를 참조하세요.
+
+읽기 및 쓰기의 경우 Drizzle의 쿼리 빌더와 `drizzle-orm`의 이식 가능한 연산자를 사용하세요.
+
+```ts
+import { and, desc, eq } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
+import { tasks } from "../server/db/schema.js";
+
+const db = getDb();
+
+const openTasks = await db
+  .select()
+  .from(tasks)
+  .where(and(eq(tasks.ownerEmail, userEmail), eq(tasks.done, false)))
+  .orderBy(desc(tasks.createdAt));
+
+await db.update(tasks).set({ done: true }).where(eq(tasks.id, taskId));
+```
+
+## 원시 SQL 탈출 해치 {#raw-sql}
+
+원시 SQL는 기본 앱 코드 API가 아닙니다. 추가 마이그레이션, 상태 확인, Drizzle가 표현할 수 없는 신중하게 검토된 고급 쿼리 또는 일회성 유지 관리에만 사용하세요. 매개변수화하고 방언에 구애받지 않도록 유지하세요. Drizzle 스키마의 타임스탬프에는 `.default(now())`를 선호합니다. SQL 마이그레이션의 경우 `runMigrations()`를 사용하여 프레임워크 지원 호환성 재작성 및 방언 제어 명령문이 중앙 집중화되도록 하세요.
+
+Drizzle 쿼리 외부에 원시 SQL가 꼭 필요한 경우:
+
+- `getDbExec()` — `?` 매개변수를 Postgres의 `$1`로 자동 변환합니다.
+- `isPostgres()` — 런타임 언어 검사
+- `intType()` — 현재 방언에 대한 올바른 정수 유형을 반환합니다.
+
+## 이전 및 스키마 업데이트 {#migrations}
+
+호스팅된 환경에서는 여러 배포 미리 보기, 분기 및 프로덕션 서버가 동일한 기본 데이터베이스를 공유합니다. 따라서 데이터베이스 스키마 업데이트는 데이터 손실 및 서비스 중단을 방지하기 위해 엄격한 제약 조건을 따라야 합니다.
+
+### "파괴적인 변경 제로" 규칙
+
+모든 데이터베이스 스키마 업데이트는 **엄격히 추가**되어야 합니다.
+
+- **테이블이나 열을 삭제하지 마세요.**
+- **테이블이나 열의 이름을 바꾸지 마세요.** 열이나 테이블의 이름을 바꾸는 것은 Drizzle에 대한 드롭 + 생성 시퀀스처럼 보이며, 이는 기존 생산 데이터를 영구적으로 삭제합니다.
+- 열의 이름을 바꾸거나 교체해야 하는 경우 이전 열 옆에 새 열을 추가하고 두 항목 모두에서 읽고 쓸 수 있도록 애플리케이션 코드를 업데이트하고 데이터를 마이그레이션한 다음 활성 배포에서 참조하지 않는 경우에만 이후 릴리스에서 이전 열을 폐기하세요.
+
+> [!WARNING]
+> **프로덕션 데이터베이스에 대해 `drizzle-kit push`를 실행하지 마십시오.**
+> 템플릿 데이터베이스 스키마는 앱별 도메인 테이블만 정의합니다. 중앙 프레임워크 테이블(`user`, `session`, `application_state` 등)을 정의하지 않습니다. 프로덕션에 대해 `drizzle-kit push`를 실행하는 경우 Drizzle는 이러한 프레임워크 테이블을 "스키마에 없음"으로 감지하고 삭제를 시도하여 즉각적인 시스템 전체 오류 및 데이터 손실을 초래합니다.
+
+### 안전한 마이그레이션 경로
+
+직접 푸시하는 대신 애플리케이션 시작 시 실행되는 SQL 마이그레이션을 통해 스키마 변경 사항을 적용해야 합니다. 프레임워크의 `runMigrations()` 도우미를 호출하여 서버 플러그인(예: `server/plugins/db.ts`) 내에서 추가 마이그레이션을 구현합니다.
+
+```an-annotated-code title="추가 마이그레이션 플러그인"
+{
+  "filename": "server/plugins/db.ts",
+  "language": "ts",
+  "code": "import { runMigrations } from \"@agent-native/core/db\";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: \"my_app_migrations\" },\n);",
+  "annotations": [
+    { "lines": "6-7", "label": "첨가제만", "note": "`ADD COLUMN IF NOT EXISTS`은 다시 실행해도 안전하며 데이터를 삭제하지 않습니다. 이름 바꾸기는 Drizzle에 drop+create와 유사하므로 대신 추가 후 마이그레이션하세요." },
+    { "lines": "13-16", "label": "방언 게이팅", "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features." },
+    { "lines": "19", "label": "앱별 버전 표", "note": "각 앱은 자체 적용된 버전을 추적하므로 마이그레이션은 다시 시작 및 인스턴스 전반에 걸쳐 멱등성을 갖습니다." }
+  ]
+}
+```
+
+## 환경변수 {#environment-variables}
+
+| 변수                  | 목적                                                                    |
+| --------------------- | ----------------------------------------------------------------------- |
+| `DATABASE_URL`        | 영구 SQL 연결 문자열(설정되지 않음 = 로컬 SQLite, 로컬 개발에만 지속됨) |
+| `DATABASE_AUTH_TOKEN` | Turso/libSQL와 같이 별도의 토큰이 필요한 공급자를 위한 인증 토큰        |

@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
+
 import { appBasePath } from "./api-path.js";
 import {
   consumeAgentChatHomeHandoff,
@@ -21,6 +22,12 @@ export interface UseAgentChatHomeHandoffLinksOptions {
   storageKey?: string | null;
   /** Router-local path for the full-page chat route. Defaults to "/". */
   chatPath?: string;
+  /**
+   * Matches every router-local pathname owned by the full-page chat surface.
+   * Defaults to an exact match against `chatPath`. Pass this to cover deep
+   * links such as `/chat/:threadId`.
+   */
+  isChatPath?: (pathname: string) => boolean;
   /** Disable link interception without changing hook call order. */
   enabled?: boolean;
 }
@@ -120,13 +127,19 @@ export function useAgentChatHomeHandoff({
 export function useAgentChatHomeHandoffLinks({
   storageKey,
   chatPath = "/",
+  isChatPath,
   enabled = true,
 }: UseAgentChatHomeHandoffLinksOptions): void {
   const location = useLocation();
   const navigate = useNavigate();
+  const matchesChatPathRef = useRef<(pathname: string) => boolean>(() => false);
+  matchesChatPathRef.current =
+    isChatPath ?? ((pathname: string) => pathname === chatPath);
 
   useEffect(() => {
-    if (!enabled || stripBasePath(location.pathname) !== chatPath) return;
+    const matchesChatPath = (pathname: string) =>
+      matchesChatPathRef.current(pathname);
+    if (!enabled || !matchesChatPath(stripBasePath(location.pathname))) return;
     if (typeof document === "undefined") return;
 
     function handleClick(event: MouseEvent) {
@@ -141,7 +154,7 @@ export function useAgentChatHomeHandoffLinks({
       const pathname = path ? pathnameFromLocalPath(path) : "";
       if (
         !path ||
-        pathname === chatPath ||
+        matchesChatPath(pathname) ||
         isFrameworkOrApiPath(pathname) ||
         isStaticAssetPath(pathname)
       ) {
@@ -155,5 +168,5 @@ export function useAgentChatHomeHandoffLinks({
 
     document.addEventListener("click", handleClick, true);
     return () => document.removeEventListener("click", handleClick, true);
-  }, [chatPath, enabled, location.pathname, navigate, storageKey]);
+  }, [enabled, location.pathname, navigate, storageKey]);
 }

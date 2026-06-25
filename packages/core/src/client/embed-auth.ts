@@ -262,7 +262,33 @@ export function _resetEmbedAuthForTests(): void {
   embedAuthFailure = null;
 }
 
+/**
+ * True when this document runs in an opaque-origin (`origin === "null"`)
+ * browsing context — e.g. a `sandbox="allow-scripts"` iframe without
+ * `allow-same-origin`, which is how MCP App embeds always load (the outer host
+ * iframe's sandbox propagates to nested frames).
+ *
+ * It matters for auth: the embed session cookie is keyed to the real app origin
+ * and is NOT delivered to an opaque context, so a full document reload here
+ * arrives with neither cookie nor — once stripped — URL token, and the server
+ * auth guard serves the sign-in page. In that case the URL token is the only
+ * credential that survives a reload, so it must stay in the URL.
+ */
+function isOpaqueOriginFrame(win: Window): boolean {
+  try {
+    return win.location.origin === "null";
+  } catch {
+    // A thrown access is itself a signal of an opaque/cross-origin context.
+    return true;
+  }
+}
+
 function stripTokenFromUrl(win: Window): void {
+  // Keep the token in the URL for opaque-origin frames — see
+  // isOpaqueOriginFrame. Stripping it there breaks re-auth on any document
+  // reload. Referrer-Policy is set to no-referrer on embed responses, so the
+  // retained token does not leak via the Referer header.
+  if (isOpaqueOriginFrame(win)) return;
   try {
     const url = currentUrl(win);
     if (!url) return;

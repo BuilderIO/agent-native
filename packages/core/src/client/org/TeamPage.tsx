@@ -1,4 +1,3 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
 import {
   IconBuilding,
   IconUserPlus,
@@ -20,6 +19,16 @@ import {
   IconPlus,
   IconAlertTriangle,
 } from "@tabler/icons-react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+
+import type { DomainMatchOrg } from "../../org/types.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import {
   useOrg,
   useOrgMembers,
@@ -38,13 +47,6 @@ import {
   type InviteRole,
   type SyncA2ASecretResult,
 } from "./hooks.js";
-import type { DomainMatchOrg } from "../../org/types.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
 
 export interface TeamPageProps {
   /**
@@ -86,6 +88,7 @@ function ErrorText({ error }: { error: unknown }) {
 }
 
 function PendingInvitationsCard() {
+  const t = useT();
   const { data: org } = useOrg();
   const acceptInvitation = useAcceptInvitation();
 
@@ -93,7 +96,7 @@ function PendingInvitationsCard() {
 
   return (
     <section className="rounded-lg border border-border bg-card p-4 space-y-3">
-      <h3 className="text-sm font-medium">Pending Invitations</h3>
+      <h3 className="text-sm font-medium">{t("org.pendingInvitations")}</h3>
       {org.pendingInvitations.map((inv) => (
         <div
           key={inv.id}
@@ -102,7 +105,7 @@ function PendingInvitationsCard() {
           <div>
             <div className="text-sm font-medium">{inv.orgName}</div>
             <div className="text-xs text-muted-foreground">
-              Invited by {inv.invitedBy}
+              {t("org.invitedByLabel", { name: inv.invitedBy })}
             </div>
           </div>
           <button
@@ -114,7 +117,7 @@ function PendingInvitationsCard() {
             {acceptInvitation.isPending ? (
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
-              "Accept"
+              t("org.accept")
             )}
           </button>
         </div>
@@ -125,16 +128,17 @@ function PendingInvitationsCard() {
 }
 
 function JoinByDomainCard({ matches }: { matches: DomainMatchOrg[] }) {
+  const t = useT();
   const joinByDomain = useJoinByDomain();
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   return (
     <section className="rounded-lg border border-border bg-card p-4 space-y-3">
-      <h3 className="text-sm font-medium">Join your team</h3>
+      <h3 className="text-sm font-medium">{t("org.joinYourTeam")}</h3>
       <p className="text-sm text-muted-foreground">
         {matches.length === 1
-          ? `An organization matching your email domain already exists. Join it to collaborate with your teammates.`
-          : `Organizations matching your email domain already exist. Join one to collaborate with your teammates.`}
+          ? t("org.joinDomainOne")
+          : t("org.joinDomainMany")}
       </p>
       <div className="space-y-2">
         {matches.map((m) => (
@@ -162,7 +166,7 @@ function JoinByDomainCard({ matches }: { matches: DomainMatchOrg[] }) {
               {joinByDomain.isPending && pendingId === m.orgId ? (
                 <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                "Join"
+                t("org.join")
               )}
             </button>
           </div>
@@ -174,15 +178,16 @@ function JoinByDomainCard({ matches }: { matches: DomainMatchOrg[] }) {
 }
 
 function CreateOrgCard({ description }: { description?: string }) {
+  const t = useT();
   const createOrg = useCreateOrg();
   const [name, setName] = useState("");
   const [showForm, setShowForm] = useState(false);
 
   return (
     <section className="rounded-lg border border-border bg-card p-4 space-y-3">
-      <h3 className="text-sm font-medium">Create an Organization</h3>
+      <h3 className="text-sm font-medium">{t("org.createOrgCardTitle")}</h3>
       <p className="text-sm text-muted-foreground">
-        {description || "Set up a team to collaborate with your colleagues."}
+        {description || t("org.createOrgCardDescription")}
       </p>
       {!showForm ? (
         <button
@@ -190,7 +195,7 @@ function CreateOrgCard({ description }: { description?: string }) {
           onClick={() => setShowForm(true)}
           className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
         >
-          Create organization
+          {t("org.createOrganization")}
         </button>
       ) : (
         <div className="space-y-2">
@@ -219,7 +224,7 @@ function CreateOrgCard({ description }: { description?: string }) {
               {createOrg.isPending ? (
                 <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                "Create"
+                t("org.create")
               )}
             </button>
             <button
@@ -230,7 +235,7 @@ function CreateOrgCard({ description }: { description?: string }) {
               }}
               className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
-              Cancel
+              {t("org.cancel")}
             </button>
           </div>
           <ErrorText error={createOrg.error} />
@@ -292,6 +297,7 @@ function OrgNameDisplay({ name, canEdit }: { name: string; canEdit: boolean }) {
 }
 
 function MembersCard() {
+  const t = useT();
   const { data: org } = useOrg();
   const { data: membersData, isLoading: isLoadingMembers } = useOrgMembers();
   const { data: invitationsData } = useOrgInvitations();
@@ -318,8 +324,8 @@ function MembersCard() {
           <div>
             <OrgNameDisplay name={org.orgName ?? ""} canEdit={isOwnerOrAdmin} />
             <div className="text-xs text-muted-foreground">
-              {members.length} member{members.length !== 1 ? "s" : ""} · You are{" "}
-              {org.role}
+              {t("org.memberCount", { count: members.length })} ·{" "}
+              {t("org.youAreRole", { role: org.role })}
             </div>
           </div>
         </div>
@@ -341,7 +347,7 @@ function MembersCard() {
 
       <div className="border-t border-border pt-3 space-y-1">
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-          Members
+          {t("org.members")}
         </div>
         {isLoadingMembers && members.length === 0 && (
           <>
@@ -432,6 +438,7 @@ function MemberRow({
   isCurrentUser: boolean;
   currentUserRole: string | null;
 }) {
+  const t = useT();
   const removeMember = useRemoveMember();
   const changeRole = useChangeMemberRole();
   const [editing, setEditing] = useState(false);
@@ -453,12 +460,12 @@ function MemberRow({
         <RoleIcon role={role} />
         {isCurrentUser && (
           <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            You
+            {t("org.you")}
           </span>
         )}
         {role === "admin" && (
           <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-blue-600">
-            Admin
+            {t("org.admin")}
           </span>
         )}
       </div>
@@ -483,8 +490,8 @@ function MemberRow({
               disabled={changeRole.isPending}
               className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]"
             >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
+              <option value="member">{t("org.member")}</option>
+              <option value="admin">{t("org.admin")}</option>
             </select>
           ) : (
             <Tooltip>
@@ -497,7 +504,7 @@ function MemberRow({
                   <IconPencil className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Change role</TooltipContent>
+              <TooltipContent>{t("org.changeRole")}</TooltipContent>
             </Tooltip>
           )}
           {confirmingRemove ? (
@@ -507,7 +514,7 @@ function MemberRow({
                 onClick={() => setConfirmingRemove(false)}
                 className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
               >
-                Cancel
+                {t("org.cancel")}
               </button>
               <button
                 type="button"
@@ -519,7 +526,7 @@ function MemberRow({
                 }
                 className="rounded bg-red-500 px-1.5 py-0.5 text-[11px] text-white hover:bg-red-600 disabled:opacity-50"
               >
-                Remove
+                {t("org.remove")}
               </button>
             </div>
           ) : (
@@ -534,7 +541,7 @@ function MemberRow({
                   <IconTrash className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Remove member</TooltipContent>
+              <TooltipContent>{t("org.removeMember")}</TooltipContent>
             </Tooltip>
           )}
         </div>
@@ -866,7 +873,7 @@ function BulkInviteForm({
             <ul className="space-y-0.5 text-[11px] text-red-500">
               {resultBanner.failed.map((f) => (
                 <li key={f.email}>
-                  <IconAlertTriangle className="inline h-3 w-3 -mt-0.5 mr-1" />
+                  <IconAlertTriangle className="inline h-3 w-3 -mt-0.5 me-1" />
                   {f.email}: {f.error}
                 </li>
               ))}
@@ -1176,7 +1183,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             {syncResult.failed > 0 ? ` (${syncResult.failed} failed)` : ""}.
           </p>
           {syncResult.failed > 0 && (
-            <ul className="text-[11px] text-red-500 list-disc pl-5 space-y-0.5">
+            <ul className="text-[11px] text-red-500 list-disc ps-5 space-y-0.5">
               {syncResult.results
                 .filter((r) => !r.ok)
                 .map((r) => (
@@ -1252,19 +1259,24 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
  */
 export function TeamPage({
   layout,
-  title = "Team",
+  title,
   createOrgDescription,
   className,
 }: TeamPageProps) {
+  const t = useT();
   const { data: org, isLoading } = useOrg();
 
   const content = (
     <div className={`space-y-6 max-w-2xl ${className ?? ""}`}>
-      <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
+      <h2 className="text-2xl font-bold tracking-tight">
+        {title ?? t("org.team")}
+      </h2>
 
       {isLoading && (
         <section className="rounded-lg border border-border bg-card p-6">
-          <div className="text-sm text-muted-foreground">Loading…</div>
+          <div className="text-sm text-muted-foreground">
+            {t("org.loading")}
+          </div>
         </section>
       )}
 

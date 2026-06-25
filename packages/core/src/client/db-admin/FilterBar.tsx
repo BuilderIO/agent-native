@@ -1,16 +1,17 @@
-import { useState } from "react";
 import { IconFilter, IconPlus, IconX } from "@tabler/icons-react";
-import { cn } from "../utils.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
+import { useState } from "react";
+
 import type {
   DbAdminColumn,
   DbAdminFilter,
   DbAdminFilterOp,
 } from "../../db-admin/types.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import { cn } from "../utils.js";
 
 const OPS: { value: DbAdminFilterOp; label: string; needsValue: boolean }[] = [
   { value: "eq", label: "=", needsValue: true },

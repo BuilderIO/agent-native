@@ -29,14 +29,14 @@ import {
   resolveCredential,
   type CredentialContext,
 } from "@agent-native/core/credentials";
+import { getOrgContext } from "@agent-native/core/org";
 import {
   getSession,
   getCredentialContext as getCredentialContextFromRequest,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import { getOrgContext } from "@agent-native/core/org";
-import { setResponseStatus, type H3Event } from "h3";
 import type { MissingKeyResponse } from "@agent-native/core/server";
+import { setResponseStatus, type H3Event } from "h3";
 
 /**
  * Build a CredentialContext from the current H3 event's session. Throws a

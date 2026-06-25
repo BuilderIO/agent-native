@@ -14,8 +14,8 @@
  * dialog automatically — most templates never touch these directly.
  */
 
-import React, { useEffect, useMemo, useState } from "react";
 import { IconX, IconHistory } from "@tabler/icons-react";
+import React, { useEffect, useMemo, useState } from "react";
 
 import { parseChangelog, type ChangelogEntry } from "../../changelog/parse.js";
 import {
@@ -24,16 +24,17 @@ import {
   useMarkdownReady,
   markdownUrlTransform,
 } from "../chat/markdown-renderer.js";
+import { DEFAULT_LOCALE, useOptionalLocale, type LocaleCode } from "../i18n.js";
 import { cn } from "../utils.js";
 
 // ─── Date formatting ──────────────────────────────────────────────────────────
 
-function formatEntryHeading(entry: ChangelogEntry): string {
+function formatEntryHeading(entry: ChangelogEntry, locale: LocaleCode): string {
   if (entry.date) {
     // Parse as a plain calendar date (avoid TZ shifting YYYY-MM-DD back a day).
     const [y, m, d] = entry.date.split("-").map(Number);
     if (y && m && d) {
-      const formatted = new Date(y, m - 1, d).toLocaleDateString(undefined, {
+      const formatted = new Date(y, m - 1, d).toLocaleDateString(locale, {
         year: "numeric",
         month: "long",
         day: "numeric",
@@ -170,6 +171,8 @@ function ChangelogEntries({
   entries: ChangelogEntry[];
   emptyText: string;
 }) {
+  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
+
   if (entries.length === 0) {
     return <p className="text-sm text-muted-foreground">{emptyText}</p>;
   }
@@ -178,7 +181,7 @@ function ChangelogEntries({
       {entries.map((entry) => (
         <section key={entry.id}>
           <h4 className="mb-2 text-sm font-semibold text-foreground">
-            {formatEntryHeading(entry)}
+            {formatEntryHeading(entry, locale)}
           </h4>
           <ChangelogBody markdown={entry.body} />
         </section>
@@ -196,6 +199,8 @@ export interface ChangelogDialogProps {
   markdown: string;
   /** Dialog heading. Default: "What's new". */
   title?: string;
+  closeLabel?: string;
+  emptyText?: string;
 }
 
 export function ChangelogDialog({
@@ -203,6 +208,8 @@ export function ChangelogDialog({
   onOpenChange,
   markdown,
   title = "What's new",
+  closeLabel = "Close",
+  emptyText = "No updates have been published yet.",
 }: ChangelogDialogProps) {
   const entries = useMemo(() => parseChangelog(markdown), [markdown]);
 
@@ -241,17 +248,14 @@ export function ChangelogDialog({
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            aria-label="Close"
+            aria-label={closeLabel}
             className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
           >
             <IconX className="h-4 w-4" />
           </button>
         </div>
         <div className="overflow-y-auto px-5 py-4">
-          <ChangelogEntries
-            entries={entries}
-            emptyText="No updates have been published yet."
-          />
+          <ChangelogEntries entries={entries} emptyText={emptyText} />
         </div>
       </div>
     </div>
@@ -267,6 +271,9 @@ export interface ChangelogSettingsCardProps {
   limit?: number;
   /** Card heading. Default: "What's new". */
   title?: string;
+  closeLabel?: string;
+  emptyText?: string;
+  viewAllLabel?: string;
   className?: string;
 }
 
@@ -274,6 +281,9 @@ export function ChangelogSettingsCard({
   markdown,
   limit = 2,
   title = "What's new",
+  closeLabel = "Close",
+  emptyText = "No updates yet.",
+  viewAllLabel = "View all updates",
   className,
 }: ChangelogSettingsCardProps) {
   const entries = useMemo(() => parseChangelog(markdown), [markdown]);
@@ -296,14 +306,14 @@ export function ChangelogSettingsCard({
         <h3 className="text-sm font-semibold">{title}</h3>
       </div>
       <div className="px-5 py-4">
-        <ChangelogEntries entries={shown} emptyText="No updates yet." />
+        <ChangelogEntries entries={shown} emptyText={emptyText} />
         {hasMore && (
           <button
             type="button"
             onClick={() => setDialogOpen(true)}
             className="mt-4 text-sm font-medium text-foreground underline underline-offset-2"
           >
-            View all updates
+            {viewAllLabel}
           </button>
         )}
       </div>
@@ -312,6 +322,8 @@ export function ChangelogSettingsCard({
         onOpenChange={setDialogOpen}
         markdown={markdown}
         title={title}
+        closeLabel={closeLabel}
+        emptyText={emptyText}
       />
     </div>
   );

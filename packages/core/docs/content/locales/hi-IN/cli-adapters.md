@@ -1,0 +1,129 @@
+---
+title: "CLI एडाप्टर"
+description: "एजेंट को एक मानक एडाप्टर इंटरफ़ेस के माध्यम से किसी भी CLI टूल (gh, ffmpeg, स्ट्राइप) तक संरचित पहुंच प्रदान करें - एडेप्टर गाइड में शामिल दो एडाप्टर सीमों में से एक।"
+---
+
+# CLI एडाप्टर
+
+> **यह कहां फिट बैठता है:** CLI एडेप्टर दो एडेप्टर सीमों में से एक हैं
+> ढांचा। विहित मार्गदर्शिका [Adapters](/docs/sandbox-adapters) है, जो
+> इस सीम और `run-code` सैंडबॉक्स सीम दोनों को कवर करता है - जिसमें साझा भी शामिल है
+> किनारा/सर्वर रहित बाधा। यह पृष्ठ CLI पक्ष के लिए त्वरित संदर्भ है।
+
+एक CLI एडाप्टर एक एकल कमांड-लाइन टूल (`gh`, `ffmpeg`, `stripe`, `aws`) को लपेटता है ताकि एजेंट इसे खोज सके, जांच सके कि यह इंस्टॉल है या नहीं, और इसे लगातार stdout/stderr/exit-code परिणाम के साथ चला सकता है। इस सीम के बिना, प्रत्येक स्क्रिप्ट CLI को इनवॉइस करने और उसके आउटपुट को पार्स करने के तरीके को फिर से खोजती है।
+
+```an-diagram title="CLI एडॉप्टर → रजिस्ट्री → एक्शन सतह" summary="ShellCliAdapter एक बाइनरी लपेटता है; CliRegistry खोज के लिए एडेप्टर एकत्र करती है; defineAction एजेंट + यूआई एक्शन सतह पर एक कॉल को उजागर करता है।"
+{
+  "html": "<div class=\"diagram-cli\"><div class=\"diagram-node\" data-rough>gh · ffmpeg · stripe<br><small class=\"diagram-muted\">command-line tools</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>ShellCliAdapter<br><small class=\"diagram-muted\">isAvailable · execute</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>CliRegistry<br><small class=\"diagram-muted\">describe() for discovery</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">defineAction</div></div>",
+  "css": ".diagram-cli{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-cli .diagram-arrow{font-size:22px;line-height:1}.diagram-cli .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## इंटरफ़ेस {#the-interface}
+
+प्रत्येक CLI एडाप्टर `CliAdapter` को कार्यान्वित करता है:
+
+```ts
+import type { CliAdapter, CliResult } from "@agent-native/core/adapters/cli";
+
+interface CliAdapter {
+  name: string; // "gh", "stripe", "ffmpeg"
+  description: string; // What the agent sees during discovery
+  isAvailable(): Promise<boolean>;
+  execute(args: string[]): Promise<CliResult>;
+}
+
+interface CliResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+```
+
+## शेलक्लिएडाप्टर {#shell-adapter}
+
+अधिकांश CLI के लिए आपको कस्टम क्लास की आवश्यकता नहीं है - `ShellCliAdapter` किसी भी बाइनरी को समझदार डिफ़ॉल्ट के साथ लपेटता है:
+
+```ts
+import { ShellCliAdapter } from "@agent-native/core/adapters/cli";
+
+const gh = new ShellCliAdapter({
+  command: "gh",
+  description: "GitHub CLI — manage repos, PRs, issues, and releases",
+});
+
+const ffmpeg = new ShellCliAdapter({
+  command: "ffmpeg",
+  description: "Audio/video processing and transcoding",
+  timeoutMs: 120_000, // 2 min for long encodes
+  env: { STRIPE_API_KEY: process.env.STRIPE_SECRET_KEY! },
+});
+```
+
+विकल्प: `command` (आवश्यक), `description` (आवश्यक), `name` (`command` पर डिफ़ॉल्ट), `env` (`process.env` के साथ विलय), `cwd` (`process.cwd()` पर डिफ़ॉल्ट), और `timeoutMs` (डिफ़ॉल्ट `30000`).
+
+कस्टम ऑथ, आउटपुट पार्सिंग, या प्री/पोस्ट प्रोसेसिंग के लिए, `ShellCliAdapter` का उपयोग करने के बजाय सीधे `CliAdapter` लागू करें।
+
+## रजिस्ट्री {#registry}
+
+`CliRegistry` एडेप्टर एकत्र करता है ताकि एजेंट पता लगा सके कि रनटाइम पर क्या उपलब्ध है:
+
+```ts
+import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
+
+const cliRegistry = new CliRegistry();
+cliRegistry.register(
+  new ShellCliAdapter({ command: "gh", description: "GitHub CLI" }),
+);
+
+cliRegistry.list(); // all registered
+await cliRegistry.listAvailable(); // only installed
+await cliRegistry.describe(); // [{ name, description, available }] for discovery
+
+const gh = cliRegistry.get("gh");
+const result = await gh?.execute(["pr", "list", "--json", "title,url"]);
+```
+
+## actions से उपयोग करना {#from-actions}
+
+CLI कॉल को एक्शन सतह पर प्रदर्शित करने के लिए इसे `defineAction` में लपेटें - जब कोड सर्वर एक्शन सतह के अंदर चलता है तो `defineAction` की आवश्यकता होती है; अन्यथा सीधे `scripts/` फ़ाइल में एडॉप्टर का उपयोग करें। किसी कार्रवाई में कभी भी `process.exit` को कॉल न करें; इसके बजाय एक त्रुटि डालें।
+
+```ts
+// actions/list-prs.ts
+import { defineAction } from "@agent-native/core/action";
+import { ShellCliAdapter } from "@agent-native/core/adapters/cli";
+import { z } from "zod";
+
+const gh = new ShellCliAdapter({ command: "gh", description: "GitHub CLI" });
+
+export default defineAction({
+  description: "List open pull requests via the GitHub CLI.",
+  schema: z.object({}),
+  async run() {
+    if (!(await gh.isAvailable())) {
+      throw new Error("GitHub CLI not installed. Run: brew install gh");
+    }
+    const result = await gh.execute([
+      "pr",
+      "list",
+      "--json",
+      "title,url,state",
+      "--limit",
+      "10",
+    ]);
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr || "gh pr list failed");
+    }
+    return JSON.parse(result.stdout);
+  },
+});
+```
+
+## एज और सर्वर रहित {#edge-serverless}
+
+CLI एडेप्टर `node:child_process` का उपयोग करते हैं, जो एज/वर्कर रनटाइम (क्लाउडफ्लेयर वर्कर्स, नेटलिफाई एज फ़ंक्शंस) पर मौजूद नहीं है। मानक Node.js वातावरण में CLI एडाप्टर एंडपॉइंट और कार्य चलाएँ। यह बाधा सैंडबॉक्स सीम के साथ साझा की गई है - [Adapters](/docs/sandbox-adapters#edge-serverless) में पूरी चर्चा देखें।
+
+## आगे क्या है
+
+- [**Adapters**](/docs/sandbox-adapters) - दोनों एडाप्टर सीम के लिए कैनोनिकल गाइड।
+- [**Actions**](/docs/actions) - क्रिया सतह CLI एडेप्टर आमतौर पर लपेटे जाते हैं।

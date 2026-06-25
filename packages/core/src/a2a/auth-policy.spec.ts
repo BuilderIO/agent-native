@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,

@@ -10,16 +10,20 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { and, eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
 import {
   appendSplit,
   parseEdits,
   serializeEdits,
 } from "../app/lib/timestamp-mapping.js";
+import { getDb, schema } from "../server/db/index.js";
+import {
+  getCurrentOwnerEmail,
+  ownerEmailMatches,
+} from "../server/lib/recordings.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 export default defineAction({
@@ -43,7 +47,7 @@ export default defineAction({
       .where(
         and(
           eq(schema.recordings.id, args.recordingId),
-          eq(schema.recordings.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
     if (!existing) {

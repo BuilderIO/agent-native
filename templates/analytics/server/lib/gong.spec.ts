@@ -1,4 +1,11 @@
 import { describe, expect, it } from "vitest";
+
+import {
+  buildGongSearchResult,
+  gongSearchVariants,
+  matchesGongCallQuery,
+  type GongCall,
+} from "./gong";
 import {
   DEFAULT_GONG_CALL_LIMIT,
   MAX_GONG_CALL_LIMIT,
@@ -6,12 +13,6 @@ import {
   normalizeGongCallLimit,
   type GongCallLike,
 } from "./gong-limits";
-import {
-  buildGongSearchResult,
-  gongSearchVariants,
-  matchesGongCallQuery,
-  type GongCall,
-} from "./gong";
 
 function call(id: string, started: string): GongCallLike {
   return { id, started };

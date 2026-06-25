@@ -18,19 +18,20 @@
  */
 
 import { defineAction, embedApp } from "@agent-native/core";
-import { buildDeepLink } from "@agent-native/core/server";
-import { z } from "zod";
-import { asc, eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import { parseSpaceIds } from "../server/lib/recordings.js";
-import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { readAppState } from "@agent-native/core/application-state";
+import { buildDeepLink } from "@agent-native/core/server";
+import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { asc, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
+import { parseSpaceIds } from "../server/lib/recordings.js";
+import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
-import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
-import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 
 function recordingDeepLink(recordingId: string): string {
   return buildDeepLink({

@@ -1,0 +1,171 @@
+---
+title: "代理团队"
+description: "主代理代表向在自己的线程中运行的子代理工作，并在聊天中显示为内嵌的实时预览芯片。"
+---
+
+# 代理团队
+
+代理聊天是一个**协调器**，而不是一个整体。当主代理完成一项更适合由专家负责的任务时——“用我的声音写这封电子邮件”、“运行 BigQuery 分析”、“查看此 PR”——它会在自己的线程、工具和上下文中生成一个子代理。子代理在主聊天中显示为实时预览**芯片**；单击它以选项卡形式打开完整对话。
+
+这可以保持主线程集中，让子代理并行运行，并为您提供任何委派工作的清晰审计跟踪。
+
+Agent Teams 在核心运行管理器上运行：事件流并持续，中止通过 SQL 传播，任务在无服务器冷启动中幸存。
+
+## 心智模型 {#mental-model}
+
+- **主聊天** — 协调器。代表们，请阅读您的请求。繁重的工作本身很少。
+- **子代理** — 使用自己的线程、自己的系统提示符、自己的工具集运行。每个映射到 [workspace](/docs/workspace) 中的“自定义代理”配置文件。
+- **Chips** — 主聊天中内联显示的丰富预览卡，显示子代理的当前步骤、流输出和最终摘要。默认折叠；点击即可展开完整对话。
+- **双向消息传递** - 主代理可以向正在运行的子代理发送后续消息；当子代理遇到模糊点时可以回复消息。
+
+子代理状态保留在 `application_state` SQL 表（在 `agent-task:<taskId>` 下）中，因此任务可以在无服务器冷启动中幸存并跨多个进程工作。
+
+```an-diagram title="协调员和专家" summary="主聊天委托给在自己的线程中运行并作为内联芯片报告的子代理。"
+{
+  "html": "<div class=\"at-orc\"><div class=\"diagram-card main\"><span class=\"diagram-pill accent\">主聊天</span><small class=\"diagram-muted\">orchestrator &mdash; reads your request, delegates</small></div><div class=\"at-fan\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"at-subs\"><div class=\"diagram-box\">代码评审<br><small class=\"diagram-muted\">own thread &amp; prompt</small></div><div class=\"diagram-box\">BigQuery 分析<br><small class=\"diagram-muted\">own tools</small></div><div class=\"diagram-box\">语音邮件<br><small class=\"diagram-muted\">own context</small></div></div></div><div class=\"diagram-pill\">each appears inline as a live chip &#8635;</div></div>",
+  "css": ".at-orc{display:flex;flex-direction:column;align-items:center;gap:12px}.at-orc .diagram-card{padding:14px 18px;display:flex;flex-direction:column;gap:4px;align-items:center}.at-orc .at-fan{display:flex;flex-direction:column;align-items:center;gap:8px}.at-orc .diagram-arrow{font-size:22px}.at-orc .at-subs{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.at-orc .diagram-box{text-align:center}"
+}
+```
+
+## 何时生成子代理 {#when-to-spawn}
+
+任务出现时：
+
+- 需要不同的**系统提示**（专业的声音或语气，例如“代码审查”）。
+- 拥有一个**长时间运行**的工具链，会污染主要上下文。
+- 可以与主代理正在执行的其他工作**并行**运行。
+- 由一个**不同的团队**拥有，该团队已经拥有自定义代理配置文件。
+
+不要为了琐碎的一次性工作而生成 - 直接调用操作。
+
+## 调用子代理 {#invoking}
+
+启动子代理的三种方法，从最简单到最明确：
+
+### 1。 `@mention` 自定义代理 {#mention}
+
+用户在聊天编辑器中键入 `@agent-name`。将出现工作区子代理的下拉列表。选择其中一个插入芯片；提交后，主代理将消息委托给该子代理。
+
+自定义代理位于 `agents/<slug>.md` 的工作区中 — 一个带有 YAML frontmatter 的 Markdown 文件。格式请参见[Custom Agents](/docs/workspace#custom-agents)。
+
+### 2。主代理自动委托 {#auto-delegate}
+
+该框架为主代理提供了一个 `agent-teams` 工具。当模型确定任务适合已注册的子代理配置文件时，它会使用 `action: "spawn"` 和可选的 `agent` 参数调用该工具，该参数从 `agents/*.md` 命名配置文件。出现一个芯片；子代理运行。主代理等待（或并行移动）并在子代理完成时合并结果。
+
+完整的 `agent-teams` 操作集是：
+
+| 行动          | 目的                       |
+| ------------- | -------------------------- |
+| `spawn`       | 启动新的子代理任务         |
+| `status`      | 检查正在运行的子代理的进度 |
+| `read-result` | 获取完成的子代理的输出     |
+| `send`        | 向正在运行的子代理发送消息 |
+| `list`        | 查看当前用户的所有任务     |
+
+### 3。程序化生成 {#programmatic-spawn}
+
+对于框架级集成，请使用 `@agent-native/core/server` 中的 `spawnTask()`：
+
+```ts
+import { spawnTask } from "@agent-native/core/server";
+
+const task = await spawnTask({
+  description: "Draft an outreach email to this lead",
+  instructions: "Match Steve's voice from memory/MEMORY.md.",
+  ownerEmail: user.email,
+  systemPrompt: mailAgentSystemPrompt,
+  actions: mailActions,
+  // Pass either apiKey or engine — engine takes precedence.
+  apiKey: process.env.ANTHROPIC_API_KEY, // optional if engine is provided
+  parentSend: emit, // streaming sender for the parent chat response
+});
+```
+
+大多数应用程序代码不会直接调用它 - 框架在 `@mentions` 和 `agent-teams` 工具的后台执行此操作。仅当您连接新的入口点（例如，启动作为子代理运行的后台作业的按钮）时，才需要使用 `spawnTask()`。
+
+## 任务生命周期 {#lifecycle}
+
+```an-diagram title="spawnTask() 的作用" summary="每个spawn都会创建一个线程，将状态保存到SQL，并将芯片事件流式传输直至完成。"
+{
+  "html": "<div class=\"at-life\"><div class=\"diagram-box\"><code>spawnTask()</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">create thread</span><small class=\"diagram-muted\">new row in <code>chat_threads</code>, description as first message</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">persist state</span><small class=\"diagram-muted\"><code>agent-task:&lt;id&gt;</code> &rarr; <code>application_state</code>, status=running</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">stream</span><small class=\"diagram-muted\"><code>agent_task_started</code> &rarr; chip appears; <code>agent_task_step</code> &rarr; chip updates live</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">complete</span><small class=\"diagram-muted\">status=completed, write summary + preview, emit <code>agent_task_done</code></small></div></div>",
+  "css": ".at-life{display:flex;flex-direction:column;align-items:stretch;gap:6px;max-width:560px}.at-life .diagram-card{display:flex;flex-direction:column;gap:3px;padding:10px 14px}.at-life .diagram-box{align-self:flex-start}.at-life .diagram-arrow{font-size:18px;align-self:center}"
+}
+```
+
+父代理可以随时通过 `sendToTask(taskId, message)` 恢复子代理并进行后续操作。如果子代理发生错误，`markTaskErrored(taskId, reason)` 会记录失败并将其呈现给用户。
+
+双向消息传递是持久的。运行子代理的父级后续操作是
+通过任务生命周期交付；如果子代理无法在
+当前步骤，它们应该保持排队并在安全的地方应用
+延续点。子代理也可以在需要澄清时回复消息
+而不是无形地阻塞。
+
+## 读取任务状态 {#reading-state}
+
+来自服务器代码或其他actions：
+
+```ts
+import { getTask, listTasks } from "@agent-native/core/server";
+
+const task = await getTask(taskId); // single task
+const tasks = await listTasks(); // all tasks for the user (sorted newest first)
+```
+
+`AgentTask` 关键字段：
+
+```ts
+interface AgentTask {
+  taskId: string;
+  threadId: string;
+  description: string;
+  status: "running" | "completed" | "errored";
+  preview: string; // short one-liner for the chip
+  summary: string; // full summary once completed
+  currentStep: string; // latest step label (updated while running)
+  createdAt: number;
+  // Additional fields: parentThreadId, name, updatedAt, startedAt,
+  // completedAt, runId, error
+}
+```
+
+## 自定义代理配置文件 {#profiles}
+
+子代理映射到自定义代理配置文件 - 工作区中 `agents/<slug>.md` 处的 Markdown 文件，这些文件显示在 `@mention` 下拉列表中并用作委派目标。 [Workspace — Custom Agents](/docs/workspace#custom-agents) 拥有完整格式（frontmatter、`tools`、`delegate-default`、模型覆盖）。
+
+## 委托深度防护 {#depth-guard}
+
+子代理可以产生子代理，这是一种失控/成本风险：无限的委托链可能会无限期地散开。该框架在服务器端强制执行**委托深度**的硬上限，独立于任何工具级防护。
+
+顶级聊天深度为`0`。它生成的子代理深度为 `1`；该子代理可能会再次生成（深度 `2`）；会创建深度 `3` 子代理的生成被 **拒绝**。默认上限为 **2**。
+
+```an-diagram title="委派深度保护（默认上限 2）" summary="每一层都可能产生更深的一层，直到达到上限；超过它的生成将被服务器端拒绝。"
+{
+  "html": "<div class=\"at-depth\"><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 0</span><strong>顶层聊天</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 1</span><strong>子代理</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card warn\"><span class=\"diagram-pill warn\">depth 2</span><strong>子代理's sub-agent</strong><small class=\"diagram-muted\">at the cap &mdash; may NOT spawn</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">depth 3</span><strong>Refused</strong><small class=\"diagram-muted\">server-side error</small></div></div>",
+  "css": ".at-depth{display:flex;flex-direction:column;gap:8px}.at-depth .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.at-depth .rung-1,.at-depth .diagram-card:nth-child(2){margin-inline-start:24px}.at-depth .diagram-card:nth-child(3){margin-inline-start:48px}.at-depth .diagram-card:nth-child(4){margin-inline-start:72px}"
+}
+```
+
+执行是环境性的：每个子代理在记录其自身深度的 `AsyncLocalStorage` 内运行，因此从该运行传递到达的任何 `spawnTask` 都会读取其父代的深度，并在达到上限后拒绝 - 即使 `agent-teams` 工具被交给不应该拥有它的子代理。该决定被公开为纯粹的、可单元测试的 `evaluateSubagentDepth(parentDepth)`。被拒绝的生成会返回一个明确的错误：_“已达到委派深度限制（最大 N）；无法生成另一个子代理。”_
+
+### 配置上限 {#depth-guard-config}
+
+使用 `AGENT_NATIVE_MAX_SUBAGENT_DEPTH` 覆盖部署时的默认设置：
+
+| 值           | 效果                                                                                                |
+| ------------ | --------------------------------------------------------------------------------------------------- |
+| _（未设置）_ | `2`的默认上限。                                                                                     |
+| `0`          | **不能生成任何子代理** - 顶级代理完成所有工作。                                                     |
+| `1`…`16`     | 这么多级别的委派。                                                                                  |
+| 无效/`>16`   | 非整数/负/NaN值回退到`2`； `16` 以上的任何内容都会被固定到 `16`，因此拼写错误永远不会禁用防护装置。 |
+
+```bash
+AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # 允许分代理，但不能分代理
+```
+
+当子代理达到或低于上限时，框架会在其运行时上下文中注入一行，告诉它它的位置有多深以及是否可以进一步委托，以便模型适当地花费其预算。
+
+## 下一步是什么
+
+- [**Workspace — Custom Agents**](/docs/workspace#custom-agents) — 配置文件格式
+- [**A2A Protocol**](/docs/a2a-protocol) - 当“子代理”完全位于不同的应用程序中时
+- [**Actions**](/docs/actions) — 子代理调用的工具

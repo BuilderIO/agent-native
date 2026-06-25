@@ -1,10 +1,11 @@
+import { registerEvent } from "@agent-native/core/event-bus";
+import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
-import { getOrgContext } from "@agent-native/core/org";
-import { registerEvent } from "@agent-native/core/event-bus";
 import { z } from "zod";
+
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { PLAN_CONNECTOR_CATALOG } from "../lib/plan-connector-catalog.js";
 import { resolvePlanAnonymousOwner } from "../lib/public-plans.js";

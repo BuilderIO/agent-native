@@ -32,8 +32,8 @@
 import crypto from "node:crypto";
 import http from "node:http";
 
-import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionRunContext } from "../action.js";
+import type { ActionEntry } from "../agent/production-agent.js";
 import { getSandboxAdapter } from "./sandbox/index.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;

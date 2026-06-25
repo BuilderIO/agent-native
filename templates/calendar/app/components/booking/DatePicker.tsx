@@ -1,3 +1,5 @@
+import type { AvailabilityConfig } from "@shared/api";
+import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import {
   startOfMonth,
   endOfMonth,
@@ -15,12 +17,11 @@ import {
   startOfDay,
   getDay,
 } from "date-fns";
-import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import { useMemo } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import type { AvailabilityConfig } from "@shared/api";
 
 interface DatePickerProps {
   selectedDate: Date | null;

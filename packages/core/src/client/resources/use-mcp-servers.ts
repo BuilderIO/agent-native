@@ -9,6 +9,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
 import { agentNativePath } from "../api-path.js";
 
 export type McpServerScope = "user" | "org";
@@ -20,6 +21,7 @@ export interface McpServer {
   url: string;
   headers?: Record<string, { set: true }>;
   description?: string;
+  firstParty?: boolean;
   createdAt: number;
   mergedId: string;
   status:

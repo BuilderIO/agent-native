@@ -1,3 +1,6 @@
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { IconMessage2, IconCheck } from "@tabler/icons-react";
 import {
   useState,
   useEffect,
@@ -7,12 +10,12 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
-import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { IconMessage2, IconCheck } from "@tabler/icons-react";
-import { cn } from "./utils.js";
-import { useSession } from "./use-session.js";
+
+import { DEFAULT_LOCALE, type LocaleCode } from "../localization/shared.js";
 import { getFeedbackClientContext } from "./feedback-context.js";
+import { useLocale } from "./i18n.js";
+import { useSession } from "./use-session.js";
+import { cn } from "./utils.js";
 
 const DEFAULT_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
@@ -27,10 +30,142 @@ interface FormSchema {
   fieldId: string;
 }
 
-const DEFAULT_PLACEHOLDER =
-  "What's working, what's broken, or what would you change?";
-const DEFAULT_SUBMIT_TEXT = "Send feedback";
-const DEFAULT_SUCCESS_MESSAGE = "Thanks for the feedback!";
+const FEEDBACK_COPY: Record<
+  LocaleCode,
+  {
+    label: string;
+    placeholder: string;
+    submit: string;
+    submitting: string;
+    success: string;
+    loadError: string;
+    invalidUrl: string;
+    emptyError: string;
+    sendError: string;
+    keyboardHint: string;
+  }
+> = {
+  "en-US": {
+    label: "Feedback",
+    placeholder: "What's working, what's broken, or what would you change?",
+    submit: "Send feedback",
+    submitting: "Sending...",
+    success: "Thanks for the feedback!",
+    loadError: "Couldn't load feedback form",
+    invalidUrl: "Invalid feedback URL",
+    emptyError: "Please write something first",
+    sendError: "Couldn't send feedback",
+    keyboardHint: "{{shortcut}}+Enter to send",
+  },
+  "zh-CN": {
+    label: "反馈",
+    placeholder: "哪些地方好用、哪里坏了，或你想改什么？",
+    submit: "发送反馈",
+    submitting: "正在发送...",
+    success: "感谢你的反馈！",
+    loadError: "无法加载反馈表单",
+    invalidUrl: "反馈 URL 无效",
+    emptyError: "请先写点内容",
+    sendError: "无法发送反馈",
+    keyboardHint: "{{shortcut}}+Enter 发送",
+  },
+  "es-ES": {
+    label: "Comentarios",
+    placeholder: "¿Qué funciona, qué falla o qué cambiarías?",
+    submit: "Enviar comentarios",
+    submitting: "Enviando...",
+    success: "Gracias por tus comentarios.",
+    loadError: "No se pudo cargar el formulario",
+    invalidUrl: "URL de comentarios no válida",
+    emptyError: "Escribe algo primero",
+    sendError: "No se pudieron enviar los comentarios",
+    keyboardHint: "{{shortcut}}+Enter para enviar",
+  },
+  "fr-FR": {
+    label: "Retour",
+    placeholder: "Qu'est-ce qui marche, casse ou devrait changer ?",
+    submit: "Envoyer",
+    submitting: "Envoi...",
+    success: "Merci pour votre retour.",
+    loadError: "Impossible de charger le formulaire",
+    invalidUrl: "URL de retour invalide",
+    emptyError: "Écrivez quelque chose d'abord",
+    sendError: "Impossible d'envoyer le retour",
+    keyboardHint: "{{shortcut}}+Entrée pour envoyer",
+  },
+  "de-DE": {
+    label: "Feedback",
+    placeholder: "Was funktioniert, was ist kaputt, was würdest du ändern?",
+    submit: "Feedback senden",
+    submitting: "Wird gesendet...",
+    success: "Danke für dein Feedback!",
+    loadError: "Feedback-Formular konnte nicht geladen werden",
+    invalidUrl: "Ungültige Feedback-URL",
+    emptyError: "Bitte zuerst etwas schreiben",
+    sendError: "Feedback konnte nicht gesendet werden",
+    keyboardHint: "{{shortcut}}+Enter zum Senden",
+  },
+  "ja-JP": {
+    label: "フィードバック",
+    placeholder: "良い点、問題点、変更したい点を教えてください。",
+    submit: "送信",
+    submitting: "送信中...",
+    success: "フィードバックありがとうございます。",
+    loadError: "フォームを読み込めませんでした",
+    invalidUrl: "フィードバック URL が無効です",
+    emptyError: "先に内容を入力してください",
+    sendError: "送信できませんでした",
+    keyboardHint: "{{shortcut}}+Enter で送信",
+  },
+  "ko-KR": {
+    label: "피드백",
+    placeholder: "잘 되는 점, 깨진 점, 바꾸고 싶은 점을 알려주세요.",
+    submit: "피드백 보내기",
+    submitting: "보내는 중...",
+    success: "피드백 감사합니다.",
+    loadError: "피드백 양식을 불러올 수 없습니다",
+    invalidUrl: "피드백 URL이 올바르지 않습니다",
+    emptyError: "먼저 내용을 입력해 주세요",
+    sendError: "피드백을 보낼 수 없습니다",
+    keyboardHint: "{{shortcut}}+Enter로 보내기",
+  },
+  "pt-BR": {
+    label: "Feedback",
+    placeholder: "O que funciona, quebrou ou você mudaria?",
+    submit: "Enviar feedback",
+    submitting: "Enviando...",
+    success: "Obrigado pelo feedback!",
+    loadError: "Não foi possível carregar o formulário",
+    invalidUrl: "URL de feedback inválida",
+    emptyError: "Escreva algo primeiro",
+    sendError: "Não foi possível enviar o feedback",
+    keyboardHint: "{{shortcut}}+Enter para enviar",
+  },
+  "hi-IN": {
+    label: "फ़ीडबैक",
+    placeholder: "क्या काम कर रहा है, क्या टूटा है, या आप क्या बदलना चाहेंगे?",
+    submit: "फ़ीडबैक भेजें",
+    submitting: "भेजा जा रहा है...",
+    success: "फ़ीडबैक के लिए धन्यवाद!",
+    loadError: "फ़ीडबैक फ़ॉर्म लोड नहीं हुआ",
+    invalidUrl: "फ़ीडबैक URL अमान्य है",
+    emptyError: "पहले कुछ लिखें",
+    sendError: "फ़ीडबैक भेजा नहीं जा सका",
+    keyboardHint: "भेजने के लिए {{shortcut}}+Enter",
+  },
+  "ar-SA": {
+    label: "ملاحظات",
+    placeholder: "ما الذي يعمل، وما المعطل، وما الذي تريد تغييره؟",
+    submit: "إرسال الملاحظات",
+    submitting: "جار الإرسال...",
+    success: "شكرا لملاحظاتك!",
+    loadError: "تعذر تحميل نموذج الملاحظات",
+    invalidUrl: "رابط الملاحظات غير صالح",
+    emptyError: "اكتب شيئا أولا",
+    sendError: "تعذر إرسال الملاحظات",
+    keyboardHint: "{{shortcut}}+Enter للإرسال",
+  },
+};
 
 function parseTarget(url: string): ParsedTarget | null {
   try {
@@ -114,7 +249,7 @@ const honeypotStyle: CSSProperties = {
 
 export function FeedbackButton({
   variant = "sidebar",
-  label = "Feedback",
+  label,
   url = DEFAULT_FEEDBACK_URL,
   className,
   side,
@@ -128,6 +263,9 @@ export function FeedbackButton({
 }: FeedbackButtonProps) {
   const target = parseTarget(url);
   const { session } = useSession();
+  const { locale } = useLocale();
+  const copy = FEEDBACK_COPY[locale] ?? FEEDBACK_COPY[DEFAULT_LOCALE];
+  const resolvedLabel = label ?? copy.label;
 
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen ?? uncontrolledOpen;
@@ -163,10 +301,10 @@ export function FeedbackButton({
         .then((s) => setSchema(s))
         .catch((err) => {
           console.error("[FeedbackButton] schema load failed", err);
-          setError("Couldn't load feedback form");
+          setError(copy.loadError);
         });
     } else {
-      setError("Invalid feedback URL");
+      setError(copy.invalidUrl);
     }
     const t = setTimeout(() => textareaRef.current?.focus(), 30);
     return () => {
@@ -184,7 +322,7 @@ export function FeedbackButton({
       if (!target || submitting) return;
       const trimmed = value.trim();
       if (!trimmed) {
-        setError("Please write something first");
+        setError(copy.emptyError);
         return;
       }
       setSubmitting(true);
@@ -223,7 +361,7 @@ export function FeedbackButton({
         closeTimerRef.current = setTimeout(() => setOpen(false), 1400);
       } catch (err) {
         setSubmitting(false);
-        setError(err instanceof Error ? err.message : "Couldn't send feedback");
+        setError(err instanceof Error ? err.message : copy.sendError);
       }
     },
     [
@@ -236,6 +374,8 @@ export function FeedbackButton({
       chatSessionId,
       chatStorageKey,
       setOpen,
+      copy.emptyError,
+      copy.sendError,
     ],
   );
 
@@ -254,7 +394,7 @@ export function FeedbackButton({
             <PopoverPrimitive.Trigger asChild>
               <button
                 type="button"
-                aria-label={label}
+                aria-label={resolvedLabel}
                 className={cn(
                   "flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
                   className,
@@ -269,7 +409,7 @@ export function FeedbackButton({
               sideOffset={6}
               className="z-[300] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md animate-in fade-in-0 zoom-in-95"
             >
-              {label}
+              {resolvedLabel}
             </TooltipPrimitive.Content>
           </TooltipPrimitive.Portal>
         </TooltipPrimitive.Root>
@@ -280,14 +420,14 @@ export function FeedbackButton({
       <PopoverPrimitive.Trigger asChild>
         <button
           type="button"
-          aria-label={label}
+          aria-label={resolvedLabel}
           className={cn(
             "flex h-8 items-center gap-2 rounded-md border border-border bg-transparent px-3 text-sm text-muted-foreground transition hover:border-foreground/40 hover:text-foreground",
             className,
           )}
         >
           <IconMessage2 size={14} stroke={1.5} />
-          <span>{label}</span>
+          <span>{resolvedLabel}</span>
         </button>
       </PopoverPrimitive.Trigger>
     );
@@ -302,14 +442,14 @@ export function FeedbackButton({
           )}
         >
           <IconMessage2 className="h-4 w-4" />
-          <span>{label}</span>
+          <span>{resolvedLabel}</span>
         </button>
       </PopoverPrimitive.Trigger>
     );
   }
 
   const resolvedSide = side ?? (variant === "sidebar" ? "top" : "bottom");
-  const resolvedPlaceholder = placeholder ?? DEFAULT_PLACEHOLDER;
+  const resolvedPlaceholder = placeholder ?? copy.placeholder;
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
@@ -329,7 +469,7 @@ export function FeedbackButton({
                 <IconCheck size={20} stroke={2.5} />
               </div>
               <div className="text-sm font-medium text-foreground">
-                {DEFAULT_SUCCESS_MESSAGE}
+                {copy.success}
               </div>
             </div>
           ) : (
@@ -363,14 +503,19 @@ export function FeedbackButton({
                   )}
                 >
                   {error ??
-                    `${/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter to send`}
+                    copy.keyboardHint.replace(
+                      "{{shortcut}}",
+                      /Mac|iPhone|iPad/.test(navigator.userAgent)
+                        ? "⌘"
+                        : "Ctrl",
+                    )}
                 </div>
                 <button
                   type="submit"
                   disabled={submitting || !value.trim()}
                   className="inline-flex h-8 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
-                  {submitting ? "Sending…" : DEFAULT_SUBMIT_TEXT}
+                  {submitting ? copy.submitting : copy.submit}
                 </button>
               </div>
             </form>

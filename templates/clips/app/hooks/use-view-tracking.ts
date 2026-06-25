@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
 import { appBasePath } from "@agent-native/core/client";
+import { useEffect, useRef } from "react";
 
 const SESSION_KEY = "clips-view-session-id";
 

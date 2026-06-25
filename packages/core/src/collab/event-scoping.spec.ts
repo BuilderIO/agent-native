@@ -11,6 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+
 import { canSeeChangeForUser } from "../server/poll.js";
 
 type CollabChangeEvent = {

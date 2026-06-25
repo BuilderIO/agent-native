@@ -44,8 +44,8 @@ vi.mock("../server/auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
 }));
 
-import { startRun, updateRunProgress, completeRun } from "./registry.js";
 import { createProgressToolEntries } from "./actions.js";
+import { startRun, updateRunProgress, completeRun } from "./registry.js";
 import { createProgressHandler } from "./routes.js";
 
 function createEvent(path: string, method = "GET") {

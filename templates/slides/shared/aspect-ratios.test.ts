@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import {
   ASPECT_RATIOS,
   ASPECT_RATIO_VALUES,

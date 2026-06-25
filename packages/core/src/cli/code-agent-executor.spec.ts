@@ -2,16 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
+
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  createCodeAgentRunRecord,
-  codeAgentRunTranscriptPath,
-  getCodeAgentRunRecord,
-  listCodeAgentTranscriptEvents,
-  queueCodeAgentFollowUp,
-  updateCodeAgentRunRecord,
-} from "./code-agent-runs.js";
+import type { EngineContentPart } from "../agent/engine/types.js";
+import type { AgentEngine } from "../agent/engine/types.js";
 import {
   buildCodeAgentSystemPrompt,
   buildRepoInstructionsBlock,
@@ -21,9 +16,15 @@ import {
   executeCodeAgentRun,
   executePendingCodeAgentApproval,
 } from "./code-agent-executor.js";
+import {
+  createCodeAgentRunRecord,
+  codeAgentRunTranscriptPath,
+  getCodeAgentRunRecord,
+  listCodeAgentTranscriptEvents,
+  queueCodeAgentFollowUp,
+  updateCodeAgentRunRecord,
+} from "./code-agent-runs.js";
 import type { CodeAgentTranscriptEvent } from "./code-agent-runs.js";
-import type { EngineContentPart } from "../agent/engine/types.js";
-import type { AgentEngine } from "../agent/engine/types.js";
 
 const tmpRoots: string[] = [];
 const providerEnvKeys = [

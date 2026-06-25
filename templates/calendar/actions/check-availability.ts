@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting, readSetting } from "@agent-native/core/settings";
-import type { AvailabilityConfig } from "../shared/api.js";
+import { z } from "zod";
+
 import { eventBlocksAvailability } from "../server/lib/calendar-availability.js";
+import type { AvailabilityConfig } from "../shared/api.js";
 
 interface AvailabilitySchedule {
   timezone: string;

@@ -1,0 +1,411 @@
+---
+title: "템플릿 만들기"
+description: "자신만의 에이전트 기반 앱 템플릿을 만들고 게시하는 방법."
+---
+
+# 템플릿 만들기
+
+템플릿은 실제 워크플로를 해결하는 완전하고 포크 가능한 에이전트 기반 앱입니다. 자사 템플릿은 귀하가 사용하는 것과 동일한 프레임워크 표면으로 구축됩니다. UI용 React 경로, 데이터용 Drizzle SQL, 작업용 actions, 에이전트 동작용 작업 공간 리소스, 에이전트와 UI가 정렬 상태를 유지하도록 폴링 동기화합니다.
+
+좋은 템플릿:
+
+- 유용한 시드 데이터 또는 빈 상태 흐름을 사용하여 하나의 워크플로를 엔드 투 엔드로 해결합니다.
+- JSON 파일이 아닌 SQL에 지속성 상태를 저장합니다.
+- 앱 작업을 `defineAction()` actions로 정의합니다.
+- 애플리케이션 상태를 통해 탐색 및 선택을 노출합니다.
+- 명확하지 않은 작업 흐름을 위해 명확한 `AGENTS.md`와 집중된 skills를 제공합니다.
+- 필수 제공업체 및 비밀번호에 대한 온보딩 단계를 등록합니다.
+- 독립형 앱 및 다중 앱 작업 공간의 일부로 작동합니다.
+
+## 채팅에서 시작 {#start-from-chat}
+
+프레임워크 배선이 이미 갖춰진 최소한의 앱을 원할 경우 채팅 템플릿을 사용하세요.
+
+```bash
+npx @agent-native/core@latest create my-template --template chat --standalone
+```
+
+여러 앱이 있는 작업 영역의 경우 선택기를 실행하고 원하는 도메인 템플릿과 함께 Chat을 포함합니다.
+
+```bash
+npx @agent-native/core@latest create my-platform
+```
+
+Chat은 인증, 내구성 있는 채팅 스레드, SQL 지원 리소스, 도구, 애플리케이션 상태, actions 및 폴링 동기화를 제공합니다. 도메인 모델과 제품 UI를 추가합니다.
+
+아직 재사용 가능한 UI 템플릿을 구축하지 않은 경우 [Getting Started](/docs/getting-started#1-create-your-app)에서 헤드리스 온램프를 사용하세요. 하나의 작업을 정의하고 `pnpm agent`로 실행한 후 나중에 워크플로에 내구성 있는 표면이 필요할 때 UI를 추가하세요.
+
+## 프로젝트 구조 {#project-structure}
+
+모든 템플릿은 동일한 광범위한 레이아웃을 따릅니다.
+
+```an-file-tree title="템플릿 프로젝트 구조"
+{
+  "title": "my-template/",
+  "entries": [
+    { "path": "app/", "note": "React 프런트엔드" },
+    { "path": "app/root.tsx", "note": "HTML shell과 providers" },
+    { "path": "app/routes/", "note": "React Router 파일 routes" },
+    { "path": "app/components/", "note": "템플릿 UI" },
+    { "path": "app/hooks/", "note": "UI 상태 및 데이터 hooks" },
+    { "path": "actions/", "note": "defineAction 작업: 단일 진실 공급원" },
+    { "path": "server/db/schema.ts", "note": "Drizzle 스키마" },
+    { "path": "server/plugins/db.ts", "note": "추가형 migrations" },
+    { "path": "server/plugins/", "note": "시작 integrations" },
+    { "path": "server/routes/api/", "note": "actions만으로 부족할 때만 custom routes 사용" },
+    { "path": "shared/types.ts", "note": "공유 client/server 타입" },
+    { "path": ".agents/skills/", "note": "<skill>/SKILL.md: 복잡한 workflow를 위한 에이전트 지침" },
+    { "path": "AGENTS.md", "note": "템플릿별 에이전트 지침" },
+    { "path": "package.json" },
+    { "path": "react-router.config.ts" },
+    { "path": "vite.config.ts" }
+  ]
+}
+```
+
+애플리케이션 상태에 대해 `data/` 디렉터리를 추가하지 마세요. 내구성 있는 앱 데이터는 SQL에 속하며 UI는 actions 또는 형식화된 서버 핸들러를 통해 이를 읽습니다.
+
+모든 템플릿의 네 가지 영역은 하나의 공유 작업 표면과 하나의 SQL 데이터베이스를 통해 함께 연결됩니다. 에이전트와 UI는 동일한 작업에 대해 동등한 파트너입니다.
+
+```an-diagram title="템플릿의 네 가지 영역이 연결되는 방식" summary="UI와 에이전트는 모두 동일한 작업을 통해 SQL에 도달합니다. 애플리케이션 상태와 폴링 동기화가 정렬된 상태를 유지합니다."
+{
+  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React 사용자 인터페이스 화면<br><small class=\"diagram-muted\">app/routes · 컴포넌트</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">작업</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Drizzle 기반 SQL<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">폴링ing sync</div></div>",
+  "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## SQL의 모델 데이터 {#data-models}
+
+SQLite, Postgres, D1, Turso, Supabase, Neon 및 기타 지원되는 백엔드에서 스키마 이식성을 유지할 수 있도록 프레임워크 Drizzle 도우미를 사용하여 도메인 테이블을 정의하세요.
+
+```ts
+// server/db/schema.ts
+import {
+  table,
+  text,
+  integer,
+  now,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+
+export const projects = table("projects", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  status: text("status", {
+    enum: ["draft", "active", "archived"],
+  })
+    .notNull()
+    .default("draft"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  ...ownableColumns(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const projectShares = createSharesTable("project_shares");
+```
+
+스키마 변경은 추가되어야 합니다. `server/plugins/db.ts`에서 `runMigrations()`를 통해 테이블과 열을 추가합니다. 파괴적인 SQL, `drizzle-kit push`, 테이블 이름 바꾸기 또는 열 삭제를 사용하지 마십시오.
+
+앱 읽기 및 쓰기의 경우 Drizzle의 쿼리 빌더와 `drizzle-orm`의 이식 가능한 연산자를 사용하세요. Drizzle가 쿼리를 표현할 수 있는 경우 원시 SQL로 제품 코드를 작성하지 말고 템플릿의 `drizzle-orm/sqlite-core` 또는 `drizzle-orm/pg-core`에서 가져오지 마세요.
+
+```ts
+// server/plugins/db.ts
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+사용자 또는 조직 데이터를 보관하는 스키마를 추가하기 전에 [Database](/docs/database) 및 [Security](/docs/security) 문서를 사용하세요.
+
+## 작업을 작업로 정의 {#actions}
+
+작업는 앱 동작에 대한 단일 정보 소스입니다. 에이전트는 이를 도구로 호출하고 프런트엔드는 후크를 통해 호출하며 다른 앱은 MCP/A2A를 통해 연결할 수 있습니다.
+
+```an-annotated-code title="actions/create-project.ts"
+{
+  "filename": "actions/create-project.ts",
+  "language": "ts",
+  "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});",
+  "annotations": [
+    { "lines": "2", "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`." },
+    { "lines": "8", "label": "도구 표면", "note": "`description`는 이 작업을 도구로 호출할 시기를 결정하기 위해 에이전트가 읽는 것입니다." },
+    { "lines": "9-11", "label": "타입 계약", "note": "하나의 zod `schema`가 에이전트, UI, HTTP, MCP, A2A의 입력을 검증합니다." },
+    { "lines": "18-19", "label": "범위가 지정된 쓰기", "note": "공유 및 액세스 확인을 위해 행의 범위가 올바르게 지정되도록 `ctx`에서 `ownerEmail` / `orgId`을 스탬프 처리합니다." }
+  ]
+}
+```
+
+읽기 전용 actions에는 `http: { method: "GET" }` 또는 `readOnly: true`를 사용하세요. 동일 회전 도구 호출과 동시에 실행하기에 안전한 actions를 변형하는 경우에만 `parallelSafe: true`를 사용하십시오. 샌드박스 도구에서 실행하면 안 되는 폭발 반경이 높은 actions에는 `toolCallable: false`를 사용하세요.
+
+## UI 구축 {#ui}
+
+경로는 `app/routes/`에 있으며 React 라우터 v8 파일 라우팅을 사용합니다. actions 또는 API 핸들러를 통해 데이터를 쿼리하고 기본적으로 돌연변이를 낙관적으로 만듭니다.
+
+```tsx
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+
+export default function ProjectsPage() {
+  const { data: projects = [] } = useActionQuery("list-projects", {});
+  const create = useActionMutation("create-project");
+
+  return (
+    <button onClick={() => create.mutate({ title: "Launch plan" })}>
+      New project ({projects.length})
+    </button>
+  );
+}
+```
+
+에이전트, 다른 탭 또는 작업이 데이터를 변경할 때 React 쿼리가 새로 고침을 캐시하도록 앱 셸 근처에서 실시간 동기화를 한 번 연결합니다.
+
+```tsx
+import { useDbSync } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
+
+export function AppSync() {
+  const queryClient = useQueryClient();
+  useDbSync({ queryClient });
+  return null;
+}
+```
+
+**에이전트 네이티브 약속: 에이전트 쓰기는 수동 새로 고침 없이 UI에 표시됩니다.** `useActionQuery`는 쉬운 경로입니다. 변형 작업이 `source: "action"`를 내보낼 때 모든 후크가 다시 가져옵니다. 사용자 정의 키(예: 통합 상태를 읽는 하위 수준 클라이언트 도우미)를 사용하여 원시 `useQuery`에 도달하는 경우 대상 새로 고침을 위해 소스별 카운터를 queryKey에 접습니다.
+
+```tsx
+import { useChangeVersions } from "@agent-native/core/client";
+
+const v = useChangeVersions(["dashboards", "action"]);
+useQuery({
+  queryKey: ["dashboard", id, v],
+  queryFn: () => fetchDashboard(id),
+  placeholderData: (prev) => prev, // no flicker on refetch
+});
+```
+
+공통 소스: `"action"`(모든 성공적인 에이전트 작업 - 안정적인 대체), `"app-state"`, `"settings"` 및 스토어에서 `recordChange`를 통해 내보내는 모든 사용자 지정 리소스 소스. 전체 패턴은 `real-time-sync` 스킬을 참조하세요.
+
+## 애플리케이션 상태 추가 {#application-state}
+
+애플리케이션 상태는 에이전트가 사용자에게 표시되는 내용을 아는 방법입니다. 최소한 다음을 추가하세요:
+
+- 경로, 선택한 레코드, 활성 탭 또는 편집기 선택이 변경될 때 의미론적 `navigation` 상태를 작성하는 UI 후크.
+- 해당 상태를 읽고 현재 화면 스냅샷을 반환하는 `view-screen` 작업입니다.
+- UI가 사용할 원샷 `navigate` 명령을 작성하는 `navigate` 작업입니다.
+
+UI 후크에 `useAgentRouteState`를 사용하면 애플리케이션 상태 쓰기, 탭 범위 명령 읽기, 읽기 후 삭제 및 중복 명령 보호가 일관되게 유지됩니다.
+
+```tsx
+import { useAgentRouteState } from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
+
+export function useNavigationState() {
+  useAgentRouteState({
+    browserTabId: TAB_ID,
+    requestSource: TAB_ID,
+    getNavigationState: ({ pathname, searchParams }) => ({
+      view: pathname === "/" ? "home" : pathname.slice(1),
+      selectedId: searchParams.get("id"),
+    }),
+    getCommandPath: (command: any) => command.path ?? "/",
+    navigateOptions: { replace: true, flushSync: true },
+  });
+}
+```
+
+URL 쿼리 매개변수에 공유 가능한 필터를 유지합니다. 프레임워크는 이를 에이전트에 `<current-url>`로 노출하고 내장 에이전트는 이를 `set-search-params`로 변경할 수 있습니다. `navigation`는 전체 쿼리 문자열의 두 번째 복사본이 아닌 의미 체계 ID와 별칭을 보유해야 합니다.
+
+앱 탐색의 경우 동일한 출처를 포함하는 하나의 `navigate` 명령을 선호합니다
+URL가 알려진 경우 `path`. 동일한 동작에 `__set_url__`를 쓰지 마세요;
+해당 키는 프레임워크 URL 도구 및 URL 전용 필터 변경용으로 예약되어 있습니다.
+
+```ts
+// actions/navigate.ts
+import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Navigate the UI.",
+  schema: z.object({
+    view: z.enum(["home", "project"]),
+    projectId: z.string().optional(),
+    path: z.string().optional(),
+  }),
+  run: async (args) => {
+    await writeAppState("navigate", args);
+    return { ok: true };
+  },
+});
+```
+
+전체 패턴은 [Context Awareness](/docs/context-awareness)를 참조하세요.
+
+## API 경로를 아껴서 사용 {#api-routes}
+
+앱 작동에는 actions를 선호합니다. 완전히 actions가 될 수 없는 표면에 대해서만 사용자 정의 Nitro 경로를 생성하세요:
+
+- 파일 업로드 또는 바이너리 스트리밍.
+- 공개 익명 페이지 및 webhooks.
+- OAuth 콜백 및 공급자별 프로토콜 핸들러.
+- 서버 렌더링 공개 콘텐츠
+
+소유 가능한 데이터를 다루는 사용자 정의 경로는 액세스 도우미를 사용하기 전에 `getSession(event)`를 호출하고 `runWithRequestContext({ userEmail, orgId }, fn)`에서 데이터베이스 작업을 래핑해야 합니다.
+
+## 쓰기 에이전트 지침 {#write-agents-md}
+
+`AGENTS.md`는 에이전트의 앱 맵입니다.
+목적 라인, 핵심 규칙, 애플리케이션 상태 키, 작업 테이블 및 skills
+색인:
+
+```markdown
+# 내 템플릿
+
+One workspace for projects, tasks, and notes.
+
+## 핵심 규칙
+
+- Data lives in Drizzle 기반 SQL. Use actions for all writes; schema is additive.
+- Use `view-screen` before acting on "this project" if the screen is unclear.
+
+## 애플리케이션 상태
+
+- `navigation.view`: `home` | `project`
+- `navigation.projectId`: selected project on a project page
+
+## 작업
+
+| Action           | Purpose                  |
+| ---------------- | ------------------------ |
+| `list-projects`  | List accessible projects |
+| `create-project` | Create a project         |
+```
+
+새 작업, 경로, 상태 키 또는 반복 작업을 추가할 때마다 `AGENTS.md`를 업데이트하세요.
+워크플로. [Writing Agent Instructions](/docs/writing-agent-instructions)는
+전체 가이드 — `AGENTS.md`를 스키밍 가능하게 유지하는 방법, 네 가지 각각에 속하는 것
+안내 표면, 상담원이 기술 및 도구 설명을 단어로 표현하는 방법
+안정적으로 트리거합니다.
+
+## Skills 추가 {#skills}
+
+`AGENTS.md`를 부풀리는 세부 패턴(제공업체별 API, 가져오기/내보내기 형식, 복잡한 편집 흐름 또는 도메인 용어)에는 skills를 사용하세요.
+
+```markdown
+---
+name: project-imports
+description: How to import projects from the legacy CSV export.
+---
+
+# 프로젝트 가져오기
+
+Use this skill when the user uploads a legacy project CSV.
+
+## 규칙
+
+- Validate required columns before creating rows.
+- Use `create-project` for each project so ownership and sync are correct.
+- Save rejected rows as a note attached to the import summary.
+```
+
+`.agents/skills/<name>/SKILL.md`에 템플릿 skills를 저장합니다. 사용자가 런타임에 지침을 편집할 수 있어야 하는 경우 작업공간 리소스를 통해서도 표시하세요.
+
+## 설정 단계 등록 {#onboarding}
+
+템플릿에 API 키, OAuth 연결 또는 공급자 계정이 필요한 경우 README에 요구 사항을 묻어두는 대신 온보딩 단계를 등록하세요.
+
+```ts
+// server/plugins/onboarding.ts
+import { defineNitroPlugin } from "@agent-native/core/server";
+import { registerOnboardingStep } from "@agent-native/core/onboarding";
+
+export default defineNitroPlugin(() => {
+  registerOnboardingStep({
+    id: "github",
+    title: "Connect GitHub",
+    description: "Needed to import repositories and pull requests.",
+    order: 100,
+    methods: [
+      {
+        id: "token",
+        kind: "form",
+        primary: true,
+        label: "Save token",
+        payload: {
+          fields: [
+            { key: "GITHUB_TOKEN", label: "GitHub token", secret: true },
+          ],
+        },
+      },
+    ],
+    isComplete: () => !!process.env.GITHUB_TOKEN,
+  });
+});
+```
+
+[Onboarding & API Keys](/docs/onboarding)를 참조하세요.
+
+## 작업 공간에 적합하게 만들기 {#workspace-ready}
+
+Templates should fit naturally into [Multi-App Workspaces](/docs/multi-app-workspace), usually coordinated by [Dispatch](/docs/dispatch).
+
+체크리스트:
+
+- 프레임워크 에이전트 채팅 플러그인 또는 `mountA2A()`를 통해 A2A를 마운트하면 형제 앱이 에이전트를 호출할 수 있습니다.
+- Dispatch가 작업을 정확하게 전달할 수 있도록 상담원 카드 설명을 구체적으로 유지하세요.
+- 사이드바에 설정이 표시되고 Dispatch가 공유 자격 증명을 관리할 수 있도록 필수 비밀/온보딩을 등록하세요.
+- 작업 공간 `AGENTS.md` 또는 작업 공간 리소스에 교차 지침을 유지하고 모든 앱에 복사하지 마세요.
+- 소유 가능한 모든 리소스에 대해 공유/액세스 도우미를 사용하여 조직 범위의 작업 공간을 격리된 상태로 유지하세요.
+
+## 템플릿 게시 {#publishing}
+
+공유 전:
+
+1. `pnpm install`, `pnpm typecheck` 및 템플릿 테스트를 실행합니다.
+2. 선택적 공급자 키가 구성되지 않은 상태에서도 작동하는지 확인하세요.
+3. 인증, 공유, 두 사용자 데이터 격리를 확인하세요.
+4. 필요한 환경 변수 및 온보딩 단계를 문서화하세요.
+5. 추적된 런타임 데이터 파일이 아닌 추가 마이그레이션을 통해 예제 또는 시드 행을 포함합니다.
+
+GitHub 저장소에서 커뮤니티 템플릿을 생성할 수 있습니다:
+
+```bash
+npx @agent-native/core@latest create my-app --template github:user/repo
+```
+
+## 프레임워크 모노레포에 기여 {#contributing}
+
+### 게시되지 않은 프레임워크 변경 사항 테스트 {#test-unpublished-framework-changes}
+
+프레임워크 모노레포 내부에서 작업 중이고 생성된 파일이 필요한 경우
+게시되지 않은 패키지 또는 템플릿 변경 사항을 사용하려면 작업 공간을 사용하여 생성을 실행하세요.
+로컬 패키지 플래그:
+
+```bash
+AGENT_NATIVE_CREATE_USE_LOCAL_CORE=1 pnpm --filter @agent-native/core create my-platform
+```
+
+생성된 작업공간은 로컬 `@agent-native/core`와
+`@agent-native/dispatch` 패키지, 따라서 코어 API, 디스패치 작업 공간으로 변경됨
+게시하기 전에 동작이나 자사 템플릿을 테스트할 수 있습니다. 패키지
+`prepack` 스크립트는 연결하기 전에 `dist`를 빌드하여 생성된 내용을 유지합니다.
+현재 빌드 출력을 가리키는 작업공간.

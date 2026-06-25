@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const docsContentDir = fileURLToPath(
   new URL("../../core/docs/content/", import.meta.url),

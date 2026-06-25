@@ -11,7 +11,6 @@
  * sub-step, because it reaches into the editor read path.
  */
 
-import { evaluateNormalizationFormula } from "../shared/properties.js";
 import type {
   ContentDatabaseItem,
   ContentDatabaseSource,
@@ -19,6 +18,7 @@ import type {
   ContentDatabaseSourceRow,
   DocumentPropertyValue,
 } from "../shared/api.js";
+import { evaluateNormalizationFormula } from "../shared/properties.js";
 
 // Map a source row's own values into the canonical key space. Returns null for
 // an un-joinable row (empty/broken formula result) — null never matches, not

@@ -293,7 +293,9 @@
   --wf-font: var(--wf-font-clean);
 
   position: relative;
-  overflow: hidden;
+  /* Matches core blocks.css `.plan-diagram-frame`: scroll oversized diagrams
+     instead of clipping them (Plan's copy had drifted to `hidden`). */
+  overflow: auto;
   width: 100%;
   border: 0;
   border-radius: 10px;

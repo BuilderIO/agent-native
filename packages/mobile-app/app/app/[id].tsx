@@ -1,3 +1,6 @@
+import { Feather } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useLocalSearchParams, Stack } from "expo-router";
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   View,
@@ -8,11 +11,9 @@ import {
   Linking,
   AppState,
 } from "react-native";
-import { useLocalSearchParams, Stack } from "expo-router";
 import { WebView } from "react-native-webview";
-import { Feather } from "@expo/vector-icons";
+
 import { useApps } from "@/lib/use-apps";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const SESSION_TOKEN_KEY = "agent-native:session-token";
 const OAUTH_STATE_KEY = "agent-native:oauth-state";

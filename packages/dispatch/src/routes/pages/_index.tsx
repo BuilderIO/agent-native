@@ -1,5 +1,6 @@
-import { redirect, type LoaderFunctionArgs } from "react-router";
 import { appPath } from "@agent-native/core/client";
+import { redirect, type LoaderFunctionArgs } from "react-router";
+
 import { Spinner } from "@/components/ui/spinner";
 
 const SEO_TITLE =
@@ -34,17 +35,16 @@ export function meta() {
  * "Open thread" button survive the bounce — `useThreadDeepLink` in
  * `root.tsx` reads them after the redirect lands and opens `/chat`.
  */
-function buildTarget(request: Request): string {
-  const url = new URL(request.url);
+function buildTarget(url: URL): string {
   return appPath(`/overview${url.search}${url.hash}`);
 }
 
-export function loader({ request }: LoaderFunctionArgs) {
-  throw redirect(buildTarget(request));
+export function loader({ url }: LoaderFunctionArgs) {
+  throw redirect(buildTarget(url));
 }
 
-export function clientLoader({ request }: LoaderFunctionArgs) {
-  throw redirect(buildTarget(request));
+export function clientLoader({ url }: LoaderFunctionArgs) {
+  throw redirect(buildTarget(url));
 }
 
 export function HydrateFallback() {

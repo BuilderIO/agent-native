@@ -1,22 +1,21 @@
 {
   "name": "@agent-native/shared-app-config",
   "version": "0.1.2",
-  "type": "module",
   "description": "Shared Agent-Native app catalog and configuration helpers.",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/BuilderIO/agent-native",
     "directory": "packages/shared-app-config"
   },
-  "bugs": {
-    "url": "https://github.com/BuilderIO/agent-native/issues"
-  },
-  "homepage": "https://github.com/BuilderIO/agent-native#readme",
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -26,15 +25,17 @@
       "default": "./dist/index.js"
     }
   },
-  "files": [
-    "dist"
-  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
-    "build": "tsc",
-    "typecheck": "tsc --noEmit",
+    "build": "tsgo",
+    "typecheck": "tsgo --noEmit",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
+    "@typescript/native-preview": "catalog:",
     "typescript": "^6.0.3"
   }
 }

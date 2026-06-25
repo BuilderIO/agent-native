@@ -1,10 +1,11 @@
+import type { EmailMessage } from "@shared/types.js";
 import { describe, expect, it } from "vitest";
+
 import {
   buildGmailEmailSearchQuery,
   filterInboxScopedThreadMessages,
   gmailLabelSearchClause,
 } from "./gmail-query.js";
-import type { EmailMessage } from "@shared/types.js";
 
 describe("buildGmailEmailSearchQuery", () => {
   it("scopes inbox searches to inbox results", () => {

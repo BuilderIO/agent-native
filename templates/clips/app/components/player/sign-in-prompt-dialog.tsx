@@ -1,3 +1,6 @@
+import { useT } from "@agent-native/core/client";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -6,7 +9,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 
 export interface SignInPromptDialogProps {
   open: boolean;
@@ -42,19 +44,19 @@ export function SignInPromptDialog({
   returnTo,
   onSignIn,
 }: SignInPromptDialogProps) {
+  const t = useT();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Sign in to {intent}</DialogTitle>
+          <DialogTitle>{t("signInPrompt.title", { intent })}</DialogTitle>
           <DialogDescription>
-            Create an account or sign in to {intent} on this clip. We'll bring
-            you right back here when you're done.
+            {t("signInPrompt.description", { intent })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex-col-reverse sm:flex-row sm:justify-end gap-2">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Not now
+            {t("signInPrompt.notNow")}
           </Button>
           <Button
             onClick={() => {
@@ -62,7 +64,7 @@ export function SignInPromptDialog({
               window.location.href = buildSignInHref(returnTo);
             }}
           >
-            Sign in
+            {t("signInPrompt.signIn")}
           </Button>
         </DialogFooter>
       </DialogContent>

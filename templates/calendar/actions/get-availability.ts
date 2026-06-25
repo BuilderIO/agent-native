@@ -5,8 +5,9 @@ import {
 } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
-import type { AvailabilityConfig } from "../shared/api.js";
+
 import { ensureBookingUsername } from "../server/handlers/booking-usernames.js";
+import type { AvailabilityConfig } from "../shared/api.js";
 
 function createDefaultAvailability(timezone: string): AvailabilityConfig {
   return {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useT } from "@agent-native/core/client";
 import {
   IconPlayerPlay,
   IconPlayerPause,
@@ -9,8 +9,8 @@ import {
   IconSubtitles,
   IconRectangle,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { Scrubber, msToClock } from "./scrubber";
+import { useState, type FocusEvent } from "react";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,11 +20,19 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { PLAYBACK_SPEED_OPTIONS } from "@/lib/playback-speed";
+import { cn } from "@/lib/utils";
+
+import { Scrubber, msToClock } from "./scrubber";
 
 export const SPEED_OPTIONS = PLAYBACK_SPEED_OPTIONS;
 
@@ -57,6 +65,7 @@ export interface PlayerControlsProps {
 }
 
 export function PlayerControls(props: PlayerControlsProps) {
+  const t = useT();
   const {
     isPlaying,
     durationMs,
@@ -85,7 +94,14 @@ export function PlayerControls(props: PlayerControlsProps) {
     menuPortalContainer,
   } = props;
 
-  const [volumeHover, setVolumeHover] = useState(false);
+  const [volumePopoverOpen, setVolumePopoverOpen] = useState(false);
+
+  const handleVolumeBlur = (event: FocusEvent<HTMLDivElement>) => {
+    const nextFocusedElement = event.relatedTarget as Node | null;
+    if (!event.currentTarget.contains(nextFocusedElement)) {
+      setVolumePopoverOpen(false);
+    }
+  };
 
   return (
     <div className="px-3 pb-2 pt-10 bg-gradient-to-t from-black/80 via-black/50 to-transparent">
@@ -112,38 +128,56 @@ export function PlayerControls(props: PlayerControlsProps) {
         </IconBtn>
 
         <div
-          className="flex items-center gap-1"
-          onMouseEnter={() => setVolumeHover(true)}
-          onMouseLeave={() => setVolumeHover(false)}
+          className="relative flex shrink-0 items-center"
+          onMouseEnter={() => setVolumePopoverOpen(true)}
+          onMouseLeave={() => setVolumePopoverOpen(false)}
+          onFocus={() => setVolumePopoverOpen(true)}
+          onBlur={handleVolumeBlur}
         >
-          <IconBtn onClick={onToggleMute} tooltip="Mute (M)">
-            {muted || volume === 0 ? (
-              <IconVolumeOff className="h-5 w-5" />
-            ) : (
-              <IconVolume className="h-5 w-5" />
-            )}
-          </IconBtn>
-          <div
-            className={cn(
-              "transition-all overflow-hidden",
-              volumeHover ? "w-20" : "w-0",
-            )}
-          >
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={muted ? 0 : volume}
-              onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-              className="w-full accent-primary cursor-pointer"
-            />
-          </div>
+          <Popover open={volumePopoverOpen} onOpenChange={setVolumePopoverOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                onClick={onToggleMute}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white hover:bg-white/10"
+                aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
+              >
+                {muted || volume === 0 ? (
+                  <IconVolumeOff className="h-5 w-5" />
+                ) : (
+                  <IconVolume className="h-5 w-5" />
+                )}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="top"
+              align="center"
+              sideOffset={8}
+              portalled={false}
+              className="w-auto border-white/10 bg-black/90 p-2 text-white shadow-2xl backdrop-blur-md"
+              onOpenAutoFocus={(event) => event.preventDefault()}
+              onCloseAutoFocus={(event) => event.preventDefault()}
+            >
+              <div className="flex h-24 w-8 items-center justify-center">
+                <input
+                  aria-label="Volume"
+                  aria-orientation="vertical"
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={muted ? 0 : volume}
+                  onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+                  className="h-2 w-24 -rotate-90 cursor-pointer accent-white"
+                />
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
 
-        <span className="text-xs font-mono tabular-nums text-white/90 px-2">
+        <span className="shrink-0 whitespace-nowrap px-1 font-mono text-[10px] leading-none tabular-nums text-white/85 sm:text-[11px]">
           {msToClock(currentMs)}
-          <span className="text-white/50"> / {msToClock(durationMs)}</span>
+          <span className="text-white/50">/{msToClock(durationMs)}</span>
         </span>
 
         <div className="flex-1" />
@@ -162,12 +196,12 @@ export function PlayerControls(props: PlayerControlsProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button className="h-8 px-2 rounded-md hover:bg-white/10 text-xs font-medium tabular-nums">
+                <button className="h-8 shrink-0 rounded-md px-2 text-xs font-medium tabular-nums hover:bg-white/10">
                   {speed}x
                 </button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>Playback speed</TooltipContent>
+            <TooltipContent>{t("playerControls.playbackSpeed")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent
             align="end"
@@ -237,7 +271,7 @@ function IconBtn({
         <button
           onClick={onClick}
           className={cn(
-            "h-8 w-8 rounded-md flex items-center justify-center",
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
             active ? "bg-white/20 text-white" : "text-white hover:bg-white/10",
           )}
         >

@@ -1,0 +1,814 @@
+---
+title: "ビジュアルプラン"
+description: "Agent-Native Plans は、コーディング エージェントの計画を、図、ワイヤーフレーム、注釈付きコード、コメント、共有リンクなど、構造化されたレビュー可能なドキュメントに変換します。 CLI から 1 回インストールします。共有しているレビュー担当者はゲストとして編集し、保存または共有する場合にのみログインします。"
+---
+
+# ビジュアルプラン
+
+> **ほとんどの人は、スキャフォールド アプリではなくスキルとして Plan をインストールします。** 1 つの CLI コマンド
+> `/visual-plan` および `/visual-recap` skills とホスト型プランを追加します
+> コネクタ — [Plan plugin & marketplace](/docs/plan-plugin) を参照
+> はプラグインとマーケットプレイスのルート用です。計画テンプレートのフォーク (
+> [For developers](#for-developers)) は、セルフホスティングまたは
+> 計画そのものに基づいて構築されます。
+
+Agent-Native Plans は、コーディング エージェント用のビジュアル プラン モードです。普通に変わる
+Codex、Claude コード、Markdown、または構造化された実装計画に貼り付けられた
+リッチ テキスト、図、ワイヤーフレーム、注釈付きコードのチュートリアルを含むレビュー画面
+ファイル ツリー、注釈、コメント、共有可能なリンク。
+
+それは 2 つのコマンドになります。 `/visual-plan` はエージェントの **前** に計画を作成します
+コードを書き込みます。 `/visual-recap` は、**すでに**起こった変更を PR に変換します。
+コミット、ブランチ、または git diff — 高度なビジュアル コード レビューを行います。両方とも開いています
+同じレビュー画面なので、注釈を付けたり、コメントを付けたり、フィードバックを返したりできます
+エージェントも同様です。
+
+```an-diagram title="2 つのコマンド、1 つのレビュー サーフェス" summary="どちらのコマンドも、ホストされた Plan MCP コネクタを介して、同じ注釈とコメントのサーフェスにパブリッシュされます。"
+{
+  "html": "<div class=\"diagram-plan\"><div class=\"diagram-col\"><div class=\"diagram-node\"><span class=\"diagram-pill accent\">/visual-plan</span><small class=\"diagram-muted\">コード前 — アーキテクチャ、UI、リファクタ</small></div><div class=\"diagram-node\"><span class=\"diagram-pill\">/visual-recap</span><small class=\"diagram-muted\">コード後 — PR、コミット、ブランチ、diff</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Plan MCP コネクター<br><small class=\"diagram-muted\">plan.agent-native.com</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">レビュー画面<br><small class=\"diagram-muted\">図 · ワイヤーフレーム · 注釈付きコード · コメント</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-node\">コーディングエージェント<br><small class=\"diagram-muted\">フィードバックを返却</small></div></div>",
+  "css": ".diagram-plan{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-plan .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-plan .diagram-arrow{font-size:22px;line-height:1}.diagram-plan .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}"
+}
+```
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>チェックアウト再設計計画</h1><div style='flex:1'></div><button>共有</button><button class='primary'>承認</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>現在のワイヤーフレーム</div><div class='wf-box'>提案ワイヤーフレーム</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>実装計画</strong><div class='wf-box'>判断：既存のチェックアウトシェルを維持</div><div class='wf-box'>注釈付きコードウォークスルー</div><div class='wf-box'>未解決の質問</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>コメント</strong><div class='wf-box'>主要 CTA へのピン</div><div class='wf-box'>エージェントへの質問</div><div class='wf-box'>解決済みコピー注記</div><button class='primary'>フィードバックを返す</button></aside></div>"
+}
+```
+
+プランには 2 つの方法があります:
+
+- **コーディング エージェント (CLI) から** — 1 つのコマンドでスキルをインストールし、登録します
+  ホストされた Plans コネクタを認証し、それを認証します。
+- **ブラウザ内** — 共有相手は誰でもエディタを開いて作成したり、
+  サインアップなしで **ゲストとして編集**します。保存したい場合にのみサインインします
+  または共有します。
+
+## スキルをインストール {#install}
+
+Agent-Native CLI を使用します。これは、
+スキルの指示を計画し、ホストされた Plans MCP コネクタを登録し、**そして** 実行します
+クライアント固有の認証/セットアップ フローを 1 ステップで実行できるため、最初のツール呼び出しは不要です
+OAuth の壁にぶつかる:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+このコマンドは、`/visual-plan` と `/visual-recap` の両方のコマンドをインストールします。
+
+MCP コネクタ URL を直接受け入れるチャットベースのホストを使用している場合
+(CLI で構成されたクライアントではなく)、ホストされたプラン コネクタに
+`https://plan.agent-native.com/_agent-native/mcp` — クライアント固有のセットアップについては、[MCP Clients](/docs/mcp-clients) を参照してください。
+
+認証はセットアップ時に 1 回限りのブラウザ サインインです。これは意図されたものであり、
+により、エージェントは永続化し、生成した計画を共有できるようになります。なんという認証
+手順はクライアントによって異なります:
+
+- **OAuth 対応ホスト** (Claude コード) は、URL 専用の MCP エントリとプロンプトを取得します。
+  `/mcp` を実行し、**認証** を選択します。
+- **Codex / Cowork** 短いブラウザ デバイス コード フローを実行します。CLI はコードを出力します。
+  検証ページを開き、承認したらコネクタを書き込みます。
+- **非対話型シェルまたは CI** では、認証ステップがスキップされ、正確な
+  後で実行するコマンドが出力されます。
+
+デフォルトでは、CLI は、設定できるサポートされているすべてのローカル クライアントをターゲットとします。パス
+`--client codex`、`--client claude-code`、または別の特定のクライアントを使用する場合
+セットアップを 1 つのホストに絞り込みたい:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+`--no-connect` を渡して認証せずにコネクタを登録し、実行します
+`npx @agent-native/core@latest connect https://plan.agent-native.com --client all`
+準備ができたらいつでも、またはより狭い `--client` を選択してください:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --no-connect
+```
+
+**すべてのプル リクエスト**で要約を自動生成するには、`--with-github-action` を渡します。
+これは、各 PR で `visual-recap` スキルを実行する GitHub アクションを書き込みます。
+インライン スクリーンショットを貼り付けたコメントとしてインタラクティブな要約計画を投稿します —
+[PR Visual Recap](/docs/pr-visual-recap) を参照。
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --with-github-action
+```
+
+ワークフローを作成したら、`npx @agent-native/core@latest recap setup` を実行して構成します
+GitHub Actions シークレット/変数 (可能な場合) および `npx @agent-native/core@latest recap doctor`
+リポジトリの準備ができていることを確認します。
+
+オープン Skills CLI を通じてポータブル命令ファイルのみが必要な場合は、次を使用します。
+
+```bash
+npx skills@latest add BuilderIO/agent-native --skill visual-plan
+```
+
+これにより、スキルの説明のみがインストールされます。ホストされた MCP は登録されません
+コネクタなので、1 つのコマンドでセットアップする場合は、Agent-Native CLI パスを使用します。
+
+> **1 回インストールできるプラグインをお好みですか?** Claude コードと Codex を追加できます
+> `BuilderIO/agent-native` をプラグイン マーケットプレイスとして直接提供し、
+> skills とコネクタを 1 回のインストールで計画し、skills として自動更新します
+> 改善 — [Plan plugin & marketplace](/docs/plan-plugin) を参照。
+
+### VS Code 内でプランを開く {#vscode-extension}
+
+VS Code を使用している場合は、
+[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+次の画面に移動する代わりに、サイド パネルで同じ計画レビュー画面を開きます
+別のブラウザタブ。プラン ツールは引き続き通常の Web リンクと MCP
+メタデータには、VS Code ハンドオフ URL も含まれています:
+
+```text
+vscode://builder.agent-native/open?url=<encoded-plan-url>
+```
+
+拡張機能は URI を処理し、デコードされたプラン URL を VS Code Web ビューで開きます。
+VS の既存の Agent Native MCP 接続フローを実行するコマンドが含まれています
+コード / GitHub 副操縦士。これは、Claude コードまたは別のコードから特に便利です
+編集中のファイルの隣にプランを配置するコーディング エージェント ワークフロー。
+
+## コーディング エージェントから使用します
+
+インストール後、エージェントに作業に適したコマンドを依頼してください。
+
+- `/visual-plan` は、実装の **前** に向けて構造化計画を作成します。
+  アーキテクチャ、バックエンド、リファクタリング、UI、または混合製品の作業 - 取り込み
+  図、ワイヤーフレーム、モックアップ、クリック可能なプロトタイプ、注釈付きコード
+  作業に必要なウォークスルーとファイル ツリー。
+- `/visual-recap` は、すでに行われている変更の高高度 **レビュー**を作成します
+  発生 — PR、コミット、ブランチ、または git diff — スキーマ、API、ファイル、および
+  生の差分の壁ではなく、前後のブロック。
+
+エージェントは最初にコードベースを検査し、その後、視覚的な計画を作成する必要があります。
+方向を間違えると高くつくことになります。返されたプランのリンクにより、
+ブラウザまたは VS Code を使用すると、注釈を付けたり、修正したり、オプションを選択したり、要求したりすることができます
+コード変更が始まる前に更新します。
+
+Codex、Claude コード、Markdown、または貼り付けられたプランがすでに存在する場合は、
+`/visual-plan`;エージェントはそのソースプランを保存し、より充実したレビューを構築します
+最初からやり直すのではなく、そこから立ち直ります。
+
+最初のパスでまだ回答可能な決定がある場合、エージェントは
+**公開質問** フォームは同じプランの下部にあります。返信して送信
+エージェントに対するそれは、既存の計画に対する改訂ターンを開始します。
+
+## それを使って何ができるか
+
+- **実装前に確認してください。** React を図、ワイヤーフレーム、オプション タブに追加します。
+  未解決の質問フォーム、リスクノート、注釈付きのコードウォークスルー、およびコード
+  エージェントがファイルを編集する前にプレビューします。
+- **計画に直接コメントします。** フィードバックをテキスト、画像、ワイヤーフレーム、または
+  キャンバスの場所。コメントがエージェントに対するものであるか、人間に対するものであるかを選択します
+  査読者;インラインチップを使用してチームメイトを@メンションします。コメントを
+  計画は進化します。
+- **エージェントにフィードバックを明確に渡します。** テキスト コメントを最も近いものに添付します
+  散文ブロック、ビジュアル コメントには正確なターゲット メタデータが含まれ、ブラウザ
+  ハンドオフには、少数のビジュアル/キャンバス コメントの集中的なスクリーンショットが含まれます
+  読みにくい巨大な画像の代わりに場所を表示します。
+- **結果をエクスポートします。** 計画の HTML、Markdown、または JSON の領収書を保管してください
+  ソース管理に適したハンドオフが必要な場合。
+
+## ゲストとしてブラウザで編集する {#guest}
+
+プランを共有する人は何もインストールする必要はありません。彼らは計画を開きます
+エディターと **サインアップなしで作成および編集** - ゲストとして機能します。サインイン
+誰かが自分の作品を**保存または共有**したい場合にのみ必要です。
+
+ゲストがサインインすると、ゲストとして作成したプランが**要求**されます
+彼らのアカウントなので、構築したものは何も失われません。
+
+散文編集をインラインで計画: 任意のテキスト セクションをクリックし、入力し、リッチ機能で書式設定します
+エディターのツールバーまたはスラッシュ メニュー、および Plans は基礎となるマークダウンを自動保存します。レビュー
+注釈モードは一時的にテキスト セクションを読み取り専用にし、クリックを固定できるようにします
+フィードバック;散文の編集を続けるには、レビュー モードを終了します。
+
+## 共有とコメント {#sharing}
+
+共有とコメントのワークフローにはアカウントが必要です。
+
+- パブリック プランまたは共有プランの**表示**は、リンクを知っている人なら誰でも機能します (アカウントは必要ありません)
+  必須。
+- 共有プランに**コメント**するには、エージェントネイティブのアカウントが必要です。
+- **共有** プラン (リンクへの公開、プライベート共有、レビューアー アクセス、
+  クロスデバイスまたはチームでのレビュー）にはサインインが必要です。Google サインインは次の場合に表示されます。
+  標準の Google OAuth 環境変数が設定されています。
+
+ホストされたプラン コネクタは `https://plan.agent-native.com/_agent-native/mcp` にあります。
+スキル ファイルには共有シークレットを決して入れないでください。
+
+## ローカル ファイル プライバシー モード {#local-files}
+
+プライバシーを重視した作業の場合は、ローカル ファイル モードを要求してください:
+
+```text
+Use /visual-plan in local-files mode. Do not write this plan to the Plan DB.
+```
+
+または、エージェント環境の規則を設定します。
+
+```bash
+export AGENT_NATIVE_PLANS_MODE=local-files
+```
+
+このモードでは、エージェントはローカル MDX フォルダーを書き込み、ホストされているフォルダーを呼び出すことはできません
+MCP ツールを計画します。プランが必要な場合は、`plans/<slug>/` などのリポジトリ フォルダーを使用してください
+コードを使用してチェックインしました。一時フォルダーまたは無視されたフォルダー (
+`/tmp/agent-native-plans/<slug>/` または `.agent-native/plans/<slug>/`、
+プランは git から外すべきです。フォルダーには次のものが含まれます:
+
+- `plan.mdx`
+- オプションの `canvas.mdx`
+- オプションの `prototype.mdx`
+- オプションの `.plan-state.json`
+
+フォルダーに書き込んだ後、エージェントは小さな localhost ブリッジを開始し、
+ローカルのみのソースに対してホストされたプラン UI:
+
+```bash
+npx @agent-native/core@latest plan local check --dir plans/<slug>
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
+```
+
+橋 URL は次のようになります
+`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+このページは通常のプラン ビューアですが、ブラウザは `plan.mdx` を取得します。
+`canvas.mdx`、`prototype.mdx`、`.plan-state.json`、およびローカル画像アセット
+ローカルホストブリッジ。プランのコンテンツはホストされたデータベースに書き込まれず、
+ホストされたプラン actions を通じて送信されません。
+レビュー; URL はマシンに対してローカルであり、共有可能なチーム リンクではありません。
+serve コマンドは、デフォルトでオープン URL を `.plan-url` に書き込むため、コーディング エージェントは
+長時間実行される標準出力をスクレイピングせずにキャプチャします。そのファイルをローカル専用として扱います
+URL にはブリッジ トークンが含まれているため、コミットしないでください。
+
+macOS では、Safari がホストされているコンテンツをブロックする可能性があるため、`--open` は Chrome/Chromium を優先します
+HTTPS ローカルホスト ブリッジを取得するための HTTPS プラン ページ。ヘッドレス用
+トラブルシューティング、実行:
+
+```bash
+npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind plan
+```
+
+`verify` はブリッジを開始し、プライベート ネットワークのプリフライトと JSON を確認します
+ペイロード、診断を出力し、終了します。
+
+同じ `PLAN_LOCAL_DIR` を使用してプラン アプリをローカルで実行する場合は、
+編集可能なアプリ ルートを開きます:
+
+```text
+http://localhost:<port>/local-plans/<slug>
+```
+
+リポジトリにバックアップされたフォルダーの場合、直接ローカル ルートでリポジトリ相対ファイルを伝送できます
+ブラウザの編集によりそのフォルダへの書き込みが継続されるようにするためのフォルダ パス:
+
+```text
+http://localhost:<port>/local-plans/<slug>?path=plans%2F<slug>
+```
+
+プラン アプリは、`agent-native.json` の `apps.plan.roots[0].path` を
+プロモートされたローカル プランのデフォルトのリポジトリの場所、`plans/` にフォールバックします:
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "plan": {
+      "mode": "local-files",
+      "roots": [{ "name": "Plans", "path": "plans", "kind": "plans" }]
+    }
+  }
+}
+```
+
+直接ローカル プラン ルートには、一時ローカル フォルダーを保存するメニュー アクションが含まれます
+そのリポジトリの場所に移動します。昇格後、ページは `?path=...` と
+MDX の編集内容をリポジトリ フォルダーに自動保存し続けます。
+
+ローカル ファイル モードにより、コンテンツの計画や要約が Agent-Native に移動することが防止されます
+計画データベース。また、ホストされた共有、ブラウザのコメント、プラン履歴も無効になります。
+明示的に公開を選択するまで、領収書を公開/エクスポートします。
+ホストされたデータベースにローカル プランを追加し、ローカルで `publish-visual-plan` を呼び出します
+MDX フォルダー パス;これにより、プランがアップロードされ、ホスト ID が割り当てられ、共有が有効になります。
+コメントすると、ホストされた URL が返されます。ローカル ファイル モードはサポートしません。
+コーディング エージェントの LLM を自動的にローカルにします。ローカルまたは承認されたものを選択してください
+プライバシーの境界も重要かどうかをモデル化してください。
+
+## デスクトップのローカル ファイル同期 {#desktop-local-sync}
+
+Agent Native デスクトップは、ホストされたプランにネイティブのローカル フォルダー ブリッジも提供します。これ
+ローカル ファイル プライバシー モードとは異なります。ホストされたプラン データベースはそのまま残ります。
+共有、コメント、履歴、ライブレビューのための信頼できる情報源、デスクトップ
+現在のプランのソース ファイルを選択したフォルダーにミラーリングできます。
+
+Agent Native デスクトップでプランを開き、プラン メニューの **ローカル ファイル** actions を使用します。
+その後:
+
+- **ローカル フォルダーをリンク** — そのプランの MDX ソースのフォルダーを選択します。
+- **ローカル フォルダーに同期** — `plan.mdx`、オプションで `canvas.mdx` と書き込みます
+  オプションの `prototype.mdx`、オプションの `.plan-state.json`、および画像アセット。
+- **ローカル編集をインポート** — フォルダーを読み取り、それを適用します
+  `import-visual-plan-source` とプランの現在の更新タイムスタンプ。
+- **自動同期変更** — 後もホスト型プランの最新ソースをエクスポートし続けます
+  アプリ内で行われた編集。
+
+このパスでは、プラン アプリの複製や CLI の実行は必要ありません。それは
+プランの内容を外部に漏らすためではなく、ホストされたプランに関するファイルファーストのレビュー/編集
+ホストされたデータベースの。
+
+## ホスト型プランのデータを削除しています {#delete-data}
+
+サインインした所有者は、ホストされているプランと要約をプラン リストから削除できます。
+計画アクション メニュー。
+
+- **論理的な削除** はプランを **削除済み** タブに移動し、通常のプランを作成します
+  ビュー/直接リンクが機能しなくなり、行を作成することでパブリック アクセスが削除されます
+  プライベート。 SQL 行は保持されるため、所有者は後で計画を復元できます。
+- **復元**は、論理的に削除されたプランの**削除済み**タブから利用できます。
+- **完全な削除** は、ホストされたプランの行とプランを対象としたコメントを削除します。
+  セクション、アクティビティ イベント、バージョン スナップショット、共有許可、不正使用レポート、および
+  SQL asset records. The UI requires typing `DELETE <plan-id>` before the final
+  ボタンが有効になります。
+
+完全に削除すると、プラン アプリのデータベース レコードと SQL でサポートされるアセットが削除されます
+バイト/参照。導入で外部アップロード プロバイダーを使用する場合、プロバイダー
+アップロードが共有されるため、オブジェクトの保持はプロバイダのライフサイクルに従います
+抽象化は現在、オブジェクトの削除を公開していません。ローカル ファイル プライバシー モード
+代わりにソースをローカルの MDX フォルダに保持します。ホストされているデータを削除しても削除されません
+ローカル ファイルをタッチします。
+
+## 便利なプロンプト
+
+- 「認証フローを変更する前に、`/visual-plan` を使用してください。」
+- 「モバイルとデスクトップの状態を含む新しいオンボーディング画面用の `/visual-plan` を作成します。」
+- 「以下の Markdown プランで `/visual-plan` を使用すると、レビューが簡単になります。」
+- 「最初に変更の形状を確認できるように、この PR で `/visual-recap` を実行します。」
+- 「`main` とこのブランチの差分に `/visual-recap` を使用します。」
+- 「ローカル ファイル モードで `/visual-recap` を使用すると、要約コンテンツがプラン DB に書き込まれなくなります。」
+
+## 認証エラーからの回復 {#auth-errors}
+
+プラン ツールが `needs auth`、`Unauthorized`、または「セッション」を返した場合
+終了しました`。再試行し続けないでください。
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`、または OAuth 対応ホストで`/mcp` → **認証** を再実行します。
+ツールを期待する前に、新しい Codex スレッドを実行するか、関連するクライアントを再起動/リロードしてください
+更新するレジストリ。
+
+## 開発者向け
+
+このドキュメントの残りの部分は、プラン テンプレートをフォークまたは自己ホストする人を対象としています。
+ほとんどのユーザーは、アプリをスキャフォールディングする代わりに、CLI を使用してスキルをインストールする必要があります。
+
+### クイックスタート
+
+```bash
+npx @agent-native/core@latest create my-plans --standalone --template plan
+cd my-plans
+pnpm install
+pnpm dev
+```
+
+ホストされたアプリベースのスキルは以下を使用します:
+
+- アプリ: `https://plan.agent-native.com`
+- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+
+ローカル テンプレートは、プラン自体を開発する場合、ローカルの永続性をテストする場合、または完全に自己ホスト型のレビュー サーフェスを実行する場合に役立ちます。
+
+### データモデル
+
+スキーマは `templates/plan/server/db/schema.ts` にあります。コアテーブル:
+
+| テーブル           | 内容                                                                                                                                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans`            | 各計画または要約 — `title`、`brief`、`kind` (計画/要約)、`status`、`source`、`html`/`markdown`/`content`、`hosted_plan_id/url`、使用状況統計、`source_url`、 `deleted_at`/`deleted_by` |
+| `plan_sections`    | プラン内の順序付きセクション — `type`、`title`、`body`、`html`、`sort_order`、`created_by`                                                                                             |
+| `plan_comments`    | スレッド化されたコメント — `kind`、`status`、`anchor`、`message`、`resolution_target`、`mentions_json`、`resolved_by`                                                                  |
+| `plan_events`      | プラン上のエージェント/ヒューマン イベントの監査ログ                                                                                                                                   |
+| `plan_versions`    | バージョン履歴の特定時点のスナップショット                                                                                                                                             |
+| `plan_shares`      | プリンシパルごとの共有付与 (閲覧者 / 編集者 / 管理者)                                                                                                                                  |
+| `plan_guest_mints` | ゲスト セッション発行のレート制限レコード                                                                                                                                              |
+| `plan_assets`      | base64 として保存されたインライン画像アセット (アップロード プロバイダーがない場合のフォールバック)                                                                                    |
+
+```an-schema title="計画データモデル" summary="1 つのプラン行には、順序付けされたセクションに加えて、コメント、イベント、バージョン、共有、およびインライン アセットが含まれます。"
+{
+  "entities": [
+    { "id": "plans", "name": "plans", "note": "each plan or recap", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "title", "type": "text" },
+      { "name": "brief", "type": "text", "nullable": true },
+      { "name": "kind", "type": "enum", "note": "計画 |要約" },
+      { "name": "status", "type": "text" },
+      { "name": "source", "type": "text", "nullable": true },
+      { "name": "hosted_plan_id", "type": "text", "nullable": true, "note": "hosted_plan_url paired" },
+      { "name": "source_url", "type": "text", "nullable": true },
+      { "name": "deleted_at", "type": "timestamp", "nullable": true, "note": "soft delete; deleted_by paired" }
+    ] },
+    { "id": "plan_sections", "name": "plan_sections", "note": "ordered sections within a plan", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "type", "type": "text" },
+      { "name": "title", "type": "text", "nullable": true },
+      { "name": "body", "type": "text", "nullable": true },
+      { "name": "html", "type": "text", "nullable": true },
+      { "name": "sort_order", "type": "integer" },
+      { "name": "created_by", "type": "text", "nullable": true }
+    ] },
+    { "id": "plan_comments", "name": "plan_comments", "note": "threaded comments", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "kind", "type": "text" },
+      { "name": "status", "type": "text" },
+      { "name": "anchor", "type": "json", "nullable": true },
+      { "name": "message", "type": "text" },
+      { "name": "resolution_target", "type": "text", "nullable": true, "note": "agent | human | null" },
+      { "name": "mentions_json", "type": "json", "nullable": true },
+      { "name": "resolved_by", "type": "text", "nullable": true }
+    ] },
+    { "id": "plan_events", "name": "plan_events", "note": "audit log of agent/human events", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] },
+    { "id": "plan_versions", "name": "plan_versions", "note": "point-in-time snapshots", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] },
+    { "id": "plan_shares", "name": "plan_shares", "note": "per-principal grants", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "role", "type": "enum", "note": "ビューア |編集者 |管理者" }
+    ] },
+    { "id": "plan_guest_mints", "name": "plan_guest_mints", "note": "rate-limit records for guest session issuance", "fields": [
+      { "name": "id", "type": "text", "pk": true }
+    ] },
+    { "id": "plan_assets", "name": "plan_assets", "note": "inline image assets as base64", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] }
+  ],
+  "relations": [
+    { "from": "plans", "to": "plan_sections", "kind": "1-n", "label": "has sections" },
+    { "from": "plans", "to": "plan_comments", "kind": "1-n", "label": "has comments" },
+    { "from": "plans", "to": "plan_events", "kind": "1-n", "label": "has events" },
+    { "from": "plans", "to": "plan_versions", "kind": "1-n", "label": "has versions" },
+    { "from": "plans", "to": "plan_shares", "kind": "1-n", "label": "has shares" },
+    { "from": "plans", "to": "plan_assets", "kind": "1-n", "label": "has assets" }
+  ]
+}
+```
+
+### キー actions
+
+`templates/plan/actions/` の Actions:
+
+- **作成** — `create-visual-plan`、`create-visual-recap`、`create-ui-plan`、`create-prototype-plan`、`create-plan-design`、`create-visual-questions`
+- **読み取りと編集** — `get-visual-plan`、`update-visual-plan`、`list-visual-plans`、`import-visual-plan-source`、`patch-visual-plan-source`、`read-visual-plan-source`、`export-visual-plan`
+- **ライフサイクル** — 所有者のみの論理的な削除、復元、および入力確認による完全な削除の場合は `delete-visual-plan`
+- **公開と共有** — `publish-visual-plan`
+- **バージョン** — `list-plan-versions`、`get-plan-version`、`restore-plan-version`
+- **コメントとフィードバック** — `get-plan-feedback`、`reply-to-plan-comment`、`resolve-plan-comment`、`consume-plan-feedback`、`delete-plan-comment`
+- **プロトタイプ** — `convert-visual-plan-to-prototype`、`create-prototype-plan`
+- **コンテキストとナビゲーション** — `view-screen`、`navigate`
+
+### カスタム MDX ブロック {#custom-mdx-blocks}
+
+プランのソース ファイルは MDX ですが、アプリはインポートされた任意の JSX をレンダリングしません
+コンポーネント。カスタム MDX タグは、サーバーができるようにプラン ブロックとして登録する必要があります。
+それを解析してシリアル化し、ブラウザはレンダリングして編集でき、エージェントは
+`get-plan-blocks` によって返されるブロック語彙でそれを確認してください。
+
+登録されたブロックには 3 つのサーフェスがあります:
+
+- React フリーのスキーマと MDX 構成。サーバーおよびエージェント コードにとって安全です。
+- `shared/plan-content.ts` の正規化されたランタイム タイプ/スキーマ エントリ。
+- `Read` およびオプションの `Edit` React コンポーネントを含むブラウザ ブロック仕様。
+
+ブロック `type` および MDX `tag` を安定した状態に保ちます。 `type` は正規化された形式で保存されます
+計画 JSON; `tag` は、`plan.mdx` のコンポーネント名です。レジストリ ハンドル
+基本 MDX 属性 `id`、`title`、`summary`、および `editable` なので、使用しないでください。
+`toAttrs` で繰り返します。
+
+1. データ シェイプと MDX ラウンド トリップの共有構成を追加します。
+
+```ts
+// templates/plan/shared/risk-card.config.ts
+import { z } from "zod";
+import {
+  markdown,
+  type BlockMdxConfig,
+} from "@agent-native/core/blocks/server";
+
+export type RiskCardSeverity = "low" | "medium" | "high";
+
+export interface RiskCardData {
+  severity?: RiskCardSeverity;
+  body: string;
+}
+
+const severities = new Set(["low", "medium", "high"]);
+
+export const riskCardSchema = z.object({
+  severity: z.enum(["low", "medium", "high"]).optional(),
+  body: markdown(z.string().trim().min(1).max(10_000)),
+}) as z.ZodType<RiskCardData>;
+
+export const riskCardMdx: BlockMdxConfig<RiskCardData> = {
+  tag: "RiskCard",
+  childrenField: "body",
+  toAttrs: (data) => ({
+    severity: data.severity,
+  }),
+  fromAttrs: (attrs, children) => {
+    const severity = attrs.string("severity");
+
+    return {
+      severity: severities.has(severity ?? "")
+        ? (severity as RiskCardSeverity)
+        : undefined,
+      body: children,
+    };
+  },
+};
+```
+
+2. 正規化されたプラン コンテンツ モデルを拡張します
+   `templates/plan/shared/plan-content.ts`.
+
+新しい `type` を `PlanBlockType` に追加し、一致するブロック インターフェイスを に追加します
+`PlanBlock` ユニオンを作成し、同じデータ形状を `planBlockSchema` に追加します。これは
+データベースの保存、ソースのインポート、およびカスタムを検証する `update-block` パッチ
+不明なタイプとして拒否するのではなくブロックします。
+
+3. React-free サーバー仕様を次の場所に登録します
+   `templates/plan/shared/plan-block-registry.ts`.
+
+```ts
+import {
+  BlockRegistry,
+  defineBlock,
+  registerLibraryBlockConfigs,
+  registerBlocks,
+} from "@agent-native/core/blocks/server";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "./risk-card.config.js";
+
+const ServerReadStub = () => null;
+
+const riskCardServerBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: ServerReadStub,
+  placement: ["block"],
+  label: "Risk card",
+  description: "low、medium、high の重大度を持つ markdown のリスクメモ。",
+});
+
+export function registerPlanBlocks(registry: BlockRegistry): void {
+  registerLibraryBlockConfigs(registry, {
+    overrides: PLAN_SERVER_LIBRARY_OVERRIDES,
+  });
+  registerBlocks(registry, [riskCardServerBlock]);
+}
+```
+
+4. ブラウザの仕様をに登録します
+   `templates/plan/app/components/plan/planBlocks.tsx`.
+
+```tsx
+import {
+  defineBlock,
+  registerLibraryBlocks,
+  registerBlocks,
+  type BlockReadProps,
+} from "@agent-native/core/blocks";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "@shared/risk-card.config";
+
+function RiskCardBlock({ data, blockId, ctx }: BlockReadProps<RiskCardData>) {
+  return (
+    <section
+      className="rounded-md border border-border bg-card p-4"
+      data-block-id={blockId}
+      data-severity={data.severity}
+    >
+      <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+        {data.severity ?? "risk"}
+      </div>
+      {ctx.renderMarkdown?.(data.body) ?? (
+        <p className="whitespace-pre-wrap text-sm">{data.body}</p>
+      )}
+    </section>
+  );
+}
+
+const riskCardBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: RiskCardBlock,
+  placement: ["block"],
+  editSurface: "panel",
+  label: "Risk card",
+  description: "low、medium、high の重大度を持つ markdown のリスクメモ。",
+  empty: () => ({ severity: "medium", body: "Describe the risk." }),
+});
+
+registerLibraryBlocks(planBlockRegistry, {
+  overrides: PLAN_LIBRARY_OVERRIDES,
+});
+registerBlocks(planBlockRegistry, [riskCardBlock]);
+```
+
+これを導入すると、プラン MDX では以下を使用できるようになります。
+
+```mdx
+<RiskCard id="risk-auth" severity="high">
+
+Token refresh failures can strand active reviewer sessions.
+
+</RiskCard>
+```
+
+サーバー レジストリにより、このソースがインポート/エクスポート可能になり、クライアントも
+レジストリにより、`PlanBlockView` でレンダリングされます。ブロックを生成する必要がある場合
+エージェントの皆様、`label`、`description`、`placement`、および `empty` を正確に保ってください。それら
+フィールドはライブ ブロック ボキャブラリに流れ込みます。
+
+既存のブロックをオーバーライドする場合は、共有ブロックの後にオーバーライドを登録します
+ライブラリ登録。 `type` と MDX `tag` の両方で最後の登録が勝ちます。
+
+ブロックを追加した後、焦点を絞った計画テストを実行します。
+
+```bash
+pnpm --filter plan test -- plan-mdx plan-block-registry
+```
+
+### ルートマップ
+
+- `app/routes/plans.$id.tsx` — 計画エディター/レビュー画面
+- `app/routes/plans._index.tsx` — 計画リスト
+- `app/routes/share.$token.tsx` — パブリック / 共有プラン ビュー
+- `app/routes/local-plans.$slug.tsx` — ローカル ファイル モードのプレビュー
+
+### ローカル モード (上級、オフライン) {#local-mode}
+
+完全にオフラインでアカウントなしで使用するには、プラン アプリをローカルで実行し、ローカルの MDX フォルダーを指定します。より厳密な DB なしパスの場合は、ローカル SQL 行を作成する代わりに、MDX フォルダーから読み取る [local-files privacy mode](#local-files) を使用します。ローカル モードは、デフォルトのホスト フローではなく、別個の高度なパスです。
+
+## イベントと通知 {#events}
+
+プラン テンプレートは、フレームワーク イベント バス上に 4 つのイベントを発行します。あらゆる自動化
+サブスクライブできます。カスタム統合コードは必要ありません。
+
+### イベントリファレンス {#event-reference}
+
+#### `plan.created`
+
+新しいビジュアルプランまたは要約が作成されたときに起動されます。
+
+| フィールド  | タイプ                | 説明                                   |
+| ----------- | --------------------- | -------------------------------------- |
+| `planId`    | 文字列                | 一意のプラン識別子                     |
+| `title`     | 文字列                | 計画のタイトル                         |
+| `kind`      | `"plan"` \| `"recap"` | これが計画なのか総括なのか             |
+| `status`    | 文字列                | 初期ステータス (例: `"review"`)        |
+| `path`      | 文字列                | アプリの相対パス (例: `/plans/plan-…`) |
+| `createdBy` | 文字列                | 計画作成には常に `"agent"`             |
+
+#### `plan.commented`
+
+1 つ以上のコメントがプランに追加されると起動されます。
+
+| フィールド         | タイプ                           | 説明                                                                            |
+| ------------------ | -------------------------------- | ------------------------------------------------------------------------------- |
+| `planId`           | 文字列                           | プラン識別子                                                                    |
+| `title`            | 文字列                           | 計画のタイトル                                                                  |
+| `kind`             | `"plan"` \| `"recap"`            | 計画または要約                                                                  |
+| `commentIds`       | 文字列[]                         | 新しいコメントの ID                                                             |
+| `commentCount`     | 数値                             | このバッチ内の新しいコメントの数                                                |
+| `resolutionTarget` | `"agent"` \| `"human"` \| `null` | 主要なターゲット — コメントがエージェントをターゲットにしている場合は `"agent"` |
+| `excerpt`          | 文字列                           | 最初のコメントの最初の 200 文字                                                 |
+| `author`           | 文字列 \| ヌル                   | コメント投稿者のメールアドレス (わかっている場合)                               |
+| `path`             | 文字列                           | アプリの相対パス                                                                |
+
+#### `plan.published`
+
+ローカル プランがホストされた共有可能な URL に公開 (または再公開) されるときに起動します。
+
+| フィールド            | タイプ                | 説明                         |
+| --------------------- | --------------------- | ---------------------------- |
+| `planId`              | 文字列                | ローカル プラン識別子        |
+| `title`               | 文字列                | 計画のタイトル               |
+| `kind`                | `"plan"` \| `"recap"` | 計画または要約               |
+| `hostedPlanId`        | 文字列                | ホストされたプランの識別子   |
+| `url`                 | 文字列                | ホスト型プランの完全公開 URL |
+| `requestedVisibility` | 文字列                | `"public"`、`"private"` など |
+
+#### `plan.status.changed`
+
+プランのステータスが変更されたときに発生します (例: `review` → `approved`)。
+
+| フィールド  | タイプ                | 説明                       |
+| ----------- | --------------------- | -------------------------- |
+| `planId`    | 文字列                | プラン識別子               |
+| `title`     | 文字列                | 計画のタイトル             |
+| `kind`      | `"plan"` \| `"recap"` | 計画または要約             |
+| `oldStatus` | 文字列 \| ヌル        | 以前のステータス           |
+| `newStatus` | 文字列                | 新しいステータス           |
+| `changedBy` | 文字列 \| ヌル        | 変更した人のメールアドレス |
+| `path`      | 文字列                | アプリの相対パス           |
+
+### 自動化レシピ {#automation-recipes}
+
+これらの自動化は、計画エージェントに依頼することによって作成されます。コードの変更は必要ありません。
+エージェントは `action=define` で `manage-automations` を呼び出し、
+`jobs/<name>.md` リソース、およびイベント サブスクリプションはすぐに開始されます。
+
+#### 誰かがプランにコメントしたときに Webhook 経由で通知します
+
+計画担当者に質問してください:
+
+> 「誰かがプランに人間のコメントを追加すると、POST メッセージが私の Webhook に送信されます。」
+
+エージェントは次のような自動化を作成します:
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is human or resolutionTarget is null"
+mode: agentic
+domain: plan
+enabled: true
+---
+Send a POST request to ${keys.NOTIFY_WEBHOOK} with a JSON body containing:
+  - "title": the plan title from the event payload
+  - "excerpt": the comment excerpt from the event payload
+  - "url": the base app URL concatenated with the path field from the event payload
+  - "author": the author field from the event payload (may be null)
+```
+
+オートメーションを起動するには、事前に Webhook URL をアドホック キーとして追加する必要があります。
+
+1. **[設定] → [キー]** に移動し、`NOTIFY_WEBHOOK` という名前のキーを追加します。
+   Webhook URL (例: Slack 受信 Webhook、汎用 HTTP エンドポイント、または任意の
+   通知サービス URL)。
+2. 必要に応じて、キーに URL ホワイトリストを設定して、使用できるオリジンを制限します
+   POST から
+
+`web-request` ツールは、サーバー側で `${keys.NOTIFY_WEBHOOK}` を解決する前に
+送信 — 生の URL がエージェントのコンテキストに表示されることはありません。
+
+**特に Slack をターゲットにするには:** `NOTIFY_WEBHOOK` を Slack 受信に設定します
+ウェブフック URL
+(`https://hooks.slack.com/services/…`)。上記の自動化本体はすでに
+Slack の受信 Webhook が `text` または `blocks` 経由で受け入れるペイロードを生成します
+フィールド — より内容を充実させたい場合は、本文を Slack メッセージとしてフォーマットするようエージェントに依頼します
+フォーマット。
+
+#### フィードバックがコーディング エージェントをターゲットにしている場合、コーディング エージェントを起動します
+
+コーディング エージェント (`resolutionTarget === "agent"`) 宛てのフィードバックについては、次のように問い合わせてください。
+
+> "プランのコメントがエージェントをターゲットにしている場合、そのプランを使用してコーディング エージェントを実行します
+> コンテキストとして抜粋。"
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is agent"
+mode: agentic
+domain: plan
+enabled: true
+---
+
+Use the manage-notifications action or web-request tool to alert the coding agent
+that new agent-targeted feedback has arrived on plan ${planId}: "${excerpt}".
+Include the plan path so the agent can navigate directly to it.
+```
+
+オートメーションは完全なエージェント ループ (`mode: agentic`) を実行するため、
+`web-request`、通知を送信するか、エージェントがアクセスできるアクションを呼び出します。
+正確な配信メカニズムは、使用している通知チャネルによって異なります
+設定済み — エージェントは利用可能な最適なものを選択します。
+
+## 次は何ですか
+
+- [**PR Visual Recap**](/docs/pr-visual-recap) — すべてのプル リクエストで `/visual-recap` を自動的に実行します
+- [**Automations**](/docs/automations) — イベントトリガーおよびスケジュールされた自動化
+- [**Plan plugin & marketplace**](/docs/plan-plugin) — プラン skills を Claude コードまたは Codex プラグインとしてインストールします
+- [**Skills**](/docs/skills-guide) — Agent-Native が skills をインストールする方法
+- [**MCP Clients**](/docs/mcp-clients) — ホスト型 MCP コネクタの構成
+- [**Templates**](/docs/cloneable-saas) — クローンと独自のモデル

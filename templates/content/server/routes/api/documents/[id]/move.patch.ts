@@ -1,17 +1,18 @@
-import { defineEventHandler, createError } from "h3";
-import { and, eq, sql } from "drizzle-orm";
-import { getDb } from "../../../../db/index.js";
-import { schema } from "../../../../db/index.js";
-import {
-  parseDocumentFavorite,
-  parseDocumentHideFromSearch,
-} from "../../../../lib/documents.js";
 import {
   getSession,
   readBody,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq, sql } from "drizzle-orm";
+import { defineEventHandler, createError } from "h3";
+
+import { getDb } from "../../../../db/index.js";
+import { schema } from "../../../../db/index.js";
+import {
+  parseDocumentFavorite,
+  parseDocumentHideFromSearch,
+} from "../../../../lib/documents.js";
 
 async function assertParentIsNotDescendant({
   db,

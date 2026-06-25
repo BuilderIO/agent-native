@@ -1,19 +1,21 @@
+import fs from "fs";
+
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { parsePptx } from "../server/handlers/import/pptx-parser.js";
 import { convertToSlideHtml } from "../server/handlers/import/html-converter.js";
-import fs from "fs";
-import { resolveUserUploadedFile } from "./_uploaded-files.js";
+import { parsePptx } from "../server/handlers/import/pptx-parser.js";
 import { getDeckUrl } from "./_app-url.js";
+import { resolveUserUploadedFile } from "./_uploaded-files.js";
 
 export default defineAction({
   description:

@@ -50,13 +50,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
+
+import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
-import {
-  startTranscriptionCapture,
-  type CapturedTranscript,
-  type TranscriptionCapture,
-} from "./transcription-capture";
 import {
   createLocalRecordingFolderName,
   exportBlobChunksToLocalRecordingFile,
@@ -67,7 +64,11 @@ import {
   type LocalRecordingTarget,
 } from "./local-export";
 import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
-import type { LocalRecordingMode } from "../shared/config";
+import {
+  startTranscriptionCapture,
+  type CapturedTranscript,
+  type TranscriptionCapture,
+} from "./transcription-capture";
 
 export type { LocalExportedFile } from "./local-export";
 
@@ -88,9 +89,13 @@ const LIVE_UPLOAD_CHUNK_MS = 1_000;
 const CLOUD_CAPTURE_FRAME_RATE = 24;
 const CLOUD_CAPTURE_MAX_WIDTH = 1920;
 const CLOUD_CAPTURE_MAX_HEIGHT = 1080;
-const CLOUD_RECORDING_MAX_LONG_EDGE = 1280;
-const CLOUD_RECORDING_VIDEO_BITRATE_BPS = 900_000;
-const CLOUD_RECORDING_AUDIO_BITRATE_BPS = 96_000;
+// Crisp capture for the desktop browser MediaRecorder fallback. Files are no
+// longer shrunk client-side and the upload provider streams large files, so we
+// keep full 1080p (was downscaled to a 1280 long edge) and a sharp bitrate (was
+// 900 kbps, which left UI and text fuzzy). Dial down if file size matters.
+const CLOUD_RECORDING_MAX_LONG_EDGE = 1920;
+const CLOUD_RECORDING_VIDEO_BITRATE_BPS = 8_000_000;
+const CLOUD_RECORDING_AUDIO_BITRATE_BPS = 128_000;
 
 function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -1394,10 +1399,7 @@ async function selectRegionForRecording(): Promise<RegionCaptureRect> {
   }
 }
 
-function waitForCountdownEvent(
-  timeoutMs = 4000,
-  onOneSecond?: () => void,
-): Promise<void> {
+function waitForCountdownEvent(timeoutMs = 4000): Promise<void> {
   return new Promise((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const unlistens: UnlistenFn[] = [];
@@ -1453,9 +1455,6 @@ function waitForCountdownEvent(
 
     track(listen("clips:countdown-done", () => finish("done")));
     track(listen("clips:countdown-cancel", () => finish("cancel")));
-    if (onOneSecond) {
-      track(listen("clips:countdown-one", () => onOneSecond()));
-    }
 
     timer = setTimeout(() => {
       if (done) return;
@@ -1489,13 +1488,12 @@ async function showRegionRecordBorder(region: RegionCaptureRect | null) {
   });
 }
 
-async function runRecordingCountdown(wantsScreen: boolean, audioCue: AudioCue) {
-  const countdownEvent = waitForCountdownEvent(
-    COUNTDOWN_EVENT_TIMEOUT_MS,
-    () => {
-      void audioCue.playCountdownCue();
-    },
-  );
+async function runRecordingCountdown(wantsScreen: boolean) {
+  // The recording-start chime is intentionally NOT played here. It fires from
+  // `audioCue.playBeforeCapture()` at the real capture-start (right before the
+  // recorder/native capture is kicked off) so the beep lines up with the moment
+  // recording actually begins — not one second early on the countdown's "1".
+  const countdownEvent = waitForCountdownEvent(COUNTDOWN_EVENT_TIMEOUT_MS);
   await showRegionGuidesForRecording(wantsScreen);
   try {
     await invoke("show_countdown");
@@ -1676,7 +1674,7 @@ async function startNativeFullscreenRecording(
       }).catch((err) => {
         console.warn("[clips-recorder] mic warm failed:", err);
       });
-    const countdownPromise = runRecordingCountdown(true, audioCue);
+    const countdownPromise = runRecordingCountdown(true);
     if (localOnly) {
       id = localFolderName;
       await Promise.all([countdownPromise, warmMic(id)]);
@@ -2456,7 +2454,7 @@ async function startRecordingInner(
       combined,
     });
 
-    const countdownPromise = runRecordingCountdown(wantsScreen, audioCue);
+    const countdownPromise = runRecordingCountdown(wantsScreen);
     const localExportPromise = prepareLocalRecordingExport(targets);
     let localExport: Awaited<ReturnType<typeof prepareLocalRecordingExport>>;
     try {
@@ -2632,7 +2630,7 @@ async function startRecordingInner(
   console.log(
     "[clips-recorder] invoking show_countdown + createServerRecording",
   );
-  const countdownPromise = runRecordingCountdown(wantsScreen, audioCue);
+  const countdownPromise = runRecordingCountdown(wantsScreen);
   console.time("[clips-recorder] createServerRecording duration");
   const recordingPromise = createServerRecording(
     params.serverUrl,

@@ -1,0 +1,185 @@
+---
+title: "SSO entre aplicaciones"
+description: "Inicie sesión una vez en cada aplicación nativa del agente alojada a través de la federación de identidades con Dispatch como autoridad de identidad: suscripción por aplicación, reversible con una única variable de entorno."
+---
+
+# SSO entre aplicaciones
+
+Cada aplicación alojada en `*.agent-native.com` ejecuta su propia implementación con su **propio almacén de usuarios independiente**. `mail.agent-native.com` y `calendar.agent-native.com` no comparten una base de datos, una tabla de sesión ni un dominio de cookies. Por lo tanto, "iniciar sesión una vez, usar todas las aplicaciones" no puede ser una cookie compartida; tiene que ser una **federación de identidad**, con [Dispatch](/docs/dispatch) actuando como autoridad de identidad para el espacio de trabajo.
+
+Esta es la misma primitiva de confianza que ya usan [A2A](/docs/a2a-protocol) y [External Agents](/docs/external-agents) (una JWT firmada por `A2A_SECRET` verificada en el límite de la solicitud) aplicada a la ruta de inicio de sesión humano en lugar de llamadas de agente a agente.
+
+> **Implementación unificada frente a implementación por dominio.** Si aloja todas las aplicaciones en un origen (`your-agents.com/mail`, `your-agents.com/calendar`), ya obtiene un inicio de sesión compartido a través de un único dominio de cookies, sin necesidad de federación. Cross-App SSO solo es necesario cuando las aplicaciones se ejecutan en dominios separados. Ver [Multi-App Workspaces — Unified deploy](/docs/multi-app-workspace#deployment).
+
+## Qué y por qué {#what-why}
+
+Las tiendas de usuario por aplicación significan que no existe un único lugar en el que pueda alojarse una cookie del navegador en el que confíen todas las aplicaciones. En cambio, el modelo de federación nombra una aplicación, **Dispatch**, como autoridad de identidad. Cualquier otra aplicación puede delegar "¿quién es esta persona?" a Dispatch, obtenga una afirmación firmada de corta duración del correo electrónico verificado del usuario y luego **vincúlelo a su propia cuenta local por correo electrónico**.
+
+La regla de vinculación es deliberadamente estrecha y aditiva:
+
+- **Usuario existente con el mismo correo electrónico → vinculado.** La cuenta local coincide con el correo electrónico verificado y se reutiliza tal cual. **Nunca se modifica, se le cambia el nombre ni se elimina**; la capa de federación solo lo lee y crea una sesión para él.
+- **Nuevo correo electrónico → creado.** Se crea una nueva cuenta local para ese correo electrónico verificado y luego se crea una sesión local normal.
+
+Esto hace que la implementación sea segura aunque cierre la sesión de las personas. **Se espera cerrar sesión.** Cuando una aplicación activa esta opción, las sesiones existentes finalizan y los usuarios se vuelven a autenticar a través de Dispatch. Pero siempre vuelven a iniciar sesión en la **misma cuenta de correo electrónico coincidente, con todos sus datos intactos**, porque las filas de identidad solo se _añaden_, nunca se destruyen, no se les cambia el nombre ni se les redirige.
+
+## Cómo funciona {#how-it-works}
+
+El flujo es una autorización estándar → token firmado → redireccionamiento de devolución de llamada, con el correo electrónico como lo único que cruza el límite de confianza.
+
+```an-diagram title="Flujo de federación de identidades" summary="Dispatch autentica al ser humano y devuelve una afirmación firmada de corta duración de una cosa: el correo electrónico verificado. La aplicación se vincula por correo electrónico y genera su propia sesión local."
+{
+  "html": "<div class=\"diagram-sso\"><div class=\"diagram-card\" data-rough><strong>App cliente</strong><small class=\"diagram-muted\">own user store</small></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill\">authorize</span></div><div class=\"diagram-card\" data-rough><strong>Dispatch</strong><small class=\"diagram-muted\">identity authority</small><span class=\"diagram-pill accent\">authenticates human</span></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill accent\">302 + signed JWT</span></div><div class=\"diagram-card\" data-rough><strong>Callback de la app</strong><small class=\"diagram-muted\">verify signature · scope:identity · exp &le; 2 min</small><span class=\"diagram-pill ok\">Vinculación JIT por correo</span><span class=\"diagram-pill ok\">mint local session</span></div></div>",
+  "css": ".diagram-sso{display:flex;align-items:stretch;gap:12px;flex-wrap:wrap}.diagram-sso .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px}.diagram-sso .diagram-step{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}.diagram-sso .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+1. **Aplicación → Envío (autorizar).** La aplicación envía al usuario a la autoridad de identidad:
+
+   ```
+   GET https://dispatch.agent-native.com/_agent-native/identity/authorize
+       ?app=<requesting-app>
+       &redirect_uri=<app-callback-url>
+       &state=<csrf-state>
+   ```
+
+   ```an-api title="Punto final de autorización de identidad"
+   {
+     "método": "GET",
+     "ruta": "/_agente-nativo/identidad/autorizar",
+     "summary": "El envío (autoridad de identidad) autentica al ser humano y lo redirecciona con un token de identidad firmado",
+     "auth": "Sesión de envío (inicio de sesión interactivo si no hay ninguno)",
+     "parámetros": [
+       { "name": "app", "in": "query", "type": "string", "required": true, "description": "El identificador de la aplicación solicitante". },
+       { "name": "redirect_uri", "in": "query", "type": "string", "required": true, "description": "Devolución de llamada de la aplicación URL. Validado con una lista de permitidos estricta (`*.agent-native.com` o localhost de forma predeterminada)." },
+       { "name": "state", "in": "query", "type": "string", "required": true, "description": "El estado de CSRF se repitió en la redirección". }
+     ],
+     "respuestas": [
+       { "status": "302", "description": "Redirecciona a `redirect_uri` con una identidad de corta duración firmada por `A2A_SECRET`, JWT (`scope: \"identity\"`, `exp` ≤ 2 minutos) más el `state` original." },
+       { "status": "400", "description": "`redirect_uri` falló en la validación de la lista de permitidos (`//host` de origen cruzado, relativo al esquema o sufijo no listado)". }
+     ]
+   }
+   ```
+
+2. **Dispatch autentica al ser humano.** Si el usuario ya tiene una sesión de Dispatch, esto es transparente. De lo contrario, Dispatch muestra su propio inicio de sesión normal (correo electrónico/contraseña, Google, etc.; consulte [Authentication](/docs/authentication)). Aquí Dispatch es solo una aplicación nativa del agente normal; no está ejecutando un modo de autenticación especial.
+
+3. **Dispatch → Aplicación (token de identidad firmado).** Dispatch valida `redirect_uri` contra una lista de permitidos estricta y redirecciona 302 al `redirect_uri` de la aplicación que lleva una identidad de corta duración **`A2A_SECRET` firmada por JWT**. Los reclamos del token son intencionalmente mínimos:
+
+   | Reclamación  | Significado                                                                  |
+   | ------------ | ---------------------------------------------------------------------------- |
+   | `sub`        | Identificación de usuario estable en la autoridad de identidad               |
+   | `email`      | El correo electrónico **verificado** del usuario: la única clave para unirse |
+   | `name`       | Nombre para mostrar (no autorizado, solo para UI)                            |
+   | `org_domain` | Dominio de espacio de trabajo/organización, cuando esté presente             |
+   | `scope`      | Siempre `"identity"`: este token solo autoriza el inicio de sesión           |
+   | `exp`        | **≤ 2 minutos** desde el problema                                            |
+
+4. **La aplicación verifica los enlaces JIT por correo electrónico.** La aplicación verifica la firma del token con su propio `A2A_SECRET`, verifica `scope: "identity"` y `exp` y luego realiza **enlace justo a tiempo estrictamente mediante correo electrónico verificado**:
+   - Si existe un usuario local con ese correo electrónico → reutilícelo sin cambios.
+   - Si no → crea un usuario local para ese correo electrónico.
+
+5. **La aplicación crea una sesión local normal.** A partir de aquí, el usuario tiene una sesión local normal en la propia tienda de esa aplicación: cada verificación de acceso, alcance de organización y protección de acciones existentes funciona exactamente como antes. La federación sólo ocurrió en la puerta grande.
+
+### Aceptar {#opt-in}
+
+Una aplicación participa **solo** cuando esta variable de entorno está configurada en su implementación:
+
+```bash
+AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
+```
+
+- **Establecer** → la aplicación muestra una opción **"Iniciar sesión con Agent-Native"** que ejecuta el flujo anterior. El inicio de sesión local directo (correo electrónico/contraseña, Google) todavía funciona junto con él.
+- **Desarmado (predeterminado)** → **cero cambio de comportamiento.** La aplicación se autentica exactamente como lo hacía antes; la ruta del código de federación está inactiva. No hay ningún cambio de esquema ni nada que migrar, por lo que activar o desactivar la variable es totalmente reversible en cualquier momento.
+
+## Seguridad {#security}
+
+Todo el modelo se basa en unas pocas garantías deliberadamente pequeñas:
+
+- **Token firmado de corta duración.** La afirmación de identidad es un JWT firmado por `A2A_SECRET` con una caducidad de **≤ 2 minutos** y `scope: "identity"`. Autoriza un inicio de sesión único y no se puede reproducir por mucho tiempo ni reutilizar para acceder a API/A2A.
+- **Lista de permitidos estricta de `redirect_uri`.** Dispatch solo redirige a `*.agent-native.com` o localhost de forma predeterminada. Se rechazan los objetivos de redireccionamiento arbitrarios, relativos al esquema (`//host`) y de origen cruzado, por lo que la autoridad no se puede convertir en un oráculo de redireccionamiento abierto o de exfiltración de tokens.
+- **Únase solo por correo electrónico desde un token verificado.** Lo _único_ que cruza el límite de confianza es el correo electrónico verificado en un token firmado. La aplicación no acepta una identificación de usuario, función, membresía de organización ni ningún estado privilegiado de la conexión; deriva todo localmente de la cuenta coincidente.
+- **Escrituras de identidad solo aditivas.** La vinculación reutiliza una misma cuenta de correo electrónico existente intacta o inserta una nueva. Nunca se realizan actualizaciones, cambios de nombre, redireccionamiento ni eliminación de filas de identidad en esta ruta.
+- **Desactivado de forma predeterminada.** Con `AGENT_NATIVE_IDENTITY_HUB_URL` sin configurar, toda la función es inerte.
+
+```an-callout
+{
+  "tone": "success",
+  "body": "**Es seguro habilitarlo, es seguro revertirlo.** Las escrituras de identidad son **solo aditivas**: una cuenta de correo electrónico existente se reutiliza intacta y un correo electrónico nuevo simplemente inserta una fila nueva. No hay cambios de esquema ni nada que migrar, por lo que activar o desactivar `AGENT_NATIVE_IDENTITY_HUB_URL` es completamente reversible en cualquier momento, por aplicación."
+}
+```
+
+El enlace justo a tiempo es una decisión única basada completamente en el correo electrónico verificado:
+
+```an-diagram title="JIT-link decisión" summary="La vinculación se ingresa en el correo electrónico verificado y es solo aditiva: las cuentas existentes se reutilizan sin cambios, los nuevos correos electrónicos crean un nuevo usuario local."
+{
+  "html": "<div class=\"diagram-jit\"><div class=\"diagram-node\" data-rough>Correo verificado<br><small class=\"diagram-muted\">desde JWT de identidad firmado</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-branch\"><div class=\"diagram-box\" data-rough>Local user exists?<span class=\"diagram-pill ok\">yes &rarr; reuse unchanged</span><span class=\"diagram-pill accent\">no &rarr; create local user</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Emitir una sesión local normal</div></div></div>",
+  "css": ".diagram-jit{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jit .diagram-node{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-jit .diagram-branch{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jit .diagram-box{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-jit .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## Autohospedaje {#self-hosting}
+
+Cualquier implementación de Dispatch puede servir como centro de identidad; no está limitado a `dispatch.agent-native.com`. Configure `AGENT_NATIVE_IDENTITY_HUB_URL` en cada aplicación cliente para que apunte a su instancia de Dispatch:
+
+```bash
+AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
+```
+
+**Lista permitida de redireccionamiento.** El concentrador (despacho) valida `redirect_uri` en el punto final autorizado antes de emitir un token. La lista de permitidos está configurada en `templates/dispatch/server/lib/identity-sso.ts`:
+
+- **Predeterminado:** `*.agent-native.com` y localhost únicamente (la constante `DEFAULT_ALLOWED_HOST_SUFFIXES`).
+- **Extendiéndolo:** establezca la variable de entorno `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` en la implementación de Dispatch con una lista separada por comas de sufijos de host adicionales:
+
+  ```bash
+  # Permitir subdominios de suempresa.com además de los predeterminados
+  IDENTITY_SSO_ALLOWED_HOST_SUFFIXES=".tuempresa.com,.puesta en escena.tuempresa.com"
+  ```
+
+  Cada entrada está normalizada a un sufijo con prefijo de punto (`.yourcompany.com`), por lo que una verificación del sufijo es suficiente y menos propensa a las pisadas: no hay una lista por aplicación para mantener sincronizada. Las entradas que coincidan con todo (vacías o solo `.`) se filtran.
+
+- **Localhost** siempre está permitido para el desarrollo local de aplicaciones del lado del cliente independientemente de `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`.
+
+Sin `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`, un Dispatch autohospedado solo puede emitir tokens para aplicaciones en `*.agent-native.com`. Configure la variable de entorno en su implementación de Dispatch para desbloquear otros dominios.
+
+## Runbook de implementación de Canary {#canary-rollout}
+
+La transición y la reversión son **una única variable de entorno por implementación de aplicación**. Implemente una aplicación a la vez, verifíquela y luego expanda. No establezca la variable en todas las aplicaciones a la vez.
+
+**1. Implemente el código, sin cambios de comportamiento.**
+Envíe la versión a todas las aplicaciones con `AGENT_NATIVE_IDENTITY_HUB_URL` **desconfigurado en todas partes**. Confirma que los inicios de sesión normales aún funcionan en un par de aplicaciones.
+
+**2. Habilite el canario en la aplicación ONE a la vez.**
+Establecer, en una sola implementación:
+
+```bash
+AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
+```
+
+Deje el entorno de todas las demás aplicaciones sin configurar. Vuelva a implementar/reiniciar para que recoja la variable.
+
+**3. Verificar el canario (lista de verificación).**
+
+- Cerrar sesión\*\* en la aplicación.
+- La pantalla de inicio de sesión ahora muestra **"Iniciar sesión con Agent-Native"**. Haz clic en él.
+- Se le dirigirá a **Dispatch** y completará su inicio de sesión (o pasará directamente si ya inició sesión allí).
+- Se le redirige **de nuevo a la aplicación, inicia sesión** y es la **misma cuenta preexistente** (mismo correo electrónico) que tenía antes, no una nueva.
+- **Los datos de la aplicación están intactos**: sus registros, configuraciones y alcance de la organización existentes son exactamente como estaban.
+- **Los inicios de sesión directos existentes aún funcionan**: el correo electrónico/contraseña y el inicio de sesión de Google siguen funcionando junto con SSO.
+
+Si falla alguna comprobación, vaya directamente al paso 4 (revertir): es instantáneo y protege los datos.
+
+**4. Expandir aplicación por aplicación.**
+Una vez verificada una aplicación, repita los pasos 2 y 3 para la siguiente aplicación: configure `AGENT_NATIVE_IDENTITY_HUB_URL` en una implementación a la vez. Nunca habilite por lotes.
+
+**5. Rollback = desarmar la var de entorno en la implementación de esa aplicación.**
+Para revertir cualquier aplicación, **elimine `AGENT_NATIVE_IDENTITY_HUB_URL` del entorno de esa aplicación y vuelva a implementarla/reiníciela.** La aplicación vuelve inmediatamente a su comportamiento de autenticación anterior. No hay **ningún cambio de datos para deshacer**: las filas de identidad solo se agregaron y desarmar la variable simplemente hace que la ruta de federación vuelva a estar inactiva. La transición y la reversión de cada aplicación son independientes y reversibles.
+
+> Rollout cierra la sesión de los usuarios cuando se habilita cada aplicación (se vuelven a autenticar a través de Dispatch), pero siempre vuelven a iniciar sesión en la **misma cuenta de correo electrónico coincidente con los datos intactos**, porque las filas de identidad nunca se destruyen ni se les cambia el nombre, solo se agregan.
+
+## Relacionado {#related}
+
+- [Authentication](/docs/authentication): modos de autenticación locales, sesiones, organizaciones, la var. de entorno `A2A_SECRET`.
+- [A2A Protocol](/docs/a2a-protocol): modelo de confianza firmado JWT con verificación en el límite que se reutiliza.
+- [External Agents](/docs/external-agents): el mismo patrón de identidad firmado por `A2A_SECRET` aplicado a las conexiones de agentes y enlaces profundos.
+- [Dispatch](/docs/dispatch): autoridad de identidad del espacio de trabajo y centro de enrutamiento.
+- [Security & Data Scoping](/docs/security): escrituras de datos solo aditivas y alcance por cuenta.
+- [Multi-App Workspaces](/docs/multi-app-workspace): la implementación unificada de origen único que evita por completo el SSO entre dominios.

@@ -26,13 +26,15 @@
  */
 
 import path from "path";
+
 import { createClient } from "@libsql/client";
+
 import { getDatabaseUrl, getDatabaseAuthToken } from "../../db/client.js";
-import { parseArgs } from "../utils.js";
 import {
   encryptSecretValue,
   isEncryptedSecretValue,
 } from "../../secrets/crypto.js";
+import { parseArgs } from "../utils.js";
 
 interface CredentialRow {
   settingsKey: string;

@@ -1,6 +1,3 @@
-import React from "react";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   IconAlertTriangle,
   IconArrowDown,
@@ -12,11 +9,14 @@ import {
   IconLoader2,
   IconTool,
 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
+import React from "react";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { humanizeToolName } from "../tool-display.js";
-import { useNearBottomAutoscroll } from "./use-near-bottom-autoscroll.js";
-import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
+import { cn } from "../utils.js";
 import type {
   AgentConversationAttachment,
   AgentConversationArtifact,
@@ -25,6 +25,7 @@ import type {
   AgentConversationNotice,
   AgentConversationToolCall,
 } from "./types.js";
+import { useNearBottomAutoscroll } from "./use-near-bottom-autoscroll.js";
 
 export interface AgentConversationProps {
   messages: AgentConversationMessage[];

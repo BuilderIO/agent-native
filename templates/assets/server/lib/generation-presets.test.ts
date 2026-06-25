@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { applyPromptTemplate } from "./generation-presets.js";
 
 describe("applyPromptTemplate", () => {

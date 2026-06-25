@@ -1,5 +1,10 @@
 import { useSyncExternalStore } from "react";
-import { getFrameOrigin } from "./frame.js";
+
+import {
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   getEmbedAuthToken,
   isEmbedAuthActive,
@@ -7,11 +12,7 @@ import {
   isEmbedMcpChatBridgeActive,
   readEmbedMcpChatBridgeFlagFromUrl,
 } from "./embed-auth.js";
-import {
-  EMBED_MODE_QUERY_PARAM,
-  EMBED_TOKEN_QUERY_PARAM,
-  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
-} from "../shared/embed-auth.js";
+import { getFrameOrigin } from "./frame.js";
 
 export const AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES = {
   HOST_CONTEXT: "agentNative.mcpHostContext",
@@ -438,6 +439,10 @@ function postJsonRpcNotification(method: string, params?: unknown): void {
   }
 }
 
+function waitForHostLifecycleTurn(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
 function postJsonRpcRequest(
   method: string,
   params?: unknown,
@@ -484,6 +489,8 @@ async function ensureDirectMcpAppInitialized(): Promise<boolean> {
       });
       updateSnapshotFromInitialize(result);
       postJsonRpcNotification("ui/notifications/initialized", {});
+      await waitForHostLifecycleTurn();
+      await waitForHostLifecycleTurn();
       return true;
     })().catch(() => {
       // Reset so the next call retries the handshake. Otherwise one timed-out

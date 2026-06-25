@@ -1,0 +1,321 @@
+---
+title: "ワークスペース接続"
+description: "どこでも接続できる統合のための共有プロバイダーのメタデータ、許可、認証情報の参照。"
+---
+
+# ワークスペース接続
+
+ワークスペース接続は、再利用可能な統合メタデータのフレームワーク プリミティブです。これらにより、すべてのプロバイダーが完全に汎用であるかのように装うことなく、「一度接続し、アプリを許可し、資格情報を再利用する」ことが可能になります。
+
+## クイックスタート {#quickstart}
+
+### 4 つのコンセプト
+
+- **Connection** — 名前付きプロバイダー アカウント (`team-slack`、`acme-hubspot`)。プロバイダー ID、アカウント ラベル、ステータス、スコープ、および安全な構成を記録します。シークレット値は決して保存しません。
+- **Grant** — 特定のアプリが接続を使用するための許可。許可のないアプリは接続の認証情報を確認できません。
+- **credentialRef** — ボールト シークレット (`{ key: "SLACK_BOT_TOKEN", scope: "org" }`) へのポインター。接続は、トークンがどこに存在するかを示します。金庫には価値が保持されます。
+- **Readiness** — アプリに表示されるステータスを組み合わせたもの: `connected` (付与 + 資格情報存在)、`needs_grant`、`needs_credentials`、`needs_attention`、または `not_configured`。
+
+```an-diagram title="一度接続すれば、アプリに許可を与え、資格情報を再利用できます" summary="Connection はプロバイダーのメタデータ (シークレットではありません) とボールトを指す credentialRef を保持します。アプリごとの付与によりロックが解除されます。アプリは単一の Readiness ステータスを読み取ります。"
+{
+  "html": "<div class=\"diagram-conn\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Connection</span><div class=\"diagram-box\" data-rough>named provider account<br><small class=\"diagram-muted\">provider, label, ステータス、スコープ、設定 &middot; never stores secret values</small></div><div class=\"diagram-muted\">credentialRef &rarr; pointer to a vault secret</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill\">Grant</span><div class=\"diagram-box\" data-rough>per-app permission<br><small class=\"diagram-muted\">no grant = no credential access</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Readiness</span><small class=\"diagram-muted\">what the app sees</small><div class=\"sev-row\"><span class=\"diagram-pill ok\">connected</span><span class=\"diagram-pill warn\">needs_grant</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">needs_credentials</span><span class=\"diagram-pill warn\">needs_attention</span></div><div class=\"sev-row\"><span class=\"diagram-pill\">not_configured</span></div></div></div>",
+  "css": ".diagram-conn{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-conn .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-conn .diagram-arrow{font-size:22px;line-height:1}.diagram-conn .sev-row{display:flex;gap:8px;flex-wrap:wrap}"
+}
+```
+
+### 実際の例: Slack
+
+Slack を 1 回接続し、Brain と Analytics に許可します:
+
+```ts
+import {
+  upsertWorkspaceConnection,
+  upsertWorkspaceConnectionGrant,
+} from "@agent-native/core/workspace-connections";
+
+await upsertWorkspaceConnection({
+  id: "acme-slack",
+  provider: "slack",
+  label: "Acme Slack",
+  accountId: "T012345",
+  accountLabel: "Acme",
+  status: "connected",
+  scopes: ["channels:history", "groups:history", "chat:write"],
+  config: {
+    teamDomain: "acme",
+    channelHints: ["product", "dev-fusion", "customer-success"],
+  },
+  credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+});
+
+await upsertWorkspaceConnectionGrant({
+  connectionId: "acme-slack",
+  appId: "brain",
+});
+await upsertWorkspaceConnectionGrant({
+  connectionId: "acme-slack",
+  appId: "analytics",
+});
+```
+
+```an-schema title="接続モデル" summary="A connection records safe provider metadata and credentialRefs (pointers, not secrets). Each grant unlocks one app — one connection, many grants."
+{
+  "entities": [
+    {
+      "id": "conn",
+      "name": "workspace_connections",
+      "note": "名前付きプロバイダー アカウント。秘密の値は決して保存しません。",
+      "fields": [
+        { "name": "id", "type": "string", "pk": true, "note": "e.g. acme-slack" },
+        { "name": "provider", "type": "string", "note": "安定したプロバイダー ID、e.g。スラック" },
+        { "name": "label", "type": "string" },
+        { "name": "accountId", "type": "string", "nullable": true },
+        { "name": "accountLabel", "type": "string", "nullable": true },
+        { "name": "status", "type": "string", "note": "e.g. connected" },
+        { "name": "scopes", "type": "string[]", "nullable": true },
+        { "name": "config", "type": "json", "nullable": true, "note": "安全で秘密ではない構成" },
+        { "name": "credentialRefs", "type": "json", "nullable": true, "note": "pointers to vault keys, e.g. { key, scope }" }
+      ]
+    },
+    {
+      "id": "grant",
+      "name": "workspace_connection_grants",
+      "note": "接続を使用するためのアプリごとの権限。",
+      "fields": [
+        { "name": "connectionId", "type": "string", "fk": "conn.id" },
+        { "name": "appId", "type": "string", "note": "e.g。脳、分析" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "conn", "to": "grant", "kind": "1-n", "label": "grants apps" }
+  ]
+}
+```
+
+### アプリの呼び出し内容
+
+ユーザーに新しいキーの貼り付けを依頼する前に、まず準備が整っているかどうかを確認してください。
+
+```ts
+import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
+
+const catalog = await listWorkspaceConnectionProviderCatalogForApp({
+  appId: "brain",
+  templateUse: "brain",
+  provider: "slack",
+  includeConnections: "all",
+});
+
+const slack = catalog.providers[0];
+if (slack.workspaceConnection.grantState === "needs_grant") {
+  // Show "Grant Brain access" instead of asking for a second Slack token.
+}
+if (slack.readiness.status === "needs_credentials") {
+  // Show the missing credential ref names, never a secret value.
+}
+```
+
+## リファレンス {#reference}
+
+### プロバイダー カタログ
+
+`@agent-native/core/connections` からカタログをインポートします:
+
+```ts
+import {
+  getWorkspaceConnectionProvider,
+  listWorkspaceConnectionProvidersForTemplate,
+  workspaceConnectionProviderSupports,
+} from "@agent-native/core/connections";
+
+const brainProviders = listWorkspaceConnectionProvidersForTemplate("brain");
+const slack = getWorkspaceConnectionProvider("slack");
+
+if (workspaceConnectionProviderSupports("slack", "messages")) {
+  // Offer a Slack source, sync check, or onboarding step.
+}
+```
+
+初期プロバイダ ID は次のとおりです:
+
+| プロバイダ     | 能力                                   | 一般的な用途                          |
+| -------------- | -------------------------------------- | ------------------------------------- |
+| `slack`        | 検索、インポート、メッセージ           | 頭脳、ディスパッチ、分析              |
+| `github`       | 検索、インポート、コード、ドキュメント | 頭脳、分析、派遣                      |
+| `notion`       | 検索、インポート、ドキュメント         | 頭脳、コンテンツ、ディスパッチ        |
+| `gmail`        | 検索、インポート、メッセージ           | メール、脳、発送                      |
+| `google_drive` | 検索、インポート、ドキュメント         | 頭脳、コンテンツ、スライド            |
+| `hubspot`      | 検索、インポート、CRM                  | 分析、脳、メール                      |
+| `granola`      | 検索、インポート、会議、ドキュメント   | 脳、カレンダー、ディスパッチ          |
+| `clips`        | 検索、インポート、会議                 | 脳、クリップ、ビデオ                  |
+| `generic`      | 検索、インポート、ドキュメント         | カスタム webhooks とファイル ドロップ |
+
+資格情報キーは、`SLACK_BOT_TOKEN` や `GITHUB_TOKEN` などの名前のみです。プロバイダーのメタデータには、実際の認証情報の値を決して含めてはなりません。
+
+### 接続ストア API
+
+```ts
+import {
+  listWorkspaceConnectionProviderCatalogForApp,
+  listWorkspaceConnectionGrants,
+  listWorkspaceConnections,
+  summarizeWorkspaceConnectionProviderForApp,
+  summarizeWorkspaceConnectionProviderReadiness,
+  upsertWorkspaceConnection,
+  upsertWorkspaceConnectionGrant,
+  revokeWorkspaceConnectionGrant,
+} from "@agent-native/core/workspace-connections";
+
+const connections = await listWorkspaceConnections({ includeDisabled: true });
+const grants = await listWorkspaceConnectionGrants({ appId: "brain" });
+
+const appGrant = summarizeWorkspaceConnectionProviderForApp({
+  providerId: "slack",
+  appId: "brain",
+  connections,
+  grants,
+});
+
+const readiness = summarizeWorkspaceConnectionProviderReadiness({
+  provider: slack!,
+  appId: "brain",
+  connections,
+  grants,
+});
+
+const brainCatalog = await listWorkspaceConnectionProviderCatalogForApp({
+  appId: "brain",
+  templateUse: "brain",
+});
+```
+
+`credentialRefs` 配列はボールト キーを指します。資格情報のストレージではありません。たとえば、`{ key: "SLACK_BOT_TOKEN", scope: "org" }` は、Slack を呼び出す必要がある場合に、`SLACK_BOT_TOKEN` という名前の組織スコープのボールト シークレットを検索するように許可されたアプリに指示します。接続レベルの参照はプロバイダー アカウントを記述します。許可レベルの参照は、特定のアプリが使用するものを絞り込んだり上書きしたりできます。
+
+接続行が存在する場合、その行はアクティブな組織にスコープされます。組織がない場合、スコープは認証されたユーザーに限定されます。許可行は同じスコープを使用します。
+
+**レガシー `allowedApps` フィールド:** `allowedApps: []` は、同じスコープ内のすべてのアプリが接続を使用できることを意味します。 `allowedApps: ["dispatch"]` は、レガシー フィールドを介したアクセスを許可します。新しいセットアップには明示的な `workspace_connection_grants` 行を使用します。これにより、失効、監査、アプリごとの準備が容易になります。 `revokeWorkspaceConnectionGrant(connectionId, appId)` は明示的な許可を削除しますが、従来の `allowedApps` は変更しません。
+
+手作業による許可チェックの代わりに、アプリ側のステータスに `summarizeWorkspaceConnectionProviderForApp()` と `summarizeWorkspaceConnectionProviderReadiness()` を使用します。共有サマリーは、`grantState`、`grantAvailability`、安全な認証情報の参照名、アプリごとの接続行、および `readyConnectionCount` や `missingRequiredCredentialKeys` などの準備フィールドを返します。
+
+新しいアプリのセットアップ画面では、上位レベルの境界として `listWorkspaceConnectionProviderCatalogForApp()` を推奨します。これにより、プロバイダー カタログ、スコープ指定された接続、明示的な許可、アプリごとのアクセス概要、プロバイダーの準備状況が 1 つの安全な形状に結合されます。
+
+### これがボールトをどのように補完するか
+
+Credential Vault は、「シークレットはどこに保存されているのか、誰がアクセスできるのか、どのアプリにシークレットが付与されているのか?」と答えます。
+
+ワークスペース接続プロバイダーのメタデータは、「これはどのプロバイダーで、何ができるのか、どのような資格情報キーが必要になるのか、どのテンプレートがそれを提供する必要があるのか?」と答えます。
+
+```an-diagram title="接続ストアとコンテナーの比較" summary="ボールトはシークレット値を所有します。接続はプロバイダーのメタデータと credentialRefs (ポインター) を所有します。実行時に、アプリは許可された接続を通じて参照を解決し、ボールトから値を読み取ります。"
+{
+  "html": "<div class=\"diagram-vault\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">接続ストア</span><div class=\"diagram-box\" data-rough>provider account + metadata<br><small class=\"diagram-muted\">ステータス、スコープ、設定</small></div><div class=\"diagram-box\" data-rough>credentialRef<br><small class=\"diagram-muted\">{ key: SLACK_BOT_TOKEN, scope: org }</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">アプリアクション</span><small class=\"diagram-muted\">resolves at execution time through a granted ref</small><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Vault</span><div class=\"diagram-box\" data-rough>secret value<br><small class=\"diagram-muted\">エージェントやUIには返さない</small></div></div></div>",
+  "css": ".diagram-vault{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-vault .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-vault .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-vault .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+両方を一緒に使用します:
+
+1. ディスパッチ (または別のワークスペース設定フロー) は、基礎となるボールト シークレットまたは OAuth 資格情報参照を作成します。
+2. ワークスペース接続ストアは、プロバイダー アカウント、安全なメタデータ、資格情報の参照、およびアプリの許可を記録します。
+3. 各アプリは、カタログからプロバイダーのメタデータを読み取り、共有ストアから接続/許可の概要を読み取ります。
+4. アプリ UI は準備状況を示しています: 接続済み、許可されているが異常、許可が必要、認証情報が欠落している、またはメタデータのみ。
+5. アプリ固有の SQL には、アプリ固有のソース ID、カーソル、フィルター、同期ウィンドウ、メトリクス定義、レビュー ルール、およびユーザーの選択のみが保存されます。
+6. アプリ actions は、実行時に付与された接続参照とボールトを通じて認証情報を解決し、シークレット値を返すことはありません。
+
+### プロバイダー リーダー ランタイム
+
+プロバイダー/リーダー層は最初に契約があり、すべてのプロバイダーが共有のライブ リーダーを持つことを約束するものではありません。リーダー定義では、サポートされる操作、資格情報の要件、および実装ステータス (`metadata-only`、`template-owned`、または `shared`) が説明されます。ランタイムは、アプリに付与されたワークスペース接続と資格情報参照を解決し、登録されたハンドラーを呼び出し、シークレット値を公開せずに正規化されたアイテムを返します。
+
+ほとんどのライブ ハンドラーは現在もテンプレート所有のままです。つまり、Brain は依然として Slack/GitHub 取り込み動作を所有し、Analytics は依然として分析解釈を所有しています。プロバイダー固有の API 呼び出し、ページネーション、権限、および結果のセマンティクスがテンプレート間で真に再利用可能な場合にのみ、リーダーを `shared` に昇格させます。
+
+### アプリの準備パターン
+
+共有プロバイダー認証情報を使用するアプリは、読み取り専用の準備アクションと、以下をカバーする小さなセットアップ面を公開する必要があります。
+
+- **プロバイダー カタログ:** プロバイダー ID、ラベル、機能、推奨されるテンプレートの使用法、および `@agent-native/core/connections` からの必要な資格情報キー名。
+- **ワークスペースの概要:** 接続数、アクティブ/許可数、許可状態、認証情報参照名、および `@agent-native/core/workspace-connections` からの非シークレット アカウント ラベル。
+- **プロバイダーの準備状況:** `ready`、`needs_credentials`、`needs_attention`、`checking`、`disabled`、または `not_configured` (`summarizeWorkspaceConnectionProviderReadiness()` 経由)。
+- **ソースの状態:** アプリローカルに設定されたソース、カーソル、同期ステータス、および次のアクション。
+
+Brain の Sources ページはリファレンス実装です。 Brain ソース レコードの横に再利用可能なワークスペース接続プロバイダーが表示され、付与状態が `connected`、`granted`、`needs_grant`、または `not_connected` としてラベル付けされ、プロバイダーの状態が準備完了、キーが欠落している、付与が必要、修復が必要、またはメタデータのみとして表示されます。
+
+### 再利用可能なコネクタの構築
+
+新しいプロバイダーが複数のテンプレートで動作する必要がある場合:
+
+1. **プロバイダー メタデータ:** `@agent-native/core/connections` にプロバイダーを追加または再利用します。これは、安定した ID、表示ラベル、機能リスト、推奨されるテンプレートの使用、および認証キーの名前です。
+2. **ワークスペース接続:** Dispatch または別のワークスペース セットアップ サーフェスは、接続されたアカウントの安全なメタデータ、ステータス、スコープ、`credentialRefs`、および `@agent-native/core/workspace-connections` を介したアプリ権限を保存します。
+3. **アプリローカル ソース:** Brain、Analytics、Mail、または別のアプリは、Slack チャネル、GitHub リポジトリ、HubSpot オブジェクト フィルター、同期カーソル、ポーリング ケイデンスなど、所有するアプリ固有の選択肢のみを保存します。
+
+各アプリで OAuth/トークン ストレージを重複させないでください。接続レコードには、「これは Acme Slack であり、そのトークンは `SLACK_BOT_TOKEN` に存在します」と記載されています。アプリのローカル ソースには、「Brain は Slack 接続から `#product` と `#dev-fusion` を取り込む可能性があります。」と書かれています。
+
+### ディスパッチ コントロール プレーンのセットアップ
+
+Dispatch は、アプリが直接呼び出すことができるのと同じ共有ストア関数を記述するコントロール プレーン actions を公開します。
+
+```ts
+// templates/dispatch/actions/upsert-workspace-connection.ts delegates to this.
+await upsertWorkspaceConnection({
+  id: "team-slack",
+  provider: "slack",
+  label: "Acme Slack",
+  accountId: "T012345",
+  accountLabel: "acme",
+  status: "connected",
+  scopes: ["channels:history", "groups:history"],
+  config: { teamDomain: "acme", preferredChannels: ["product", "dev-fusion"] },
+  credentialRefs: [
+    {
+      key: "SLACK_BOT_TOKEN",
+      scope: "org",
+      provider: "slack",
+      label: "Slack bot token",
+    },
+  ],
+});
+
+// Then grant the apps that should reuse the provider.
+await upsertWorkspaceConnectionGrant({
+  connectionId: "team-slack",
+  appId: "brain",
+});
+await upsertWorkspaceConnectionGrant({
+  connectionId: "team-slack",
+  appId: "analytics",
+});
+```
+
+`allowedApps: []` は、同じスコープ内のすべてのアプリで接続を利用できる必要がある場合にのみ使用します。本番環境のセットアップでは明示的な許可行を優先します。
+
+### 認証情報の解決
+
+アプリ実行コードは、アクティブなリクエスト スコープ内のボールトを介して、付与された `credentialRefs` から資格情報の値を解決します。 Brain の `source-credentials.ts` は現在のリファレンス実装です。プロバイダーのワークスペース接続をリストし、`getWorkspaceConnectionAppAccess` で `appId: "brain"` をチェックし、接続レベルと許可レベルの資格情報参照をマージし、最初に一致するスコープ指定されたボールト シークレットを読み取ります。他のアプリは、`process.env` に到達するのではなく、その形状に従う必要があります。
+
+## デザインノート {#design-notes}
+
+<details>
+<summary>Reader プロモーション ポリシーと「一度接続すればどこでも使用」へのパス </summary>
+
+### アプリとローカルの境界
+
+共有接続とアプリのローカル ソース間の境界は意図的なものです。現在再利用できるのは、プロバイダー ID、資格情報参照の解決、アプリごとの許可、プロバイダーの準備状況、安全なアカウントのメタデータ、および正規化されたプロバイダーとリーダーの契約です。まだ一般的ではないのは、ほとんどのライブプロバイダーの API 読み取り、OAuth フローの所有権、取り込みカーソル、ソース フィルター、同期ケイデンス、およびドメインの解釈です。これらは、リーダー実装が明示的に共有に昇格されない限り、ワークフローを所有するアプリ内に残ります。
+
+アプリ ソース コネクタは、ユーザー/組織ソース資格情報のフォールバックとしてデプロイ レベルの環境変数を読み取るべきではありません。環境変数はデプロイメントに対してグローバルであり、ワークスペース許可を表しません。
+
+エージェントは単純なルールに従う必要があります。ユーザーが Slack、GitHub、HubSpot、Gmail、Google Drive、Granola、または別の共有プロバイダーへの接続を要求した場合、最初にワークスペース接続カタログを検査します。プロバイダーが `connected` の場合は、それを使用します。 `needs_grant` の場合は、アプリの許可を要求または実行します。 `needs_credentials` の場合は、不足しているボールト キーを要求します。再利用可能な接続が存在しない場合にのみ、新しい生キーを要求します。
+
+### 「一度接続すればどこでも使用可能」へのパス
+
+プロバイダー カタログと許可ストアは、より広範なワークスペース レイヤーの基盤です。
+
+- プロバイダー ID と機能名を共有することで、テンプレートの整合性が保たれます。
+- ワークスペース レベルのインベントリでは、Brain、Mail、Analytics、Dispatch、および将来のアプリ全体でどのプロバイダーが構成されているかを確認できます。
+- 接続行には、テンプレートに接続されているプロバイダー ID を変更せずに、アカウント ラベル、ステータス、許可されたアプリ、資格情報参照、ヘルス チェックが記録されます。
+- 付与行を使用すると、ワークスペース所有者は一度接続すると、ワークスペースがそれらを採用するときに個々のアプリを有効にすることができます。
+- エージェントは、どのプロバイダーがすでに接続されているか、どのアプリが許可を持っているかを認識して、アプリ間で作業をルーティングできます。
+- フェデレーション検索は、すべてのアプリのコネクタ リストをハードコーディングする代わりに、`search`、`docs`、`messages`、`meetings`、`crm`、または `code` 機能を持つプロバイダーを要求できます。
+- プロバイダー固有のリーダー、OAuth 更新フロー、取り込みチェックポイント、およびアプリ所有のデータ モデルは後で共有できるようになりますが、現時点ではワークスペース接続によって暗示されるものではありません。
+
+境界を厳密に保ちます。プロバイダーのメタデータは表示しても安全です。資格情報の値はボールトに残ります。
+
+</details>

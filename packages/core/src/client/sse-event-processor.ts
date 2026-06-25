@@ -1,4 +1,5 @@
 import type { ChatModelRunResult } from "@assistant-ui/react";
+
 import type { ActionChatUIConfig } from "../action-ui.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -233,7 +234,13 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     // same wall. This used to send the chat into a 32-continuation runaway
     // (each turn cleared+regenerated visible content) for users hitting a
     // misbehaving Builder route. Surface the error instead.
-    code === "builder_gateway_error"
+    code === "builder_gateway_error" ||
+    // The hosted run exhausted its in-invocation continuation budget without
+    // finishing (run-loop-with-resume.ts). It's flagged `recoverable: true` so
+    // the recovery banner reads "stopped before finishing", but it must NOT
+    // auto-continue: another POST would hit the same ~40s wall and churn. The
+    // user retries deliberately (ideally as a single bulk action).
+    code === "run_budget_exhausted"
   ) {
     return false;
   }

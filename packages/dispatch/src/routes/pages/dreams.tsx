@@ -1,7 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-import { toast } from "sonner";
 import {
   IconAlertTriangle,
   IconBrain,
@@ -16,6 +13,10 @@ import {
   IconSettings,
   IconX,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
+import { toast } from "sonner";
+
 import { DispatchShell } from "@/components/dispatch-shell";
 import {
   Accordion,
@@ -53,6 +54,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+
 import {
   dreamSettingsToDraft,
   dreamSettingsUpdateFromDraft,
@@ -1321,9 +1323,12 @@ export default function DreamsRoute() {
   const dreamSettings = dreamSettingsQuery.data ?? null;
   const selectedDream =
     detail?.dream ?? dreams.find((dream) => dream.id === selectedDreamId);
-  const proposals = detail?.proposals ?? [];
-  const inspectedRuns = detail?.inspectedRuns ?? detail?.candidates ?? [];
-  const selectedSourceHealth = selectedDream?.sourceHealth ?? [];
+  const proposals: DreamProposal[] = detail?.proposals ?? [];
+  const inspectedRuns: CandidateRun[] =
+    detail?.inspectedRuns ?? detail?.candidates ?? [];
+  const evidenceItems: DreamEvidence[] = detail?.evidence ?? [];
+  const selectedSourceHealth: DreamSourceHealth[] =
+    selectedDream?.sourceHealth ?? [];
   const pendingProposalCount = proposals.filter(
     (proposal) =>
       String(proposal.status || "pending").toLowerCase() === "pending",
@@ -1668,7 +1673,7 @@ export default function DreamsRoute() {
                         <SourceHealthPanel sources={selectedSourceHealth} />
                       </div>
                     ) : null}
-                    {inspectedRuns.length > 0 || detail?.evidence?.length ? (
+                    {inspectedRuns.length > 0 || evidenceItems.length ? (
                       <Accordion type="multiple" className="rounded-lg border">
                         {inspectedRuns.map((run, index) => (
                           <AccordionItem
@@ -1710,7 +1715,7 @@ export default function DreamsRoute() {
                             </AccordionContent>
                           </AccordionItem>
                         ))}
-                        {(detail?.evidence ?? []).map((item, index) => (
+                        {evidenceItems.map((item, index) => (
                           <AccordionItem
                             key={item.id || `evidence-${index}`}
                             value={item.id || `evidence-${index}`}

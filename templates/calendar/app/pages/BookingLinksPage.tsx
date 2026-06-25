@@ -1,5 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { ShareButton, useT, VisibilityBadge } from "@agent-native/core/client";
+import {
+  BookingLinkCreateDialog,
+  CustomFieldsEditor as SharedCustomFieldsEditor,
+  SlugEditor,
+} from "@agent-native/scheduling/react/components";
+import type {
+  AvailabilityConfig,
+  BookingHost,
+  BookingLink,
+  ConferencingConfig,
+  CustomField,
+  DaySchedule,
+} from "@shared/api";
 import {
   IconBrandGoogle,
   IconBrandZoom,
@@ -18,15 +30,6 @@ import {
   IconVideoOff,
   IconX,
 } from "@tabler/icons-react";
-import { nanoid } from "nanoid";
-import { toast } from "sonner";
-import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
-import {
-  BookingLinkCreateDialog,
-  CustomFieldsEditor as SharedCustomFieldsEditor,
-  SlugEditor,
-} from "@agent-native/scheduling/react/components";
 import {
   startOfMonth,
   endOfMonth,
@@ -43,21 +46,14 @@ import {
   startOfDay,
   getDay,
 } from "date-fns";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { nanoid } from "nanoid";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { useAppHeaderControls } from "@/components/layout/AppLayout";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -69,28 +65,44 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
-import { useAppHeaderControls } from "@/components/layout/AppLayout";
+import {
+  useAvailability,
+  useUpdateAvailability,
+} from "@/hooks/use-availability";
 import {
   useBookingLinks,
   useCreateBookingLink,
@@ -98,21 +110,12 @@ import {
   useUpdateBookingLink,
   OPTIMISTIC_PREFIX,
 } from "@/hooks/use-booking-links";
-import {
-  useAvailability,
-  useUpdateAvailability,
-} from "@/hooks/use-availability";
-import { CloudUpgrade } from "@/components/CloudUpgrade";
-import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
+import { copyTextToClipboard } from "@/lib/clipboard";
+import { cn } from "@/lib/utils";
+
 import BookingsList from "./BookingsList";
-import type {
-  AvailabilityConfig,
-  BookingHost,
-  BookingLink,
-  ConferencingConfig,
-  CustomField,
-  DaySchedule,
-} from "@shared/api";
 
 const DURATION_PRESETS = [15, 30, 45, 60];
 
@@ -159,14 +162,14 @@ type BookingPreviewFormValue = {
   fieldResponses: Record<string, string | boolean>;
 };
 
-const DAYS: { key: DayName; label: string; short: string }[] = [
-  { key: "monday", label: "Monday", short: "Mon" },
-  { key: "tuesday", label: "Tuesday", short: "Tue" },
-  { key: "wednesday", label: "Wednesday", short: "Wed" },
-  { key: "thursday", label: "Thursday", short: "Thu" },
-  { key: "friday", label: "Friday", short: "Fri" },
-  { key: "saturday", label: "Saturday", short: "Sat" },
-  { key: "sunday", label: "Sunday", short: "Sun" },
+const DAYS: { key: DayName }[] = [
+  { key: "monday" },
+  { key: "tuesday" },
+  { key: "wednesday" },
+  { key: "thursday" },
+  { key: "friday" },
+  { key: "saturday" },
+  { key: "sunday" },
 ];
 
 const DEFAULT_SCHEDULE: DaySchedule = {
@@ -245,7 +248,10 @@ function formatTime12(time: string) {
 }
 
 /** Summarize availability, e.g. "Weekdays, 9 am - 5 pm" */
-function formatAvailabilitySummary(config: AvailabilityConfig) {
+function formatAvailabilitySummary(
+  config: AvailabilityConfig,
+  t: ReturnType<typeof useT>,
+) {
   const ws = config.weeklySchedule;
   const weekdayKeys: DayName[] = [
     "monday",
@@ -258,7 +264,7 @@ function formatAvailabilitySummary(config: AvailabilityConfig) {
   const allDays: DayName[] = [...weekdayKeys, ...weekendKeys];
 
   const enabledDays = allDays.filter((d) => ws[d].enabled);
-  if (enabledDays.length === 0) return "No availability set";
+  if (enabledDays.length === 0) return t("bookingLinks.noAvailabilitySet");
 
   // Determine day label
   const weekdaysOn = weekdayKeys.every((d) => ws[d].enabled);
@@ -267,18 +273,18 @@ function formatAvailabilitySummary(config: AvailabilityConfig) {
   const weekendsOff = weekendKeys.every((d) => !ws[d].enabled);
 
   let dayLabel: string;
-  if (weekdaysOn && weekendsOn) dayLabel = "Every day";
-  else if (weekdaysOn && weekendsOff) dayLabel = "Weekdays";
-  else if (weekdaysOff && weekendsOn) dayLabel = "Weekends";
+  if (weekdaysOn && weekendsOn) dayLabel = t("bookingLinks.everyDay");
+  else if (weekdaysOn && weekendsOff) dayLabel = t("bookingLinks.weekdays");
+  else if (weekdaysOff && weekendsOn) dayLabel = t("bookingLinks.weekends");
   else {
     const shortNames: Record<DayName, string> = {
-      monday: "Mon",
-      tuesday: "Tue",
-      wednesday: "Wed",
-      thursday: "Thu",
-      friday: "Fri",
-      saturday: "Sat",
-      sunday: "Sun",
+      monday: t("bookingLinks.days.mondayShort"),
+      tuesday: t("bookingLinks.days.tuesdayShort"),
+      wednesday: t("bookingLinks.days.wednesdayShort"),
+      thursday: t("bookingLinks.days.thursdayShort"),
+      friday: t("bookingLinks.days.fridayShort"),
+      saturday: t("bookingLinks.days.saturdayShort"),
+      sunday: t("bookingLinks.days.sundayShort"),
     };
     dayLabel = enabledDays.map((d) => shortNames[d]).join(", ");
   }
@@ -291,8 +297,12 @@ function formatAvailabilitySummary(config: AvailabilityConfig) {
 }
 
 function BookingLinksListSkeleton() {
+  const t = useT();
   return (
-    <div className="space-y-3" aria-label="Loading meeting types">
+    <div
+      className="space-y-3"
+      aria-label={t("bookingLinks.loadingMeetingTypes")}
+    >
       {Array.from({ length: 4 }).map((_, index) => (
         <div
           key={index}
@@ -324,32 +334,32 @@ type ProviderStatus = "connected" | "disconnected" | "not-configured";
 const CONFERENCING_OPTIONS = [
   {
     type: "none",
-    label: "No conferencing",
-    description: "In-person, phone, or add details later",
+    labelKey: "bookingLinks.noConferencing",
+    descriptionKey: "bookingLinks.noConferencingDescription",
     Icon: IconVideoOff,
   },
   {
     type: "google_meet",
-    label: "Google Meet",
-    description: "Auto-generate a Meet link",
+    labelKey: "bookingLinks.googleMeet",
+    descriptionKey: "bookingLinks.googleMeetDescription",
     Icon: IconBrandGoogle,
   },
   {
     type: "zoom",
-    label: "Zoom",
-    description: "Auto-create a Zoom meeting per booking",
+    labelKey: "bookingLinks.zoom",
+    descriptionKey: "bookingLinks.zoomDescription",
     Icon: IconBrandZoom,
   },
   {
     type: "custom",
-    label: "Custom link",
-    description: "Paste any meeting URL",
+    labelKey: "bookingLinks.customLink",
+    descriptionKey: "bookingLinks.customLinkDescription",
     Icon: IconLink,
   },
 ] satisfies Array<{
   type: ConferencingConfig["type"];
-  label: string;
-  description: string;
+  labelKey: string;
+  descriptionKey: string;
   Icon: typeof IconVideo;
 }>;
 
@@ -368,6 +378,7 @@ function BookingConferencingSelect({
   onConnectZoom: () => void;
   zoomPending: boolean;
 }) {
+  const t = useT();
   const selected =
     CONFERENCING_OPTIONS.find((option) => option.type === value.type) ??
     CONFERENCING_OPTIONS[0];
@@ -376,7 +387,7 @@ function BookingConferencingSelect({
     <div className="space-y-3">
       <Label className="flex items-center gap-1.5">
         <IconVideo className="h-4 w-4" />
-        Conferencing
+        {t("bookingLinks.conferencing")}
       </Label>
       <Select
         value={value.type}
@@ -390,7 +401,7 @@ function BookingConferencingSelect({
         <SelectTrigger className="h-11 py-2">
           <div className="flex min-w-0 items-center gap-2 text-left">
             <SelectedIcon className="h-4 w-4 shrink-0" />
-            <span className="truncate font-medium">{selected.label}</span>
+            <span className="truncate font-medium">{t(selected.labelKey)}</span>
           </div>
         </SelectTrigger>
         <SelectContent>
@@ -411,17 +422,17 @@ function BookingConferencingSelect({
                   <option.Icon className="mt-0.5 h-4 w-4 shrink-0" />
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium">{option.label}</span>
+                      <span className="font-medium">{t(option.labelKey)}</span>
                       {status === "connected" &&
                         option.type !== "none" &&
                         option.type !== "custom" && (
                           <span className="text-[10px] text-muted-foreground">
-                            Connected
+                            {t("common.connected")}
                           </span>
                         )}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {option.description}
+                      {t(option.descriptionKey)}
                     </p>
                   </div>
                 </div>
@@ -435,11 +446,13 @@ function BookingConferencingSelect({
         <div className="rounded-lg border border-border/70 bg-muted/25 p-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">Connect Zoom</p>
+              <p className="text-sm font-medium">
+                {t("bookingLinks.connectZoom")}
+              </p>
               <p className="text-xs text-muted-foreground">
                 {zoomStatus === "not-configured"
-                  ? "Zoom is selected, but this deployment is missing Zoom OAuth credentials."
-                  : "Zoom is selected. Connect your account to create a meeting for each booking."}
+                  ? t("bookingLinks.zoomMissingCredentials")
+                  : t("bookingLinks.zoomConnectAccount")}
               </p>
             </div>
             <Button
@@ -451,7 +464,9 @@ function BookingConferencingSelect({
               className="gap-1.5"
             >
               <IconBrandZoom className="h-4 w-4" />
-              {zoomPending ? "Connecting..." : "Connect Zoom"}
+              {zoomPending
+                ? t("common.connecting")
+                : t("bookingLinks.connectZoom")}
             </Button>
           </div>
         </div>
@@ -460,7 +475,7 @@ function BookingConferencingSelect({
       {value.type === "custom" && (
         <div className="space-y-1.5">
           <Label htmlFor="booking-link-meeting-url" className="text-xs">
-            Meeting URL
+            {t("bookingLinks.meetingUrl")}
           </Label>
           <Input
             id="booking-link-meeting-url"
@@ -484,6 +499,7 @@ function BookingHostsEditor({
   hosts: BookingHost[];
   onChange: (hosts: BookingHost[]) => void;
 }) {
+  const t = useT();
   const [input, setInput] = useState("");
 
   function addHosts() {
@@ -509,7 +525,7 @@ function BookingHostsEditor({
     }
 
     if (invalid.length > 0) {
-      toast.error(`Invalid email: ${invalid[0]}`);
+      toast.error(t("bookingLinks.invalidEmail", { email: invalid[0] }));
     }
     if (next.length !== hosts.length) {
       onChange(next);
@@ -526,10 +542,10 @@ function BookingHostsEditor({
       <div className="space-y-1">
         <Label className="flex items-center gap-1.5">
           <IconUsers className="h-4 w-4" />
-          Required hosts
+          {t("bookingLinks.requiredHosts")}
         </Label>
         <p className="text-xs text-muted-foreground">
-          You are included automatically. Add teammates who must also be free.
+          {t("bookingLinks.requiredHostsDescription")}
         </p>
       </div>
       <div className="flex gap-2">
@@ -552,7 +568,7 @@ function BookingHostsEditor({
           disabled={!input.trim()}
           className="shrink-0"
         >
-          Add
+          {t("bookingLinks.add")}
         </Button>
       </div>
       {hosts.length > 0 ? (
@@ -568,7 +584,9 @@ function BookingHostsEditor({
                 type="button"
                 onClick={() => removeHost(host.email)}
                 className="rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-                aria-label={`Remove ${host.email}`}
+                aria-label={t("bookingLinks.removeHost", {
+                  email: host.email,
+                })}
               >
                 <IconX className="h-3 w-3" />
               </button>
@@ -576,7 +594,9 @@ function BookingHostsEditor({
           ))}
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground">Only you are required.</p>
+        <p className="text-xs text-muted-foreground">
+          {t("bookingLinks.onlyYouRequired")}
+        </p>
       )}
     </div>
   );
@@ -587,6 +607,7 @@ export default function BookingLinksPage({
 }: {
   selectedId?: string | null;
 }) {
+  const t = useT();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialTab = (searchParams.get("tab") as Tab) || "links";
@@ -695,12 +716,12 @@ export default function BookingLinksPage({
         bookingUsername: usernameInput.trim() || undefined,
       },
       {
-        onSuccess: () => toast.success("Availability saved"),
+        onSuccess: () => toast.success(t("bookingLinks.availabilitySaved")),
         onError: (error) =>
           toast.error(
             error instanceof Error
               ? error.message
-              : "Failed to save availability",
+              : t("bookingLinks.availabilitySaveFailed"),
           ),
       },
     );
@@ -783,7 +804,7 @@ export default function BookingLinksPage({
     const duration = input.length;
     if (!title || !slug || !Number.isFinite(duration)) return;
     if (duration < 5) {
-      toast.error("Duration must be at least 5 minutes.");
+      toast.error(t("bookingLinks.durationMinError"));
       return;
     }
     // Pre-generate an optimistic id so we can navigate instantly; the mutation
@@ -802,7 +823,7 @@ export default function BookingLinksPage({
         onSuccess: (created) => {
           // Swap URL from optimistic id to the real one without a back-stack entry.
           navigate(`/booking-links/${created.id}`, { replace: true });
-          toast.success("Booking link created");
+          toast.success(t("bookingLinks.bookingLinkCreated"));
         },
         onError: (error) => {
           // Cache was rolled back by the hook's onError. Bring the user back.
@@ -810,7 +831,7 @@ export default function BookingLinksPage({
           toast.error(
             error instanceof Error
               ? error.message
-              : "Failed to create booking link",
+              : t("bookingLinks.bookingLinkCreateFailed"),
           );
         },
       },
@@ -825,7 +846,7 @@ export default function BookingLinksPage({
     if (!hasUnsavedChanges) return;
     // Optimistic row hasn't resolved to a real ID yet — wait for it
     if (draft.id.startsWith(OPTIMISTIC_PREFIX)) {
-      toast.error("Still creating — please try again in a moment");
+      toast.error(t("bookingLinks.stillCreating"));
       return;
     }
     try {
@@ -845,9 +866,9 @@ export default function BookingLinksPage({
       const nextDraft = draftFromBookingLink(updated);
       setDraft(nextDraft);
       setSavedDraftSignature(getDraftSignature(nextDraft));
-      toast.success("Booking link updated");
+      toast.success(t("bookingLinks.bookingLinkUpdated"));
     } catch {
-      toast.error("Failed to update booking link");
+      toast.error(t("bookingLinks.bookingLinkUpdateFailed"));
     }
   }
 
@@ -856,16 +877,16 @@ export default function BookingLinksPage({
     try {
       await deleteBookingLink.mutateAsync(draft.id);
       navigate("/booking-links");
-      toast.success("Booking link deleted");
+      toast.success(t("bookingLinks.bookingLinkDeleted"));
     } catch {
-      toast.error("Failed to delete booking link");
+      toast.error(t("bookingLinks.bookingLinkDeleteFailed"));
     }
   }
 
   function addCustomDuration() {
     const minutes = Number.parseInt(customDurationInput, 10);
     if (!Number.isFinite(minutes) || minutes < 5 || minutes > 480) {
-      toast.error("Enter a duration between 5 and 480 minutes");
+      toast.error(t("bookingLinks.durationRangeError"));
       return;
     }
     setDraft((prev) => {
@@ -879,8 +900,11 @@ export default function BookingLinksPage({
   }
 
   async function copyPreviewUrl(slug: string) {
-    await navigator.clipboard.writeText(getBookingUrl(slug));
-    toast.success("Booking link copied");
+    if (await copyTextToClipboard(getBookingUrl(slug))) {
+      toast.success(t("bookingLinks.bookingLinkCopied"));
+      return;
+    }
+    toast.error(t("common.clipboardUnavailable"));
   }
 
   function openPreview(slug: string) {
@@ -901,7 +925,7 @@ export default function BookingLinksPage({
       return {
         left: (
           <h1 className="text-lg font-semibold tracking-tight truncate">
-            Booking links
+            {t("bookingLinks.title")}
           </h1>
         ),
         right:
@@ -913,7 +937,7 @@ export default function BookingLinksPage({
               className="h-8 gap-2"
             >
               <IconPlus className="h-4 w-4" />
-              New booking link
+              {t("bookingLinks.newBookingLink")}
             </Button>
           ) : null,
       };
@@ -926,7 +950,7 @@ export default function BookingLinksPage({
           className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
           <IconChevronLeft className="h-4 w-4" />
-          Back
+          {t("bookingLinks.back")}
         </button>
       ),
       right: selectedLink ? (
@@ -938,24 +962,21 @@ export default function BookingLinksPage({
               resourceTitle={draft.title || selectedLink.title}
               variant="compact"
               shareUrl={previewUrl}
-              shareUrlLabel="Public booking link"
-              shareUrlDescription="Bookers use this URL to pick a time. Sharing controls who can manage this booking link."
+              shareUrlLabel={t("bookingLinks.publicBookingLink")}
+              shareUrlDescription={t("bookingLinks.shareUrlDescription")}
               shareUrlPlacement="top"
-              peopleAccessLabel="People with management access"
-              generalAccessLabel="General management access"
+              peopleAccessLabel={t("bookingLinks.peopleAccess")}
+              generalAccessLabel={t("bookingLinks.generalAccess")}
               visibilityCopy={{
                 private: {
-                  description:
-                    "Only invited people can manage this booking link",
+                  description: t("bookingLinks.privateAccessDescription"),
                 },
                 org: {
-                  description:
-                    "Anyone in your organization can open and manage this booking link",
+                  description: t("bookingLinks.orgAccessDescription"),
                 },
                 public: {
-                  label: "Public management access",
-                  description:
-                    "Anyone with the app link can view this booking link setup",
+                  label: t("bookingLinks.publicManagementAccess"),
+                  description: t("bookingLinks.publicAccessDescription"),
                 },
               }}
             />
@@ -969,12 +990,12 @@ export default function BookingLinksPage({
                   size="icon"
                   onClick={() => void copyPreviewUrl(draft.slug)}
                   className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
-                  aria-label="Copy booking link"
+                  aria-label={t("bookingLinks.copyBookingLink")}
                 >
                   <IconCopy className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Copy link</TooltipContent>
+              <TooltipContent>{t("bookingLinks.copyLink")}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -984,12 +1005,12 @@ export default function BookingLinksPage({
                   size="icon"
                   onClick={() => openPreview(draft.slug)}
                   className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
-                  aria-label="Open booking link"
+                  aria-label={t("bookingLinks.openBookingLink")}
                 >
                   <IconExternalLink className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Open link</TooltipContent>
+              <TooltipContent>{t("bookingLinks.openLink")}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
           <Button
@@ -1000,10 +1021,10 @@ export default function BookingLinksPage({
             className="h-8 px-3"
           >
             {updateBookingLink.isPending
-              ? "Saving..."
+              ? t("common.saving")
               : hasUnsavedChanges
-                ? "Save changes"
-                : "Saved"}
+                ? t("eventDialog.saveChanges")
+                : t("bookingLinks.saved")}
           </Button>
         </div>
       ) : null,
@@ -1018,6 +1039,7 @@ export default function BookingLinksPage({
     hasUnsavedChanges,
     navigate,
     activeTab,
+    t,
   ]);
   useAppHeaderControls(detailHeaderControls);
 
@@ -1072,7 +1094,9 @@ export default function BookingLinksPage({
               <>
                 {/* Title */}
                 <div className="space-y-2">
-                  <Label htmlFor="booking-link-title">Meeting name</Label>
+                  <Label htmlFor="booking-link-title">
+                    {t("bookingLinks.meetingName")}
+                  </Label>
                   <Input
                     id="booking-link-title"
                     value={draft.title}
@@ -1086,16 +1110,16 @@ export default function BookingLinksPage({
                           : slugify(title),
                       }));
                     }}
-                    placeholder="Quick Chat"
+                    placeholder={t("bookingLinks.quickChat")}
                   />
                 </div>
 
                 {/* Description */}
                 <div className="space-y-2">
                   <Label htmlFor="booking-link-description">
-                    Description{" "}
+                    {t("eventForm.description")}{" "}
                     <span className="text-muted-foreground font-normal">
-                      (optional)
+                      {t("bookingLinks.optional")}
                     </span>
                   </Label>
                   <Textarea
@@ -1108,15 +1132,15 @@ export default function BookingLinksPage({
                         description: e.target.value,
                       }))
                     }
-                    placeholder="Shown on the booking page"
+                    placeholder={t("bookingLinks.shownOnBookingPage")}
                   />
                 </div>
 
                 {/* Duration options — multi-select */}
                 <div className="space-y-3">
-                  <Label>Duration options</Label>
+                  <Label>{t("bookingLinks.durationOptions")}</Label>
                   <p className="text-xs text-muted-foreground">
-                    Select one or more — bookers will choose when scheduling.
+                    {t("bookingLinks.durationOptionsDescription")}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {DURATION_PRESETS.map((minutes) => {
@@ -1197,7 +1221,7 @@ export default function BookingLinksPage({
                       )}
                     >
                       <IconPlus className="h-3.5 w-3.5" />
-                      Custom
+                      {t("bookingLinks.custom")}
                     </button>
                   </div>
                   {showCustomDurationInput && (
@@ -1219,7 +1243,7 @@ export default function BookingLinksPage({
                             setShowCustomDurationInput(false);
                           }
                         }}
-                        placeholder="Minutes"
+                        placeholder={t("bookingLinks.minutes")}
                         className="h-9"
                       />
                       <Button
@@ -1230,21 +1254,26 @@ export default function BookingLinksPage({
                         disabled={!customDurationInput.trim()}
                         className="shrink-0"
                       >
-                        Add
+                        {t("bookingLinks.add")}
                       </Button>
                     </div>
                   )}
                   {draft.durations.length > 1 && (
                     <p className="text-xs text-muted-foreground">
-                      Bookers will choose between:{" "}
-                      {draft.durations.map((d) => `${d} min`).join(", ")}
+                      {t("bookingLinks.bookersChooseBetween", {
+                        durations: draft.durations
+                          .map((d) =>
+                            t("bookingLinks.minutesShort", { count: d }),
+                          )
+                          .join(", "),
+                      })}
                     </p>
                   )}
                 </div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-3">
-                    <Label>URL</Label>
+                    <Label>{t("bookingLinks.url")}</Label>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -1253,12 +1282,14 @@ export default function BookingLinksPage({
                           size="icon"
                           onClick={() => openPreview(draft.slug)}
                           className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
-                          aria-label="Open booking page in new tab"
+                          aria-label={t("bookingLinks.openBookingPageNewTab")}
                         >
                           <IconExternalLink className="h-4 w-4" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Open in new tab</TooltipContent>
+                      <TooltipContent>
+                        {t("bookingLinks.openInNewTab")}
+                      </TooltipContent>
                     </Tooltip>
                   </div>
                   {/* Editable URL parts (username / slug) — shared package component */}
@@ -1297,7 +1328,9 @@ export default function BookingLinksPage({
                               toast.error(
                                 error instanceof Error
                                   ? error.message
-                                  : "Failed to update booking username",
+                                  : t(
+                                      "bookingLinks.bookingUsernameUpdateFailed",
+                                    ),
                               ),
                           },
                         );
@@ -1335,7 +1368,7 @@ export default function BookingLinksPage({
                         toast.error(
                           error instanceof Error
                             ? error.message
-                            : "Could not start Zoom connection",
+                            : t("bookingLinks.zoomStartFailed"),
                         ),
                     })
                   }
@@ -1359,9 +1392,11 @@ export default function BookingLinksPage({
                 <div className="space-y-5 border-t border-border pt-5">
                   <div className="flex items-center justify-between gap-4">
                     <div>
-                      <p className="text-sm font-medium">Link visibility</p>
+                      <p className="text-sm font-medium">
+                        {t("bookingLinks.linkVisibility")}
+                      </p>
                       <p className="text-xs text-muted-foreground">
-                        Turn this off to disable the public page.
+                        {t("bookingLinks.linkVisibilityDescription")}
                       </p>
                     </div>
                     <Switch
@@ -1378,24 +1413,28 @@ export default function BookingLinksPage({
                         className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"
                       >
                         <IconTrash className="h-3.5 w-3.5" />
-                        Delete
+                        {t("eventForm.delete")}
                       </button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Delete booking link</AlertDialogTitle>
+                        <AlertDialogTitle>
+                          {t("bookingLinks.deleteBookingLink")}
+                        </AlertDialogTitle>
                         <AlertDialogDescription>
-                          This will permanently remove{" "}
+                          {t("bookingLinks.deleteDescriptionPrefix")}{" "}
                           <span className="font-medium text-foreground">
                             {draft.title}
                           </span>{" "}
-                          and its public booking page. This can't be undone.
+                          {t("bookingLinks.deleteDescriptionSuffix")}
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogCancel>
+                          {t("eventForm.cancel")}
+                        </AlertDialogCancel>
                         <AlertDialogAction onClick={handleDelete}>
-                          Delete
+                          {t("eventForm.delete")}
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
@@ -1416,12 +1455,14 @@ export default function BookingLinksPage({
                         type="button"
                         onClick={() => setIsPreviewCollapsed(false)}
                         className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                        aria-label="Open preview"
+                        aria-label={t("bookingLinks.openPreview")}
                       >
                         <IconChevronLeft className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="left">Open preview</TooltipContent>
+                    <TooltipContent side="left">
+                      {t("bookingLinks.openPreview")}
+                    </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               ) : (
@@ -1449,14 +1490,20 @@ export default function BookingLinksPage({
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-8">
       <p className="text-sm text-muted-foreground">
-        Create meeting types with public links and configure your availability.
+        {t("bookingLinks.description")}
       </p>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as Tab)}>
         <TabsList>
-          <TabsTrigger value="links">Meeting Types</TabsTrigger>
-          <TabsTrigger value="availability">Availability</TabsTrigger>
-          <TabsTrigger value="bookings">Bookings</TabsTrigger>
+          <TabsTrigger value="links">
+            {t("bookingLinks.meetingTypes")}
+          </TabsTrigger>
+          <TabsTrigger value="availability">
+            {t("bookingLinks.availability")}
+          </TabsTrigger>
+          <TabsTrigger value="bookings">
+            {t("bookingLinks.bookings")}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="links">
@@ -1468,14 +1515,15 @@ export default function BookingLinksPage({
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted mb-4">
                   <IconLink className="h-6 w-6 text-muted-foreground" />
                 </div>
-                <p className="text-lg font-medium">No booking links yet</p>
+                <p className="text-lg font-medium">
+                  {t("bookingLinks.noBookingLinks")}
+                </p>
                 <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                  Create a booking link to let people schedule meetings with
-                  you.
+                  {t("bookingLinks.noBookingLinksDescription")}
                 </p>
                 <Button onClick={handleCreate} className="mt-6 gap-2">
                   <IconPlus className="h-4 w-4" />
-                  Create your first link
+                  {t("bookingLinks.createFirstLink")}
                 </Button>
               </div>
             ) : (
@@ -1486,13 +1534,19 @@ export default function BookingLinksPage({
                       ? link.durations
                       : [link.duration];
                   const durationLabel = durations
-                    .map((d) => (d >= 60 ? `${d / 60} hr` : `${d} min`))
+                    .map((d) =>
+                      d >= 60
+                        ? t("bookingLinks.hoursShort", { count: d / 60 })
+                        : t("bookingLinks.minutesShort", { count: d }),
+                    )
                     .join(", ");
                   const hostCount = (link.hosts?.length ?? 0) + 1;
                   const hostLabel =
                     hostCount > 1
-                      ? `${hostCount} required hosts`
-                      : "One-on-One";
+                      ? t("bookingLinks.requiredHostsCount", {
+                          count: hostCount,
+                        })
+                      : t("bookingLinks.oneOnOne");
 
                   return (
                     <div
@@ -1527,7 +1581,7 @@ export default function BookingLinksPage({
                           </p>
                           {availability && (
                             <p className="mt-0.5 text-xs text-muted-foreground truncate">
-                              {formatAvailabilitySummary(availability)} •{" "}
+                              {formatAvailabilitySummary(availability, t)} •{" "}
                               {availability.timezone}
                             </p>
                           )}
@@ -1549,7 +1603,7 @@ export default function BookingLinksPage({
                                 )}
                               >
                                 <IconLink className="h-3.5 w-3.5" />
-                                Copy link
+                                {t("bookingLinks.copyLink")}
                               </button>
                               <button
                                 type="button"
@@ -1583,7 +1637,7 @@ export default function BookingLinksPage({
                                   navigate(`/booking-links/${link.id}`)
                                 }
                               >
-                                Edit
+                                {t("eventForm.edit")}
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => {
@@ -1604,13 +1658,20 @@ export default function BookingLinksPage({
                                     {
                                       onSuccess: () =>
                                         toast.success(
-                                          `${link.title} ${link.isActive ? "disabled" : "enabled"}`,
+                                          t(
+                                            link.isActive
+                                              ? "bookingLinks.linkDisabled"
+                                              : "bookingLinks.linkEnabled",
+                                            { title: link.title },
+                                          ),
                                         ),
                                     },
                                   );
                                 }}
                               >
-                                {link.isActive ? "Disable" : "Enable"}
+                                {link.isActive
+                                  ? t("bookingLinks.disable")
+                                  : t("bookingLinks.enable")}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -1629,15 +1690,17 @@ export default function BookingLinksPage({
             {/* Weekly Schedule */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Weekly Schedule</CardTitle>
+                <CardTitle className="text-lg">
+                  {t("bookingLinks.weeklySchedule")}
+                </CardTitle>
                 <CardDescription>
-                  Toggle days and set available hours.
+                  {t("bookingLinks.weeklyScheduleDescription")}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
                   <Label htmlFor="booking-links-availability-timezone">
-                    Timezone
+                    {t("eventForm.timezone")}
                   </Label>
                   <TimezoneCombobox
                     id="booking-links-availability-timezone"
@@ -1645,13 +1708,14 @@ export default function BookingLinksPage({
                     onChange={setTimezone}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Weekly hours like 9 AM-5 PM are interpreted in this timezone
-                    before visitors see them in their own browser timezone.
+                    {t("bookingLinks.timezoneHelp")}
                   </p>
                 </div>
-                {DAYS.map(({ key, label, short }) => {
+                {DAYS.map(({ key }) => {
                   const day = schedule[key];
                   const slot = day.slots[0] ?? { start: "09:00", end: "17:00" };
+                  const label = t(`bookingLinks.days.${key}`);
+                  const short = t(`bookingLinks.days.${key}Short`);
                   return (
                     <div
                       key={key}
@@ -1680,7 +1744,9 @@ export default function BookingLinksPage({
                             }
                             className="w-28 sm:w-32"
                           />
-                          <span className="text-muted-foreground">to</span>
+                          <span className="text-muted-foreground">
+                            {t("bookingLinks.to")}
+                          </span>
                           <Input
                             type="time"
                             value={slot.end}
@@ -1692,7 +1758,7 @@ export default function BookingLinksPage({
                         </div>
                       ) : (
                         <span className="text-sm text-muted-foreground">
-                          Unavailable
+                          {t("bookingLinks.unavailable")}
                         </span>
                       )}
                     </div>
@@ -1704,15 +1770,17 @@ export default function BookingLinksPage({
             {/* Booking Rules */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Booking Rules</CardTitle>
+                <CardTitle className="text-lg">
+                  {t("bookingLinks.bookingRules")}
+                </CardTitle>
                 <CardDescription>
-                  Configure buffer time, notice periods, and slot settings.
+                  {t("bookingLinks.bookingRulesDescription")}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label>Buffer between events (min)</Label>
+                    <Label>{t("bookingLinks.bufferBetweenEvents")}</Label>
                     <Input
                       type="number"
                       value={bufferMinutes}
@@ -1721,7 +1789,7 @@ export default function BookingLinksPage({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Minimum notice (hours)</Label>
+                    <Label>{t("bookingLinks.minimumNotice")}</Label>
                     <Input
                       type="number"
                       value={minNoticeHours}
@@ -1732,7 +1800,7 @@ export default function BookingLinksPage({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Max advance booking (days)</Label>
+                    <Label>{t("bookingLinks.maxAdvanceBooking")}</Label>
                     <Input
                       type="number"
                       value={maxAdvanceDays}
@@ -1743,7 +1811,7 @@ export default function BookingLinksPage({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Slot duration (minutes)</Label>
+                    <Label>{t("bookingLinks.slotDuration")}</Label>
                     <Input
                       type="number"
                       value={slotDuration}
@@ -1754,10 +1822,9 @@ export default function BookingLinksPage({
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Booking username</Label>
+                  <Label>{t("bookingLinks.bookingUsername")}</Label>
                   <p className="text-xs text-muted-foreground">
-                    Your unique handle for booking URLs, e.g.{" "}
-                    {PRODUCTION_DOMAIN}
+                    {t("bookingLinks.bookingUsernameHelp")} {PRODUCTION_DOMAIN}
                     /book/
                     <strong>{usernameInput || "your-name"}</strong>/meeting-slug
                   </p>
@@ -1779,7 +1846,9 @@ export default function BookingLinksPage({
               disabled={updateAvailability.isPending}
               className="w-full"
             >
-              {updateAvailability.isPending ? "Saving..." : "Save Availability"}
+              {updateAvailability.isPending
+                ? t("common.saving")
+                : t("bookingLinks.saveAvailability")}
             </Button>
           </div>
         </TabsContent>
@@ -1792,8 +1861,8 @@ export default function BookingLinksPage({
       {showCloudUpgrade && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <CloudUpgrade
-            title="Share Booking Link"
-            description="To share your booking page publicly, connect a cloud database so bookings can be received from anywhere."
+            title={t("bookingLinks.shareBookingLink")}
+            description={t("bookingLinks.cloudUpgradeDescription")}
             onClose={() => setShowCloudUpgrade(false)}
           />
         </div>
@@ -1803,7 +1872,7 @@ export default function BookingLinksPage({
         onOpenChange={setCreateDialogOpen}
         slugPrefix={createSlugPrefix}
         defaultLength={30}
-        submitLabel="Create link"
+        submitLabel={t("bookingLinks.createLink")}
         onSubmit={handleCreateSubmit}
       />
     </div>
@@ -1814,7 +1883,15 @@ export default function BookingLinksPage({
 // Inline booking page preview — mirrors BookingPage layout, updates live
 // ---------------------------------------------------------------------------
 
-const WEEKDAY_HEADERS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const WEEKDAY_HEADER_KEYS = [
+  "sundayShort",
+  "mondayShort",
+  "tuesdayShort",
+  "wednesdayShort",
+  "thursdayShort",
+  "fridayShort",
+  "saturdayShort",
+] as const;
 const DAY_MAP: Record<number, DayName> = {
   0: "sunday",
   1: "monday",
@@ -1850,7 +1927,8 @@ function BookingPreview({
   onOpen?: () => void;
   onCollapse?: () => void;
 }) {
-  const displayTitle = title.trim() || "Untitled Meeting";
+  const t = useT();
+  const displayTitle = title.trim() || t("bookingLinks.untitledMeeting");
   const hasDurationChoice = durations.length > 1;
   const primaryDuration = durations[0] ?? 30;
 
@@ -1864,7 +1942,7 @@ function BookingPreview({
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [previewConfirmed, setPreviewConfirmed] = useState(false);
   const [previewForm, setPreviewForm] = useState<BookingPreviewFormValue>({
-    name: "Preview Guest",
+    name: t("bookingLinks.previewGuest"),
     email: "preview@example.com",
     notes: "",
     fieldResponses: {},
@@ -1975,12 +2053,12 @@ function BookingPreview({
       <div className="border-b border-border/60 bg-muted/30 px-4 py-2 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Preview
+            {t("bookingLinks.preview")}
           </span>
           <div className="flex items-center gap-1">
             {!isActive && (
               <Badge variant="secondary" className="text-[10px]">
-                Hidden
+                {t("bookingLinks.hidden")}
               </Badge>
             )}
             {onCollapse && (
@@ -1994,7 +2072,9 @@ function BookingPreview({
                     <IconChevronRight className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Collapse preview</TooltipContent>
+                <TooltipContent>
+                  {t("bookingLinks.collapsePreview")}
+                </TooltipContent>
               </Tooltip>
             )}
             {onCopy && (
@@ -2011,7 +2091,7 @@ function BookingPreview({
                     <IconCopy className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Copy link</TooltipContent>
+                <TooltipContent>{t("bookingLinks.copyLink")}</TooltipContent>
               </Tooltip>
             )}
             {onOpen && (
@@ -2028,7 +2108,9 @@ function BookingPreview({
                     <IconExternalLink className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Open interactive booking link</TooltipContent>
+                <TooltipContent>
+                  {t("bookingLinks.openInteractiveBookingLink")}
+                </TooltipContent>
               </Tooltip>
             )}
           </div>
@@ -2059,12 +2141,16 @@ function BookingPreview({
             <div className="flex flex-wrap justify-center gap-2">
               {!hasDurationChoice && (
                 <span className="inline-flex rounded-full border border-border px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  {primaryDuration} minute meeting
+                  {t("bookingLinks.minuteMeeting", {
+                    count: primaryDuration,
+                  })}
                 </span>
               )}
               {hosts.length > 0 && (
                 <span className="inline-flex rounded-full border border-border px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  {hosts.length + 1} required hosts
+                  {t("bookingLinks.requiredHostsCount", {
+                    count: hosts.length + 1,
+                  })}
                 </span>
               )}
             </div>
@@ -2104,7 +2190,9 @@ function BookingPreview({
                         ? "bg-primary/20 text-primary hover:bg-primary/30"
                         : "bg-muted text-muted-foreground hover:bg-muted/80",
                   )}
-                  aria-label={`Go to preview step ${i + 1}`}
+                  aria-label={t("bookingLinks.goToPreviewStep", {
+                    step: i + 1,
+                  })}
                 >
                   {i + 1}
                 </button>
@@ -2118,7 +2206,7 @@ function BookingPreview({
         {step === "duration" && (
           <div className="space-y-2">
             <p className="text-xs font-medium text-center text-muted-foreground">
-              Choose a Duration
+              {t("bookingLinks.chooseDuration")}
             </p>
             <div className="space-y-1.5">
               {durations.map((mins) => (
@@ -2131,7 +2219,7 @@ function BookingPreview({
                   }}
                   className="w-full rounded-lg border border-border px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-accent/60 hover:border-primary/30"
                 >
-                  {mins} minutes
+                  {t("bookingLinks.minutesLong", { count: mins })}
                 </button>
               ))}
             </div>
@@ -2142,7 +2230,7 @@ function BookingPreview({
         {step === "date" && (
           <div className="space-y-2">
             <p className="text-xs font-medium text-center text-muted-foreground">
-              Select a Date
+              {t("bookingLinks.selectDate")}
             </p>
             <div className="rounded-lg border border-border/60 p-3">
               {/* Month navigation */}
@@ -2168,12 +2256,12 @@ function BookingPreview({
 
               {/* Weekday headers */}
               <div className="grid grid-cols-7 mb-0.5">
-                {WEEKDAY_HEADERS.map((d) => (
+                {WEEKDAY_HEADER_KEYS.map((dayKey) => (
                   <div
-                    key={d}
+                    key={dayKey}
                     className="py-0.5 text-center text-[10px] font-medium text-muted-foreground/60"
                   >
-                    {d}
+                    {t(`bookingLinks.days.${dayKey}`)}
                   </div>
                 ))}
               </div>
@@ -2236,13 +2324,13 @@ function BookingPreview({
                     BRAND_LINK_CLASS,
                   )}
                 >
-                  Change date
+                  {t("bookingLinks.changeDate")}
                 </button>
               </div>
             )}
             {!selectedDate && (
               <p className="text-xs font-medium text-center text-muted-foreground">
-                Available Times
+                {t("bookingLinks.availableTimes")}
               </p>
             )}
             {timeSlots.length > 0 ? (
@@ -2268,7 +2356,7 @@ function BookingPreview({
               </div>
             ) : (
               <p className="text-center text-xs text-muted-foreground py-4">
-                No availability on this day
+                {t("bookingLinks.noAvailabilityOnDay")}
               </p>
             )}
           </div>
@@ -2280,7 +2368,10 @@ function BookingPreview({
             {selectedDate && selectedSlot ? (
               <div className="flex items-center justify-between">
                 <p className="text-xs font-medium text-muted-foreground">
-                  {format(selectedDate, "EEEE, MMM d")} at {selectedSlot}
+                  {t("bookingLinks.selectedDateTime", {
+                    date: format(selectedDate, "EEEE, MMM d"),
+                    time: selectedSlot,
+                  })}
                 </p>
                 <button
                   type="button"
@@ -2293,18 +2384,18 @@ function BookingPreview({
                     BRAND_LINK_CLASS,
                   )}
                 >
-                  Change time
+                  {t("bookingLinks.changeTime")}
                 </button>
               </div>
             ) : (
               <p className="text-xs font-medium text-center text-muted-foreground">
-                Booking Details
+                {t("bookingLinks.bookingDetails")}
               </p>
             )}
             <div className="space-y-2">
               <div className="space-y-1.5">
                 <Label htmlFor="preview-booking-name" className="text-[11px]">
-                  Name
+                  {t("bookingLinks.name")}
                 </Label>
                 <Input
                   id="preview-booking-name"
@@ -2318,7 +2409,7 @@ function BookingPreview({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="preview-booking-email" className="text-[11px]">
-                  Email
+                  {t("bookingLinks.email")}
                 </Label>
                 <Input
                   id="preview-booking-email"
@@ -2341,7 +2432,7 @@ function BookingPreview({
               ))}
               <div className="space-y-1.5">
                 <Label htmlFor="preview-booking-notes" className="text-[11px]">
-                  Notes (optional)
+                  {t("bookingLinks.notesOptional")}
                 </Label>
                 <Textarea
                   id="preview-booking-notes"
@@ -2350,12 +2441,12 @@ function BookingPreview({
                     updatePreviewForm({ notes: event.target.value })
                   }
                   className="min-h-16 text-xs"
-                  placeholder="Anything you'd like to share"
+                  placeholder={t("bookingLinks.notesPlaceholder")}
                 />
               </div>
             </div>
             <Button type="submit" className="h-8 w-full text-xs">
-              Confirm Booking
+              {t("bookingLinks.confirmBooking")}
             </Button>
           </form>
         )}
@@ -2364,19 +2455,25 @@ function BookingPreview({
           <div className="flex flex-col items-center py-3 text-center">
             <IconCircleCheck className="h-12 w-12 text-emerald-600 dark:text-emerald-400" />
             <div className="mt-3 space-y-1">
-              <h4 className="text-base font-semibold">Preview Confirmed</h4>
+              <h4 className="text-base font-semibold">
+                {t("bookingLinks.previewConfirmed")}
+              </h4>
               <p className="text-xs text-muted-foreground">
-                No booking was created.
+                {t("bookingLinks.noBookingCreated")}
               </p>
             </div>
             <div className="mt-4 w-full rounded-lg border border-border bg-muted/20 p-3 text-left text-xs">
               <div>
-                <span className="text-muted-foreground">Event</span>
+                <span className="text-muted-foreground">
+                  {t("eventForm.event")}
+                </span>
                 <p className="font-medium text-foreground">{displayTitle}</p>
               </div>
               {selectedDate && (
                 <div className="mt-2">
-                  <span className="text-muted-foreground">Date</span>
+                  <span className="text-muted-foreground">
+                    {t("bookingLinks.date")}
+                  </span>
                   <p className="font-medium text-foreground">
                     {format(selectedDate, "EEEE, MMMM d, yyyy")}
                   </p>
@@ -2384,16 +2481,23 @@ function BookingPreview({
               )}
               {selectedSlot && (
                 <div className="mt-2">
-                  <span className="text-muted-foreground">Time</span>
+                  <span className="text-muted-foreground">
+                    {t("bookingLinks.time")}
+                  </span>
                   <p className="font-medium text-foreground">
-                    {selectedSlot} · {confirmedDuration} minutes
+                    {selectedSlot} ·{" "}
+                    {t("bookingLinks.minutesLong", {
+                      count: confirmedDuration,
+                    })}
                   </p>
                 </div>
               )}
               <div className="mt-2">
-                <span className="text-muted-foreground">Name</span>
+                <span className="text-muted-foreground">
+                  {t("bookingLinks.name")}
+                </span>
                 <p className="font-medium text-foreground">
-                  {previewForm.name.trim() || "Preview Guest"}
+                  {previewForm.name.trim() || t("bookingLinks.previewGuest")}
                 </p>
               </div>
             </div>
@@ -2404,7 +2508,7 @@ function BookingPreview({
               className="mt-4 h-8 text-xs"
               onClick={resetPreviewFlow}
             >
-              Try Again
+              {t("bookingLinks.tryAgain")}
             </Button>
           </div>
         )}
@@ -2422,10 +2526,11 @@ function PreviewCustomFieldInput({
   value: string | boolean | undefined;
   onChange: (value: string | boolean) => void;
 }) {
+  const t = useT();
   const id = `preview-custom-field-${field.id}`;
   const strValue = typeof value === "string" ? value : "";
   const boolValue = typeof value === "boolean" ? value : false;
-  const optionalLabel = field.required ? "" : " (optional)";
+  const optionalLabel = field.required ? "" : ` ${t("bookingLinks.optional")}`;
 
   if (field.type === "checkbox") {
     return (
@@ -2455,7 +2560,9 @@ function PreviewCustomFieldInput({
             <span
               className={cn("truncate", !strValue && "text-muted-foreground")}
             >
-              {strValue || field.placeholder || "Select..."}
+              {strValue ||
+                field.placeholder ||
+                t("bookingLinks.selectPlaceholder")}
             </span>
           </SelectTrigger>
           <SelectContent>

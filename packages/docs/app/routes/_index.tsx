@@ -1,13 +1,10 @@
-import { Link } from "react-router";
+import { useLocale, useT } from "@agent-native/core/client";
 import { useEffect, useRef, useState } from "react";
-import {
-  IconBrain,
-  IconDatabase,
-  IconRoute,
-  IconServer,
-} from "@tabler/icons-react";
+import { Link } from "react-router";
+
 import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
 import CodeBlock from "../components/CodeBlock";
+import { sitePathForLocale } from "../components/docs-locale";
 import Seascape from "../components/Seascape";
 import {
   featuredTemplates,
@@ -15,31 +12,8 @@ import {
   trackEvent,
 } from "../components/TemplateCard";
 
-const quickStartCode = `# Start with a chat-first app
-npx @agent-native/core@latest create my-chat-app --template chat
-cd my-chat-app
-pnpm install
-pnpm action hello --name Builder
-pnpm agent "Call hello for Builder"`;
-
-const skillInstallCode = `# Add agent-native planning to a coding agent you already use
-npx @agent-native/core@latest skills add visual-plan`;
-
-const frameworkCode = `// One action powers the agent, UI, HTTP, MCP, A2A, and CLI.
-export default defineAction({
-  description: "Say hello from the local app-agent loop.",
-  schema: z.object({
-    name: z.string().default("world"),
-  }),
-  http: { method: "GET" },
-  readOnly: true,
-  run: async ({ name }) => ({ message: \`Hello, \${name}!\` }),
-});`;
-
-function TerminalCommand() {
+function TerminalCommand({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
-  const command =
-    "npx @agent-native/core@latest create my-chat-app --template chat";
 
   function handleCopy() {
     navigator.clipboard.writeText(command);
@@ -91,60 +65,26 @@ function TerminalCommand() {
   );
 }
 
-const bidirectionalTabs = [
+const BIDIRECTIONAL_TABS = [
   {
-    title: "The agent sees everything",
-    description:
-      "It can read and update any UI, any data, any state in the application.",
+    key: "agentSees",
     video:
       "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa7b4e0fca8154ab6a82414178d3a4521%2Fcompressed?token=a7b4e0fca8154ab6a82414178d3a4521&alt=media&optimized=true", // ggignore: public Builder CDN media token
   },
   {
-    title: "The UI talks to the agent",
-    description:
-      "Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.",
+    key: "uiTalks",
     video:
       "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F02f0369cc97345aa89311d0909b24611%2Fcompressed?token=02f0369cc97345aa89311d0909b24611&alt=media&optimized=true", // ggignore: public Builder CDN media token
   },
   {
-    title: "The agent updates its own code",
-    description:
-      "It can modify the app itself to change features and functionality. Your tools get better over time.",
+    key: "agentUpdates",
     video:
       "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1aade099ff6d4e9ca04f8534d3314383%2Fcompressed?token=1aade099ff6d4e9ca04f8534d3314383&alt=media&optimized=true", // ggignore: public Builder CDN media token
   },
   {
-    title: "Everything works both ways",
-    description:
-      "Every action available in the UI is also available to the agent. You can click to do something, or ask the agent to do it.",
+    key: "everything",
     video:
       "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F39c6b297895843708938b097d8e3eb2c?alt=media&token=c5fdf84c-d4fb-45b0-b220-ef7aab01e99f", // ggignore: public Builder CDN media token
-  },
-];
-
-const frameworkPrimitives = [
-  {
-    title: "Actions",
-    description: "Define work once. Use it from agent, UI, API, MCP, and A2A.",
-    icon: IconRoute,
-  },
-  {
-    title: "Shared state",
-    description:
-      "SQL-backed app state keeps humans, agents, and sessions in sync.",
-    icon: IconDatabase,
-  },
-  {
-    title: "Agent runtime",
-    description:
-      "The app-agent loop, tools, skills, memory, jobs, and observability ship together.",
-    icon: IconBrain,
-  },
-  {
-    title: "Backend agnostic",
-    description:
-      "Plug in any Drizzle-supported SQL database and Nitro-compatible host.",
-    icon: IconServer,
   },
 ];
 
@@ -161,7 +101,351 @@ const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
   featuredTemplates.filter((template) => template.slug === slug),
 );
 
+const featureCloudRows = [
+  {
+    className: "-translate-x-10",
+    words: [
+      {
+        labelKey: "notifications",
+        className: "text-base uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "recurringJobs",
+        className: "text-lg uppercase opacity-[0.22]",
+      },
+      { labelKey: "actions", className: "text-5xl opacity-[0.95]" },
+      {
+        labelKey: "agentTeams",
+        className: "text-xl uppercase opacity-[0.22]",
+      },
+      {
+        labelKey: "monorepos",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+    ],
+  },
+  {
+    className: "translate-x-12",
+    words: [
+      {
+        labelKey: "permissions",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "rbac", className: "text-lg uppercase opacity-[0.18]" },
+      { labelKey: "organizations", className: "text-2xl opacity-[0.24]" },
+      {
+        labelKey: "workspaceSecrets",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      { labelKey: "docsSearch", className: "text-xl uppercase opacity-[0.18]" },
+      {
+        labelKey: "sourceSearch",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+    ],
+  },
+  {
+    className: "translate-x-8",
+    words: [
+      {
+        labelKey: "contextAwareness",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "observability", className: "text-4xl opacity-[0.86]" },
+      {
+        labelKey: "realtimeSync",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+      { labelKey: "sqlState", className: "text-4xl opacity-[0.86]" },
+      {
+        labelKey: "multiTenancy",
+        className: "text-xl uppercase opacity-[0.22]",
+      },
+      {
+        labelKey: "dataLoaders",
+        className: "text-lg uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "liveQueries",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+    ],
+  },
+  {
+    className: "-translate-x-14",
+    words: [
+      {
+        labelKey: "agentInstructions",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "providerGrants",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      { labelKey: "notifications", className: "text-2xl opacity-[0.24]" },
+      { labelKey: "comments", className: "text-xl uppercase opacity-[0.18]" },
+      {
+        labelKey: "reviewLinks",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "privacyControls",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+    ],
+  },
+  {
+    className: "-translate-x-4",
+    words: [
+      {
+        labelKey: "skills",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+      { labelKey: "security", className: "text-3xl opacity-[0.58]" },
+      { labelKey: "auditLogs", className: "text-3xl opacity-[0.54]" },
+      { labelKey: "workspaces", className: "text-3xl opacity-[0.46]" },
+      {
+        labelKey: "voiceInput",
+        className: "text-lg uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "mcpApps",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
+      { labelKey: "toolCalls", className: "text-2xl opacity-[0.26]" },
+      {
+        labelKey: "agentSidebar",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+    ],
+  },
+  {
+    className: "feature-cloud-center-row",
+    words: [
+      { labelKey: "sharedActions", className: "text-2xl opacity-[0.30]" },
+      { labelKey: "uiSurfaces", className: "text-xl uppercase opacity-[0.20]" },
+      { labelKey: "i18n", className: "text-5xl opacity-[0.92]" },
+      { labelKey: "mcpAuth", className: "text-2xl opacity-[0.44]" },
+      {
+        labelKey: "battleTestedComponents",
+        className:
+          "feature-cloud-center-card max-w-[260px] whitespace-normal rounded-2xl border border-neutral-300 bg-neutral-100 px-6 py-5 text-center text-2xl text-neutral-950 opacity-100 shadow-[0_18px_70px_rgba(255,255,255,0.92)] dark:border-white/30 dark:bg-[#151515] dark:text-white dark:shadow-[0_18px_70px_rgba(0,0,0,0.96)] sm:max-w-[310px] sm:px-8 sm:py-6 sm:text-3xl",
+      },
+      { labelKey: "mcpA2a", className: "text-5xl opacity-[0.92]" },
+      { labelKey: "externalAgents", className: "text-2xl opacity-[0.32]" },
+      {
+        labelKey: "a2aHandoffs",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
+    ],
+  },
+  {
+    className: "translate-x-6",
+    words: [
+      {
+        labelKey: "humanHandoff",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "agentContext", className: "text-2xl opacity-[0.26]" },
+      {
+        labelKey: "durableResume",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "extensions", className: "text-3xl opacity-[0.48]" },
+      { labelKey: "sharingPrivacy", className: "text-2xl opacity-[0.34]" },
+      {
+        labelKey: "realTimeCollaboration",
+        className: "text-2xl opacity-[0.30]",
+      },
+      { labelKey: "sso", className: "text-2xl opacity-[0.44]" },
+      {
+        labelKey: "oauth",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+      { labelKey: "mcpServers", className: "text-2xl opacity-[0.28]" },
+      { labelKey: "agentTeams", className: "text-xl uppercase opacity-[0.18]" },
+    ],
+  },
+  {
+    className: "-translate-x-8",
+    words: [
+      {
+        labelKey: "scopedAccess",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "dbAdapters",
+        className: "text-lg uppercase opacity-[0.22]",
+      },
+      { labelKey: "auth", className: "text-4xl opacity-[0.84]" },
+      { labelKey: "approvals", className: "text-3xl opacity-[0.44]" },
+      { labelKey: "automations", className: "text-3xl opacity-[0.46]" },
+      { labelKey: "governance", className: "text-3xl opacity-[0.48]" },
+      { labelKey: "jobs", className: "text-4xl opacity-[0.84]" },
+      {
+        labelKey: "agUi",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+      { labelKey: "dispatch", className: "text-2xl opacity-[0.28]" },
+      {
+        labelKey: "backgroundRuns",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+    ],
+  },
+  {
+    className: "translate-x-4",
+    words: [
+      { labelKey: "rateLimits", className: "text-lg uppercase opacity-[0.16]" },
+      { labelKey: "queues", className: "text-xl uppercase opacity-[0.18]" },
+      {
+        labelKey: "cronSchedules",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "analytics", className: "text-2xl opacity-[0.28]" },
+      {
+        labelKey: "experiments",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "feedbackLoops",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+    ],
+  },
+  {
+    className: "translate-x-12",
+    words: [
+      {
+        labelKey: "fileUploads",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
+      { labelKey: "evals", className: "text-2xl opacity-[0.46]" },
+      { labelKey: "templates", className: "text-5xl opacity-[0.92]" },
+      { labelKey: "providerApis", className: "text-2xl opacity-[0.36]" },
+      {
+        labelKey: "agentWebSurfaces",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "templateSkills",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "oneClickForks", className: "text-2xl opacity-[0.24]" },
+    ],
+  },
+  {
+    className: "-translate-x-2",
+    words: [
+      {
+        labelKey: "localFileMode",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "memory",
+        className: "text-lg uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "webhooks",
+        className: "text-xl uppercase opacity-[0.22]",
+      },
+      {
+        labelKey: "http",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
+      {
+        labelKey: "selfEditingCode",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      {
+        labelKey: "cli",
+        className: "text-xl uppercase opacity-[0.24]",
+      },
+      {
+        labelKey: "crossAppSso",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+    ],
+  },
+  {
+    className: "translate-x-16",
+    words: [
+      {
+        labelKey: "schemaMigrations",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      {
+        labelKey: "hostedDeploys",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "environmentSetup",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      {
+        labelKey: "oauthCallbacks",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "exports", className: "text-xl uppercase opacity-[0.18]" },
+      { labelKey: "dashboards", className: "text-2xl opacity-[0.24]" },
+    ],
+  },
+];
+
+function FeatureWordCloud({ className = "" }: { className?: string }) {
+  const t = useT();
+  return (
+    <div
+      className={`feature-cloud pointer-events-none overflow-hidden bg-white dark:bg-black ${className}`}
+      aria-hidden="true"
+    >
+      <div className="feature-cloud-flow absolute left-1/2 top-1/2 flex w-[860px] -translate-x-1/2 -translate-y-1/2 scale-[0.82] flex-col items-center gap-6 px-8 sm:w-[1080px] sm:scale-[0.78] sm:gap-8 lg:w-[1740px] lg:scale-[0.68] lg:gap-10">
+        {featureCloudRows.map((row, rowIndex) => (
+          <div
+            key={rowIndex}
+            className={`feature-cloud-row flex max-w-none items-center justify-center gap-x-7 gap-y-3 whitespace-nowrap sm:gap-x-9 lg:gap-x-11 ${row.className}`}
+          >
+            {row.words.map((word) => (
+              <span
+                key={word.labelKey}
+                className={`feature-cloud-word font-semibold leading-none text-neutral-950 dark:text-white ${word.className}`}
+              >
+                {t(`home.featureCloud.${word.labelKey}`)}
+              </span>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BatteriesIncludedCloud() {
+  const t = useT();
+  return (
+    <section className="batteries-cloud-section relative overflow-hidden border-t border-[var(--docs-border)] bg-white px-6 py-24 text-neutral-950 dark:bg-black dark:text-white sm:py-28 lg:flex lg:min-h-[680px] lg:items-center lg:py-36">
+      <FeatureWordCloud className="absolute inset-y-0 left-[-10vw] right-[-26vw] z-0 hidden translate-x-[140px] lg:block" />
+      <div className="pointer-events-none absolute inset-y-0 left-0 z-[1] hidden w-[46%] bg-gradient-to-r from-white/90 via-white/68 via-70% to-transparent dark:from-black/90 dark:via-black/68 lg:block" />
+
+      <div className="relative z-10 mx-auto w-full max-w-[1200px]">
+        <div className="max-w-[410px] text-center lg:text-left">
+          <h2 className="mb-4 text-3xl font-bold tracking-tight text-neutral-950 dark:text-white md:text-4xl">
+            {t("home.batteries.titleLine1")}
+            <span className="block">{t("home.batteries.titleLine2")}</span>
+          </h2>
+          <p className="mx-auto mb-5 max-w-[350px] text-base leading-relaxed text-neutral-600 dark:text-white/58 lg:mx-0">
+            {t("home.batteries.body")}
+          </p>
+        </div>
+
+        <FeatureWordCloud className="relative -mx-6 mt-12 h-[480px] sm:h-[560px] lg:hidden" />
+      </div>
+    </section>
+  );
+}
+
 function BidirectionalTabs() {
+  const t = useT();
   const [activeTab, setActiveTab] = useState(0);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const tabButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -217,7 +501,7 @@ function BidirectionalTabs() {
   const handleVideoEnded = (i: number) => {
     setActiveTab((prev) => {
       if (prev !== i) return prev;
-      return (i + 1) % bidirectionalTabs.length;
+      return (i + 1) % BIDIRECTIONAL_TABS.length;
     });
   };
 
@@ -227,7 +511,7 @@ function BidirectionalTabs() {
         ref={tabContainerRef}
         className="flex shrink-0 flex-row gap-2 overflow-x-auto px-1 py-1 md:w-1/4 md:flex-col md:gap-3 md:overflow-visible md:p-0"
       >
-        {bidirectionalTabs.map((tab, i) => (
+        {BIDIRECTIONAL_TABS.map((tab, i) => (
           <button
             key={i}
             ref={(el) => {
@@ -248,20 +532,20 @@ function BidirectionalTabs() {
             }`}
           >
             <div className="mb-1 whitespace-nowrap text-sm font-semibold md:whitespace-normal">
-              {tab.title}
+              {t(`home.connected.tabs.${tab.key}.title`)}
             </div>
             <p
               className={`m-0 text-sm leading-relaxed text-[var(--fg-secondary)] ${
                 i === activeTab ? "hidden md:block" : "hidden"
               }`}
             >
-              {tab.description}
+              {t(`home.connected.tabs.${tab.key}.description`)}
             </p>
           </button>
         ))}
       </div>
       <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl border border-[var(--docs-border)] bg-black md:w-3/4">
-        {bidirectionalTabs.map((tab, i) => (
+        {BIDIRECTIONAL_TABS.map((tab, i) => (
           <video
             key={i}
             ref={(el) => {
@@ -283,6 +567,29 @@ function BidirectionalTabs() {
 }
 
 export default function Home() {
+  const t = useT();
+  const { locale } = useLocale();
+  const localizedPath = (path: string) => sitePathForLocale(path, locale);
+  const chatCommand = "npx @agent-native/core@latest create my-app";
+  const quickStartCode = `# ${t("home.code.quickStartComment")}
+${chatCommand}
+cd my-app
+pnpm install
+pnpm action hello --name Builder
+pnpm agent "Call hello for Builder"`;
+  const skillInstallCode = `# ${t("home.code.skillInstallComment")}
+npx @agent-native/core@latest skills add visual-plan`;
+  const frameworkCode = `// ${t("home.code.frameworkComment")}
+export default defineAction({
+  description: "${t("home.code.frameworkDescription")}",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => ({ message: \`Hello, \${name}!\` }),
+});`;
+
   return (
     <>
       <main className="docs-home-page">
@@ -313,32 +620,33 @@ export default function Home() {
           <div className="relative z-10 hero-content">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-4 py-1.5 text-sm text-[var(--fg-secondary)]">
               <span className="inline-block h-2 w-2 rounded-full bg-[var(--docs-accent)]" />
-              Open source framework
+              {t("home.hero.badge")}
             </div>
 
             <h1 className="mx-auto max-w-3xl">
-              Agentic Applications <br className="hidden md:inline" />
-              <span className="hero-gradient-text">You Own</span>
+              {t("home.hero.titleLine1")} <br className="hidden md:inline" />
+              <span className="hero-gradient-text">
+                {t("home.hero.titleAccent")}
+              </span>
             </h1>
 
             <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
-              Start with a chat-first app and the app-agent loop. Add actions,
-              screens, jobs, and workflows as your agent grows.
+              {t("home.hero.body")}
             </p>
 
             <div className="flex flex-wrap items-center justify-center gap-4">
               <Link
                 data-an-prefetch="render"
-                to="/docs/getting-started"
+                to={localizedPath("/templates")}
                 className="primary-button"
                 onClick={() =>
                   trackEvent("click cta", {
-                    label: "start_chat_app",
+                    label: "start_with_template",
                     location: "hero",
                   })
                 }
               >
-                Start with Chat
+                {t("home.hero.primaryCta")}
                 <svg
                   width="16"
                   height="16"
@@ -355,7 +663,7 @@ export default function Home() {
               </Link>
               <Link
                 data-an-prefetch="render"
-                to="/docs"
+                to={localizedPath("/docs")}
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
                   trackEvent("click cta", {
@@ -364,39 +672,31 @@ export default function Home() {
                   })
                 }
               >
-                View the Docs
+                {t("home.hero.secondaryCta")}
               </Link>
             </div>
 
-            <TerminalCommand />
+            <TerminalCommand command={chatCommand} />
           </div>
         </section>
 
         {/* Framework */}
-        <section className="border-t border-[var(--docs-border)] px-6 py-20">
+        <section className="border-t border-[var(--docs-border)] px-6 py-28 lg:py-36">
           <div className="mx-auto max-w-[1200px]">
             <div className="grid gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-center">
               <div>
                 <h2 className="mb-4 max-w-[370px] text-3xl font-bold tracking-tight md:text-4xl">
-                  The framework for agent-native apps
+                  {t("home.framework.title")}
                 </h2>
                 <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                  Agent-Native is an open-source framework for building agents
-                  as real software: start with chat or headless agents, then add
-                  UI, jobs, and collaboration around the same actions.
-                </p>
-                <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                  It gives you primitives for product-grade agentic software:
-                  shared actions, SQL-backed state, identity, tools, skills,
-                  jobs, observability, and UI surfaces that all work together.
+                  {t("home.framework.body1")}
                 </p>
                 <p className="mb-6 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                  Bring your own database, hosting provider, model stack, and
-                  app code.
+                  {t("home.framework.body2")}
                 </p>
                 <Link
                   data-an-prefetch="render"
-                  to="/docs/what-is-agent-native"
+                  to={localizedPath("/docs/what-is-agent-native")}
                   className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-5 py-2.5 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                   onClick={() =>
                     trackEvent("click cta", {
@@ -405,7 +705,7 @@ export default function Home() {
                     })
                   }
                 >
-                  Read the framework guide
+                  {t("home.framework.cta")}
                   <svg
                     width="16"
                     height="16"
@@ -426,32 +726,6 @@ export default function Home() {
                 <CodeBlock code={frameworkCode} lang="typescript" />
               </div>
             </div>
-
-            <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {frameworkPrimitives.map((primitive) => {
-                const PrimitiveIcon = primitive.icon;
-                return (
-                  <div
-                    key={primitive.title}
-                    className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5"
-                  >
-                    <div className="mb-2 flex items-center gap-3">
-                      <PrimitiveIcon
-                        className="size-4 shrink-0 text-[var(--docs-accent)]"
-                        stroke={1.8}
-                        aria-hidden="true"
-                      />
-                      <h3 className="m-0 text-base font-semibold">
-                        {primitive.title}
-                      </h3>
-                    </div>
-                    <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                      {primitive.description}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
           </div>
         </section>
 
@@ -462,64 +736,99 @@ export default function Home() {
         >
           <div className="mb-12 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Fork and customize a fully-featured app
+              {t("home.templates.title")}
             </h2>
             <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-              100% free and open source
+              {t("home.templates.eyebrow")}
             </p>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              When an action needs screens, start from a vetted app you can
-              customize. Chat is the minimal app scaffold; domain templates add
-              product workflows, example data, and agent-ready actions.
-            </p>
-          </div>
-
-          <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {homepageTemplates.map((t) => (
-              <TemplateCard key={t.name} template={t} />
-            ))}
-          </div>
-
-          <div className="mt-8 text-center">
-            <Link
-              data-an-prefetch="render"
-              to="/templates"
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-              onClick={() =>
-                trackEvent("click cta", {
-                  label: "view_all_templates",
-                  location: "templates_section",
-                })
-              }
-            >
-              View all templates
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            <div className="mt-8">
+              <Link
+                data-an-prefetch="render"
+                to={localizedPath("/templates")}
+                className="primary-button"
+                onClick={() =>
+                  trackEvent("click cta", {
+                    label: "view_all_templates",
+                    location: "templates_section_header",
+                  })
+                }
               >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </Link>
+                {t("home.templates.cta")}
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <polyline points="12 5 19 12 12 19" />
+                </svg>
+              </Link>
+            </div>
+          </div>
+
+          <div className="templates-side-scroll -mx-6 flex snap-x gap-5 overflow-x-auto overflow-y-hidden px-8 pb-3 pl-10 [scroll-padding-left:2.5rem]">
+            {homepageTemplates.map((template) => (
+              <div
+                key={template.name}
+                className="template-rail-card w-[320px] shrink-0 snap-start scroll-ml-10 sm:w-[360px]"
+              >
+                <TemplateCard template={template} />
+              </div>
+            ))}
+            <div className="template-rail-card template-rail-cta w-[320px] shrink-0 snap-start scroll-ml-10 sm:w-[360px]">
+              <Link
+                data-an-prefetch="render"
+                to={localizedPath("/templates")}
+                className="flex min-h-full w-full flex-col items-center justify-center gap-5 px-6 py-8 text-center no-underline hover:no-underline"
+                onClick={() =>
+                  trackEvent("click cta", {
+                    label: "view_all_templates",
+                    location: "templates_scroll_end",
+                  })
+                }
+              >
+                <div>
+                  <h3 className="mb-3 text-2xl font-semibold tracking-tight text-[var(--fg)]">
+                    {t("home.templates.cta")}
+                  </h3>
+                </div>
+                <span className="primary-button">
+                  {t("home.templates.cta")}
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </span>
+              </Link>
+            </div>
           </div>
         </section>
+
+        <BatteriesIncludedCloud />
 
         {/* Try it with a skill */}
         <section className="border-t border-[var(--docs-border)] px-6 py-16">
           <div className="mx-auto grid min-w-0 max-w-[1200px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
             <div className="min-w-0">
               <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                Try it with a skill
+                {t("home.skills.title")}
               </h2>
               <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                Add visual planning and PR recaps to Claude Code, Codex, Cursor,
-                Pi, OpenCode, or VS Code with one command.
+                {t("home.skills.body")}
               </p>
 
               <CodeBlock code={skillInstallCode} lang="bash" />
@@ -530,8 +839,7 @@ export default function Home() {
                     /visual-plan
                   </h3>
                   <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                    Reviewable plans with diagrams, wireframes, file maps, and
-                    comments before code changes.
+                    {t("home.skills.planBody")}
                   </p>
                 </div>
                 <div className="rounded-xl border border-[var(--docs-border)] p-5">
@@ -539,8 +847,7 @@ export default function Home() {
                     /visual-recap
                   </h3>
                   <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                    A visual summary of a PR or diff so reviewers see the shape
-                    before the raw lines.
+                    {t("home.skills.recapBody")}
                   </p>
                 </div>
               </div>
@@ -548,7 +855,7 @@ export default function Home() {
               <div className="mt-6">
                 <Link
                   data-an-prefetch="render"
-                  to="/docs/skills-guide"
+                  to={localizedPath("/docs/skills-guide")}
                   className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-5 py-2.5 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                   onClick={() =>
                     trackEvent("click cta", {
@@ -557,7 +864,7 @@ export default function Home() {
                     })
                   }
                 >
-                  Browse the Skills Guide
+                  {t("home.skills.cta")}
                   <svg
                     width="16"
                     height="16"
@@ -583,11 +890,10 @@ export default function Home() {
         <section className="border-t border-[var(--docs-border)] px-6 py-20">
           <div className="mb-12 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Agents and UIs — fully connected
+              {t("home.connected.title")}
             </h2>
             <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              The agent and the UI are equal citizens of the same system. Every
-              action works both ways — click it or ask for it.
+              {t("home.connected.body")}
             </p>
           </div>
 
@@ -601,12 +907,10 @@ export default function Home() {
           <section className="border-t border-[var(--docs-border)] py-20">
             <div className="mb-12 text-center">
               <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                The best of both worlds
+                {t("home.comparison.title")}
               </h2>
               <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                SaaS tools are rigid and bolting AI on as an afterthought. Raw
-                AI agents are powerful but have no UI. Agent-native apps combine
-                both.
+                {t("home.comparison.body")}
               </p>
             </div>
 
@@ -618,80 +922,86 @@ export default function Home() {
                       <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                         <th className="approaches-th approaches-col-dim"></th>
                         <th className="approaches-th approaches-col-muted">
-                          SaaS Tools
+                          {t("home.comparison.columns.saas")}
                         </th>
                         <th className="approaches-th approaches-col-muted">
-                          Raw AI Agents
+                          {t("home.comparison.columns.agents")}
                         </th>
                         <th className="approaches-th approaches-col-muted">
-                          Internal Tools
+                          {t("home.comparison.columns.internal")}
                         </th>
-                        <th className="approaches-th">Agent-Native</th>
+                        <th className="approaches-th">
+                          {t("home.comparison.columns.native")}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       <tr className="border-b border-[var(--docs-border)]">
-                        <td className="approaches-td approaches-td--dim">UI</td>
+                        <td className="approaches-td approaches-td--dim">
+                          {t("home.comparison.rows.ui")}
+                        </td>
                         <td className="approaches-td approaches-td--good">
-                          Polished but rigid
+                          {t("home.comparison.cells.polishedButRigid")}
                         </td>
                         <td className="approaches-td approaches-td--bad">
-                          None
+                          {t("home.comparison.cells.none")}
                         </td>
                         <td className="approaches-td approaches-td--warn">
-                          Mixed quality
+                          {t("home.comparison.cells.mixedQuality")}
                         </td>
                         <td className="approaches-td approaches-td--good">
-                          Full UI, fork &amp; go
-                        </td>
-                      </tr>
-                      <tr className="border-b border-[var(--docs-border)]">
-                        <td className="approaches-td approaches-td--dim">AI</td>
-                        <td className="approaches-td approaches-td--bad">
-                          Bolted on
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          Powerful
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          Shallowly connected
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          Agent-first, integrated
+                          {t("home.comparison.cells.fullUi")}
                         </td>
                       </tr>
                       <tr className="border-b border-[var(--docs-border)]">
                         <td className="approaches-td approaches-td--dim">
-                          Customization
+                          {t("home.comparison.rows.ai")}
                         </td>
                         <td className="approaches-td approaches-td--bad">
-                          Can't
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          Instructions and skills
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          Full, but high maintenance
+                          {t("home.comparison.cells.boltedOn")}
                         </td>
                         <td className="approaches-td approaches-td--good">
-                          Agent modifies the app
+                          {t("home.comparison.cells.powerful")}
+                        </td>
+                        <td className="approaches-td approaches-td--warn">
+                          {t("home.comparison.cells.shallowlyConnected")}
+                        </td>
+                        <td className="approaches-td approaches-td--good">
+                          {t("home.comparison.cells.agentFirst")}
+                        </td>
+                      </tr>
+                      <tr className="border-b border-[var(--docs-border)]">
+                        <td className="approaches-td approaches-td--dim">
+                          {t("home.comparison.rows.customization")}
+                        </td>
+                        <td className="approaches-td approaches-td--bad">
+                          {t("home.comparison.cells.cant")}
+                        </td>
+                        <td className="approaches-td approaches-td--warn">
+                          {t("home.comparison.cells.instructionsAndSkills")}
+                        </td>
+                        <td className="approaches-td approaches-td--warn">
+                          {t("home.comparison.cells.fullHighMaintenance")}
+                        </td>
+                        <td className="approaches-td approaches-td--good">
+                          {t("home.comparison.cells.agentModifies")}
                         </td>
                       </tr>
                       <tr>
                         <td className="approaches-td approaches-td--dim">
-                          Ownership
+                          {t("home.comparison.rows.ownership")}
                         </td>
                         <td className="approaches-td approaches-td--bad">
-                          Rented
+                          {t("home.comparison.cells.rented")}
                         </td>
                         <td className="approaches-td approaches-td--warn">
-                          Somewhat yours
+                          {t("home.comparison.cells.somewhatYours")}
                         </td>
                         <td className="approaches-td approaches-td--good">
-                          You own the code
+                          {t("home.comparison.cells.youOwnCode")}
                         </td>
                         <td className="approaches-td approaches-td--good">
-                          You own the code
+                          {t("home.comparison.cells.youOwnCode")}
                         </td>
                       </tr>
                     </tbody>
@@ -705,12 +1015,10 @@ export default function Home() {
           <section className="border-t border-[var(--docs-border)] py-20">
             <div className="mb-12 text-center">
               <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                Start with Chat
+                {t("home.quickStart.title")}
               </h2>
               <p className="mx-auto max-w-xl text-base text-[var(--fg-secondary)]">
-                One command creates a local chat app backed by actions, durable
-                threads, and SQLite. Use `--headless` instead when you want no
-                browser UI yet.
+                {t("home.quickStart.body")}
               </p>
             </div>
 
@@ -722,17 +1030,15 @@ export default function Home() {
           {/* Bottom CTA */}
           <section className="border-t border-[var(--docs-border)] py-20 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Software you own, built for the agentic era
+              {t("home.finalCta.title")}
             </h2>
             <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-              Start with chat or a durable action, run it through the app-agent
-              loop, then grow it into UI, jobs, and collaboration without
-              rewriting the operation. Open source. Forkable. Yours.
+              {t("home.finalCta.body")}
             </p>
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link
                 data-an-prefetch="render"
-                to="/docs/getting-started"
+                to={localizedPath("/docs/getting-started")}
                 className="primary-button"
                 onClick={() =>
                   trackEvent("click cta", {
@@ -741,7 +1047,7 @@ export default function Home() {
                   })
                 }
               >
-                Start with an Action
+                {t("home.finalCta.primaryCta")}
                 <svg
                   width="16"
                   height="16"
@@ -758,7 +1064,7 @@ export default function Home() {
               </Link>
               <Link
                 data-an-prefetch="render"
-                to="/docs"
+                to={localizedPath("/docs")}
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
                   trackEvent("click cta", {
@@ -767,7 +1073,7 @@ export default function Home() {
                   })
                 }
               >
-                Read the Docs
+                {t("home.finalCta.secondaryCta")}
               </Link>
               <a
                 href="https://github.com/BuilderIO/agent-native"
@@ -781,7 +1087,7 @@ export default function Home() {
                   })
                 }
               >
-                View on GitHub
+                {t("home.finalCta.githubCta")}
               </a>
             </div>
           </section>

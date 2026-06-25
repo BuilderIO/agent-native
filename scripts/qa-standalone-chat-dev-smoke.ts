@@ -27,12 +27,13 @@ import {
   type ChildProcessWithoutNullStreams,
   type ExecFileSyncOptions,
 } from "node:child_process";
-import { setTimeout as sleep } from "node:timers/promises";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+
 import type { APIResponse, Browser, Page } from "playwright";
 
 const repoRoot = path.resolve(

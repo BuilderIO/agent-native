@@ -1,6 +1,11 @@
-// Shared UI primitives used by multiple database view modules.
-import type { ReactNode } from "react";
-import { useState } from "react";
+import type {
+  ContentDatabaseItem,
+  ContentDatabaseViewType,
+  Document,
+  DocumentProperty,
+  DocumentPropertyOption,
+  DocumentPropertyType,
+} from "@shared/api";
 import {
   IconCalendar,
   IconCheck,
@@ -20,6 +25,13 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+// i18n-raw-literal-disable-file -- unused shared helper copy; live database editor owns localized UI.
+// Shared UI primitives used by multiple database view modules.
+import type { ReactNode } from "react";
+import { useState } from "react";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,22 +51,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
-import type {
-  ContentDatabaseItem,
-  ContentDatabaseViewType,
-  Document,
-  DocumentProperty,
-  DocumentPropertyOption,
-  DocumentPropertyType,
-} from "@shared/api";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { OPTION_COLOR_CLASSES, TYPE_ICONS } from "../DocumentProperties";
 import { useDuplicateDatabaseItem } from "@/hooks/use-content-database";
 import { useDeleteDocument } from "@/hooks/use-documents";
-import type { DatabaseBoardGroup, DatabaseDropSide } from "./types";
+import { cn } from "@/lib/utils";
+
+import { OPTION_COLOR_CLASSES, TYPE_ICONS } from "../DocumentProperties";
 import { databaseDuplicatedItemFromResponse } from "./navigation-state";
+import type { DatabaseBoardGroup, DatabaseDropSide } from "./types";
 
 // ---------------------------------------------------------------------------
 // View icon (returns the React component constructor for a view type)

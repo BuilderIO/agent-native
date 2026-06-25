@@ -1,5 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from "react";
-import { createPortal } from "react-dom";
+import { useT } from "@agent-native/core/client";
 import {
   IconCamera,
   IconArrowsMove,
@@ -7,14 +6,17 @@ import {
   IconRotateClockwise2,
   IconPlus,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import type { AnimationTrack } from "@/types";
-import { getPropValueKeyframed } from "@/remotion/trackAnimation";
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { getPropValueKeyframed } from "@/remotion/trackAnimation";
+import type { AnimationTrack } from "@/types";
 
 interface CameraToolbarProps {
   currentFrame: number;
@@ -62,6 +64,7 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
   durationInFrames = 240,
   videoContainerRef,
 }) => {
+  const t = useT();
   // Allow unlimited zoom - high max for flexibility
   const maxZoom = 10;
   const [activeTool, setActiveTool] = useState<CameraTool>("none");
@@ -323,20 +326,20 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
     {
       id: "pan" as const,
       icon: IconArrowsMove,
-      label: "Pan",
-      hint: "Click and drag to move camera",
+      label: t("raw.camera.pan"),
+      hint: t("raw.camera.panHint"),
     },
     {
       id: "zoom" as const,
       icon: IconZoomIn,
-      label: "Zoom",
-      hint: "Drag up/down to zoom",
+      label: t("raw.camera.zoom"),
+      hint: t("raw.camera.zoomHint"),
     },
     {
       id: "tilt" as const,
       icon: IconRotateClockwise2,
-      label: "Tilt",
-      hint: "Drag to rotate 3D",
+      label: t("raw.camera.tilt"),
+      hint: t("raw.camera.tiltHint"),
     },
   ];
 
@@ -378,17 +381,17 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
               className="flex items-center gap-1 px-2 py-1.5 sm:py-1 rounded text-[11px] font-medium bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 flex-shrink-0"
             >
               <IconPlus className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
-              <span className="hidden sm:inline">Add Keyframe</span>
+              <span className="hidden sm:inline">
+                {t("raw.camera.addKeyframe")}
+              </span>
             </button>
           </TooltipTrigger>
-          <TooltipContent>
-            Create camera keyframe at current frame
-          </TooltipContent>
+          <TooltipContent>{t("raw.camera.createKeyframe")}</TooltipContent>
         </Tooltip>
 
         {isDragging && (
           <div className="ml-2 text-[11px] text-blue-400 font-mono animate-pulse flex-shrink-0">
-            Adjusting...
+            {t("raw.camera.adjusting")}
           </div>
         )}
       </div>

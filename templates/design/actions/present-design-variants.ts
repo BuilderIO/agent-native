@@ -1,8 +1,9 @@
 import { defineAction, embedApp } from "@agent-native/core";
-import { buildDeepLink } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
+import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 function designDeepLink(designId: string): string {

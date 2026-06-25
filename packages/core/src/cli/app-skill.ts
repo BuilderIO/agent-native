@@ -7,22 +7,22 @@
  * the host. Local installs point at a developer-owned app process.
  */
 
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 
-import {
-  type ClientId,
-  buildHttpMcpEntry,
-  removeSameUrlDuplicatesForClient,
-} from "./mcp-config-writers.js";
 import {
   resolveClients,
   supportsRemoteMcpOAuth,
   writeConfigs,
 } from "./connect.js";
+import {
+  type ClientId,
+  buildHttpMcpEntry,
+  removeSameUrlDuplicatesForClient,
+} from "./mcp-config-writers.js";
 
 export type SkillVisibility = "internal" | "exported" | "both";
 export type AppSkillHostAdapter =

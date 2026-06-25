@@ -1,0 +1,293 @@
+---
+title: "Diapositives"
+description: "Générez des présentations à partir d'une invite, modifiez-les visuellement et présentez-les en plein écran. Un remplacement open source de Google Slides, Pitch et PowerPoint."
+---
+
+# Diapositives
+
+Générez des présentations complètes à partir d'une invite, modifiez visuellement les diapositives et présentez-les en plein écran. Demandez à l'agent « un pitch deck de 10 diapositives pour un service d'abonnement au café » et regardez-le diffuser diapositive par diapositive dans l'éditeur en quelques secondes. Un remplacement open source pour Google Slides, Pitch et PowerPoint.
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Point au conseil T3</h1><span class='wf-pill accent'>Diapositive de titre</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>Partager</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>Point au conseil T3</strong><br/><small>Maya Chen · PDG</small><div style='height:46px'></div><span class='wf-pill'>Dynamique produit</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>Plan de la diapositive</strong><div class='wf-box'>1 Titre</div><div class='wf-box'>2 Ordre du jour</div><div class='wf-box'>3 Métriques</div><div class='wf-box'>4 Livré</div></div><div class='wf-card' style='flex:1'><strong>Notes du présentateur</strong><p class='wf-muted' style='margin:8px 0 0'>Ouvrir avec l’avancement du lancement et l’histoire de rétention.</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 Titre</div><div class='wf-box'>2 Ordre du jour</div><div class='wf-box'>3 Métriques</div><div class='wf-box'>4 Livré</div><div class='wf-box'>5 Risques</div></div></div>"
+}
+```
+
+Lorsque vous ouvrez une présentation, le canevas de la diapositive, le plan, les notes et la pellicule restent dans une seule surface d'édition tandis que l'agent peut toujours créer, réviser et parcourir les diapositives via actions.
+
+```an-diagram title="Invite à ponter" summary="Demandez un deck et l'agent diffuse les diapositives une par une via les mêmes actions que vous pourriez appeler depuis le CLI."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">Invite<br><small class=\"diagram-muted\">\"10-slide pitch deck\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">choisit les mises en page</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">create-deck</div><div class=\"diagram-pill\">add-slide &#215; n</div><small class=\"diagram-muted\">parallèle, en streaming</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>decks (SQL)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">L’éditeur affiche en direct</div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## Ce que vous pouvez en faire
+
+- **Générez des présentations à partir d'une invite.** "Générez une présentation de 10 diapositives pour un service d'abonnement au café, le public est constitué d'investisseurs."
+- **Modifiez visuellement les diapositives** : double-cliquez sur le texte à modifier, cliquez sur un bloc pour le menu à bulles, utilisez `/` pour le menu barre oblique pour insérer des blocs.
+- **Générez des images avec l'IA.** Images de héros, maquettes de produits, illustrations — de préférence déléguées aux actifs, avec une génération d'images gérée par Builder prête à être activée une fois déployée et des clés de fournisseur directes comme solution de secours actuelle.
+- **Recherchez des photos et des logos d'entreprise.** "Recherchez le logo de stripe.com et ajoutez-le à la diapositive 2."
+- **Présentez en plein écran** avec navigation au clavier, commandes de masquage automatique et notes du présentateur.
+- **Commentez, collaborez et partagez.** Plusieurs personnes peuvent modifier le même deck en temps réel. Générez un URL public en lecture seule ou partagez-le avec des coéquipiers spécifiques.
+- **Importer depuis PDF.** Transformez un PDF en un deck de démarrage : l'agent l'analyse et présente le contenu.
+- **Importez à partir d'autres formats.** Importez des dépôts PPTX, DOCX, Google Docs, GitHub ou n'importe quel URL comme point de départ. Exportez vers PPTX, Google Slides ou HTML.
+- **Appliquer les systèmes de conception.** Les jetons de marque, les instructions personnalisées et les palettes par défaut sont enregistrés en tant que systèmes de conception et appliqués aux nouveaux decks.
+- **Restaurez les versions antérieures.** Chaque changement de deck est instantané ; répertorier ou restaurer toute version antérieure.
+
+## Démarrer
+
+Démo en direct : [slides.agent-native.com](https://slides.agent-native.com).
+
+Lorsque vous ouvrez l'application :
+
+1. Cliquez sur **Nouveau deck**.
+2. Demandez à l'agent : "Générez un pitch deck de 10 diapositives pour un service d'abonnement au café, le public est constitué d'investisseurs."
+3. Regardez les diapositives diffusées. Cliquez sur n'importe quelle diapositive à modifier ou continuez à demander à l'agent de l'affiner.
+
+### Invites utiles
+
+- "Générez un pitch deck de 10 diapositives pour un service d'abonnement au café, le public est constitué d'investisseurs."
+- "Ajouter une diapositive de tarification après la diapositive 3."
+- "Agrandissez le titre de cette diapositive et changez la couleur d'accentuation en vert."
+- "Générer une image de héros pour la diapositive actuelle : sombre, minimale, cinématographique."
+- "Recherchez le logo de stripe.com et ajoutez-le à la diapositive 2."
+- "Remplacez le mot "clients" par "membres" partout dans ce deck."
+- "Résumez ce PDF sous la forme d'un jeu de 6 diapositives." (joignez le PDF)
+
+Sélectionnez du texte sur une diapositive et appuyez sur Cmd+I pour concentrer l'agent sur cette sélection. Il n'agira que sur ce que vous avez sélectionné.
+
+## Pour les développeurs
+
+Le reste de ce document s'adresse à toute personne qui crée ou étend le modèle Slides.
+
+### Démarrage rapide
+
+Créez une nouvelle application Slides à partir du CLI :
+
+```bash
+npx @agent-native/core@latest create my-slides --standalone --template slides
+cd my-slides
+pnpm install
+pnpm dev
+```
+
+### Fonctionnalités clés {#key-features}
+
+**Génération d'invite vers le deck.** Demandez un deck et l'agent diffuse les diapositives dans l'éditeur en utilisant le même actions de création et de modification que vous pouvez exécuter vous-même.
+
+**Canevas de diapositive modifiable.** L'édition de texte en ligne, les insertions de barres obliques, l'édition de code, l'ordre par glisser-déposer, l'annulation/la restauration, les commentaires et le mode présentation sont tous présents dans la surface du deck.
+
+**Importer et exporter.** Intégrez les dépôts PPTX, DOCX, Google Docs, PDF, URL et GitHub ; exporter vers PPTX, Google Slides, HTML ou un lien de partage.
+
+**Systèmes de conception et médias.** Les systèmes de marque enregistrés, la génération d'images, la recherche de stock et la recherche de logo maintiennent les présentations plus proches de la direction visuelle prévue.
+
+**Collaboration et historique.** L'édition Yjs en temps réel, les commentaires en fil de discussion, les rôles de partage et les instantanés de la version du deck sont intégrés.
+
+### Travailler avec l'agent
+
+Le chat de l'agent se trouve dans la barre latérale. Il peut créer des présentations, éditer des diapositives individuelles, générer des images, rechercher des logos et naviguer dans le UI, le tout en utilisant le même actions que vous exécuteriez à partir du CLI.
+
+#### Ce que voit l'agent
+
+Lorsqu'un deck est ouvert, l'agent voit automatiquement :
+
+- Les `deckId` et `slideIndex` actuels.
+- La liste complète des diapositives dans la présentation ouverte.
+- Le contenu HTML de la diapositive actuellement sélectionnée.
+
+Ceci est injecté dans chaque message sous la forme d'un bloc `current-screen`, de sorte que l'agent n'a jamais à deviner ce que signifie « cette diapositive ». Les données proviennent de la clé d'état de l'application `navigation`, que le UI écrit à chaque navigation. Voir `templates/slides/actions/view-screen.ts`.
+
+#### Sélection de texte pour les modifications ciblées
+
+Sélectionnez du texte sur une diapositive et appuyez sur Cmd+I pour concentrer l'agent avec cette sélection préchargée. L'agent agira uniquement sur ce que vous avez sélectionné.
+
+#### Aperçus des diapositives en ligne dans le chat
+
+L'agent peut intégrer un aperçu de diapositive en direct directement dans une réponse de chat à l'aide de la clôture d'intégration du framework. Il restitue une iframe sans chrome via `app/routes/slide.tsx` afin que vous puissiez voir le résultat sans quitter la conversation.
+
+### Modèle de données
+
+Toutes les données du deck se trouvent dans SQL avec Drizzle ORM. Schéma : `templates/slides/server/db/schema.ts`.
+
+```an-schema title="Modèle de données Slides" summary="Un deck possède ses diapositives sous forme de JSON dans decks.data ; commentaires, versions, partages et systèmes de design s’y rattachent."
+{
+  "entities": [
+    {
+      "id": "decks",
+      "name": "decks",
+      "note": "Slides live as JSON in data; carries ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true, "note": "e.g. deck-1712345-abc" },
+        { "name": "title", "type": "text" },
+        { "name": "data", "type": "text", "note": "JSON: { title, slides: [{ id, content, layout }] }" },
+        { "name": "created_at", "type": "text" },
+        { "name": "updated_at", "type": "text" }
+      ]
+    },
+    {
+      "id": "slide_comments",
+      "name": "slide_comments",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "deck_id", "type": "text", "fk": "decks.id" },
+        { "name": "slide_id", "type": "text", "note": "Faites glisser le commentaire en direct" },
+        { "name": "thread_id", "type": "text", "note": "Enfilage" },
+        { "name": "parent_id", "type": "text", "nullable": true },
+        { "name": "content", "type": "text" },
+        { "name": "quoted_text", "type": "text", "nullable": true },
+        { "name": "author_email", "type": "text" },
+        { "name": "author_name", "type": "text" },
+        { "name": "resolved", "type": "boolean" }
+      ]
+    },
+    {
+      "id": "deck_versions",
+      "name": "deck_versions",
+      "note": "Instantanés ponctuels pour la restauration",
+      "fields": [
+        { "name": "deck_id", "type": "text", "fk": "decks.id" },
+        { "name": "title", "type": "text" },
+        { "name": "data", "type": "text", "note": "Pont complet JSON" },
+        { "name": "change_label", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "id": "design_systems",
+      "name": "design_systems",
+      "note": "Reusable brand tokens; ownableColumns",
+      "fields": [
+        { "name": "data", "type": "text", "note": "colors / typography / spacing" },
+        { "name": "assets", "type": "text", "nullable": true },
+        { "name": "custom_instructions", "type": "text", "nullable": true },
+        { "name": "is_default", "type": "boolean" }
+      ]
+    },
+    {
+      "id": "deck_share_links",
+      "name": "deck_share_links",
+      "note": "Instantanés de liens de partage publics persistants",
+      "fields": [
+        { "name": "token", "type": "text", "pk": true },
+        { "name": "title", "type": "text" },
+        { "name": "slides", "type": "text", "note": "Instantané JSON des diapositives" },
+        { "name": "aspect_ratio", "type": "text", "nullable": true },
+        { "name": "created_at", "type": "text" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "decks", "to": "slide_comments", "kind": "1-n", "label": "comments" },
+    { "from": "decks", "to": "deck_versions", "kind": "1-n", "label": "snapshots" }
+  ]
+}
+```
+
+Les tables de partages du framework (`deck_shares`, `design_system_shares`) mappent les principaux aux rôles de spectateur/éditeur/administrateur par ressource.
+
+#### ponts
+
+| Colonne      | Tapez | Remarques                                                   |
+| ------------ | ----- | ----------------------------------------------------------- |
+| `id`         | texte | Clé primaire, par ex. `deck-1712345-abc`                    |
+| `title`      | texte | Titre du deck                                               |
+| `data`       | texte | Objet JSON : `{ title, slides: [{ id, content, layout }] }` |
+| `created_at` | texte | Horodatage                                                  |
+| `updated_at` | texte | Horodatage                                                  |
+
+Chaque deck porte également le standard `ownableColumns` (propriétaire, visibilité, jeton de partage) afin qu'il s'intègre dans le modèle de partage du framework.
+
+#### slide_comments
+
+| Colonne                       | Remarques                                           |
+| ----------------------------- | --------------------------------------------------- |
+| `id`                          | Clé primaire                                        |
+| `deck_id`                     | Deck parent                                         |
+| `slide_id`                    | Faites glisser le commentaire en direct             |
+| `thread_id`, `parent_id`      | Enfilage                                            |
+| `content`, `quoted_text`      | Corps du commentaire et extrait de texte facultatif |
+| `author_email`, `author_name` | Auteur                                              |
+| `resolved`                    | Drapeau booléen                                     |
+
+#### deck_shares
+
+Tableau de partages fourni par le framework (créé via `createSharesTable`) qui mappe les principaux (utilisateurs ou organisations) aux rôles (spectateur, éditeur, administrateur) par deck.
+
+#### versions_deck
+
+Instantanés ponctuels d'un deck : `deck_id`, `title`, `data` (plateau complet JSON) et un `change_label` en option. Utilisé par `list-deck-versions` / `restore-deck-version`.
+
+#### systèmes_de conception
+
+Jetons de marque réutilisables : `data` (couleurs/typographie/espacement), `assets`, `custom_instructions` et un drapeau `is_default`. Utilise `ownableColumns` pour que les systèmes de conception puissent être partagés par utilisateur ou par organisation.
+
+#### design_system_shares
+
+Tableau de partages de framework pour les systèmes de conception, mappant les principaux aux rôles (spectateur, éditeur, administrateur).
+
+#### deck_share_links
+
+Instantanés de liens de partage publics persistants saisis par `token`. Chaque ligne stocke un `title`, un instantané de baie JSON `slides`, un `aspect_ratio` en option et un `created_at`. Les liens de partage persistants signifient qu'ils survivent aux redémarrages du serveur et fonctionnent sur des instances sans serveur.
+
+#### Structure des diapositives
+
+Chaque diapositive à l'intérieur de `decks.data` est :
+
+```json
+{
+  "id": "slide-1",
+  "layout": "title",
+  "content": "<div class=\"fmd-slide\" style=\"...\">...</div>"
+}
+```
+
+`content` est un HTML brut : le moteur de rendu (`app/components/deck/SlideRenderer.tsx`) fournit l'arrière-plan noir et le rapport hauteur/largeur fixe, et le HTML fournit tout ce qu'il contient. L'intégration riche est également prise en charge : diagrammes Excalidraw via `ExcalidrawSlide.tsx` et graphiques Mermaid via `MermaidRenderer.tsx`.
+
+### Le personnaliser {#customizing}
+
+Le modèle Slides est entièrement exécutable. Points clés à surveiller lors de son extension :
+
+#### Actions — `templates/slides/actions/`
+
+Chaque opération appelable par un agent réside ici sous la forme d'un fichier TypeScript. Quelques-uns que vous toucherez souvent :
+
+- `create-deck.ts` – nouveau deck à partir de zéro ou remplacement groupé.
+- `add-slide.ts` : ajouter une diapositive ; préférez cela pour la génération de streaming.
+- `update-slide.ts` — recherche/remplacement chirurgical ou échange de contenu complet.
+- `view-screen.ts` : instantané de ce que l'utilisateur voit.
+- `generate-image.ts`, `edit-image.ts`, `image-search.ts`, `logo-lookup.ts` — outils d'image.
+- `extract-pdf.ts` — Ingestion de PDF.
+
+Chaque action est montée automatiquement sur `POST /_agent-native/actions/:name` et peut être appelée depuis le CLI en tant que `pnpm action <name>`. Ajoutez un nouveau fichier ici pour donner à l'agent une nouvelle fonctionnalité.
+
+#### Itinéraires — `templates/slides/app/routes/`
+
+- `_index.tsx` — liste des decks.
+- `deck.$id.tsx` — l'éditeur.
+- `deck.$id_.present.tsx` — mode présentation.
+- `share.$token.tsx` : page de partage publique en lecture seule.
+- `slide.tsx` : intégration d'une seule diapositive utilisée dans les aperçus du chat.
+- `settings.tsx` — paramètres du modèle.
+- `team.tsx` — gestion de l'organisation et de l'équipe.
+
+#### Composants de l'éditeur – `templates/slides/app/components/editor/`
+
+La plupart des personnalisations du UI se produisent ici : `SlideEditor.tsx`, `EditorToolbar.tsx`, `EditorSidebar.tsx`, les menus à bulles, le menu barre oblique et les panneaux pour la génération d'images, la recherche et l'historique.
+
+#### Skills — `templates/slides/.agents/skills/`
+
+Agent skills qui explique les modèles lorsque l'agent doit modifier le code :
+
+- `create-deck/` – comment créer un nouveau deck avec des diapositives.
+- `slide-editing/` : comment modifier des diapositives individuelles.
+- `deck-management/` – comment les decks sont stockés et accessibles.
+- `slide-images/` – flux de travail de génération et de recherche d'images.
+
+#### AGENTS.md
+
+`templates/slides/AGENTS.md` est le routeur court que l'agent lit à chaque conversation. Il pointe vers le skills sous `.agents/skills/` et expose les règles de base, le contrat d'état d'application et l'indice de compétences. Les modèles de diapositives HTML exacts pour chaque mise en page sont disponibles dans `.agents/skills/create-deck/SKILL.md` : mettez à jour cette compétence chaque fois que vous ajoutez ou modifiez un modèle de mise en page de diapositive.
+
+#### Itinéraires API
+
+Dans les cas où actions ne convient pas (téléchargement de fichiers, streaming), le modèle expose un petit ensemble de points de terminaison REST : `GET/POST /api/decks`, `GET/PUT/DELETE /api/decks/:id`. Voir `templates/slides/server/routes/api/`.

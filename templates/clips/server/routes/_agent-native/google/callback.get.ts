@@ -1,10 +1,4 @@
 import {
-  defineEventHandler,
-  getQuery,
-  setResponseStatus,
-  type H3Event,
-} from "h3";
-import {
   createOAuthSession,
   decodeOAuthState,
   getAppUrl,
@@ -15,6 +9,13 @@ import {
   setDesktopExchange,
   type OAuthStatePayload,
 } from "@agent-native/core/server";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+
 import {
   GOOGLE_TOKEN_URL,
   GOOGLE_USERINFO_URL,

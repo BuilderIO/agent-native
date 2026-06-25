@@ -13,9 +13,10 @@
  */
 import type { EventHandler, H3Event } from "h3";
 import { setResponseHeader, setResponseStatus } from "h3";
+
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
-import { captureError } from "./capture-error.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { captureError } from "./capture-error.js";
 
 const BOOTSTRAPPED = new WeakSet<object>();
 const IN_BOOTSTRAP = new WeakSet<object>();

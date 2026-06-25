@@ -1,34 +1,35 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { useParams, useNavigate, useSearchParams } from "react-router";
-import { cn } from "@/lib/utils";
-import { EmailList, InboxZero } from "@/components/email/EmailList";
-import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
-import { EmailThread } from "@/components/email/EmailThread";
-import {
-  FOCUS_COMPOSE_DRAFT_EVENT,
-  useComposeState,
-} from "@/hooks/use-compose-state";
-import { useNavigationState } from "@/hooks/use-navigation-state";
-import { useEmails, useMarkRead, useSettings } from "@/hooks/use-emails";
-
-import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
-import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
-import { useAccountFilter } from "@/hooks/use-account-filter";
-import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import type { EmailMessage } from "@shared/types";
+import { useT } from "@agent-native/core/client";
 import {
   isInboxScopedAppLabel,
   mailLabelsInclude,
   mailLabelsIncludeAny,
 } from "@shared/gmail-labels";
+import type { EmailMessage } from "@shared/types";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { useParams, useNavigate, useSearchParams } from "react-router";
+
+import { EmailList, InboxZero } from "@/components/email/EmailList";
+import { EmailThread } from "@/components/email/EmailThread";
+import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
+import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
+import { useAccountFilter } from "@/hooks/use-account-filter";
+import {
+  FOCUS_COMPOSE_DRAFT_EVENT,
+  useComposeState,
+} from "@/hooks/use-compose-state";
+import { useEmails, useMarkRead, useSettings } from "@/hooks/use-emails";
+import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   resolvePinnedLabels,
   pinnedTriageLabels,
   augmentSelfSentLabels,
   filterInboxTabEmails,
 } from "@/lib/inbox-tabs";
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
+import { cn } from "@/lib/utils";
 
 function ContactPanel({
   emailId,
@@ -39,6 +40,7 @@ function ContactPanel({
   contactEmail?: string;
   emails: EmailMessage[];
 }) {
+  const t = useT();
   // Look up from already-cached list data instead of making a separate API call
   const email = useMemo(
     () =>
@@ -57,7 +59,9 @@ function ContactPanel({
   if (!displayEmail) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-xs text-muted-foreground/40">No contact selected</p>
+        <p className="text-xs text-muted-foreground/40">
+          {t("mail.contacts.noContactSelected")}
+        </p>
       </div>
     );
   }
@@ -125,7 +129,7 @@ function ThreadListSidebar({
   useKeyboardShortcuts([{ key: "a", meta: true, handler: selectAllThreads }]);
 
   return (
-    <div className="flex h-full w-[220px] min-w-0 shrink-0 flex-col overflow-hidden border-r border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
+    <div className="flex h-full w-[220px] min-w-0 shrink-0 flex-col overflow-hidden border-e border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
       <div className="flex-1 overflow-y-auto">
         {threads.map((thread) => {
           const email = thread.latestMessage;
@@ -151,7 +155,7 @@ function ThreadListSidebar({
                 navigate(`/${view}/${threadKey}${routeSearchSuffix}`);
               }}
               className={cn(
-                "w-full text-left px-3 h-[38px] flex items-center border-b border-border/10 transition-colors",
+                "w-full text-start px-3 h-[38px] flex items-center border-b border-border/10 transition-colors",
                 isMultiSelected
                   ? "bg-primary/20 ring-1 ring-inset ring-primary/40"
                   : isActive
@@ -682,7 +686,7 @@ export function InboxPage() {
 
       {/* Right contact panel — hidden during initial load or when maximized */}
       {!emailListLoading && !(hasThread && isMaximized) && (
-        <div className="hidden lg:flex w-[260px] shrink-0 flex-col border-l border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
+        <div className="hidden lg:flex w-[260px] shrink-0 flex-col border-s border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
           <ContactPanel
             emailId={contactEmailId}
             contactEmail={sidebarContactEmail}

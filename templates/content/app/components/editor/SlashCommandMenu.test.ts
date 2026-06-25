@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it, vi } from "vitest";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
+import { describe, expect, it, vi } from "vitest";
+
 import {
   parseSlashCommandQuery,
   parseInlineGeneratePrompt,

@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  EMBED_SESSION_COOKIE,
+  EMBED_TARGET_HEADER,
+} from "../shared/embed-auth.js";
 import {
   requestMatchesEmbedTarget,
   normalizeEmbedTargetPath,
@@ -7,10 +12,6 @@ import {
   signEmbedSessionToken,
   verifyEmbedSessionToken,
 } from "./embed-session.js";
-import {
-  EMBED_SESSION_COOKIE,
-  EMBED_TARGET_HEADER,
-} from "../shared/embed-auth.js";
 
 const ORIGINAL_ENV = { ...process.env };
 

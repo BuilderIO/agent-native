@@ -67,3 +67,25 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+.agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"] {
+  width: 0;
+  will-change: width;
+  transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"][data-agent-frame-sidebar-state="open"] {
+  width: var(--agent-frame-sidebar-width);
+}
+
+@starting-style {
+  .agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"][data-agent-frame-sidebar-state="open"] {
+    width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-frame-sidebar[data-agent-frame-sidebar-animation] {
+    transition: none;
+  }
+}

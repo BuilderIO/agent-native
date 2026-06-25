@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
-import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
+import { z } from "zod";
+
 import { gmailGetThread } from "../server/lib/google-api.js";
 import { gmailToEmailMessage, isConnected } from "../server/lib/google-auth.js";
-import { z } from "zod";
+import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])

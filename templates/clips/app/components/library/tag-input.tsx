@@ -1,11 +1,12 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { IconX } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 interface TagInputProps {
   value: string[];
@@ -73,7 +74,7 @@ export function TagInput({
             {value.map((tag) => (
               <span
                 key={tag}
-                className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs pl-2 pr-1 py-0.5"
+                className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs ps-2 pe-1 py-0.5"
               >
                 {tag}
                 <button

@@ -4,11 +4,18 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, vi } from "vitest";
 import { describe, expect, it } from "vitest";
+
+import {
+  AGENT_NATIVE_EMBED_MESSAGE_TYPES,
+  AGENT_NATIVE_EMBED_PROTOCOL,
+  AGENT_NATIVE_EMBED_VERSION,
+} from "../../embedding/protocol.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import {
   buildMcpAppCsp,
   clampMcpAppHeight,
   DEFAULT_MCP_APP_IFRAME_HEIGHT,
+  isMcpAppReadyMessage,
   MCP_APP_INITIALIZE_TIMEOUT_MS,
   McpAppRenderer,
   supportedMcpAppPermissions,
@@ -52,10 +59,34 @@ describe("McpAppRenderer security helpers", () => {
     expect(clampMcpAppHeight(420, 180)).toBe(180);
   });
 
+  it("treats embedded app frame handshakes as ready signals", () => {
+    expect(isMcpAppReadyMessage({ type: "agentNative.embeddedAppReady" })).toBe(
+      true,
+    );
+    expect(
+      isMcpAppReadyMessage({
+        type: "agentNative.frameOrigin",
+        origin: "http://127.0.0.1:8100",
+      }),
+    ).toBe(true);
+    expect(
+      isMcpAppReadyMessage({
+        protocol: AGENT_NATIVE_EMBED_PROTOCOL,
+        version: AGENT_NATIVE_EMBED_VERSION,
+        type: AGENT_NATIVE_EMBED_MESSAGE_TYPES.READY,
+      }),
+    ).toBe(true);
+    expect(isMcpAppReadyMessage({ type: "agentNative.submitChat" })).toBe(
+      false,
+    );
+    expect(isMcpAppReadyMessage(null)).toBe(false);
+  });
+
   it("builds a restrictive CSP and drops invalid source expressions", () => {
     const csp = buildMcpAppCsp({
       connectDomains: [
         "https://api.example.com/v1",
+        "http://127.0.0.1:8080/assets",
         "javascript:alert(1)",
         "https://bad.example.com; script-src *",
       ],
@@ -73,7 +104,9 @@ describe("McpAppRenderer security helpers", () => {
     });
 
     expect(csp).toContain("default-src 'none'");
-    expect(csp).toContain("connect-src https://api.example.com");
+    expect(csp).toContain(
+      "connect-src https://api.example.com http://127.0.0.1:8080 ws://127.0.0.1:8080",
+    );
     expect(csp).not.toContain("javascript:");
     expect(csp).not.toContain("bad.example.com");
     expect(csp).toContain("style-src 'unsafe-inline' https://cdn.example.com");
@@ -126,6 +159,46 @@ describe("McpAppRenderer security helpers", () => {
       "noopener,noreferrer",
     );
   });
+
+  it("keeps embedded apps mounted when the wrapper reports readiness before the MCP bridge initializes", async () => {
+    vi.useFakeTimers();
+    const payload = mcpAppPayload({
+      resourceHtml: "<!doctype html><html><body>Inline app</body></html>",
+      openUrl: "https://plan.agent-native.com/plans/plan-123",
+    });
+
+    await act(async () => {
+      root.render(React.createElement(McpAppRenderer, { app: payload }));
+    });
+
+    expect(container.textContent).toContain("Loading MCP App");
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.contentWindow).toBeTruthy();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            protocol: AGENT_NATIVE_EMBED_PROTOCOL,
+            version: AGENT_NATIVE_EMBED_VERSION,
+            type: AGENT_NATIVE_EMBED_MESSAGE_TYPES.READY,
+            payload: { app: "assets", mode: "picker" },
+          },
+          source: iframe?.contentWindow ?? null,
+        }),
+      );
+    });
+
+    expect(container.textContent).not.toContain("Loading MCP App");
+
+    await act(async () => {
+      vi.advanceTimersByTime(MCP_APP_INITIALIZE_TIMEOUT_MS + 1);
+    });
+
+    expect(container.textContent).not.toContain(
+      "MCP App did not finish initializing.",
+    );
+  });
 });
 
 function mcpAppPayload({
@@ -139,7 +212,7 @@ function mcpAppPayload({
     serverId: "plan",
     toolName: "open_app",
     originalToolName: "open_app",
-    resourceUri: "ui://plan/open_app/shell-v45",
+    resourceUri: "ui://plan/open_app/shell-v52",
     toolInput: { embed: true },
     toolResult: {
       structuredContent: {
@@ -147,7 +220,7 @@ function mcpAppPayload({
       },
     },
     resource: {
-      uri: "ui://plan/open_app/shell-v45",
+      uri: "ui://plan/open_app/shell-v52",
       mimeType: "text/html;profile=mcp-app",
       text: resourceHtml,
     },

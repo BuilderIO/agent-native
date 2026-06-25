@@ -157,13 +157,15 @@ button[title="Open agent sidebar"] {
 .slide-content [data-editing-block="true"]:focus {
   outline: 2px solid #609ff8;
 }
-/* Subtle hover highlight on editable text leaves to hint clickability */
-.slide-image-clickable .slide-content p:hover,
-.slide-image-clickable .slide-content h1:hover,
-.slide-image-clickable .slide-content h2:hover,
-.slide-image-clickable .slide-content h3:hover,
-.slide-image-clickable .slide-content h4:hover,
-.slide-image-clickable .slide-content span:hover {
+/* Subtle hover highlight on editable text leaves to hint clickability.
+   Scoped to `[data-editable]` so read-only decks don't show an outline that
+   makes text look editable when it isn't. */
+.slide-image-clickable[data-editable] .slide-content p:hover,
+.slide-image-clickable[data-editable] .slide-content h1:hover,
+.slide-image-clickable[data-editable] .slide-content h2:hover,
+.slide-image-clickable[data-editable] .slide-content h3:hover,
+.slide-image-clickable[data-editable] .slide-content h4:hover,
+.slide-image-clickable[data-editable] .slide-content span:hover {
   outline: 1px dashed rgba(96, 159, 248, 0.4);
   outline-offset: 3px;
   border-radius: 2px;
@@ -832,15 +834,17 @@ button[title="Open agent sidebar"] {
 
 /* ─── Image Overlay & Click-to-Replace ─── */
 
-/* Hover effect on clickable slide images */
-.slide-image-clickable img,
-.slide-image-clickable .fmd-img-placeholder {
+/* Hover effect on clickable slide images. Scoped to `[data-editable]` so a
+   read-only deck doesn't show a pointer cursor or glow that implies the image
+   can be clicked to replace it. */
+.slide-image-clickable[data-editable] img,
+.slide-image-clickable[data-editable] .fmd-img-placeholder {
   cursor: pointer;
   transition: box-shadow 0.15s ease;
 }
 
-.slide-image-clickable img:hover,
-.slide-image-clickable .fmd-img-placeholder:hover {
+.slide-image-clickable[data-editable] img:hover,
+.slide-image-clickable[data-editable] .fmd-img-placeholder:hover {
   box-shadow: 0 0 0 2px rgba(96, 159, 248, 0.4);
 }
 

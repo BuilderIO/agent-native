@@ -1,17 +1,15 @@
 {
   "name": "{{APP_NAME}}",
-  "private": true,
   "version": "0.0.0",
+  "private": true,
   "scripts": {
     "dev": "agent-native dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "repair:workspace-org": "tsx scripts/repair-workspace-org.ts",
-    "fmt:check": "prettier --check .",
+    "skills:update": "agent-native skills update scaffold --project",
+    "fmt:check": "oxfmt --check .",
     "lint": "pnpm fmt:check"
-  },
-  "agent-native": {
-    "workspaceCore": "@{{APP_NAME}}/shared"
   },
   "dependencies": {
     "@agent-native/core": "latest",
@@ -19,9 +17,13 @@
   },
   "devDependencies": {
     "@types/node": "^24.2.1",
-    "prettier": "^3.6.2",
+    "@typescript/native-preview": "catalog:",
+    "oxfmt": "catalog:",
     "tsx": "catalog:",
     "typescript": "^6.0.3"
   },
-  "packageManager": "pnpm@10.14.0"
+  "packageManager": "pnpm@10.14.0",
+  "agent-native": {
+    "workspaceCore": "@{{APP_NAME}}/shared"
+  }
 }

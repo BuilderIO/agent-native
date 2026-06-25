@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useT } from "@agent-native/core/client";
 import {
   IconLink,
   IconRefresh,
@@ -8,6 +8,10 @@ import {
   IconPlugOff,
   IconLoader2,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,14 +24,13 @@ import {
   useResolveDocumentSyncConflict,
   useUnlinkDocumentFromNotion,
 } from "@/hooks/use-notion";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 
 interface NotionSyncBarProps {
   documentId: string;
 }
 
 export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
+  const t = useT();
   const queryClient = useQueryClient();
   const { data: connection } = useNotionConnection();
   const { data: syncStatus, isLoading: syncLoading } =
@@ -62,9 +65,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
 
   const handleConnect = () => {
     if (!connection?.authUrl) {
-      toast.error(
-        "Set up Notion first — click the Notion icon in the sidebar.",
-      );
+      toast.error(t("editor.toolbar.setUpNotionFirst"));
       return;
     }
     window.location.href = connection.authUrl;
@@ -72,16 +73,18 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
 
   const handleLink = async () => {
     if (!pageIdOrUrl.trim()) {
-      toast.error("Paste a Notion page URL or page ID.");
+      toast.error(t("editor.toolbar.pasteNotionPageUrlOrId"));
       return;
     }
     try {
       await linkDocument.mutateAsync({ pageIdOrUrl });
       setPageIdOrUrl("");
-      toast.success("Linked to Notion.");
+      toast.success(t("editor.toolbar.linkedToNotion"));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to link page.",
+        error instanceof Error
+          ? error.message
+          : t("editor.toolbar.failedToLinkPage"),
       );
     }
   };
@@ -89,18 +92,22 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
   const handlePull = async () => {
     try {
       await pullDocument.mutateAsync();
-      toast.success("Pulled from Notion.");
+      toast.success(t("editor.toolbar.pulledFromNotion"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Pull failed.");
+      toast.error(
+        error instanceof Error ? error.message : t("editor.toolbar.pullFailed"),
+      );
     }
   };
 
   const handlePush = async () => {
     try {
       await pushDocument.mutateAsync();
-      toast.success("Pushed to Notion.");
+      toast.success(t("editor.toolbar.pushedToNotion"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Push failed.");
+      toast.error(
+        error instanceof Error ? error.message : t("editor.toolbar.pushFailed"),
+      );
     }
   };
 
@@ -109,12 +116,14 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
       await resolveConflict.mutateAsync({ direction });
       toast.success(
         direction === "pull"
-          ? "Conflict resolved from Notion."
-          : "Conflict resolved from local document.",
+          ? t("editor.toolbar.conflictResolvedFromNotion")
+          : t("editor.toolbar.conflictResolvedFromLocalDocument"),
       );
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Conflict resolution failed.",
+        error instanceof Error
+          ? error.message
+          : t("editor.toolbar.conflictResolutionFailed"),
       );
     }
   };
@@ -122,19 +131,25 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
   const handleUnlink = async () => {
     try {
       await unlinkDocument.mutateAsync();
-      toast.success("Unlinked from Notion.");
+      toast.success(t("editor.toolbar.unlinkedFromNotion"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to unlink.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("editor.toolbar.unlinkFailed"),
+      );
     }
   };
 
   const handleDisconnect = async () => {
     try {
       await disconnectNotion.mutateAsync();
-      toast.success("Disconnected Notion workspace.");
+      toast.success(t("editor.toolbar.disconnectedNotionWorkspace"));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to disconnect.",
+        error instanceof Error
+          ? error.message
+          : t("editor.toolbar.failedToDisconnect"),
       );
     }
   };
@@ -145,21 +160,28 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
         <div className="mr-auto min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-foreground">
-              Notion Sync
+              {t("editor.toolbar.notionSync")}
             </span>
             {syncStatus?.state === "conflict" && (
               <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
                 <IconAlertTriangle size={12} />
-                Conflict
+                {t("editor.toolbar.conflict")}
               </span>
             )}
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {!connection?.connected
-              ? "Connect a Notion workspace to link this document."
+              ? t("editor.toolbar.connectNotionWorkspaceToLink")
               : syncStatus?.pageId
-                ? `Linked to page ${syncStatus.pageId}${syncStatus.lastSyncedAt ? ` • Last synced ${new Date(syncStatus.lastSyncedAt).toLocaleString()}` : ""}`
-                : "Paste a Notion page URL or page ID to link this document."}
+                ? syncStatus.lastSyncedAt
+                  ? t("editor.toolbar.linkedToPageLastSynced", {
+                      pageId: syncStatus.pageId,
+                      date: new Date(syncStatus.lastSyncedAt).toLocaleString(),
+                    })
+                  : t("editor.toolbar.linkedToPage", {
+                      pageId: syncStatus.pageId,
+                    })
+                : t("editor.toolbar.pasteNotionPageUrlOrIdToLink")}
           </p>
           {syncStatus?.lastError && (
             <p className="mt-1 text-xs text-destructive">
@@ -182,7 +204,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
 
         {!connection?.connected ? (
           <Button size="sm" onClick={handleConnect}>
-            Connect Notion
+            {t("editor.toolbar.connectNotion")}
           </Button>
         ) : (
           <>
@@ -191,7 +213,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
                 <Input
                   value={pageIdOrUrl}
                   onChange={(e) => setPageIdOrUrl(e.target.value)}
-                  placeholder="Notion page URL or page ID"
+                  placeholder={t("editor.toolbar.notionPageUrlOrId")}
                   className="h-8 w-full sm:w-[260px]"
                 />
                 <Button
@@ -201,7 +223,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
                   disabled={isWorking}
                 >
                   <IconLink size={14} className="mr-1" />
-                  Link Page
+                  {t("editor.toolbar.linkPage")}
                 </Button>
               </>
             ) : (
@@ -214,7 +236,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
                     className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:text-foreground"
                   >
                     <IconExternalLink size={13} />
-                    Open
+                    {t("editor.toolbar.open")}
                   </a>
                 )}
                 <Button
@@ -224,7 +246,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
                   disabled={isWorking || syncLoading}
                 >
                   <IconRefresh size={14} className="mr-1" />
-                  Pull
+                  {t("editor.toolbar.pull")}
                 </Button>
                 <Button
                   size="sm"
@@ -233,7 +255,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
                   disabled={isWorking || syncLoading}
                 >
                   <IconUpload size={14} className="mr-1" />
-                  Push
+                  {t("editor.toolbar.push")}
                 </Button>
                 <Button
                   size="sm"
@@ -241,7 +263,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
                   onClick={handleUnlink}
                   disabled={isWorking}
                 >
-                  Unlink
+                  {t("editor.toolbar.unlink")}
                 </Button>
               </>
             )}
@@ -252,7 +274,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
               disabled={isWorking}
             >
               <IconPlugOff size={14} className="mr-1" />
-              Disconnect
+              {t("editor.toolbar.disconnect")}
             </Button>
           </>
         )}
@@ -261,8 +283,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
       {syncStatus?.hasConflict && (
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
           <p className="mr-auto text-xs text-amber-800 dark:text-amber-200">
-            Local and Notion changed since the last sync. Choose which version
-            wins.
+            {t("editor.toolbar.localAndNotionChanged")}
           </p>
           <Button
             size="sm"
@@ -273,7 +294,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
             {resolveConflict.isPending ? (
               <IconLoader2 size={14} className="animate-spin mr-1" />
             ) : null}
-            Pull from Notion
+            {t("editor.toolbar.pullFromNotion")}
           </Button>
           <Button
             size="sm"
@@ -284,7 +305,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
             {resolveConflict.isPending ? (
               <IconLoader2 size={14} className="animate-spin mr-1" />
             ) : null}
-            Push local
+            {t("editor.toolbar.pushLocal")}
           </Button>
         </div>
       )}

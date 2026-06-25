@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { applyExtensionContentUpdate } from "./content-patch.js";
 
 describe("extension content patching", () => {

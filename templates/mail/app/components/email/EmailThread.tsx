@@ -1,56 +1,5 @@
-import {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  useMemo,
-  forwardRef,
-  Fragment,
-} from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
-import {
-  cn,
-  formatEmailDate,
-  formatFileSize,
-  formatShortcut,
-} from "@/lib/utils";
-import { useTheme } from "next-themes";
-import { useComposeState } from "@/hooks/use-compose-state";
-import { useAccountFilter } from "@/hooks/use-account-filter";
-import {
-  useThreadMessages,
-  useArchiveEmail,
-  useTrashEmail,
-  useUntrashEmail,
-  useToggleStar,
-  useMarkRead,
-  useMarkThreadRead,
-  useUnarchiveEmail,
-  useSettings,
-  useUpdateSettings,
-  useEmailTracking,
-  unsuppressThread,
-} from "@/hooks/use-emails";
-import { useQueryClient } from "@tanstack/react-query";
-import { ensureThread, warmThreads } from "@/lib/thread-cache";
-import { getResolvedTheme } from "@/lib/theme";
-import { appApiPath } from "@agent-native/core/client";
-import {
-  decodeHtmlEntities,
-  processHtmlImages,
-} from "@/lib/email-image-policy";
-import { isMcpEmbedSurface } from "@/lib/mcp-embed";
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
-import { setUndoAction } from "@/hooks/use-undo";
-import { toast } from "sonner";
+import { appApiPath, useT } from "@agent-native/core/client";
 import type { EmailMessage, MobileActionId } from "@shared/types";
-import type { ThreadSummary } from "@/lib/threads";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   IconArchive,
   IconArrowLeft,
@@ -71,12 +20,65 @@ import {
   IconArrowsMinimize,
   IconTrash,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+  forwardRef,
+  Fragment,
+} from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useAccountFilter } from "@/hooks/use-account-filter";
+import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  useThreadMessages,
+  useArchiveEmail,
+  useTrashEmail,
+  useUntrashEmail,
+  useToggleStar,
+  useMarkRead,
+  useMarkThreadRead,
+  useUnarchiveEmail,
+  useSettings,
+  useUpdateSettings,
+  useEmailTracking,
+  unsuppressThread,
+} from "@/hooks/use-emails";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { setUndoAction } from "@/hooks/use-undo";
+import {
+  decodeHtmlEntities,
+  processHtmlImages,
+} from "@/lib/email-image-policy";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { getResolvedTheme } from "@/lib/theme";
+import { ensureThread, warmThreads } from "@/lib/thread-cache";
+import type { ThreadSummary } from "@/lib/threads";
+import {
+  cn,
+  formatEmailDate,
+  formatFileSize,
+  formatShortcut,
+} from "@/lib/utils";
+
 import {
   InlineReplyComposer,
   type InlineReplyHandle,
 } from "./InlineReplyComposer";
 import { MobileActionBar, DEFAULT_MOBILE_ACTIONS } from "./MobileActionBar";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 export function EmailThread({
   activeThreadId,
@@ -111,6 +113,7 @@ export function EmailThread({
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
 }) {
+  const t = useT();
   const { view = "inbox", threadId: routeThreadId } = useParams<{
     view: string;
     threadId: string;
@@ -405,7 +408,10 @@ export function EmailThread({
           (t.latestMessage.threadId || t.latestMessage.id) === nextThreadId,
       );
       setSelectedIds?.(new Set());
-      void ensureThread(nextThreadId, nextThread?.latestMessage.accountEmail);
+      void ensureThread(
+        nextThreadId,
+        nextThread?.latestMessage.accountEmail,
+      ).catch(() => {});
       onNavigateThread?.(nextThreadId);
       navigate(`/${view}/${nextThreadId}${routeSearchSuffix}`);
     },
@@ -1047,7 +1053,7 @@ export function EmailThread({
       const data = await res.json();
 
       if (data.ok) {
-        toast.success("Unsubscribe request sent");
+        toast.success(t("mail.toasts.unsubscribeSent"));
         // Also open the URL so user can confirm if needed
         if (data.url || unsubscribeInfo.url) {
           window.open(data.url || unsubscribeInfo.url, "_blank");
@@ -1057,7 +1063,7 @@ export function EmailThread({
         if (unsubscribeInfo.url) {
           window.open(unsubscribeInfo.url, "_blank");
         } else {
-          toast.error("Could not unsubscribe");
+          toast.error(t("mail.toasts.couldNotUnsubscribe"));
         }
       }
     } catch {
@@ -1119,7 +1125,7 @@ export function EmailThread({
                 onClick={goBack}
                 className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
-                <IconArrowLeft className="h-[14px] w-[14px]" />
+                <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
             <TooltipContent>Back (Esc)</TooltipContent>
@@ -1166,7 +1172,7 @@ export function EmailThread({
                 )}
                 <button
                   onClick={() => goToSibling(-1)}
-                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
                 >
                   <IconChevronUp className="h-3.5 w-3.5" />
                 </button>
@@ -1181,7 +1187,7 @@ export function EmailThread({
                     <TooltipTrigger asChild>
                       <button
                         onClick={onToggleMaximize}
-                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
                         aria-label={isMaximized ? "Minimize" : "Maximize"}
                         aria-pressed={isMaximized}
                       >
@@ -1211,7 +1217,7 @@ export function EmailThread({
                         className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
                       >
                         <IconExternalLink className="h-3 w-3" />
-                        View Pull Request
+                        {t("mail.thread.viewPullRequest")}
                       </a>
                     </TooltipTrigger>
                     <TooltipContent
@@ -1219,7 +1225,7 @@ export function EmailThread({
                       align="start"
                       className="flex items-center gap-1.5 text-[12px] font-medium"
                     >
-                      View Pull Request
+                      {t("mail.thread.viewPullRequest")}
                       <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1 text-[10px] text-muted-foreground">
                         {formatShortcut("cmd")}
                       </kbd>
@@ -1238,11 +1244,13 @@ export function EmailThread({
                         className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors disabled:opacity-50"
                       >
                         <IconMailOff className="h-3 w-3" />
-                        {unsubscribing ? "Unsubscribing..." : "Unsubscribe"}
+                        {unsubscribing
+                          ? t("mail.thread.unsubscribing")
+                          : t("mail.thread.unsubscribe")}
                       </button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      Unsubscribe from this mailing list
+                      {t("mail.thread.unsubscribeTooltip")}
                     </TooltipContent>
                   </Tooltip>
                 )}
@@ -1498,7 +1506,7 @@ function ThreadLoadingState({
                 onClick={onBack}
                 className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
-                <IconArrowLeft className="h-[14px] w-[14px]" />
+                <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
             <TooltipContent>Back (Esc)</TooltipContent>
@@ -1639,7 +1647,7 @@ const CollapsedMessageRow = forwardRef<
       <span className="text-[13px] text-muted-foreground truncate flex-1">
         {email.snippet}
       </span>
-      <span className="text-[12px] text-muted-foreground/60 tabular-nums shrink-0 ml-2">
+      <span className="text-[12px] text-muted-foreground/60 tabular-nums shrink-0 ms-2">
         {formatEmailDate(email.date)}
       </span>
     </div>
@@ -1679,6 +1687,7 @@ const ExpandedMessageCard = forwardRef<
   },
   ref,
 ) {
+  const t = useT();
   const [showDetails, setShowDetails] = useState(false);
   const senderName = email.from.name || email.from.email;
   const recipients = [
@@ -1795,7 +1804,7 @@ const ExpandedMessageCard = forwardRef<
                 e.stopPropagation();
                 setShowDetails(true);
               }}
-              className="text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors truncate text-left"
+              className="text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors truncate text-start"
             >
               to {recipients}
             </button>
@@ -1812,7 +1821,7 @@ const ExpandedMessageCard = forwardRef<
                   }}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
-                  <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
+                  <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
               <TooltipContent>Reply</TooltipContent>
@@ -1826,10 +1835,12 @@ const ExpandedMessageCard = forwardRef<
                   }}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
-                  <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
+                  <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Reply All</TooltipContent>
+              <TooltipContent>
+                {t("mail.mobileActions.replyAll")}
+              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1840,7 +1851,7 @@ const ExpandedMessageCard = forwardRef<
                   }}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
-                  <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
+                  <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
               <TooltipContent>Forward</TooltipContent>
@@ -1960,7 +1971,7 @@ const ExpandedMessageCard = forwardRef<
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
               >
                 <IconDownload className="h-3 w-3" />
-                Download all
+                {t("mail.thread.downloadAll")}
               </button>
             )}
           </div>
@@ -2070,6 +2081,7 @@ function PlainTextBody({
   searchTerm?: string;
   activeLocalIdx?: number | null;
 }) {
+  const t = useT();
   const [showQuoted, setShowQuoted] = useState(false);
   const [showSig, setShowSig] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -2169,7 +2181,7 @@ function PlainTextBody({
       {hasSig && !showSig && !forceShowAll && (
         <button
           type="button"
-          aria-label="Show signature"
+          aria-label={t("mail.thread.showSignature")}
           onClick={() => setShowSig(true)}
           className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground"
         >
@@ -2179,7 +2191,7 @@ function PlainTextBody({
       {hasQuoted && !showQuoted && !forceShowAll && (showSig || !hasSig) && (
         <button
           type="button"
-          aria-label="Show quoted text"
+          aria-label={t("mail.thread.showQuotedText")}
           onClick={() => setShowQuoted(true)}
           className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground"
         >
@@ -2541,6 +2553,7 @@ function HtmlEmailBody({
   searchTerm?: string;
   activeLocalIdx?: number | null;
 }) {
+  const t = useT();
   const frameHostRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
@@ -2977,7 +2990,7 @@ function HtmlEmailBody({
         if (lightened) el.setAttribute("color", lightened);
       });
 
-      // Transform dark text color rules in <style> blocks
+      // Transform dark text color rules in <style> blocks // i18n-ignore
       doc.querySelectorAll("style").forEach((tag) => {
         const text = tag.textContent || "";
         tag.textContent = text.replace(
@@ -3287,8 +3300,8 @@ function HtmlEmailBody({
           <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
           <span>
             {isEmbedded
-              ? "Remote images hidden in this embed."
-              : "Images blocked."}
+              ? t("mail.thread.remoteImagesHidden")
+              : t("mail.thread.imagesBlocked")}
           </span>
           {!isEmbedded && (
             <>
@@ -3296,14 +3309,16 @@ function HtmlEmailBody({
                 onClick={() => setShowImagesForThread(true)}
                 className="text-primary hover:text-primary/80 font-medium transition-colors"
               >
-                Show images
+                {t("mail.thread.showImages")}
               </button>
               {senderEmail && (
                 <button
                   onClick={handleAlwaysTrust}
                   className="text-muted-foreground/60 hover:text-muted-foreground font-medium transition-colors"
                 >
-                  Always from {senderEmail.split("@")[1]}
+                  {t("mail.thread.alwaysFrom", {
+                    domain: senderEmail.split("@")[1],
+                  })}
                 </button>
               )}
             </>
@@ -3321,7 +3336,7 @@ function HtmlEmailBody({
           colorScheme: useDarkIframeCss ? "dark" : "light",
           borderRadius: hasDesignedBg && isDark ? "6px" : undefined,
         }}
-        title="Email content"
+        title={t("mail.thread.emailContent")}
       />
     </div>
   );
@@ -3348,6 +3363,7 @@ function ThreadSearchBar({
   totalMatches: number;
   inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
+  const t = useT();
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") {
       e.preventDefault();
@@ -3368,7 +3384,7 @@ function ThreadSearchBar({
         value={query}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Search in conversation…"
+        placeholder={t("mail.thread.searchConversation")}
         className="flex-1 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none min-w-0"
         autoComplete="off"
         spellCheck={false}
@@ -3376,7 +3392,7 @@ function ThreadSearchBar({
       {query && (
         <span className="text-[12px] text-muted-foreground/50 tabular-nums shrink-0 select-none">
           {totalMatches === 0
-            ? "No matches"
+            ? t("mail.search.noMatches")
             : `${matchIdx + 1} / ${totalMatches}`}
         </span>
       )}
@@ -3409,7 +3425,7 @@ function ThreadSearchBar({
           <TooltipTrigger asChild>
             <button
               onClick={onClose}
-              className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
+              className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
             >
               <IconX className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
             </button>

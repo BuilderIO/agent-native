@@ -3,6 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { AnnotatedCodeRead } from "./AnnotatedCodeBlock.js";
 
 function rect({
@@ -133,7 +134,7 @@ describe("AnnotatedCodeBlock annotations", () => {
     expect(basename?.className).toContain("text-plan-code-text");
   });
 
-  it("renders subtle hover indicators on the first line of each annotated range", () => {
+  it("renders numbered gutter markers on the first line of each annotated range", () => {
     act(() => {
       root.render(
         <AnnotatedCodeRead
@@ -168,7 +169,7 @@ describe("AnnotatedCodeBlock annotations", () => {
       container.querySelectorAll<HTMLElement>("[data-annotated-code-marker]"),
     );
     expect(markers).toHaveLength(2);
-    expect(markers.map((marker) => marker.textContent)).toEqual(["", ""]);
+    expect(markers.map((marker) => marker.textContent)).toEqual(["1", "2"]);
     expect(
       container.querySelector(
         '[data-code-line="2"] [data-annotated-code-marker="1"]',
@@ -179,6 +180,12 @@ describe("AnnotatedCodeBlock annotations", () => {
         '[data-code-line="3"] [data-annotated-code-marker="1"]',
       ),
     ).toBeNull();
+    expect(
+      container
+        .querySelector('[data-code-line="2"]')
+        ?.children.item(2)
+        ?.hasAttribute("data-annotated-code-marker-stack"),
+    ).toBe(true);
     expect(markers[0]?.className).toContain("cursor-pointer");
     expect(markers[0]?.hasAttribute("title")).toBe(false);
   });

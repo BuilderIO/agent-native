@@ -4,6 +4,8 @@
  * reliable reconnection after page refreshes.
  */
 import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
 import type { AgentChatEvent } from "./types.js";
 
@@ -18,6 +20,21 @@ let _initPromise: Promise<void> | undefined;
  */
 export const RUN_STALE_MS = 15_000;
 
+/**
+ * Stale window for runs dispatched into a Netlify background function
+ * (`dispatch_mode = 'background'`). The design doc flags the 15s reaper vs a
+ * background cold-start as the #1 false-failure risk: the foreground POST
+ * inserts the `running` row, then `fireInternalDispatch` returns 202 and the
+ * background function may take >15s to cold-start and emit its first heartbeat.
+ * With the normal 15s window the reaper would falsely kill that freshly-
+ * inserted-but-not-yet-heartbeaten row. 90s tolerates a slow background
+ * cold-start while still reaping a genuinely dead background worker promptly.
+ *
+ * Only applied to rows explicitly marked background-dispatched; ordinary
+ * foreground runs keep the tight 15s window unchanged.
+ */
+export const BACKGROUND_RUN_STALE_MS = 90_000;
+
 export const STALE_RUN_ERROR_EVENT = {
   type: "error",
   error:
@@ -28,11 +45,48 @@ export const STALE_RUN_ERROR_EVENT = {
     "The run heartbeat stopped while the run was still marked running. Partial output and tool calls were preserved when available.",
 } as const;
 
+/**
+ * Terminal error for a background-dispatched run whose worker NEVER claimed it
+ * (the foreground fired the self-dispatch, Netlify acked it async with a 202,
+ * but the `_process-run` worker never ran far enough to flip
+ * `dispatch_mode background → background-processing`). Distinct errorCode so the
+ * client (and prod triage) can tell "the worker died silently" apart from "a
+ * claimed worker's heartbeat went stale". Recoverable so the client surfaces a
+ * retry affordance and re-drives the turn. See `reapUnclaimedBackgroundRun`.
+ */
+export const UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run was handed off to a background worker that never started. It was recovered so you can try again.",
+  errorCode: "background_worker_never_started",
+  recoverable: true,
+  details:
+    "A background-dispatched run was acknowledged (HTTP 202) but its worker never claimed the run, so no progress was produced. The run was reaped early (it had no live worker to protect) so the turn can be retried.",
+} as const;
+
+/**
+ * Grace period before a never-claimed background run (dispatch_mode still
+ * 'background', no worker claim) is treated as a dead handoff and reaped.
+ *
+ * This is intentionally MUCH tighter than `BACKGROUND_RUN_STALE_MS` (90s). The
+ * wide 90s window exists ONLY to protect a CLAIMED worker whose heartbeat lags
+ * during a slow cold start. A run that is still `dispatch_mode = 'background'`
+ * has, by definition, NO worker — nothing to protect — so once a Netlify
+ * background function has had a reasonable cold-start window to claim it and
+ * hasn't, the handoff is dead and should surface promptly instead of leaving
+ * the user staring at a spinner for 90s. 25s comfortably exceeds a normal
+ * Netlify Lambda cold start while still failing fast on a silent worker death.
+ */
+export const UNCLAIMED_BACKGROUND_RUN_GRACE_MS = 25_000;
+
 async function ensureRunTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await client.execute(`
+
+      // Shared CREATE SQL strings — referenced by both the Postgres and SQLite
+      // branches so the column definitions stay in one place.
+      const agentRunsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_runs (
           id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
@@ -44,32 +98,121 @@ async function ensureRunTables(): Promise<void> {
           last_progress_at ${intType()},
           turn_id TEXT,
           error_code TEXT,
-          error_detail TEXT
+          error_detail TEXT,
+          dispatch_mode TEXT,
+          diag_stage TEXT
         )
-      `);
-      // Backfill heartbeat_at on older deployments.
-      try {
-        if (isPostgres()) {
-          await client.execute(
-            `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS heartbeat_at ${intType()}`,
-          );
-          await client.execute(
-            `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS abort_reason TEXT`,
-          );
-        } else {
-          await client.execute(
-            `ALTER TABLE agent_runs ADD COLUMN heartbeat_at ${intType()}`,
+      `;
+      const agentRunEventsCreateSql = `
+        CREATE TABLE IF NOT EXISTS agent_run_events (
+          run_id TEXT NOT NULL,
+          seq ${intType()} NOT NULL,
+          event_data TEXT NOT NULL,
+          PRIMARY KEY (run_id, seq)
+        )
+      `;
+      // Tool-call result ledger: persists the outcome of write tool calls that
+      // completed AFTER their chunk was abandoned (zombie completions). A
+      // resumed continuation can recover the real result by matching
+      // thread_id + tool_key (name:stableInputHash) instead of re-executing
+      // the side effect. Entries are scoped to the thread and expire with it.
+      const agentToolLedgerCreateSql = `
+        CREATE TABLE IF NOT EXISTS agent_tool_ledger (
+          thread_id TEXT NOT NULL,
+          tool_key TEXT NOT NULL,
+          result_summary TEXT NOT NULL,
+          completed_at ${intType()} NOT NULL,
+          PRIMARY KEY (thread_id, tool_key)
+        )
+      `;
+
+      if (isPostgres()) {
+        // Hot path: in production the tables and all additive columns are
+        // virtually always already present. Issuing `CREATE TABLE`/`ALTER TABLE
+        // ADD COLUMN` still takes an ACCESS EXCLUSIVE lock — which, in a fresh
+        // background-worker process behind a concurrent connection on the shared
+        // Neon DB, can block ~indefinitely. So check `information_schema` first
+        // (plain reads, no lock) and run DDL ONLY for what is actually missing.
+        // The `ensureTableExists` / `ensureColumnExists` wrappers probe →
+        // guarded-DDL (bounded `lock_timeout`) → re-probe, and THROW if the
+        // schema is still missing after a swallowed lock-timeout so a poisoned
+        // init never memoizes success against absent schema (the `_initPromise`
+        // rejects and the next call retries).
+        await ensureTableExists("agent_runs", agentRunsCreateSql);
+        // Additive columns — all listed in the CREATE TABLE above, so on a
+        // fresh DB they already exist after the CREATE and these checks are
+        // instant short-circuits. On an older deployment that predates a
+        // column, the wrapper issues one bounded ALTER.
+        //
+        // Backfill heartbeat_at on older deployments.
+        // heartbeat_at = "the producer process is alive" (bumped on a timer).
+        // last_progress_at = "the agent is actually emitting events" (bumped on
+        // each emit). The gap between them is the stuck-detector signal.
+        for (const [col, colType] of [
+          ["heartbeat_at", intType()],
+          ["abort_reason", "TEXT"],
+          ["last_progress_at", intType()],
+          // Backfill turn_id / error_code / error_detail.
+          //   turn_id    = stable identity for one logical assistant turn that may
+          //                span several continuation runs, so the durable record
+          //                can be folded across runs instead of dropped per-run.
+          //   error_code / error_detail = terminal failure classification captured
+          //                at completion so errored/cut-off runs are queryable for
+          //                pattern analysis (see listErroredRuns).
+          // dispatch_mode marks how a run was started: NULL/"foreground" for the
+          // normal synchronous path, "background" for a run dispatched into a
+          // Netlify background function. The reaper/claim widen the stale window
+          // for background rows so a slow cold-start isn't falsely reaped.
+          // diag_stage records the last reached pipeline stage (+ any error) for a
+          // background-dispatched run so a silent worker death is DIAGNOSABLE from
+          // the client (/runs/active surfaces it) without reading the unreadable
+          // Netlify background-function logs. See recordRunDiagnostic.
+          ["turn_id", "TEXT"],
+          ["error_code", "TEXT"],
+          ["error_detail", "TEXT"],
+          ["dispatch_mode", "TEXT"],
+          ["diag_stage", "TEXT"],
+        ] as const) {
+          await ensureColumnExists(
+            "agent_runs",
+            col,
+            `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS ${col} ${colType}`,
           );
         }
+        await ensureTableExists("agent_run_events", agentRunEventsCreateSql);
+        await ensureTableExists("agent_tool_ledger", agentToolLedgerCreateSql);
+        // Widen millisecond-timestamp columns that older deployments created as
+        // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
+        // on every turn, so an int4 column makes every agent prompt fail on
+        // Postgres with "value … is out of range for type integer". No-op once
+        // widened (and on fresh DBs that already use BIGINT). See
+        // widenIntColumnsToBigInt.
+        await widenIntColumnsToBigInt("agent_runs", [
+          "started_at",
+          "completed_at",
+          "heartbeat_at",
+          "last_progress_at",
+        ]);
+        await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
+        return;
+      }
+
+      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep the
+      // original create-then-additive-alter behaviour. SQLite has no
+      // `ADD COLUMN IF NOT EXISTS`, so the ALTERs stay wrapped in try/catch.
+      await client.execute(agentRunsCreateSql);
+      // Backfill heartbeat_at on older deployments.
+      try {
+        await client.execute(
+          `ALTER TABLE agent_runs ADD COLUMN heartbeat_at ${intType()}`,
+        );
       } catch {
         // Column already exists — ignore
       }
       try {
-        if (!isPostgres()) {
-          await client.execute(
-            `ALTER TABLE agent_runs ADD COLUMN abort_reason TEXT`,
-          );
-        }
+        await client.execute(
+          `ALTER TABLE agent_runs ADD COLUMN abort_reason TEXT`,
+        );
       } catch {
         // Column already exists — ignore
       }
@@ -78,15 +221,9 @@ async function ensureRunTables(): Promise<void> {
       // last_progress_at = "the agent is actually emitting events" (bumped on
       // each emit). The gap between them is the stuck-detector signal.
       try {
-        if (isPostgres()) {
-          await client.execute(
-            `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS last_progress_at ${intType()}`,
-          );
-        } else {
-          await client.execute(
-            `ALTER TABLE agent_runs ADD COLUMN last_progress_at ${intType()}`,
-          );
-        }
+        await client.execute(
+          `ALTER TABLE agent_runs ADD COLUMN last_progress_at ${intType()}`,
+        );
       } catch {
         // Column already exists — ignore
       }
@@ -97,43 +234,42 @@ async function ensureRunTables(): Promise<void> {
       //   error_code / error_detail = terminal failure classification captured
       //                at completion so errored/cut-off runs are queryable for
       //                pattern analysis (see listErroredRuns).
-      for (const col of ["turn_id", "error_code", "error_detail"] as const) {
+      // dispatch_mode marks how a run was started: NULL/"foreground" for the
+      // normal synchronous path, "background" for a run dispatched into a
+      // Netlify background function. The reaper/claim widen the stale window
+      // for background rows so a slow cold-start isn't falsely reaped.
+      // diag_stage records the last reached pipeline stage (+ any error) for a
+      // background-dispatched run so a silent worker death is DIAGNOSABLE from
+      // the client (/runs/active surfaces it) without reading the unreadable
+      // Netlify background-function logs. See recordRunDiagnostic.
+      for (const col of [
+        "turn_id",
+        "error_code",
+        "error_detail",
+        "dispatch_mode",
+        "diag_stage",
+      ] as const) {
         try {
-          if (isPostgres()) {
-            await client.execute(
-              `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS ${col} TEXT`,
-            );
-          } else {
-            await client.execute(
-              `ALTER TABLE agent_runs ADD COLUMN ${col} TEXT`,
-            );
-          }
+          await client.execute(`ALTER TABLE agent_runs ADD COLUMN ${col} TEXT`);
         } catch {
           // Column already exists — ignore
         }
       }
-      await client.execute(`
-        CREATE TABLE IF NOT EXISTS agent_run_events (
-          run_id TEXT NOT NULL,
-          seq ${intType()} NOT NULL,
-          event_data TEXT NOT NULL,
-          PRIMARY KEY (run_id, seq)
-        )
-      `);
-      // Tool-call result ledger: persists the outcome of write tool calls that
-      // completed AFTER their chunk was abandoned (zombie completions). A
-      // resumed continuation can recover the real result by matching
-      // thread_id + tool_key (name:stableInputHash) instead of re-executing
-      // the side effect. Entries are scoped to the thread and expire with it.
-      await client.execute(`
-        CREATE TABLE IF NOT EXISTS agent_tool_ledger (
-          thread_id TEXT NOT NULL,
-          tool_key TEXT NOT NULL,
-          result_summary TEXT NOT NULL,
-          completed_at ${intType()} NOT NULL,
-          PRIMARY KEY (thread_id, tool_key)
-        )
-      `);
+      await client.execute(agentRunEventsCreateSql);
+      await client.execute(agentToolLedgerCreateSql);
+      // Widen millisecond-timestamp columns that older deployments created as
+      // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
+      // on every turn, so an int4 column makes every agent prompt fail on
+      // Postgres with "value … is out of range for type integer". No-op once
+      // widened (and on fresh DBs that already use BIGINT). See
+      // widenIntColumnsToBigInt.
+      await widenIntColumnsToBigInt("agent_runs", [
+        "started_at",
+        "completed_at",
+        "heartbeat_at",
+        "last_progress_at",
+      ]);
+      await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -234,14 +370,132 @@ export async function insertRun(
   id: string,
   threadId: string,
   turnId?: string,
+  options?: { dispatchMode?: "foreground" | "background" },
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
   await client.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id) VALUES (?, ?, 'running', ?, ?, ?, ?)`,
-    args: [id, threadId, now, now, now, turnId ?? id],
+    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode) VALUES (?, ?, 'running', ?, ?, ?, ?, ?)`,
+    args: [
+      id,
+      threadId,
+      now,
+      now,
+      now,
+      turnId ?? id,
+      options?.dispatchMode ?? null,
+    ],
   });
+}
+
+/**
+ * SQL fragment that resolves the per-row stale cutoff. Background-dispatched
+ * runs (`dispatch_mode` starting with `background`) tolerate a much longer gap
+ * without a heartbeat (slow Netlify background-function cold-start) before being
+ * reaped; every other run keeps the tight 15s window. The bound `now` is
+ * subtracted by the resolved window so the comparison is
+ * `COALESCE(heartbeat_at, started_at) < (now - window)`.
+ *
+ * `dispatch_mode` is one of NULL/"foreground" (normal sync path), "background"
+ * (foreground inserted the row for a background dispatch), or
+ * "background-processing" (the background worker claimed it). Both background
+ * states get the wider window via a LIKE-prefix match.
+ */
+function backgroundAwareStaleCutoffSql(): string {
+  // `CAST(? AS BIGINT)` is required: without it Postgres infers the param as
+  // int4 from the int4 window literals, so the bound `Date.now()` ms epoch
+  // overflows int4. The cast keeps the subtraction 64-bit; a no-op on SQLite.
+  return `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
+}
+
+/**
+ * Atomically claim a background-dispatched run for processing. The foreground
+ * POST inserts the run row with `dispatch_mode = 'background'`; the FIRST
+ * delivery of the background dispatch flips it to `background-processing` and
+ * wins the claim. A duplicate Netlify delivery (background functions can be
+ * retried) sees `background-processing` and loses, so it no-ops — mirroring
+ * `claimAgentTeamRun` returning null. Returns true when this caller won.
+ *
+ * Idempotent and conditional: the WHERE clause only matches the unclaimed
+ * `background` state AND a still-running row, so a reaped/terminal row can't be
+ * re-claimed.
+ */
+export async function claimBackgroundRun(runId: string): Promise<boolean> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rowsAffected } = await client.execute({
+    sql: `UPDATE agent_runs
+          SET dispatch_mode = 'background-processing'
+          WHERE id = ?
+            AND status = 'running'
+            AND dispatch_mode = 'background'`,
+    args: [runId],
+  });
+  return (rowsAffected ?? 0) > 0;
+}
+
+/**
+ * Read the claim/lifecycle state of a single run by id — for the foreground
+ * circuit-breaker that confirms a background worker actually CLAIMED a run that
+ * was dispatched with a Netlify async 202. A 202 only means the invocation was
+ * ENQUEUED; if the generated background-function wrapper fails to import/hand off
+ * to the route it never reaches `claimBackgroundRun`, leaving the row stuck at
+ * `dispatch_mode = 'background'`. `'background-processing'` means a worker won
+ * the claim; a terminal `status` means the run already resolved. Returns null if
+ * the row is missing.
+ */
+export async function readBackgroundRunClaim(runId: string): Promise<{
+  dispatchMode: string | null;
+  status: string | null;
+  diagStage: string | null;
+  lastLivenessAt: number | null;
+} | null> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT dispatch_mode, status, diag_stage, started_at, heartbeat_at FROM agent_runs WHERE id = ? LIMIT 1`,
+    args: [runId],
+  });
+  const row = rows?.[0] as
+    | {
+        dispatch_mode?: string | null;
+        status?: string | null;
+        diag_stage?: string | null;
+        started_at?: number | null;
+        heartbeat_at?: number | null;
+      }
+    | undefined;
+  if (!row) return null;
+  return {
+    dispatchMode: row.dispatch_mode ?? null,
+    status: row.status ?? null,
+    diagStage: row.diag_stage ?? null,
+    // Same liveness basis the unclaimed-reaper uses (COALESCE(heartbeat_at,
+    // started_at)), so the foreground can decide to recover BEFORE the reaper.
+    lastLivenessAt: row.heartbeat_at ?? row.started_at ?? null,
+  };
+}
+
+/**
+ * Resolve the authenticated owner email for a run by joining it to its chat
+ * thread. The durable background worker's self-dispatch is cookieless
+ * (HMAC-only — see `AGENT_CHAT_PROCESS_RUN_PATH`), so it has no session for the
+ * normal owner resolution and would otherwise be treated as unauthenticated.
+ * The thread's `owner_email` was written by the authenticated foreground when it
+ * created the thread, so it is a trusted, non-forgeable owner source: only the
+ * HMAC-signed `runId` selects the row, and the caller cannot influence which
+ * owner that row maps to. Returns null when the run (or its thread) is missing.
+ */
+export async function getRunOwnerEmail(runId: string): Promise<string | null> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT t.owner_email AS owner_email FROM agent_runs r JOIN chat_threads t ON r.thread_id = t.id WHERE r.id = ? LIMIT 1`,
+    args: [runId],
+  });
+  const row = rows?.[0] as { owner_email?: string | null } | undefined;
+  return row?.owner_email ?? null;
 }
 
 /**
@@ -256,18 +510,37 @@ export async function insertRun(
  */
 export async function tryClaimRunSlot(
   threadId: string,
-  maxStaleMs: number = RUN_STALE_MS,
+  maxStaleMs?: number,
 ): Promise<{ claimed: boolean; activeRunId: string | null }> {
   await ensureRunTables();
   const client = getDbExec();
-  const heartbeatCutoff = Date.now() - maxStaleMs;
+  const now = Date.now();
+  // Default: per-row background-aware window so a live background run (which can
+  // legitimately go >15s between heartbeats during a cold-start) isn't seen as
+  // "free" and double-claimed by a racing foreground POST. An explicit
+  // `maxStaleMs` override keeps a flat window for callers that want one.
+  if (typeof maxStaleMs === "number") {
+    const heartbeatCutoff = now - maxStaleMs;
+    const { rows } = await client.execute({
+      sql: `SELECT id FROM agent_runs
+            WHERE thread_id = ?
+              AND status = 'running'
+              AND COALESCE(heartbeat_at, started_at) >= ?
+            ORDER BY started_at DESC LIMIT 1`,
+      args: [threadId, heartbeatCutoff],
+    });
+    if (rows.length > 0) {
+      return { claimed: false, activeRunId: (rows[0] as { id: string }).id };
+    }
+    return { claimed: true, activeRunId: null };
+  }
   const { rows } = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE thread_id = ?
             AND status = 'running'
-            AND COALESCE(heartbeat_at, started_at) >= ?
+            AND COALESCE(heartbeat_at, started_at) >= ${backgroundAwareStaleCutoffSql()}
           ORDER BY started_at DESC LIMIT 1`,
-    args: [threadId, heartbeatCutoff],
+    args: [threadId, now],
   });
   if (rows.length > 0) {
     const row = rows[0] as { id: string };
@@ -303,6 +576,83 @@ export async function setRunError(
   }
 }
 
+/**
+ * Diagnostic stage names recorded onto a background run as it moves through the
+ * `_process-run` worker pipeline. Each value is the LAST stage successfully
+ * reached, so a stuck run's `diag_stage` reveals exactly where it died. Ordered
+ * roughly by execution; the literal strings are the client-readable contract.
+ */
+export const RUN_DIAG_STAGE = {
+  /** The `_process-run` route handler was entered (the request reached Nitro). */
+  routeEntered: "route_entered",
+  /** HMAC auth + body validation in prepareProcessRunRequest FAILED. */
+  authFailed: "auth_failed",
+  /** HMAC auth + body validation PASSED; about to invoke the worker handler. */
+  authPassed: "auth_passed",
+  /** The re-entered agent-chat handler recognized itself as the bg worker. */
+  workerEntered: "worker_entered",
+  /** The worker won the atomic claim (it owns the run). */
+  workerClaimed: "worker_claimed",
+  /** The worker LOST the claim (a duplicate delivery already owns the run). */
+  workerClaimLost: "worker_claim_lost",
+  /** The agent loop started (startRun fired). */
+  workerStarted: "worker_started",
+  /** Last worker setup stage reached before startRun (progressive hang localizer). */
+  workerSetupStep: "worker_setup_step",
+  /** Pre-claim setup timing breakdown (diagnostic). */
+  setupTimings: "setup_timings",
+  /** The worker threw before/while running the loop (message carried in detail). */
+  workerThrew: "worker_threw",
+  /** The route handler caught an error from the worker invocation. */
+  routeThrew: "route_threw",
+  /**
+   * The foreground circuit-breaker fired: a Netlify async 202 was returned but
+   * no background worker CLAIMED the run within the foreground grace window
+   * (the generated function wrapper never reached the route), so the foreground
+   * recovered by running the turn inline. The run still completes for the user.
+   */
+  foregroundInlineRecovery: "foreground_inline_recovery",
+} as const;
+
+export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];
+
+/**
+ * Record the last reached pipeline stage (+ optional short detail) for a run.
+ *
+ * PURPOSE: a Netlify background function's logs are not readable from the build
+ * tooling, so when its worker dies silently the run just times out with no clue
+ * WHY. This writes the failure stage straight onto the `agent_runs` row, which
+ * `/runs/active` and `listRunsForThread` surface to the client — so the next
+ * prod run's death cause is readable WITHOUT bg-fn logs. Cheap, additive, and
+ * best-effort: it must never throw or perturb the run (it is called on the auth
+ * path BEFORE a 401 is returned, and around the worker body).
+ *
+ * The stored value is a compact JSON `{ stage, detail?, at }` capped to 2 KB so
+ * a long stack can't bloat the row.
+ */
+export async function recordRunDiagnostic(
+  runId: string,
+  stage: RunDiagStage,
+  detail?: string,
+): Promise<void> {
+  if (!runId) return;
+  try {
+    await ensureRunTables();
+    const client = getDbExec();
+    const payload = JSON.stringify({
+      stage,
+      ...(detail ? { detail: detail.slice(0, 1500) } : {}),
+      at: Date.now(),
+    }).slice(0, 2000);
+    await client.execute({
+      sql: `UPDATE agent_runs SET diag_stage = ? WHERE id = ?`,
+      args: [payload, runId],
+    });
+  } catch {
+    // Diagnostics are best-effort; never let them break the run or the route.
+  }
+}
+
 /** Update the run's liveness heartbeat. Called periodically by run-manager. */
 export async function updateRunHeartbeat(runId: string): Promise<void> {
   await ensureRunTables();
@@ -335,12 +685,20 @@ export async function bumpRunProgress(runId: string): Promise<void> {
  */
 export async function reapIfStale(
   runId: string,
-  maxStaleMs: number = RUN_STALE_MS,
+  maxStaleMs?: number,
 ): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
   const completedAt = Date.now();
-  const cutoff = completedAt - maxStaleMs;
+  // Background-dispatched runs get the wider stale window so a slow cold-start
+  // isn't reaped; foreground runs keep the tight 15s window. An explicit
+  // override forces a flat window for callers that want one.
+  const staleClause =
+    typeof maxStaleMs === "number"
+      ? `COALESCE(heartbeat_at, started_at) < ?`
+      : `COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`;
+  const staleArgs =
+    typeof maxStaleMs === "number" ? [completedAt - maxStaleMs] : [completedAt];
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
           SET status = 'errored',
@@ -349,13 +707,13 @@ export async function reapIfStale(
               error_detail = ?
           WHERE id = ?
             AND status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ?`,
+            AND ${staleClause}`,
     args: [
       completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
       STALE_RUN_ERROR_EVENT.details,
       runId,
-      cutoff,
+      ...staleArgs,
     ],
   });
   const reaped = (rowsAffected ?? 0) > 0;
@@ -364,6 +722,68 @@ export async function reapIfStale(
       runId,
       STALE_RUN_ERROR_EVENT,
       "reap-if-stale",
+    );
+  }
+  return reaped;
+}
+
+/**
+ * FALLBACK HARDENING for the "dispatched with 202 but the worker never started"
+ * case. A background-dispatched run sits in `dispatch_mode = 'background'` until
+ * the worker wins `claimBackgroundRun` (which flips it to
+ * `background-processing`). If the worker silently dies (e.g. the bg-fn 401s
+ * before it can claim), the row stays `background`, never heartbeats again, and
+ * — because dispatch returned 202 — the foreground already returned the SSE
+ * stream, so the existing fast-fail inline fallback never engaged. The run would
+ * otherwise hang for the full 90s background window and then error opaquely.
+ *
+ * This reaps such a run EARLY and DISTINCTLY: a row that is still unclaimed
+ * (`dispatch_mode = 'background'`) past the tight `UNCLAIMED_BACKGROUND_RUN_GRACE_MS`
+ * grace is a dead handoff — there is no live worker to protect with the wide
+ * window — so we flip it to `errored` with the recoverable
+ * `background_worker_never_started` code. The client's existing recoverable-error
+ * path then lets the user (or auto-recovery) re-drive the turn. Idempotent and
+ * conditional: only an unclaimed, still-running, grace-exceeded row matches, so a
+ * claimed worker, a fresh dispatch, or a terminal row is never touched.
+ *
+ * Returns true when this call reaped the run.
+ */
+export async function reapUnclaimedBackgroundRun(
+  runId: string,
+): Promise<boolean> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const completedAt = Date.now();
+  const cutoff = completedAt - UNCLAIMED_BACKGROUND_RUN_GRACE_MS;
+  const { rowsAffected } = await client.execute({
+    sql: `UPDATE agent_runs
+          SET status = 'errored',
+              completed_at = ?,
+              error_code = ?,
+              error_detail = ?
+          WHERE id = ?
+            AND status = 'running'
+            AND dispatch_mode = 'background'
+            AND COALESCE(heartbeat_at, started_at) < ?`,
+    args: [
+      completedAt,
+      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
+      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.details,
+      runId,
+      cutoff,
+    ],
+  });
+  const reaped = (rowsAffected ?? 0) > 0;
+  if (reaped) {
+    await recordRunDiagnostic(
+      runId,
+      RUN_DIAG_STAGE.workerThrew,
+      "unclaimed background dispatch reaped (worker never claimed the run)",
+    );
+    await safeAppendTerminalRunEvent(
+      runId,
+      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT,
+      "reap-unclaimed-background",
     );
   }
   return reaped;
@@ -523,12 +943,14 @@ export async function getRunByThread(
   heartbeatAt: number | null;
   completedAt: number | null;
   lastProgressAt: number | null;
+  dispatchMode: string | null;
+  diagStage: string | null;
 } | null> {
   await ensureRunTables();
   const client = getDbExec();
   const sql = options?.includeTerminal
-    ? `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
-    : `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
+    ? `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, diag_stage FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
+    : `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, diag_stage FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
   const { rows } = await client.execute({ sql, args: [threadId] });
   if (rows.length === 0) return null;
   const r = rows[0] as {
@@ -540,6 +962,8 @@ export async function getRunByThread(
     heartbeat_at: number | string | null;
     completed_at: number | string | null;
     last_progress_at: number | string | null;
+    dispatch_mode?: string | null;
+    diag_stage?: string | null;
   };
   return {
     id: r.id,
@@ -551,6 +975,8 @@ export async function getRunByThread(
     completedAt: r.completed_at == null ? null : Number(r.completed_at),
     lastProgressAt:
       r.last_progress_at == null ? null : Number(r.last_progress_at),
+    dispatchMode: r.dispatch_mode ?? null,
+    diagStage: r.diag_stage ?? null,
   };
 }
 
@@ -565,6 +991,9 @@ export interface AgentRunSummary {
   lastProgressAt: number | null;
   errorCode: string | null;
   abortReason: string | null;
+  dispatchMode: string | null;
+  /** Last reached `_process-run` worker stage (JSON `{stage,detail?,at}`). */
+  diagStage: string | null;
 }
 
 export async function listRunsForThread(
@@ -575,7 +1004,7 @@ export async function listRunsForThread(
   const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason
+    sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, diag_stage
           FROM agent_runs
           WHERE thread_id = ?
           ORDER BY started_at DESC
@@ -594,6 +1023,8 @@ export async function listRunsForThread(
       last_progress_at?: number | string | null;
       error_code?: string | null;
       abort_reason?: string | null;
+      dispatch_mode?: string | null;
+      diag_stage?: string | null;
     };
     return {
       id: row.id,
@@ -607,6 +1038,8 @@ export async function listRunsForThread(
         row.last_progress_at == null ? null : Number(row.last_progress_at),
       errorCode: row.error_code ?? null,
       abortReason: row.abort_reason ?? null,
+      dispatchMode: row.dispatch_mode ?? null,
+      diagStage: row.diag_stage ?? null,
     };
   });
 }
@@ -675,12 +1108,13 @@ export async function getCurrentTurnEventsForThread(
 export async function reapAllStaleRuns(): Promise<number> {
   await ensureRunTables();
   const client = getDbExec();
-  const heartbeatCutoff = Date.now() - RUN_STALE_MS;
+  const now = Date.now();
+  // Background-dispatched runs use the wider window; everything else 15s.
   const stale = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ?`,
-    args: [heartbeatCutoff],
+            AND COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`,
+    args: [now],
   });
   const completedAt = Date.now();
   const { rowsAffected } = await client.execute({
@@ -690,12 +1124,12 @@ export async function reapAllStaleRuns(): Promise<number> {
               error_code = ?,
               error_detail = ?
           WHERE status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ?`,
+            AND COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`,
     args: [
       completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
       STALE_RUN_ERROR_EVENT.details,
-      heartbeatCutoff,
+      completedAt,
     ],
   });
   for (const row of stale.rows) {
@@ -730,15 +1164,15 @@ export async function cleanupOldRuns(
   // SELECT covers BOTH UPDATE conditions so the terminal-event-append loop
   // below catches every row we're about to flip — a 24h-old row with a
   // somehow-fresh heartbeat would slip past a heartbeat-only SELECT.
-  const heartbeatCutoff = Date.now() - RUN_STALE_MS;
+  const now = Date.now();
   const stale = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
             AND (
-              COALESCE(heartbeat_at, started_at) < ?
+              COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}
               OR started_at < ?
     )`,
-    args: [heartbeatCutoff, cutoff],
+    args: [now, cutoff],
   });
   const completedAt = Date.now();
   await client.execute({
@@ -755,7 +1189,8 @@ export async function cleanupOldRuns(
       cutoff,
     ],
   });
-  // Also expire runs whose heartbeat is stale — producer has died.
+  // Also expire runs whose heartbeat is stale — producer has died. Uses the
+  // background-aware window so a slow background cold-start isn't reaped early.
   await client.execute({
     sql: `UPDATE agent_runs
           SET status = 'errored',
@@ -763,12 +1198,12 @@ export async function cleanupOldRuns(
               error_code = ?,
               error_detail = ?
           WHERE status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ?`,
+            AND COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`,
     args: [
       completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
       STALE_RUN_ERROR_EVENT.details,
-      heartbeatCutoff,
+      completedAt,
     ],
   });
   for (const row of stale.rows) {

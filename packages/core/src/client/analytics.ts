@@ -1,10 +1,11 @@
 import * as amplitude from "@amplitude/analytics-browser";
 import * as Sentry from "@sentry/browser";
-import { agentNativePath } from "./api-path.js";
+
 import {
   llmConnectionTrackingProperties,
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
+import { agentNativePath } from "./api-path.js";
 import { scrubUrl } from "./url-scrub.js";
 export { scrubUrl } from "./url-scrub.js";
 
@@ -500,9 +501,12 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
         .toLowerCase();
       return (
         exceptionValue === "the user aborted a request." ||
+        exceptionValue === "signal is aborted without reason" ||
         exceptionValue === "aborterror: the user aborted a request." ||
+        exceptionValue === "aborterror: signal is aborted without reason" ||
         (exceptionType === "aborterror" &&
-          exceptionValue.includes("the user aborted a request"))
+          (exceptionValue.includes("the user aborted a request") ||
+            exceptionValue.includes("signal is aborted without reason")))
       );
     })
   ) {
@@ -533,12 +537,31 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
   );
 }
 
+function firstNonEmpty(...values: Array<string | undefined>): string {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+
+function resolveClientSentryDsnFromKeyProject(
+  env: Record<string, string | undefined>,
+): string | undefined {
+  const key = firstNonEmpty(env.VITE_SENTRY_CLIENT_KEY);
+  const projectId = firstNonEmpty(env.VITE_SENTRY_PROJECT_ID);
+  const host = firstNonEmpty(env.VITE_SENTRY_INGEST_HOST);
+  if (!key || !projectId || !host) return undefined;
+  return `https://${key}@${host}/${projectId}`;
+}
+
 function getClientSentryDsn(): string | undefined {
   const env = (import.meta.env as Record<string, string | undefined>) ?? {};
   return (
     env.VITE_SENTRY_CLIENT_DSN ||
     env.VITE_SENTRY_DSN ||
-    window.__AGENT_NATIVE_CONFIG__?.sentryDsn
+    window.__AGENT_NATIVE_CONFIG__?.sentryDsn ||
+    resolveClientSentryDsnFromKeyProject(env)
   );
 }
 

@@ -5,6 +5,7 @@ import {
   useMemo,
   type ReactNode,
 } from "react";
+
 import { useComposition } from "./CompositionContext";
 
 // ─── Context type ─────────────────────────────────────────────────────────────

@@ -1,10 +1,4 @@
 import {
-  defineEventHandler,
-  getQuery,
-  setResponseStatus,
-  type H3Event,
-} from "h3";
-import {
   encodeOAuthState,
   getSession,
   isElectron,
@@ -12,11 +6,18 @@ import {
   resolveOAuthRedirectUri,
   safeReturnPath,
 } from "@agent-native/core/server";
-import { CLIPS_GOOGLE_OAUTH_APP_ID } from "../../../lib/google-calendar-oauth.js";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+
 import {
   GOOGLE_AUTH_URL,
   GOOGLE_CALENDAR_SCOPES,
 } from "../../../lib/google-calendar-client.js";
+import { CLIPS_GOOGLE_OAUTH_APP_ID } from "../../../lib/google-calendar-oauth.js";
 
 const GOOGLE_IDENTITY_SCOPES = [
   "openid",

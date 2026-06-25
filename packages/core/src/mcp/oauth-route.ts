@@ -8,13 +8,15 @@
  * `verifyAuth` before any MCP tool/resource request runs.
  */
 
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+
 import type { H3Event } from "h3";
 import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { readBody } from "../server/h3-helpers.js";
+
+import { getOrgDomain } from "../org/context.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
-import { getOrgDomain } from "../org/context.js";
+import { readBody } from "../server/h3-helpers.js";
 import {
   createOAuthCode,
   createOAuthRefreshToken,
@@ -423,15 +425,23 @@ function redirectWithOAuthError(params: {
   return redirect(url.toString());
 }
 
+function buildCodeRedirectUrl(params: {
+  redirectUri: string;
+  code: string;
+  state?: string;
+}): string {
+  const url = new URL(params.redirectUri);
+  url.searchParams.set("code", params.code);
+  if (params.state) url.searchParams.set("state", params.state);
+  return url.toString();
+}
+
 function redirectWithCode(params: {
   redirectUri: string;
   code: string;
   state?: string;
 }): Response {
-  const url = new URL(params.redirectUri);
-  url.searchParams.set("code", params.code);
-  if (params.state) url.searchParams.set("state", params.state);
-  return redirect(url.toString());
+  return redirect(buildCodeRedirectUrl(params));
 }
 
 function codeChallengeForVerifier(verifier: string): string {
@@ -530,6 +540,19 @@ function isValidCodeVerifier(value: unknown): value is string {
   );
 }
 
+// Shared styling for the browser-facing OAuth pages (consent + post-authorize
+// confirmation) so they read as one coherent dark surface.
+const OAUTH_PAGE_BASE_STYLE = `
+  :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #09090b; color: #f4f4f5; }
+  body { min-height: 100vh; display: grid; place-items: center; margin: 0; padding: 24px; }
+  main { width: min(520px, 100%); border: 1px solid #27272a; border-radius: 8px; background: #111113; padding: 24px; box-shadow: 0 24px 80px rgba(0,0,0,.35); }
+  h1 { font-size: 22px; line-height: 1.2; margin: 0 0 10px; }
+  p { color: #a1a1aa; line-height: 1.5; margin: 0 0 18px; }
+  .actions { display: flex; gap: 10px; justify-content: flex-end; }
+  button, .btn { border: 0; border-radius: 6px; padding: 10px 14px; font: inherit; font-weight: 650; cursor: pointer; text-decoration: none; display: inline-block; }
+  .primary { background: #f4f4f5; color: #09090b; }
+  .secondary { background: #27272a; color: #f4f4f5; }`;
+
 function renderConsentPage(params: {
   appName: string;
   email: string;
@@ -552,18 +575,9 @@ function renderConsentPage(params: {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Authorize ${escapeHtml(params.appName)}</title>
-<style>
-  :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #09090b; color: #f4f4f5; }
-  body { min-height: 100vh; display: grid; place-items: center; margin: 0; padding: 24px; }
-  main { width: min(520px, 100%); border: 1px solid #27272a; border-radius: 8px; background: #111113; padding: 24px; box-shadow: 0 24px 80px rgba(0,0,0,.35); }
-  h1 { font-size: 22px; line-height: 1.2; margin: 0 0 10px; }
-  p { color: #a1a1aa; line-height: 1.5; margin: 0 0 18px; }
+<style>${OAUTH_PAGE_BASE_STYLE}
   ul { margin: 0 0 22px; padding-left: 22px; color: #d4d4d8; }
   code { color: #67e8f9; }
-  .actions { display: flex; gap: 10px; justify-content: flex-end; }
-  button { border: 0; border-radius: 6px; padding: 10px 14px; font-weight: 650; cursor: pointer; }
-  .primary { background: #f4f4f5; color: #09090b; }
-  .secondary { background: #27272a; color: #f4f4f5; }
 </style>
 </head>
 <body>
@@ -579,6 +593,61 @@ function renderConsentPage(params: {
     </div>
   </form>
 </main>
+</body>
+</html>`;
+}
+
+// Shown after the user approves a native/desktop client (cursor://, vscode://, …)
+// whose redirect is a private-use scheme. A bare 302 to a custom scheme hands the
+// code to the OS app but leaves the browser tab dangling on a blank/error page, so
+// we render a friendly confirmation that also re-fires the deep link (so the client
+// still receives the code) and tells the user they can return to their agent.
+function renderAuthorizedPage(params: {
+  appName: string;
+  clientName: string | null;
+  redirectUrl: string;
+}): string {
+  const friendlyClient = params.clientName?.trim() || null;
+  const returnTarget = friendlyClient ?? "your agent";
+  const openLabel = friendlyClient
+    ? `Open ${escapeHtml(friendlyClient)}`
+    : "Return to your agent";
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorized</title>
+<style>${OAUTH_PAGE_BASE_STYLE}
+  main.success { text-align: center; }
+  .check { width: 56px; height: 56px; margin: 4px auto 16px; display: grid; place-items: center; border-radius: 999px; background: rgba(34,197,94,.12); }
+  .check svg { width: 30px; height: 30px; }
+  .success .actions { justify-content: center; margin-top: 4px; }
+  .hint { color: #71717a; font-size: 13px; margin: 18px 0 0; }
+</style>
+</head>
+<body>
+<main class="success">
+  <div class="check">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M20 6 9 17l-5-5"></path>
+    </svg>
+  </div>
+  <h1>You're all set</h1>
+  <p>${escapeHtml(params.appName)} has authorized ${escapeHtml(returnTarget)}. You can return to ${escapeHtml(returnTarget)} to continue.</p>
+  <div class="actions">
+    <a class="btn primary" id="return-link" href="${escapeHtml(params.redirectUrl)}">${openLabel}</a>
+  </div>
+  <p class="hint">You can close this tab.</p>
+</main>
+<script>
+  (function () {
+    var link = document.getElementById("return-link");
+    if (link && link.href) {
+      try { window.location.href = link.href; } catch (e) {}
+    }
+  })();
+</script>
 </body>
 </html>`;
 }
@@ -744,6 +813,35 @@ async function handleAuthorize(
     scope,
     resource,
   });
+
+  // Native/desktop clients register a private-use scheme (cursor://, vscode://, …).
+  // A 302 to that scheme opens the app but leaves the browser tab dangling, so we
+  // render a friendly confirmation page that re-fires the deep link instead. For
+  // https/loopback callbacks the client (or its local server) renders its own page,
+  // so keep the standard redirect there.
+  let isDeepLinkRedirect = false;
+  try {
+    const protocol = new URL(redirectUri).protocol;
+    isDeepLinkRedirect =
+      protocol !== "http:" &&
+      protocol !== "https:" &&
+      isPrivateUseRedirectScheme(protocol);
+  } catch {
+    isDeepLinkRedirect = false;
+  }
+  if (isDeepLinkRedirect) {
+    return html(
+      renderAuthorizedPage({
+        appName: options.appName || options.appId || "Agent Native",
+        clientName: client.clientName ?? null,
+        redirectUrl: buildCodeRedirectUrl({
+          redirectUri,
+          state,
+          code: code.code,
+        }),
+      }),
+    );
+  }
   return redirectWithCode({ redirectUri, state, code: code.code });
 }
 

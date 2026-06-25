@@ -1,0 +1,239 @@
+---
+title: "Correio"
+description: "Um cliente de e-mail baseado em agente. Conecte seu Gmail e o agente poderá ler, redigir, enviar e organizar e-mails para você."
+---
+
+# Correio
+
+Um cliente de e-mail baseado em agente. Conecte sua conta Gmail e o agente poderá ler, redigir, enviar e organizar e-mails para você - junto com uma caixa de entrada rápida com teclado que você mesmo pode controlar. Pense em Superhuman, mas o agente é um cidadão de primeira classe e a base de código é sua.
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Caixa de entrada 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='Pesquisar'></span><span data-icon='edit' aria-label='Escrever'></span><span data-icon='bell' aria-label='Notificar'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Priscila Mehta</strong><span><strong>Lançamento do T3</strong> — assets finais prontos para revisão</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Cobrança Acme</strong><span>Sua fatura mensal está pronta</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Marcos Tang</span><span>Fluxo de integração research findings</span><span>Ontem</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR pronto para revisão</span><span>Ontem</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Issue ENG-1287 atribuída a você</span><span>2 de mai.</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>Resumo semanal de pagamentos</span><span>29 de abr.</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>Nova reserva confirmada</span><span>28 de abr.</span></div></div></div>"
+}
+```
+
+Quando você abre o aplicativo, a caixa de entrada do teclado e a visualização do tópico permanecem focadas no próprio e-mail. O agente sempre sabe em qual visualização você está e qual tópico está aberto, então você pode dizer "arquivar isto" ou "esboçar uma recusa amigável" sem explicar o que "isto" é.
+
+```an-diagram title="Como flui uma solicitação de email" summary="Os atalhos de teclado e os prompts do agente executam as mesmas ações. O e-mail reside em Gmail; rascunhos, automações e rastreamento ao vivo em SQL e application_state."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Você conduz<br><small class=\"diagram-muted\">atalhos J/K/E/R</small></div><div class=\"diagram-node\">Você pede ao agente<br><small class=\"diagram-muted\">\"redija uma recusa amigável\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-emails · get-thread · manage-draft · send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Gmail<br><small class=\"diagram-muted\">várias contas, via OAuth</small></div><div class=\"diagram-box\">SQL + application_state<br><small class=\"diagram-muted\">rascunhos · automações · rastreamento</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">Caixa de entrada atualiza ao vivo</div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## O que você pode fazer com isso
+
+- **Leia e faça triagem de e-mails** com atalhos de teclado (`J`/`K` para mover, `E` para arquivar, `R` para responder, `C` para redigir).
+- **Conecte várias contas Gmail** — pessoal e profissional em uma caixa de entrada.
+- **Peça ao agente para fazer tudo o que você puder.** "Resuma meus e-mails não lidos." "Elabore uma resposta que recuse educadamente." "Arquive todos os e-mails de bots do Netlify com mais de uma semana."
+- **Enfileirar rascunhos para revisão.** Colegas de equipe e usuários do Slack podem pedir ao agente para preparar um e-mail para um membro da organização; o proprietário revisa, edita e envia pelo Mail.
+- **Triagem automática com regras.** Configure regras de automação em inglês simples ("de um boletim informativo") com actions (rótulo, arquivar, marcar como lido, estrela, lixeira).
+- **Rastreie aberturas e cliques** nos e-mails que você envia.
+- **Pesquise em todas as caixas de entrada conectadas** com uma consulta.
+- **Arquivamento, exportação e rótulo em massa** — útil para limpeza da caixa de entrada.
+
+## Primeiros passos
+
+Demonstração ao vivo: [mail.agent-native.com](https://mail.agent-native.com).
+
+> **O Google pode mostrar um aviso:** A demonstração hospedada usa o aplicativo compartilhado do Google de Agent-Native para acesso ao Gmail, portanto, o Google pode solicitar que você confirme antes de continuar. Execute localmente para usar seu próprio cliente Google OAuth.
+
+Quando você abre o aplicativo pela primeira vez:
+
+1. Clique em **Configurações** na barra lateral.
+2. Clique em **Conectar conta do Google**, faça login em Gmail e aprove.
+3. (Opcional) Conecte uma segunda conta do Google para trabalho e pessoal.
+4. Volte para a caixa de entrada – seu Gmail real será sincronizado.
+
+Sem uma conta do Google conectada, o aplicativo é executado em uma caixa de correio local vazia (útil para capturas de tela e demonstrações, e não muito mais).
+
+## Conversando com o agente
+
+O agente lê `application_state.navigation` a cada turno, então ele já sabe em qual visualização você está, qual thread está aberto e qual mensagem está em foco — você não precisa informar isso. Você pode simplesmente dizer coisas como:
+
+- "Resumir meus e-mails não lidos."
+- "Encontre o último tópico de Alice sobre o orçamento."
+- "Redigir uma resposta que recuse educadamente."
+- "Arquivar todos os e-mails de bots do Netlify com mais de uma semana."
+- "Abrir meus e-mails marcados com estrela."
+- "Torne este rascunho mais formal."
+- "Eles abriram meu e-mail?"
+
+Se você selecionar o texto e pressionar Cmd+I, essa seleção acompanha sua próxima mensagem. Portanto, "tornar isso mais marcante" funciona exatamente com base no que você destacou.
+
+## Atalhos de teclado
+
+| Chave     | Ação                          |
+| --------- | ----------------------------- |
+| `J`       | Próximo e-mail                |
+| `K`       | E-mail anterior               |
+| `Up/Down` | Igual a J/K                   |
+| `Enter`   | Abrir e-mail focado           |
+| `E`       | Arquivar e-mail ou conversa   |
+| `D`       | Lixo de e-mail ou conversa    |
+| `S`       | Marque ou desmarque           |
+| `R`       | Responder                     |
+| `U`       | Alternar leitura/não lida     |
+| `C`       | Escrever novo e-mail          |
+| `/`       | Barra de pesquisa em foco     |
+| `Cmd+K`   | Abrir paleta de comandos      |
+| `G I`     | Acessar a Caixa de entrada    |
+| `G S`     | Vá para Com estrela           |
+| `G T`     | Vá para Enviados              |
+| `G D`     | Acessar Rascunhos             |
+| `G A`     | Ir para Arquivo               |
+| `Esc`     | Fechar tópico/limpar pesquisa |
+
+## Para desenvolvedores
+
+O restante deste documento é para qualquer pessoa que faça bifurcação do modelo Mail ou estenda-o.
+
+### Início rápido
+
+Crie um novo espaço de trabalho com o modelo Mail:
+
+```bash
+npx @agent-native/core@latest create my-mail --standalone --template mail
+cd my-mail
+pnpm install
+pnpm dev
+```
+
+Ou adicione o Mail a um espaço de trabalho nativo do agente existente:
+
+```bash
+npx @agent-native/core@latest add-app
+```
+
+Para conectar Gmail no desenvolvimento, você precisa de um cliente Google OAuth:
+
+1. Abra [Google Cloud Console](https://console.cloud.google.com/) e crie um projeto.
+2. Ative **Gmail API** em APIs e Serviços → Biblioteca.
+3. Crie credenciais OAuth 2.0 (tipo: aplicativo Web). Adicione `http://localhost:8085/_agent-native/google/callback` como um redirecionamento autorizado URI.
+4. Copie o ID do cliente e o segredo do cliente na página Configurações do aplicativo em execução e clique em **Conectar conta do Google**.
+
+Os tokens são armazenados na tabela `oauth_tokens` SQL e atualizados automaticamente. Você pode conectar várias contas Gmail assim que a primeira for configurada.
+
+### Principais recursos
+
+**Gmail de várias contas.** Conecte uma ou mais Contas do Google e liste, pesquise, rascunhe, envie, marque, arquive, marque com estrela ou lixeira nas caixas de entrada conectadas.
+
+**Fluxos de trabalho de rascunho.** Vários rascunhos de composição são sincronizados por meio do estado do aplicativo, e rascunhos SQL enfileirados permitem que colegas de equipe ou usuários Slack solicitem e-mails para o proprietário revisar e enviar.
+
+**Automações e rastreamento.** Regras de triagem em linguagem natural podem rotular, arquivar, marcar como lida, marcar com estrela, lixeira ou acionar manualmente; mensagens enviadas podem rastrear aberturas e cliques.
+
+**Pesquisa, actions em massa e visualizações.** Pesquisa avançada na caixa de entrada actions compartilhada, arquivamento/exportação em massa e visualizações de conversas in-line que o agente pode incorporar no bate-papo.
+
+### Como o agente vê seu contexto
+
+- **Visualização e thread atuais** — o UI grava `navigation` (view, threadId, focusEmailId, search, label) sempre que você navega. O agente lê via `readAppState("navigation")` ou `pnpm action view-screen`.
+- **Rascunho aberto** — se você estiver redigindo uma resposta e perguntar "ajude-me a escrever isso", o agente lê a entrada `compose-{id}` correspondente para ver seu assunto e corpo atuais e, em seguida, escreve um rascunho atualizado de volta. O UI capta a edição ao vivo.
+- **Histórico do thread** — para resposta intermediária do contexto, o agente busca o thread completo com `pnpm action get-thread --id=<threadId>`.
+
+### Como o agente age
+
+- **Operações de correio** — arquivar, lixeira, marcar com estrela, marcar como lida, enviar, rascunhar — todas executadas como scripts `pnpm action <name>` em `templates/mail/actions/`.
+- **Navegação** — para abrir um thread ou alternar visualizações para você, o agente grava `application_state.navigate`, que o UI consome e exclui. O script `pnpm action navigate` envolve isso.
+- **Atualizar** — após qualquer alteração, o agente executa `pnpm action refresh-list` para que o UI seja buscado novamente.
+
+### Modelo de dados
+
+Quando uma conta do Google está conectada, o e-mail fica em Gmail — o aplicativo é uma visualização superior. Quando nenhuma conta está conectada, os e-mails ficam no armazenamento de configurações SQL em `getSetting("local-emails")` (vazio por padrão).
+
+| Loja / Mesa                   | O que ele contém                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------ |
+| `getSetting("local-emails")`  | E-mail substituto local quando nenhuma conta do Google está conectada                |
+| `getSetting("labels")`        | Rótulos do sistema e do usuário, com contagens não lidas                             |
+| `getSetting("mail-settings")` | Perfil do usuário, preferências de rastreamento, assinatura, aliases                 |
+| `getSetting("aliases")`       | Alias de e-mail                                                                      |
+| Tabela `queued_email_drafts`  | Rascunhos solicitados por colegas de equipe aguardando análise/envio do proprietário |
+| Tabela `email_tracking`       | Eventos de pixel aberto para mensagens enviadas                                      |
+| Tabela `email_link_tracking`  | Eventos de clique em link para mensagens enviadas                                    |
+| Tabela `application_state`    | Entradas `navigation`, `navigate`, `compose-{id}` (efêmeras)                         |
+| Tabela `oauth_tokens`         | Tokens Google OAuth (provedor `"google"`, uma linha por conta)                       |
+
+Os e-mails que passam pelo API têm o formato `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`.
+
+```an-schema title="Enviar tabelas SQL" summary="O próprio e-mail reside em Gmail. As tabelas SQL contêm o que Gmail não contém: rascunhos em fila, eventos de rastreamento de envio e tokens OAuth. As configurações e o estado efêmero residem nas configurações e nos armazenamentos application_state."
+{
+  "entities": [
+    {
+      "id": "queued_email_drafts",
+      "name": "queued_email_drafts",
+      "note": "Rascunhos solicitados por colegas/Slack aguardando revisão do proprietário",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "assignedTo", "type": "string", "note": "org member who reviews/sends" },
+        { "name": "subject", "type": "string" },
+        { "name": "body", "type": "markdown" },
+        { "name": "status", "type": "enum", "note": "review at /draft-queue/<id>" }
+      ]
+    },
+    {
+      "id": "email_tracking",
+      "name": "email_tracking",
+      "note": "Eventos de pixel aberto para mensagens enviadas",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "messageId", "type": "string" },
+        { "name": "openedAt", "type": "datetime" }
+      ]
+    },
+    {
+      "id": "email_link_tracking",
+      "name": "email_link_tracking",
+      "note": "Eventos de clique em link para mensagens enviadas",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "messageId", "type": "string", "fk": "email_tracking.messageId" },
+        { "name": "url", "type": "string" },
+        { "name": "clickedAt", "type": "datetime" }
+      ]
+    },
+    {
+      "id": "oauth_tokens",
+      "name": "oauth_tokens",
+      "note": "Tabela de estrutura — uma linha por conta Google conectada",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "provider", "type": "string", "note": "\"google\"" },
+        { "name": "accountEmail", "type": "string" },
+        { "name": "accessToken", "type": "string" },
+        { "name": "refreshToken", "type": "string" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "email_tracking", "to": "email_link_tracking", "kind": "1-n", "label": "click events" }
+  ]
+}
+```
+
+Rotas no UI:
+
+- `/_index.tsx` — redireciona para a visualização padrão da caixa de entrada.
+- `/$view.tsx` — uma visualização de lista (`inbox`, `starred`, `sent`, `drafts`, `archive`, `trash`, etc.).
+- `/$view.$threadId.tsx` — uma visualização de lista com um tópico específico aberto.
+- `/email` — a visualização incorporada da conversa usada no bate-papo do agente.
+- `/settings` — conexões de conta, rastreamento, automações.
+- `/team` — membros da equipe e recursos compartilhados.
+
+### Personalizando
+
+O correio é seu para alterar. Tudo o que é importante reside em alguns lugares. Comece por aí.
+
+**Adicionando um recurso de agente.** Adicione um novo arquivo em `templates/mail/actions/` usando `defineAction`. Sua ação se torna uma ferramenta de agente, um comando CLI (`pnpm action <name>`) e uma superfície de gancho de frontend digitada por meio de `useActionQuery`/`useActionMutation`. Veja `templates/mail/actions/star-email.ts` para um pequeno exemplo ou `templates/mail/actions/manage-automations.ts` para um com vários sub-actions. Consulte a documentação do [actions](/docs/actions) para ver o padrão completo.
+
+**Alterando o UI.** As rotas estão em `templates/mail/app/routes/` e os componentes em `templates/mail/app/components/email/` e `templates/mail/app/components/layout/`. O aplicativo usa primitivos shadcn/ui de `app/components/ui/` e Tabler Icons – atenha-se a eles.
+
+**Mudando o comportamento do agente.** A orientação do agente reside em `templates/mail/AGENTS.md` e a skills em `templates/mail/.agents/skills/` (`email-drafts`, `real-time-sync`, `security`, `self-modifying-code` e outros). O comportamento do agente é alterado pela edição do markdown, não pelo código.
+
+**Alteração de dados ou configurações.** Os esquemas para as tabelas de rastreamento e estruturas relacionadas estão em `templates/mail/server/db/`. As leituras e gravações das configurações passam por `readSetting` / `writeSetting` de `@agent-native/core/settings`. O estado do aplicativo (navegação, rascunhos, comandos únicos) usa `readAppState` / `writeAppState` de `@agent-native/core/application-state`.
+
+**Adicionando um novo tipo de ação de automação.** Estenda o esquema de ação em `templates/mail/actions/manage-automations.ts` e o executor em `templates/mail/actions/trigger-automations.ts`.
+
+**Alteração de atalhos de teclado.** Manipuladores de atalhos de teclado ficam em `templates/mail/app/components/email/`. Pesquise `useHotkeys` ou `addEventListener("keydown"` para descobrir onde cada tecla está conectada.
+
+Peça ao agente para fazer qualquer uma dessas alterações para você. O agente pode editar sua própria fonte — consulte [Self-Modifying Code](/docs/key-concepts#agent-modifies-code).

@@ -1,0 +1,231 @@
+---
+title: "Benachrichtigungen"
+description: "In-App-Benachrichtigungen mit steckbaren Kanälen – Posteingang, Webhook oder benutzerdefiniert"
+---
+
+# Benachrichtigungen
+
+Eine Funktion, viele Ziele. Rufen Sie `notify()` von einem beliebigen serverseitigen Code aus auf – einer Aktion, einer Automatisierung, einem Plugin – und das Ereignis landet im In-App-Posteingang des Benutzers und wird an jeden registrierten Kanal weitergeleitet. Wird mit einer Bell-and-Dropdown-UI-Komponente geliefert, die die Host-Vorlage in ihren Header einfügt.
+
+Benachrichtigungen sind unidirektionale Benachrichtigungen an den Glockeneingang der App (plus Webhook-Fanout). Informationen zum _Unterhalten_ mit Ihrem Agenten über Slack/email/Telegram/WhatsApp finden Sie unter [Messaging](/docs/messaging).
+
+```ts
+import { notify } from "@agent-native/core/notifications";
+
+await notify(
+  { severity: "info", title: "Booking confirmed", body: "Jane at 3pm" },
+  { owner: "steve@builder.io" },
+);
+```
+
+```an-diagram title="Ein Anruf, viele Ziele" summary="notify() schreibt immer die inhaberbezogene Posteingangszeile, verteilt sie parallel an alle registrierten Kanäle (Best-Effort) und gibt dann notification.sent auf dem Ereignisbus aus."
+{
+  "html": "<div class=\"diagram-notify\"><div class=\"diagram-node\">notify(input, { owner })<br><small class=\"diagram-muted\">any server code &middot; action, automation, plugin</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel fan\" data-rough><div class=\"fan-row\"><span class=\"diagram-pill accent\">inbox</span><div class=\"diagram-box\" data-rough>notifications table &rarr; bell UI<br><small class=\"diagram-muted\">always on &middot; owner-scoped</small></div></div><div class=\"fan-row\"><span class=\"diagram-pill\">webhook</span><div class=\"diagram-box\" data-rough>POST JSON to NOTIFICATIONS_WEBHOOK_URL<br><small class=\"diagram-muted\">best-effort</small></div></div><div class=\"fan-row\"><span class=\"diagram-pill\">custom</span><div class=\"diagram-box\" data-rough>registerNotificationChannel(...)<br><small class=\"diagram-muted\">best-effort &middot; runs in parallel</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">notification.sent</span><small class=\"diagram-muted\">event bus &middot; automations can chain</small></div></div>",
+  "css": ".diagram-notify{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-notify .fan{display:flex;flex-direction:column;gap:10px;padding:14px}.diagram-notify .fan-row{display:flex;align-items:center;gap:10px}.diagram-notify .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-notify .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## Schweregrade {#severities}
+
+| Schweregrad | Verwenden für                                    |
+| ----------- | ------------------------------------------------ |
+| `info`      | Bestätigungen, Fortschrittsmeilensteine, FYI     |
+| `warning`   | Etwas, das sich der Benutzer bald ansehen sollte |
+| `critical`  | Benötigt sofortige Aufmerksamkeit                |
+
+Der Schweregrad steuert den Badge-Stil im Dropdown-Menü und wird an die Kanäle weitergeleitet, damit diese nach Dringlichkeit verzweigen können.
+
+## Eingebaute Kanäle {#channels}
+
+| Kanal     | Lieferung                                                      | Erfordert                                                            |
+| --------- | -------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `inbox`   | Bleibt in der `notifications`-Tabelle; treibt die Glocke an UI | Immer an – Teil des Grundelements.                                   |
+| `webhook` | POST JSON zu einem konfigurierten URL                          | `NOTIFICATIONS_WEBHOOK_URL` Umgebungsvariable beim Start festgelegt. |
+
+Der Webhook-Kanal löst `${keys.NAME}`-Referenzen sowohl im URL als auch im `NOTIFICATIONS_WEBHOOK_AUTH` anhand des Ad-hoc-[secrets](/docs/security) des Eigentümers auf, sodass der Rohwert niemals in den Kontext des Agenten gelangt. Es werden URL-Zulassungslisten pro Schlüssel erzwungen – dieselbe Regel, die das Automatisierungstool `web-request` verwendet.
+
+```an-diagram title="Kanäle und Schweregrad" summary="Der Posteingang ist immer aktiviert. Webhook benötigt eine Umgebungsvariable; Benutzerdefinierte Kanäle werden beim Start registriert. Der Schweregrad bestimmt die Gestaltung des Abzeichens und wird an alle Kanäle weitergegeben."
+{
+  "html": "<div class=\"diagram-channels\"><div class=\"diagram-panel col\" data-rough><strong>Channels</strong><div class=\"diagram-box\" data-rough>inbox<br><small class=\"diagram-muted\">always on &mdash; part of the primitive</small></div><div class=\"diagram-box\" data-rough>webhook<br><small class=\"diagram-muted\">needs NOTIFICATIONS_WEBHOOK_URL</small></div><div class=\"diagram-box\" data-rough>custom<br><small class=\"diagram-muted\">registerNotificationChannel()</small></div></div><div class=\"diagram-panel col\" data-rough><strong>Schweregrad steuert das Badge</strong><div class=\"sev-row\"><span class=\"diagram-pill\">info</span><span class=\"diagram-muted\">Bestätigungen, FYI</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">warning</span><span class=\"diagram-muted\">look at soon</span></div><div class=\"sev-row\"><span class=\"diagram-pill accent\">critical</span><span class=\"diagram-muted\">needs immediate attention</span></div></div></div>",
+  "css": ".diagram-channels{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}.diagram-channels .col{display:flex;flex-direction:column;gap:10px;padding:14px;min-width:240px}.diagram-channels .sev-row{display:flex;align-items:center;gap:10px}"
+}
+```
+
+## API {#api}
+
+### `notify(input, meta)` {#notify}
+
+Übermitteln Sie eine Benachrichtigung. Bleibt immer im Posteingang bestehen, sofern nicht ausdrücklich ausgeschlossen; Zusätzliche registrierte Kanäle laufen parallel, Best-Effort.
+
+```ts
+await notify(
+  {
+    severity: "critical",
+    title: "Database offline",
+    body: "Primary dropped connections",
+    metadata: { runbookUrl: "https://runbooks/db-offline" },
+    channels: ["inbox", "webhook"], // optional allowlist; omit to run all
+  },
+  { owner: "ops@company.com" },
+);
+```
+
+`meta.owner` ist erforderlich – legt den Umfang der Benachrichtigung so fest, dass nur dieser Benutzer sie in der Glocke sieht.
+
+### `registerNotificationChannel(channel)` {#register}
+
+Registrieren Sie einen benutzerdefinierten Kanal von einem beliebigen Server-Plugin.
+
+```ts
+import { registerNotificationChannel } from "@agent-native/core/notifications";
+
+registerNotificationChannel({
+  name: "slack-ops",
+  async deliver(input, meta) {
+    await fetch(process.env.OPS_SLACK_WEBHOOK!, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: `*${input.severity.toUpperCase()}* — ${input.title}\n${input.body ?? ""}`,
+        owner: meta.owner,
+      }),
+    });
+  },
+});
+```
+
+Kanalnamen sind eindeutig – bei einer erneuten Registrierung wird der vorherige Kanal ersetzt. `deliver()` ist Best-Effort; Durch das Auswerfen wird der Fehler protokolliert, andere Kanäle oder die Posteingangszeile werden jedoch nicht blockiert.
+
+### Auflisten und Lesen {#read}
+
+```ts
+import {
+  listNotifications,
+  countUnread,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotification,
+} from "@agent-native/core/notifications";
+
+const rows = await listNotifications("steve@builder.io", {
+  unreadOnly: true,
+  limit: 50,
+});
+const unread = await countUnread("steve@builder.io");
+await markNotificationRead(rows[0].id, "steve@builder.io");
+await markAllNotificationsRead("steve@builder.io");
+await deleteNotification(rows[0].id, "steve@builder.io");
+```
+
+Jede Funktion unterliegt dem Eigentümerbereich – keine benutzerübergreifenden Lesevorgänge und keine benutzerübergreifenden Schreibvorgänge.
+
+## Die NotificationChannel-Schnittstelle {#channel-interface}
+
+```ts
+interface NotificationChannel {
+  name: string;
+  deliver(
+    input: NotificationInput,
+    meta: NotificationMeta,
+  ): void | Promise<void>;
+}
+
+interface NotificationInput {
+  severity: "info" | "warning" | "critical";
+  title: string;
+  body?: string;
+  metadata?: Record<string, unknown>;
+  channels?: string[];
+}
+
+interface NotificationMeta {
+  owner: string;
+}
+```
+
+## HTTP API {#http}
+
+Wird durch das Core-Routes-Plugin bei `/_agent-native/notifications/*` gemountet. Alle Routen beziehen sich auf die E-Mail-Adresse der authentifizierten Sitzung.
+
+| Methode  | Pfad                                                |
+| -------- | --------------------------------------------------- |
+| `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
+| `GET`    | `/_agent-native/notifications/count`                |
+| `POST`   | `/_agent-native/notifications/:id/read`             |
+| `POST`   | `/_agent-native/notifications/read-all`             |
+| `DELETE` | `/_agent-native/notifications/:id`                  |
+
+```an-api title="Benachrichtigungen auflisten" summary="The route behind listNotifications() — scoped to the authenticated session's email."
+{
+  "method": "GET",
+  "path": "/_agent-native/notifications?unread=true&limit=50",
+  "summary": "Letzte Benachrichtigungen für den aktuellen Benutzer auflisten",
+  "auth": "Authenticated session; results are scoped to the session's email.",
+  "params": [
+    { "name": "unread", "in": "query", "type": "boolean", "required": false, "description": "When true, returns only unread notifications." },
+    { "name": "limit", "in": "query", "type": "number", "required": false, "description": "Max rows to return." }
+  ],
+  "responses": [
+    { "status": "200", "description": "Owner-scoped notification rows, newest first." }
+  ]
+}
+```
+
+## UI-Komponente {#ui}
+
+```tsx
+import { NotificationsBell } from "@agent-native/core/client/notifications";
+
+export function HeaderBar() {
+  return (
+    <header className="flex items-center gap-2">
+      {/* … */}
+      <NotificationsBell browserNotifications />
+    </header>
+  );
+}
+```
+
+Glockensymbol mit ungelesenem Abzeichen. Durch Klicken auf wird ein Dropdown-Menü mit den letzten Benachrichtigungen geöffnet. Verwendet semantische Shadcn-Token und passt sich dem Hell-/Dunkel-Thema der Host-Vorlage an.
+
+Übergeben Sie `browserNotifications`, um auch System-Popups `new Notification(...)` für jedes neue ungelesene Element auszulösen – nützlich, wenn sich die Registerkarte des Benutzers im Hintergrund befindet. Das Dropdown-Menü gibt eine „Aktivieren“-Eingabeaufforderung aus, bis der Benutzer die Berechtigung erteilt. Duplikate werden pro ID über das Feld „Benachrichtigung `tag`“ verhindert.
+
+## Agent-Tools {#agent-tools}
+
+In jeder Vorlage ist ein einzelnes `manage-notifications`-Tool registriert. Der Parameter `action` wählt die Operation aus:
+
+| Aktion | Parameter                                                                             | Zweck                                                                                          |
+| ------ | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `send` | `severity` (erforderlich), `title` (erforderlich), `body`, `metadataJson`, `channels` | Senden Sie eine Benachrichtigung an den Posteingang und die registrierten Kanäle des Benutzers |
+| `list` | `unreadOnly`, `limit` (maximal 200, Standard 20)                                      | Letzte Benachrichtigungen für den Kontext auflisten                                            |
+
+Automatisierungen (siehe [Automations](/docs/automations)) können `manage-notifications` mit `action=send` in ihrem Körper aufrufen – dies ist das kanonische Muster, um ein externes Ereignis in eine für den Benutzer sichtbare Warnung umzuwandeln.
+
+## Ereignisbus {#event-bus}
+
+Jede erfolgreiche Lieferung gibt `notification.sent` auf dem [event bus](/docs/automations#event-bus) aus:
+
+```json
+{
+  "notificationId": "n-123",
+  "severity": "critical",
+  "title": "DB offline",
+  "body": "Primary dropped connections",
+  "deliveredChannels": ["inbox", "webhook"]
+}
+```
+
+Automatisierungen können dies verketten – z.B. _"Wenn eine kritische Benachrichtigung ausgelöst wird, rufen Sie auch den Bereitschaftsdienst an."_
+
+## Wie es funktioniert {#internals}
+
+- **Owner Scoping** – jede Zeile hat eine `owner`-Spalte; jede Abfrage filtert danach; Jede Route verwendet die E-Mail-Adresse der authentifizierten Sitzung. Benutzer sehen nie die Benachrichtigungen der anderen.
+- **Umfrageintegration** – jede Mutation ruft `recordChange()` auf, sodass Vorlagen, die [`useDbSync`](/docs/client) verwenden, ohne zusätzliche Verkabelung automatisch ungültig werden.
+- **Best-Effort-Fanout** – Kanalfehler werden abgefangen und protokolliert; Ein ausgefallener Kanal blockiert nicht andere oder das Schreiben in den Posteingang.
+- **Fire-and-Forget** – `notify()` kehrt zurück, nachdem der Posteingangsschreibvorgang abgeschlossen ist; Benutzerdefinierte Kanäle werden im Hintergrund ausgeführt.
+
+## Was kommt als nächstes
+
+- [**Automations**](/docs/automations) – der häufigste Aufrufer von `notify()`
+- [**Security**](/docs/security) – der `${keys.NAME}`-Ersatz, der den Webhook-Kanal betreibt
+- [**Server plugins**](/docs/server) – wo benutzerdefinierte Kanäle beim Start registriert werden

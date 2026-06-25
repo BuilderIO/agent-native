@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { SIDEBAR_OPEN_KEY } from "./agent-sidebar-state.js";
 import {
   AGENT_CHAT_HOME_HANDOFF_TTL_MS,
   AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT,
@@ -12,7 +14,6 @@ import {
   supportsAgentChatViewTransition,
   type AgentChatViewTransition,
 } from "./chat-view-transition.js";
-import { SIDEBAR_OPEN_KEY } from "./agent-sidebar-state.js";
 
 function fakeTransition(): AgentChatViewTransition {
   return {
@@ -136,7 +137,7 @@ describe("chat view-transition helpers", () => {
   it("marks and consumes a namespaced chat-home handoff once", () => {
     markAgentChatHomeHandoff("forms");
 
-    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBeNull();
     expect(consumeAgentChatHomeHandoff("forms")).toBe(true);
     expect(consumeAgentChatHomeHandoff("forms")).toBe(false);
   });

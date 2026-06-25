@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 /**
  * Server-side Sentry initialization for Nitro.
  *
@@ -17,9 +21,7 @@
  * requirement.
  */
 import * as Sentry from "@sentry/node";
-import path from "node:path";
-import fs from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import type { AuthSession } from "./auth.js";
 import {
   resolveSentryEnvironment,

@@ -1,6 +1,6 @@
+import { IconFile, IconFolder } from "@tabler/icons-react";
 import { mergeAttributes, Node } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
-import { IconFile, IconFolder } from "@tabler/icons-react";
 
 const FileReferenceComponent = ({ node }: { node: any }) => {
   const isFolder = node.attrs.path?.endsWith("/");

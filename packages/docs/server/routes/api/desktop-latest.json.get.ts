@@ -1,4 +1,5 @@
 import { defineEventHandler, setResponseHeaders, setResponseStatus } from "h3";
+
 import {
   DESKTOP_RELEASE_CACHE_CONTROL,
   type DesktopDownloadManifest,

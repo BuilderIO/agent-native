@@ -11,6 +11,7 @@ import {
   type ProviderApiResolvedCredential,
 } from "@agent-native/core/provider-api";
 import { getCredentialContext } from "@agent-native/core/server";
+
 import { getHubSpotApiKey } from "./hubspot.js";
 
 export const MAIL_APP_ID = "mail";

@@ -1,0 +1,680 @@
+---
+title: "Collaboration en temps réel"
+description: "Édition collaborative multi-utilisateurs où l'agent IA est un homologue de premier ordre : fusion CRDT, présence en direct, chemin rapide SSE et fusion granulaire côté serveur, sur n'importe quelle base de données SQL et n'importe quel hôte."
+---
+
+# Collaboration en temps réel
+
+Imaginez ouvrir un document et voir le curseur d'un pair défiler jusqu'à un paragraphe,
+puis le texte se réécrit — chirurgicalement, sans perdre sa place. Cela
+un pair peut être un coéquipier. C'est peut-être l'agent. Depuis le framework
+du point de vue, ils sont identiques : les deux produisent des opérations Yjs qui fusionnent
+sans conflit dans le document partagé. C'est la clé de voûte du
+modèle de collaboration agent-natif.
+
+## Vision {#vision}
+
+Modifier aux côtés de l'agent, c'est comme travailler dans Google Docs ou Figma avec
+un collègue à la fois instantané et infatigable :
+
+Si vous avez simplement besoin d'actualiser le UI lorsque l'agent ou un autre utilisateur écrit sur SQL, vous n'avez pas besoin de tout cela : utilisez [`useDbSync`](/docs/client). Cette page est destinée à la co-édition au niveau des caractères d'un seul document en texte enrichi (curseurs partagés, fusion sans conflit). Les deux utilisent le même canal `/_agent-native/poll`.
+
+Ceci s'appuie sur trois technologies éprouvées : **Yjs** (CRDT pour une fusion sans conflit), **TipTap** (éditeur de texte enrichi) et **synchronisation basée sur des sondages** (fonctionne dans tous les environnements de déploiement, y compris sans serveur et en périphérie).
+
+- **Fusion CRDT** : les modifications simultanées des humains et des agents fusionnent sans
+  conflits. Vous tapez un paragraphe ; l'agent en réécrit un autre ; les deux
+  atterrir proprement.
+- **Présence** — Un `PresenceBar` indique qui se trouve actuellement dans le document,
+  incluant un indicateur de présence d'agent lorsque l'agent est en train de modifier activement.
+- **L'agent en tant qu'éditeur homologue** – Les modifications de l'agent passent par le même Yjs
+  infrastructure sous forme de modifications humaines. Ils apparaissent en direct, sans perturber le curseur
+  positions, sélections ou pile d'annulation.
+- **Fonctionne partout** – Toute base de données SQL prise en charge par Drizzle (SQLite, Postgres).
+  Toute cible d'hébergement prise en charge par Nitro, y compris sans serveur et Edge.
+
+## Architecture {#architecture}
+
+Le système de collaboration comporte cinq couches imbriquées.
+
+```an-diagram title="Cinq couches imbriquées" summary="Du CRDT en mémoire au transport qui transporte les mises à jour entre les pairs, chaque couche a une tâche."
+{
+  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; fusion sans conflit, sans coordinateur</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; Contenu canonique SQL</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; réconciliation contrôlée par updatedAt</span><small class=\"diagram-muted\">les modifications de l’agent se propagent via le bump SQL</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; Élection du client leader</span><small class=\"diagram-muted\">un seul onglet applique l’instantané</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; chemin rapide SSE + polling</span><small class=\"diagram-muted\">~quelques dizaines de ms, retombe sur un polling de 2 s partout</small></div></div>",
+  "css": ".diagram-stack{display:flex;flex-direction:column;gap:8px}.diagram-stack .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
+}
+```
+
+### 1. Yjs Y.Doc (couche CRDT)
+
+Chaque document collaboratif est un `Y.Doc` contenant des types partagés (généralement un
+`Y.XmlFragment` pour le texte enrichi (l'arborescence de nœuds ProseMirror que TipTap lit) ou
+`Y.Map` / `Y.Array` pour les données structurées JSON. Yjs fusionne les mises à jour simultanées
+sans coordinateur central ; deux clients qui échangent leur portée d'état
+le même résultat quel que soit l'ordre.
+
+### 2. Contenu canonique SQL (source de vérité durable)
+
+L'état Yjs est conservé dans une table `_collab_docs` en tant que binaire codé en base64.
+La table est gérée par le framework et indépendante du fournisseur (utilisation de SQLite et Postgres
+schémas identiques). Chaque ligne comporte une colonne de version à concurrence optimiste
+pour empêcher les courses d'écriture simultanées. Le compactage de Tombstone s'effectue de manière opportuniste
+Lorsque le blob stocké dépasse 4 fois l'état fraîchement codé – pas de tâche en arrière-plan
+obligatoire.
+
+### 3. Réconciliation contrôlée par `updatedAt` (propagation de modification par agent)
+
+L'agent actions n'est pas transféré dans Yjs en cours. Au lieu de cela, l'action modifie le
+colonne de contenu canonique SQL et bosses `updatedAt`. Le système de synchronisation des modifications
+détecte le problème, l'éditeur ouvert récupère l'enregistrement et le client principal
+applique le nouveau contenu dans le Y.Doc partagé via `setContent`. Un `updatedAt`
+gate garantit que seul le contenu véritablement plus récent est adopté – retard dans les réponses aux sondages
+impossible d'annuler la modification.
+
+### 4. Choix du client principal (déduplication)
+
+Lorsque plusieurs onglets sont ouverts, un seul applique un instantané SQL faisant autorité
+dans le fichier Y.Doc. partagé. Le lead est l'onglet avec le Yjs `clientID` le plus bas
+parmi les pairs actuellement visibles. L'entrée de sensibilisation de l'agent utilise
+`AGENT_CLIENT_ID` (max int) donc il ne peut jamais être le leader. Un client qui édite
+seul est toujours en tête. L'élection est déterministe et sans coordination
+aller-retour (`isReconcileLeadClient` depuis `@agent-native/core/client`).
+
+### 5. Accès rapide SSE + secours d'interrogation (transport)
+
+Les événements de mise à jour de collaboration suivent deux chemins :
+
+- **SSE fast-path** — Le client s'abonne à `/_agent-native/poll-events`
+  (le même `EventSource` utilisé par `useDbSync`). Les événements de mise à jour de la collaboration arrivent
+  de type push, généralement en dizaines de millisecondes. Bien que SSE soit en bonne santé,
+  la boucle d'interrogation se détend à une cadence lente (~ 12 s par défaut).
+- **Sondageing fallback** — `/_agent-native/poll?since=N` est interrogé toutes les 2 s
+  lorsque SSE n'est pas disponible. Cela permet à la collaboration de fonctionner sur n'importe quel déploiement
+  cible — y compris les fonctions sans serveur où se trouvent les connexions persistantes
+  des invocations impossibles et différentes peuvent gérer différentes requêtes.
+
+Les mises à jour Yjs locales sont anti-rebondies et fusionnées avec `Y.mergeUpdates` (~ 80 ms)
+avant d'être envoyé au serveur, réduisant ainsi le trafic réseau au niveau des frappes.
+Le lot est vidé immédiatement sur `visibilitychange` ou `pagehide`. Un
+le diff de vecteur d'état (`GET /:docId/state?stateVector=…`) est récupéré uniquement sur
+reconnexion, dépassement de tampon en anneau ou tous les 15 cycles d'interrogation – pas tous les
+cycle.
+
+Les erreurs réseau utilisent un intervalle exponentiel avec gigue, plafonné à environ 15 s.
+
+```an-diagram title="Deux chemins d'édition, un de fusion" summary="Les frappes humaines circulent Y.Doc → serveur → SSE. Les modifications de l'agent passent par SQL : l'action est déplacée vers updateAt, le client principal se réconcilie, puis la modification entre à nouveau dans Yjs."
+{
+  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">Modification humaine</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce ~80 ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">Modification agent</span><div class=\"diagram-node\">L’action écrit SQL<br><small class=\"diagram-muted\">met à jour updatedAt</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>Client principal<br><small class=\"diagram-muted\">setContent dans Y.Doc</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
+  "css": ".diagram-collab{display:flex;flex-direction:column;gap:14px}.diagram-collab .lane{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-collab .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## Démarrage rapide {#quickstart}
+
+### 1. Installer les packages
+
+```bash
+pnpm add @tiptap/extension-collaboration @tiptap/extension-collaboration-caret @tiptap/y-tiptap @tiptap/core
+```
+
+### 2. Ajouter Vite optimiserDeps
+
+Empêche Vite de regrouper TipTap de manière incompatible pendant le développement :
+
+```ts
+// vite.config.ts
+import { reactRouter } from "@react-router/dev/vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [reactRouter(), agentNative()],
+  optimizeDeps: {
+    include: [
+      "yjs",
+      "y-protocols/awareness",
+      "@tiptap/core",
+      "@tiptap/extension-collaboration",
+      "@tiptap/extension-collaboration-caret",
+      "@tiptap/y-tiptap",
+    ],
+  },
+});
+```
+
+### 3. Ajouter le plugin du serveur de collaboration
+
+Toujours définir `resourceType` sur le nom de la ressource partageable enregistrée
+via `registerShareableResource`. Sans cela, les événements push de collaboration sont diffusés
+à tous les utilisateurs authentifiés sans portée au niveau du document et au serveur
+enregistre un avertissement unique.
+
+```ts
+// server/plugins/collab.ts
+import { createCollabPlugin } from "@agent-native/core/server";
+
+export default createCollabPlugin({
+  table: "documents",
+  contentColumn: "content",
+  idColumn: "id",
+  resourceType: "document", // required for access-scoped event delivery
+});
+```
+
+### 4. Utilisez le hook client
+
+```ts
+import {
+  useCollaborativeDoc,
+  emailToColor,
+  emailToName,
+} from "@agent-native/core/client";
+
+const TAB_ID = generateTabId(); // or Math.random().toString(36)
+
+const { ydoc, awareness, isLoading, activeUsers, agentActive, agentPresent } =
+  useCollaborativeDoc({
+    docId: documentId,
+    requestSource: TAB_ID,
+    user: {
+      name: emailToName(session.email),
+      email: session.email,
+      color: emailToColor(session.email),
+    },
+  });
+```
+
+### 5. Ajoutez des extensions TipTap
+
+```ts
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+
+const editor = useEditor({
+  extensions: [
+    StarterKit.configure({ history: false }), // Yjs owns undo
+    Collaboration.configure({ document: ydoc }),
+    CollaborationCaret.configure({
+      provider: { awareness },
+      user: { name, color },
+    }),
+  ],
+  // Do NOT pass content here — Yjs owns the content
+});
+```
+
+### 6. Seed lors du premier chargement (si le contenu existe)
+
+L'extension Collaboration ne s'amorce pas automatiquement à partir d'un accessoire `content`. Si le
+Y.Doc est vide et le document a du contenu existant, initialisez-le :
+
+```ts
+useEffect(() => {
+  if (!ydoc || !editor || !isLoaded) return;
+  const fragment = ydoc.getXmlFragment("default");
+  if (fragment.length === 0 && initialContent) {
+    editor.commands.setContent(initialContent);
+  }
+}, [ydoc, editor, isLoaded]);
+```
+
+L'identité de l'utilisateur est dérivée de l'e-mail de session. Le framework fournit les assistants `emailToColor()` et `emailToName()` pour générer des couleurs de curseur et des noms d'affichage cohérents à partir des adresses e-mail.
+
+## Commentaires {#comments}
+
+Les modèles peuvent ajouter un système de commentaires avec des discussions en fil de discussion sur les documents. Le système de commentaires du modèle de contenu comprend une implémentation complète avec :
+
+- Tableau `document_comments` SQL (threads, réponses, statut résolu)
+- Les routes REST du modèle de contenu pour la mise à jour/suppression à `/api/comments/:id` ; créer et lister l'exécution via le `add-comment` / `list-comments` actions. Les modèles personnalisés implémentent leurs propres points de terminaison équivalents sur la route principale `POST /_agent-native/collab/:docId/search-replace`.
+- Barre latérale des commentaires avec vue en fil de discussion et réponse UI
+- Résoudre/annuler la résolution des threads
+- Bouton **Envoyer à AI** : envoie le contexte du fil de commentaires au chat de l'agent via `sendToAgentChat()`
+- Action d’agents : `list-comments`, `add-comment`
+- Synchronisation des commentaires Notion : action `sync-notion-comments` pour tirer/pousser bidirectionnel
+
+## Itinéraires de collaboration {#collab-routes}
+
+Toutes les routes de collaboration sont montées automatiquement sous `/_agent-native/collab/` par le plugin de collaboration :
+
+| Itinéraire                    | Objectif                                                               |
+| ----------------------------- | ---------------------------------------------------------------------- |
+| `GET /:docId/state`           | Récupérer l'état complet de Y.Doc (base64)                             |
+| `POST /:docId/update`         | Appliquer la mise à jour Yjs du client                                 |
+| `POST /:docId/text`           | Appliquer le remplacement du texte intégral (basé sur les différences) |
+| `POST /:docId/search-replace` | Recherche/remplacement chirurgical dans Y.XmlFragment                  |
+| `POST /:docId/awareness`      | Synchroniser le curseur/l'état de présence                             |
+| `GET /:docId/users`           | Liste des utilisateurs actifs sur un document                          |
+
+## Action de modification de l'agent {#edit-document}
+
+L'action `edit-document` du modèle de contenu est le principal moyen utilisé par les agents pour apporter des modifications aux documents en mode collaboratif :
+
+```bash
+# Modification unique
+pnpm action edit-document --id doc123 --find "old text" --replace "new text"
+
+# Modifications par lots
+pnpm action edit-document --id doc123 --edits '[{"find":"old","replace":"new"}]'
+
+# Supprimer le texte
+pnpm action edit-document --id doc123 --find "delete me" --replace ""
+```
+
+---
+
+## Kit de Présence {#presence-kit}
+
+Le kit de présence fournit des primitives de curseur et de sélection Liveblocks/Figma-grade au-dessus de la couche de sensibilisation existante.
+
+Importer la présence côté client et l'éditeur UI à partir du sous-chemin du navigateur ciblé :
+
+```ts
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+  useCollaborativeDoc,
+  usePresence,
+} from "@agent-native/core/client/collab";
+```
+
+Les assistants de présence d'agent côté serveur restent dans le package de collaboration de niveau inférieur :
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+```
+
+### Public API {#presence-public-api}
+
+| API                                                 | Objectif                                                                                                                                                                                                    |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `useCollaborativeDoc(options)`                      | Crée l'instance stable `Y.Doc` et de sensibilisation, gère la synchronisation état-vecteur, le chemin rapide SSE, le repli d'interrogation, les utilisateurs actifs et les indicateurs de présence d'agent. |
+| `usePresence(awareness, localClientId)`             | Dérive les participants distants et publie des champs de sensibilisation locale arbitraires tels que le curseur, la sélection, la fenêtre d'affichage ou le mode outil.                                     |
+| `<PresenceBar>`                                     | Rend les collaborateurs actifs ainsi que l'agent IA, avec câblage en mode suivi par clic d'avatar en option.                                                                                                |
+| `<LiveCursorOverlay>`                               | Rend les étiquettes du curseur distant sur un conteneur positionné à partir des coordonnées 0-1 normalisées.                                                                                                |
+| `<RemoteSelectionRings>`                            | Rend les anneaux et les étiquettes colorés autour des éléments DOM sélectionnés résolus par votre application.                                                                                              |
+| `useFollowUser(options)`                            | Appelle un rappel lorsque le participant suivi publie des modifications dans la fenêtre d'affichage.                                                                                                        |
+| `toNormalized()` / `fromNormalized()`               | Convertir les coordonnées du pointeur vers/à partir des coordonnées normalisées du conteneur.                                                                                                               |
+| `dedupeCollabUsersByEmail()`                        | Créez des piles d'avatars personnalisées sans qu'un seul utilisateur ne s'affiche une fois par onglet ouvert.                                                                                               |
+| `useCollaborativeMap()` / `useCollaborativeArray()` | Hooks client pour la collaboration structurée Y.Map/Y.Array. Traitez comme un niveau inférieur jusqu'à ce qu'un modèle prouve le modèle exact du produit.                                                   |
+
+`UseCollaborativeDocOptions`:
+
+| Option                | Description                                                                                                |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `docId`               | ID du document ou `null` pour désactiver le hook.                                                          |
+| `pollInterval`        | Intervalle d'interrogation lorsque SSE n'est pas disponible. Par défaut : `2000`.                          |
+| `pollIntervalWithSse` | Intervalle d'interrogation lent alors que SSE est sain. Par défaut : `12000`.                              |
+| `pauseWhenHidden`     | Suspendre l'interrogation de mise à jour/présence à distance lorsqu'elle est masquée. Par défaut : `true`. |
+| `baseUrl`             | Préfixe du point de terminaison de la collaboration. Par défaut : `/_agent-native/collab`.                 |
+| `requestSource`       | Identifiant d'onglet/source stable utilisé pour ignorer le bruit d'actualisation d'origine personnelle.    |
+| `user`                | `{ name, email, color }` affiché dans le curseur et présence UI.                                           |
+
+`UseCollaborativeDocResult`:
+
+| Champ          | Description                                                                           |
+| -------------- | ------------------------------------------------------------------------------------- |
+| `ydoc`         | `Y.Doc` stable pour le `docId` actuel.                                                |
+| `awareness`    | Instance Yjs Awareness utilisée par les curseurs, les sélections et le mode de suivi. |
+| `isLoading`    | L'état initial du serveur est toujours en cours de chargement.                        |
+| `isSynced`     | Le hook a rattrapé l'état du serveur.                                                 |
+| `activeUsers`  | Collaborateurs humains de la conscience.                                              |
+| `agentActive`  | L'agent est en train de modifier activement en ce moment.                             |
+| `agentPresent` | L'agent dispose d'une entrée de sensibilisation pour ce document.                     |
+
+### Conscience rapide {#fast-awareness}
+
+Les changements d'état de sensibilisation se propagent désormais à environ 150 ms au lieu du cycle d'interrogation de 2 s :
+
+- **Client → serveur** : tout appel à `setPresence()` ou `awareness.setLocalStateField()` déclenche un POST limité vers `/_agent-native/collab/:docId/awareness` dans un délai de 150 ms, fusionnant les changements rapides en une seule requête.
+- **Serveur → clients** : le gestionnaire `postAwareness` émet un `AWARENESS_CHANGE_EVENT` après stockage. Le flux `/_agent-native/poll-events` SSE transmet ces événements de manière push aux homologues connectés. Les déploiements d'interrogation uniquement continuent de fonctionner : les curseurs se dégradent selon la cadence d'interrogation sans erreur.
+
+### `usePresence(awareness, localClientId)` {#use-presence}
+
+Renvoie une liste réactive des participants distants et un paramètre pour la charge utile de présence locale :
+
+```ts
+import { usePresence } from "@agent-native/core/client";
+
+const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
+
+// Publish cursor position (normalized 0–1)
+setPresence({ cursor: { x: 0.4, y: 0.7 }, selection: "#hero" });
+
+// others: OtherPresence[]
+// {
+//   clientId: number
+//   user: { name, email, color }
+//   presence: { cursor?, selection?, viewport?, ... }
+//   isAgent: boolean   ← true for AGENT_CLIENT_ID
+// }
+```
+
+L'agent (AGENT_CLIENT_ID) apparaît comme un participant de première classe avec `isAgent: true`. Lorsque `agentUpdateSelection()` est appelé côté serveur, ses métadonnées de sélection transitent par `usePresence` comme n'importe quel autre participant.
+
+### `LiveCursorOverlay` {#live-cursor-overlay}
+
+Rend les curseurs distants sous forme d'étiquettes positionnées de manière absolue sur un élément conteneur :
+
+```tsx
+import { LiveCursorOverlay } from "@agent-native/core/client";
+
+// cursor positions stored as { x, y } normalized 0–1 under presence.cursor
+<div ref={containerRef} style={{ position: "relative" }}>
+  {content}
+  <LiveCursorOverlay
+    others={others} // from usePresence
+    containerRef={containerRef}
+    cursorKey="cursor" // key in presence payload (default: "cursor")
+  />
+</div>;
+```
+
+Le curseur de l'agent s'affiche distinctement avec une icône scintillante. Les curseurs disparaissent après 10 s d'inactivité avec des transitions CSS fluides à 120 ms.
+
+### `RemoteSelectionRings` {#remote-selection-rings}
+
+Rend les anneaux de contour colorés + les balises de nom sur les éléments sélectionnés à distance :
+
+```tsx
+import { RemoteSelectionRings } from "@agent-native/core/client";
+
+<div ref={containerRef} style={{ position: "relative" }}>
+  {content}
+  <RemoteSelectionRings
+    others={others}
+    selectionKey="selection" // key in presence payload (default: "selection")
+    resolveRect={(descriptor) =>
+      document.querySelector(descriptor)?.getBoundingClientRect() ?? null
+    }
+    containerRef={containerRef}
+  />
+</div>;
+```
+
+### `useFollowUser` {#follow-user}
+
+Appelez un rappel chaque fois que la fenêtre d'affichage du participant suivi change :
+
+```ts
+import { useFollowUser } from "@agent-native/core/client";
+
+const { isFollowing, stopFollowing } = useFollowUser({
+  others,
+  followingId, // null to stop following
+  viewportKey: "viewport",
+  onViewport: (vp) => {
+    if (vp.fileId) setActiveFileId(vp.fileId);
+    if (vp.zoom) setZoom(vp.zoom);
+  },
+});
+```
+
+Les participants publient leur fenêtre avec `setPresence({ viewport: { fileId, zoom } })`.
+
+### Accessoires du mode suivi `PresenceBar` {#presence-bar-follow}
+
+Le composant `PresenceBar` accepte désormais les accessoires facultatifs du mode de suivi :
+
+```tsx
+<PresenceBar
+  activeUsers={activeUsers}
+  agentActive={agentActive}
+  onAvatarClick={(user) => {
+    // user is null for the agent avatar
+    const email = user?.email ?? "agent@system";
+    setFollowing((prev) => (prev === email ? null : email));
+  }}
+  followingEmail={followingEmail} // highlighted avatar + "Following X" chip
+/>
+```
+
+### Assistants de coordonnées normalisés {#norm-coords}
+
+```ts
+import { toNormalized, fromNormalized } from "@agent-native/core/client";
+
+// In a pointer event handler:
+const norm = toNormalized(
+  e.clientX,
+  e.clientY,
+  container.getBoundingClientRect(),
+);
+setPresence({ cursor: norm });
+
+// In a cursor renderer:
+const px = fromNormalized(norm, container.getBoundingClientRect());
+```
+
+### Plomberie du curseur d'agent {#agent-cursor}
+
+actions côté serveur appelle `agentUpdateSelection()` pour publier l'endroit où l'agent travaille. Les modèles de conception `edit-design` et `generate-design` actions appellent cela automatiquement. D'autres modèles peuvent faire de même :
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+
+agentEnterDocument(docId);
+agentUpdateSelection(docId, {
+  selection: "#target-element",
+  editingFile: "index.html",
+});
+try {
+  // ... perform edits ...
+} finally {
+  agentLeaveDocument(docId);
+}
+```
+
+Les métadonnées de sélection transitent par `usePresence` sur les clients connectés en tant que `other.presence.selection`.
+
+---
+
+## Table de routage {#routes}
+
+Toutes les routes sont montées automatiquement sous `/_agent-native/collab/` par la collaboration
+plug-in :
+
+| Itinéraire                    | Objectif                                                                           |
+| ----------------------------- | ---------------------------------------------------------------------------------- |
+| `GET /:docId/state`           | État Y.Doc complet (base64). Accepte `?stateVector=` pour la différence            |
+| `POST /:docId/update`         | Appliquer la mise à jour Yjs du client (base64). Max 2 Mo par défaut               |
+| `POST /:docId/text`           | Appliquer le remplacement du texte intégral (basé sur les différences)             |
+| `POST /:docId/search-replace` | Recherche/remplacement chirurgical dans Y.XmlFragment                              |
+| `POST /:docId/json`           | Appliquer la différence JSON complète à Y.Map/Y.Array                              |
+| `GET /:docId/json`            | Lire l'état actuel du JSON                                                         |
+| `POST /:docId/patch`          | Appliquer des opérations de patch chirurgical JSON (insérer/supprimer/réorganiser) |
+| `POST /:docId/awareness`      | Synchroniser le curseur/l'état de présence                                         |
+| `GET /:docId/users`           | Liste des utilisateurs actifs sur un document                                      |
+
+## Transport et performances {#transport}
+
+| Propriété                                   | Valeur                                                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Mise à jour anti-rebond                     | ~80 ms (fusionne les frappes rapides via `Y.mergeUpdates`)                                        |
+| Intervalle d'interrogation (pas de SSE)     | 2 s (configurable via `pollInterval`)                                                             |
+| Intervalle d'interrogation (SSE sain)       | ~12 s (configurable via `pollIntervalWithSse`)                                                    |
+| Fréquence de récupération du vecteur d'état | Lors de la reconnexion, de l'espacement du tampon en anneau ou tous les 15 cycles d'interrogation |
+| Retour en cas d'erreur                      | Exponentielle avec gigue, plafond ~15 s                                                           |
+| Charge utile maximale (écritures)           | 2 Mo par défaut, configurable via `maxPayloadBytes`                                               |
+| Seuil de compactage                         | Blob stocké > 4 fois un nouvel encodage déclenche un compactage de pierre tombale                 |
+| Lectures de base de données par écriture    | 1 (version CAS lue dans `persistMergedState` uniquement)                                          |
+
+## Sécurité {#security}
+
+### Toujours définir `resourceType`
+
+```ts
+createCollabPlugin({
+  resourceType: "document", // the name passed to registerShareableResource
+});
+```
+
+Sans `resourceType`, le plugin enregistre un avertissement et diffuse une collaboration push
+événements à tous les utilisateurs authentifiés sur le déploiement sans niveau de document
+cadrage. Les non-propriétaires se rabattent sur le rattrapage du vecteur d'état (sûr mais plus élevé
+latence), que `resourceType` soit défini ou non.
+
+### Contrôles d'accès
+
+Toutes les routes de collaboration nécessitent une authentification. Lorsque `resourceType` est défini, lit
+exigent au moins un accès de spectateur et les écritures nécessitent un accès d'éditeur, en utilisant
+mêmes assistants `resolveAccess` / `assertAccess` que le système de partage. Un 404
+(et non 403) est renvoyé en cas d'échec d'accès pour éviter toute fuite de l'existence du document.
+
+### Limites de charge utile
+
+Rejet des itinéraires d'écriture (`update`, `text`, `json`, `patch`, `search-replace`)
+charges utiles dépassant la limite configurée avec HTTP 413. La valeur par défaut est de 2 Mo.
+Remplacement par plugin :
+
+```ts
+createCollabPlugin({
+  resourceType: "document",
+  maxPayloadBytes: 512 * 1024, // 512 KB
+});
+```
+
+### Couverture de la sensibilisation
+
+Les routes de sensibilisation (`POST /awareness`, `GET /users`) sont fermées par les mêmes
+vérification de l'accès lors de la lecture : un utilisateur qui n'a pas accès au lecteur ne peut pas savoir qui d'autre
+modifie un document.
+
+## Modèles {#patterns}
+
+### Fusion granulaire côté serveur pour les données structurées
+
+Pour les documents structurés (diapositives, générateurs de formulaires, fichiers de conception), le Yjs
+Le modèle de collaboration corporelle peut entrer en conflit lorsque deux agents ou utilisateurs réécrivent le même
+enregistrement de niveau supérieur simultanément. Le modèle le plus sûr est **côté serveur granulaire
+fusion** : définir une action qui accepte un ensemble d'opérations ciblées et
+les applique de manière atomique, afin que les modifications simultanées sur différents éléments survivent.
+
+**Diapositives (`patch-deck`)** — Au lieu de remplacer l'intégralité du deck JSON à chaque
+changement, l'action accepte les opérations par diapositive :
+
+```ts
+// Conceptual patch-deck action shape
+type PatchDeckOp =
+  | { type: "patch"; slideId: string; fields: Partial<SlideFields> }
+  | { type: "add"; position: number; slide: SlideData }
+  | { type: "delete"; slideId: string }
+  | { type: "reorder"; slideId: string; newIndex: number };
+```
+
+Deux utilisateurs modifiant des diapositives différentes réussissent tous les deux ; il n'y a pas de bruit LWW à
+le niveau du pont.
+
+**Formulaires (`patch-form-fields`)** – Fusion au niveau du champ avec insertion/suppression/réorganisation
+opérations afin que les modifications simultanées apportées à différents champs de formulaire survivent toutes les deux.
+
+Utilisez ce modèle lorsque :
+
+- Le document est structuré (éléments à l'intérieur d'un conteneur).
+- Les modifications simultanées ciblent différents éléments.
+- La collaboration corporelle (Yjs `Y.XmlFragment`) est excessive ou inapplicable.
+
+Utiliser la collaboration corporelle (Y.XmlFragment + TipTap) lorsque :
+
+- Le document est un texte enrichi de forme libre dans lequel n'importe quelle région peut être modifiée.
+- Les questions de fusion CRDT au niveau du curseur.
+
+### Portée des annulations collaboratives (Y.UndoManager)
+
+Le modèle de conception utilise `Y.UndoManager` pour étendre l'annulation/le rétablissement au niveau local
+propres modifications de l'utilisateur. Les modifications apportées par les pairs distants et les modifications apportées par les agents ne sont jamais annulées par un
+Cmd+Z de l'utilisateur.
+
+```ts
+import * as Y from "yjs";
+
+const LOCAL_EDIT_ORIGIN = "local";
+
+const undoManager = new Y.UndoManager(ydoc.getText("content"), {
+  trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
+  captureTimeout: 800, // coalesce rapid slider drags into one undo step
+});
+
+// Wrap local edits with the tracked origin
+ydoc.transact(() => {
+  // apply local style change
+}, LOCAL_EDIT_ORIGIN);
+
+// Undo/redo — only reverses LOCAL_EDIT_ORIGIN transactions
+undoManager.undo(); // Cmd+Z
+undoManager.redo(); // Shift+Cmd+Z
+```
+
+Propriétés clés :
+
+- `trackedOrigins` doit être un `Set`. Uniquement transactions avec une origine correspondante
+  sont capturés dans la pile d'annulation.
+- Les mises à jour à distance (origine `"remote"`) et les mises à jour d'agent (origine `"agent"`) sont
+  jamais capturé.
+- Recréez et supprimez le gestionnaire lorsque le document actif change ; périmé
+  les managers détiennent des références qui peuvent croître de manière illimitée.
+
+## Limites connues {#limitations}
+
+```an-callout
+{
+  "tone": "risk",
+  "body": "**La réécriture simultanée dans la même région est la dernière écriture gagnante.** Si l'agent réécrit un passage alors qu'un humain a des modifications non enregistrées dans *exactement la même région*, l'instantané du client principal peut entraver la modification humaine en vol. Les modifications dans différentes régions fusionnent toujours proprement via le CRDT. Pour les documents structurés, utilisez la fusion granulaire côté serveur pour éviter complètement cela."
+}
+```
+
+- **La réécriture simultanée dans la même région est LWW** — Si l'agent réécrit un
+  passage et un humain a des modifications non enregistrées dans exactement la même région, le
+  L'instantané du client principal peut écraser les modifications apportées par l'humain en cours de vol. Modifications dans
+  différentes régions fusionnent correctement via le CRDT. Fusion granulaire côté serveur
+  (voir ci-dessus) évite cela pour les documents structurés.
+- **Verrous en écriture en cours sur sans serveur** — La carte `_writeLocks` est
+  processus local. Requêtes simultanées atterrissant sur différents sans serveur
+  les appels sont sérialisés au niveau de la couche SQL CAS (concurrence optimiste)
+  que le verrouillage en mémoire. Ceci est sûr mais implique des scénarios à haut débit sur
+  Le mode sans serveur peut voir davantage de tentatives CAS.
+- **La sensibilisation est par processus** — Le magasin de sensibilisation en mémoire est
+  processus local. Les déploiements sans serveur/multi-processus connaissent une prise de conscience partielle
+  état par appel. Les clients reçoivent toujours des instantanés de sensibilisation complets sur chaque
+  cycle d'interrogation, de sorte que les indicateurs de présence se mettent à jour dans un intervalle d'interrogation.
+
+## Présence {#presence}
+
+Le hook `useCollaborativeDoc` renvoie :
+
+- `activeUsers` — tableau de `CollabUser` (nom, e-mail, couleur) pour tous les pairs
+  actuellement dans le document (provenant de la sensibilisation).
+- `agentActive` — `true` brièvement après que l'agent ait effectué une modification (à utiliser pour un
+  indicateur visuel transitoire).
+- `agentPresent` — `true` alors que l'agent a une entrée de sensibilisation active
+  (battement de coeur de présence durable).
+
+Utilisez `emailToColor(email)` et `emailToName(email)` depuis
+`@agent-native/core/client` pour générer des couleurs et un affichage de curseur cohérents
+noms provenant d'adresses e-mail.
+
+Un `PresenceBar` rendu avec `activeUsers` montre un humain et un agent en direct
+collaborateurs. Présence par diapositive (quels utilisateurs consultent une diapositive donnée)
+couches au-dessus du même état de conscience.
+
+## Documents associés {#related}
+
+- [Real-Time Sync](/docs/client#usedbsync) — le `useDbSync` + `useChangeVersion`
+  système qui fournit la réconciliation de l'éditeur de conduite de bosses `updatedAt`.
+- [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
+  et `assertAccess` pour le modèle d'accès référencé par `resourceType`.
+- [Sharing](/docs/sharing) – comment les documents sont partagés et comment l'accès est accordé.
+- [Template: Content](/docs/template-content) — implémentation de référence de
+  édition collaborative de texte enrichi.
+- [Template: Slides](/docs/template-slides) — action `patch-deck` granulaire pour
+  édition simultanée structurée.
+- [Template: Forms](/docs/template-forms) — `patch-form-fields` au niveau du champ
+  fusion côté serveur.
+- [Template: Design](/docs/template-design) – `Y.UndoManager` avec portée d'annulation/rétablissement
+  aux modifications des utilisateurs locaux.

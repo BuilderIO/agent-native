@@ -1,6 +1,8 @@
 import { useActionQuery } from "@agent-native/core/client";
+
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+
 import { formatResourceTimestamp } from "./workspace-resource-effective-stack";
 
 function isApprovalRequest(result: any): boolean {

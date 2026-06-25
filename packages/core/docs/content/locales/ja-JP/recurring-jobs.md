@@ -1,0 +1,142 @@
+---
+title: "定期的なジョブ"
+description: "Cron でスケジュールされたプロンプトは、日次ダイジェスト、週次レポート、時間ごとのポーリングなど、エージェントが独自に実行します。"
+---
+
+# 定期的なジョブ
+
+**定期的なジョブ** は、cron スケジュールで実行されるプロンプトです。これは、エージェントが独自に物事を行う方法です。「毎朝 7 時に夜間のメールを要約する」「毎週月曜日に先週の登録番号を Slack に投稿する」「1 時間ごとに古い下書きを徹底的に調べて削除する」
+
+定期的なジョブは時計に合わせて起動されます。 _events_ (予約の作成、電子メールの受信) に反応するには、同じ `jobs/` ファイル形式と条件を使用します。[Automations](/docs/automations) を参照してください。
+
+ジョブは `jobs/<name>.md` の [workspace](/docs/workspace) に存在します。これは、YAML フロントマターを持つ Markdown ファイルだけです。登録も配線も必要ありません。ファイルをドロップすると、フレームワークがそれを取得します。
+
+## ジョブ ファイル {#job-file}
+
+```an-annotated-code title="jobs/morning-digest.md"
+{
+  "filename": "jobs/morning-digest.md",
+  "language": "markdown",
+  "code": "---\nschedule: \"0 7 * * *\"\nenabled: true\nrunAs: creator\n---\n\n# 朝のダイジェスト\n\n夜間に受信したメールを要約します。送信者ドメインごとにグループ化します。\n今日返信が必要と思われる上位 3 つのスレッドを\n\"Needs reply\" ラベルに固定します。明らかなものについては返信草案を作成してください。",
+  "annotations": [
+    { "lines": "2", "label": "いつ", "note": "標準の 5 フィールド cron — `0 7 * * *` は毎日 07:00 です。" },
+    { "lines": "3", "label": "一時停止スイッチ", "note": "Flip to `false` to stop the job without deleting it." },
+    { "lines": "4", "label": "アイデンティティ", "note": "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key." },
+    { "lines": "7-12", "label": "プロンプト", "note": "本文は単なるプロンプトです。エージェントは、すべての通常のツールとワークスペース コンテキストを使用して、起動のたびにそれを実行します。" }
+  ]
+}
+```
+
+それだけです。本体は、スケジュールされた起動ごとにエージェントが実行するプロンプトです。エージェントは、インタラクティブ チャットと同じツールとワークスペース コンテキスト (actions、skills、メモリ、接続された MCP サーバー、サブエージェント) にすべてアクセスできます。
+
+## フロントマター {#frontmatter}
+
+| フィールド   | タイプ                        | デフォルト   | 説明                                                                                                                    |
+| ------------ | ----------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `schedule`   | cron 式                       | _(必須)_     | 標準の 5 フィールド cron。 `"0 7 * * *"` = 毎日 07:00; `"0 */4 * * *"` = 4 時間ごと。                                   |
+| `enabled`    | ブール値                      | `true`       | `false` に切り替えて、ジョブを削除せずに一時停止します。                                                                |
+| `runAs`      | `"creator"` \| `"shared"`     | `"creator"`  | `"creator"` は、ジョブ所有者の ID と `ANTHROPIC_API_KEY` を使用して実行されます。 `"shared"` は組織のキーを使用します。 |
+| `createdBy`  | メール                        | _(自動)_     | ジョブがワークスペース UI を通じて、またはエージェントによって作成されたときに設定されます。                            |
+| `orgId`      | 文字列                        | _(自動)_     | 組織の範囲。作成者のアクティブな組織から継承されます。                                                                  |
+| `lastRun`    | ISO タイムスタンプ            | _(管理対象)_ | 各実行後にスケジューラによって書き込まれます。                                                                          |
+| `lastStatus` | `"success"` \| `"error"` \| … | _(管理対象)_ | 最新の結果。                                                                                                            |
+| `lastError`  | 文字列                        | _(管理対象)_ | 最後の実行が失敗した場合のエラー メッセージ。                                                                           |
+| `nextRun`    | ISO タイムスタンプ            | _(管理対象)_ | `schedule` から計算されます。スケジューラが次にいつ起動するかを決定するために使用されます。                             |
+
+`last*` フィールドと `nextRun` フィールドは、スケジューラによって書き込まれます。これらを読んで履歴を確認することはできますが、手動で編集しないでください。次回の実行で上書きされます。
+
+## Cron 構文 {#cron}
+
+標準の 5 フィールド cron (分、時、日、月、曜日):
+
+| クロン         | 意味             |
+| -------------- | ---------------- |
+| `*/5 * * * *`  | 5 分ごと         |
+| `0 * * * *`    | 毎正時           |
+| `0 */4 * * *`  | 4 時間ごと       |
+| `0 7 * * *`    | 毎日 07:00       |
+| `0 9 * * 1`    | 毎週月曜日 09:00 |
+| `0 17 * * 1-5` | 平日 17:00       |
+| `0 0 1 * *`    | 毎月 1 日        |
+
+フレームワークには、リソース層とスケジューラ層によって内部的に使用される cron 文字列を検証およびレンダリングするための cron ユーティリティ (`isValidCron()` および `describeCron()`) が含まれています。
+
+## ジョブの作成 {#creating}
+
+### 「ワークスペース」タブから
+
+`+` → ワークスペース パネルの **スケジュールされたタスク**。プロンプトとスケジュールを入力します。 `jobs/<slug>.md` として保存し、次の一致するティックで実行を開始します。
+
+### エージェントに問い合わせる
+
+> 「毎朝 7 時に未読メールを要約するスケジュールされたタスクを作成します。」
+
+エージェントがファイルを書き込みます。
+
+### 手動
+
+フレームワークのリソース APIs を介して、Markdown ファイルを `jobs/` にドロップします。
+
+```ts
+import { resourcePut } from "@agent-native/core/resources";
+
+await resourcePut(
+  ownerEmail,
+  "jobs/morning-digest.md",
+  `---
+schedule: "0 7 * * *"
+enabled: true
+---
+Summarize overnight emails.`,
+);
+```
+
+## スケジューラの実行方法 {#how-scheduler-runs}
+
+スケジューラは、インプロセスで実行されるフレームワーク プラグイン (内部 `processRecurringJobs()` ルーチン) です。サーバーが実行されている場所に関係なく、エージェント チャット プラグイン内で `setInterval` が 60 秒ごとに起動します (起動遅延は 10 秒)。
+
+```an-diagram title="スケジューラの 1 つのティック" summary="60 秒ごとに、スケジューラは期限が切れたジョブを見つけ、それぞれを新しいエージェント スレッドとして実行し、結果をジョブ ファイルに書き込みます。"
+{
+  "html": "<div class=\"sched\"><div class=\"diagram-box accent\"><code>setInterval</code> &bull; 60s &#8635;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">1 &middot; scan</span><small class=\"diagram-muted\">list every enabled <code>jobs/*.md</code> across all owners</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2 &middot; due?</span><small class=\"diagram-muted\">compare <code>nextRun</code> to now</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">3 &middot; run</span><small class=\"diagram-muted\">fresh agent thread, job body as the user message &mdash; actions, SQL, A2A, email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">4 &middot; record</span><small class=\"diagram-muted\">write <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code>, recompute <code>nextRun</code></small></div></div>",
+  "css": ".sched{display:flex;flex-direction:column;gap:6px;max-width:520px}.sched .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.sched .diagram-box{align-self:flex-start}.sched .diagram-arrow{font-size:18px;align-self:center}"
+}
+```
+
+```an-callout
+{ "tone": "risk", "body": "**Scale-to-zero caveat.** The scheduler is in-process, so on serverless hosts jobs only fire while an instance is warm. If reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS)." }
+```
+
+## ジョブのデバッグ {#debugging}
+
+- ワークスペースで `jobs/<name>.md` を開きます。前編には `lastRun`、`lastStatus`、`lastError`、`nextRun` が表示されます。
+- **待たずにテストしてください:** 強制発射ツールはありません。同じ作業をオンデマンドで実行するには、ジョブのプロンプトをエージェント チャットに貼り付けてそこで実行するか、一時的にスケジュールを次の分に設定して、スケジューラが次のティックでそれを取得するようにします (その後、実際の cron を復元します)。
+- **一時停止します:** `enabled: false` を反転します。ファイルはそのまま残り、実行が停止するだけです。
+
+## エージェント ツール {#agent-tool}
+
+すべてのテンプレートに 1 つの `manage-jobs` ツールが登録されます。 `action` パラメータは操作を選択します:
+
+| アクション | パラメータ                                                    | 目的                                                                                  |
+| ---------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `create`   | `name`、`schedule`、`instructions` (必須); `scope`、`runAs`   | 新しい定期的なジョブを作成する                                                        |
+| `list`     | `scope` (`personal`、`shared`、またはすべて)                  | すべてのジョブをステータス (スケジュール、有効、最後/次回の実行) とともにリストします |
+| `update`   | `name` (必須); `schedule`、`instructions`、`enabled`、`runAs` | 既存のジョブを編集する                                                                |
+| `delete`   | `name` (必須)                                                 | ジョブを削除します - 最初に常にユーザーに確認してください                             |
+
+**個人スコープと共有スコープ。** 各ジョブは、個人スコープ (作成者として実行され、作成者のみに表示される) または共有/組織スコープ (作成者に代わって実行されるが、組織メンバーに表示される) のいずれかに存在します。 `scope` および `runAs` パラメータは作成時にこれを制御します。組織管理者は、共有ジョブを更新または削除できます。管理者以外のメンバーは自分のメンバーのみを管理できます。
+
+## スケジュール パッケージとは異なります {#vs-scheduling-package}
+
+定期的なジョブと `@agent-native/scheduling` を混同しないでください:
+
+- **定期的なジョブ (このページ)** — cron でスケジュールされた _プロンプト_ エージェントがバックグラウンドで実行されます。フレームワークレベル。ワークスペースに住んでいます。あらゆるエージェントネイティブ アプリ上で実行されます。
+- **`@agent-native/scheduling`** — カレンダー/予約機能 (イベント タイプ、空き状況ウィンドウ、予約) を構築するための再利用可能なドメイン パッケージ。 `calendar` テンプレートとカスタム スケジュール サーフェスを強化します。
+
+定期的なジョブとは、「エージェントを独自に動作させるにはどうすればよいか?」というものです。スケジュール パッケージは、「カレンダー アプリをどうやって構築するか?」です。さまざまな懸念。
+
+## 次は何ですか
+
+- [**Automations**](/docs/automations) — イベント トリガーと条件を同じ `jobs/` 形式に追加します
+- [**Workspace**](/docs/workspace) — ジョブが skills、メモリ、カスタム エージェントと共存する場所
+- [**Actions**](/docs/actions) — ジョブが呼び出すツール
+- [**Agent Teams**](/docs/agent-teams) — ジョブは並行作業を行うサブエージェントを生成することがよくあります

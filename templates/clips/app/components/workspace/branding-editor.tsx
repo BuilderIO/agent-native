@@ -1,8 +1,13 @@
-import { useState } from "react";
+import {
+  appBasePath,
+  useActionMutation,
+  useT,
+} from "@agent-native/core/client";
 import { IconPalette, IconPhoto } from "@tabler/icons-react";
-import { appBasePath, useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -51,6 +56,7 @@ export function BrandingEditor({
   initialBrandLogoUrl,
   disabled,
 }: BrandingEditorProps) {
+  const t = useT();
   const [name, setName] = useState(initialName);
   const [brandColor, setBrandColor] = useState(initialBrandColor);
   const [brandLogoUrl, setBrandLogoUrl] = useState<string | null>(
@@ -72,16 +78,18 @@ export function BrandingEditor({
 
   async function handleFile(file: File) {
     if (!file.type.startsWith("image/")) {
-      toast.error("Please upload an image file.");
+      toast.error(t("brandingEditor.uploadImageFile"));
       return;
     }
     try {
       setUploading(true);
       const url = await uploadLogo(file);
       setBrandLogoUrl(url);
-      toast.success("Logo uploaded");
+      toast.success(t("brandingEditor.logoUploaded"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed");
+      toast.error(
+        err instanceof Error ? err.message : t("brandingEditor.uploadFailed"),
+      );
     } finally {
       setUploading(false);
     }
@@ -96,12 +104,14 @@ export function BrandingEditor({
         brandColor,
         brandLogoUrl,
       });
-      toast.success("Branding updated");
+      toast.success(t("brandingEditor.brandingUpdated"));
       qc.invalidateQueries({
         queryKey: ["action", "list-organization-state"],
       });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save");
+      toast.error(
+        err instanceof Error ? err.message : t("brandingEditor.saveFailed"),
+      );
     }
   }
 
@@ -110,13 +120,15 @@ export function BrandingEditor({
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <IconPalette className="size-4 text-primary" />
-          Branding
+          {t("brandingEditor.title")}
         </CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSave} className="space-y-5">
           <div className="space-y-1.5">
-            <Label htmlFor="ws-name">Organization name</Label>
+            <Label htmlFor="ws-name">
+              {t("brandingEditor.organizationName")}
+            </Label>
             <Input
               id="ws-name"
               value={name}
@@ -126,7 +138,7 @@ export function BrandingEditor({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Brand color</Label>
+            <Label>{t("brandingEditor.brandColor")}</Label>
             <div className="flex items-center gap-2">
               <input
                 type="color"
@@ -134,7 +146,7 @@ export function BrandingEditor({
                 onChange={(e) => setBrandColor(e.target.value)}
                 disabled={disabled}
                 className="h-9 w-16 rounded-md border border-input bg-background p-1 cursor-pointer"
-                aria-label="Brand color picker"
+                aria-label={t("brandingEditor.brandColorPicker")}
               />
               <Input
                 value={brandColor}
@@ -142,7 +154,7 @@ export function BrandingEditor({
                 disabled={disabled}
                 className="max-w-[120px] tabular-nums uppercase"
               />
-              <div className="flex items-center gap-1 ml-2">
+              <div className="flex items-center gap-1 ms-2">
                 {PRESETS.map((c) => (
                   <button
                     key={c}
@@ -150,7 +162,7 @@ export function BrandingEditor({
                     className="h-6 w-6 rounded-full border border-input"
                     style={{ background: c }}
                     onClick={() => setBrandColor(c)}
-                    aria-label={`Use ${c}`}
+                    aria-label={t("brandingEditor.useColor", { color: c })}
                     disabled={disabled}
                   />
                 ))}
@@ -159,7 +171,7 @@ export function BrandingEditor({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Logo</Label>
+            <Label>{t("brandingEditor.logo")}</Label>
             <div
               className={`rounded-md border border-dashed p-4 flex items-center gap-4 ${
                 dragging ? "bg-primary/5 border-primary" : ""
@@ -185,7 +197,7 @@ export function BrandingEditor({
                 {brandLogoUrl ? (
                   <img
                     src={brandLogoUrl}
-                    alt="Logo preview"
+                    alt={t("brandingEditor.logoPreview")}
                     className="max-h-12 max-w-12 object-contain"
                   />
                 ) : (
@@ -195,15 +207,17 @@ export function BrandingEditor({
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-muted-foreground">
                   {brandLogoUrl
-                    ? "Drop a new image to replace"
-                    : "Drop a PNG / JPG / SVG here"}
+                    ? t("brandingEditor.dropReplace")
+                    : t("brandingEditor.dropHere")}
                 </div>
                 <div className="flex items-center gap-2 mt-2">
                   <Label
                     htmlFor="logo-upload"
                     className="inline-flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-sm cursor-pointer hover:bg-accent"
                   >
-                    {uploading ? "Uploading…" : "Choose file"}
+                    {uploading
+                      ? t("brandingEditor.uploading")
+                      : t("brandingEditor.chooseFile")}
                   </Label>
                   <input
                     id="logo-upload"
@@ -224,7 +238,7 @@ export function BrandingEditor({
                       onClick={() => setBrandLogoUrl(null)}
                       disabled={disabled}
                     >
-                      Remove
+                      {t("brandingEditor.remove")}
                     </Button>
                   ) : null}
                 </div>
@@ -234,7 +248,7 @@ export function BrandingEditor({
 
           <div className="rounded-md border p-4">
             <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
-              Preview
+              {t("brandingEditor.preview")}
             </div>
             <div
               className="rounded-md p-3 flex items-center gap-3 text-white"
@@ -255,7 +269,7 @@ export function BrandingEditor({
                 </div>
               )}
               <div className="font-medium truncate">
-                {name || "Organization"}
+                {name || t("brandingEditor.organizationFallback")}
               </div>
             </div>
           </div>
@@ -266,7 +280,9 @@ export function BrandingEditor({
               disabled={disabled || save.isPending}
               className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
-              {save.isPending ? "Saving…" : "Save"}
+              {save.isPending
+                ? t("brandingEditor.saving")
+                : t("brandingEditor.save")}
             </Button>
           </div>
         </form>

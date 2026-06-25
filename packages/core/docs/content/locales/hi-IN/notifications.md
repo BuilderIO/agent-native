@@ -1,0 +1,231 @@
+---
+title: "सूचनाएं"
+description: "प्लग करने योग्य चैनलों के साथ इन-ऐप सूचनाएं - इनबॉक्स, वेबहुक, या कस्टम"
+---
+
+# सूचनाएँ
+
+एक कार्य, अनेक गंतव्य। किसी भी सर्वर-साइड कोड से `notify()` पर कॉल करें - एक एक्शन, एक ऑटोमेशन, एक प्लगइन - और ईवेंट उपयोगकर्ता के इन-ऐप इनबॉक्स में आ जाता है और प्रत्येक पंजीकृत चैनल पर पहुंच जाता है। एक बेल-एंड-ड्रॉपडाउन UI घटक के साथ भेजा जाता है जिसे होस्ट टेम्पलेट अपने हेडर में छोड़ देता है।
+
+सूचनाएं ऐप के बेल इनबॉक्स (प्लस वेबहुक फैन-आउट) में एकतरफा अलर्ट हैं। Slack/ईमेल/टेलीग्राम/व्हाट्सएप से अपने एजेंट के साथ बातचीत करने के लिए, [Messaging](/docs/messaging) देखें।
+
+```ts
+import { notify } from "@agent-native/core/notifications";
+
+await notify(
+  { severity: "info", title: "Booking confirmed", body: "Jane at 3pm" },
+  { owner: "steve@builder.io" },
+);
+```
+
+```an-diagram title="एक कॉल, अनेक मंजिलें" summary="सूचित करें() हमेशा मालिक-स्कोप वाली इनबॉक्स पंक्ति लिखता है, प्रत्येक पंजीकृत चैनल को समानांतर (सर्वोत्तम प्रयास) में प्रशंसक बनाता है, फिर इवेंट बस पर अधिसूचना भेजता है।"
+{
+  "html": "<div class=\"diagram-notify\"><div class=\"diagram-node\">notify(input, { owner })<br><small class=\"diagram-muted\">any server code &middot; action, automation, plugin</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel fan\" data-rough><div class=\"fan-row\"><span class=\"diagram-pill accent\">inbox</span><div class=\"diagram-box\" data-rough>notifications table &rarr; bell UI<br><small class=\"diagram-muted\">always on &middot; owner-scoped</small></div></div><div class=\"fan-row\"><span class=\"diagram-pill\">webhook</span><div class=\"diagram-box\" data-rough>POST JSON to NOTIFICATIONS_WEBHOOK_URL<br><small class=\"diagram-muted\">best-effort</small></div></div><div class=\"fan-row\"><span class=\"diagram-pill\">custom</span><div class=\"diagram-box\" data-rough>registerNotificationChannel(...)<br><small class=\"diagram-muted\">best-effort &middot; runs in parallel</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">notification.sent</span><small class=\"diagram-muted\">event bus &middot; automations can chain</small></div></div>",
+  "css": ".diagram-notify{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-notify .fan{display:flex;flex-direction:column;gap:10px;padding:14px}.diagram-notify .fan-row{display:flex;align-items:center;gap:10px}.diagram-notify .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-notify .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## गंभीरताएं {#severities}
+
+| गंभीरता    | के लिए उपयोग करें                              |
+| ---------- | ---------------------------------------------- |
+| `info`     | पुष्टि, प्रगति मील के पत्थर, FYI               |
+| `warning`  | कुछ ऐसा जिसे उपयोगकर्ता को जल्द ही देखना चाहिए |
+| `critical` | तत्काल ध्यान देने की आवश्यकता है               |
+
+गंभीरता ड्रॉपडाउन में बैज स्टाइल को चलाती है और चैनलों के माध्यम से पारित की जाती है ताकि वे तात्कालिकता पर शाखा लगा सकें।
+
+## अंतर्निहित चैनल {#channels}
+
+| चैनल      | डिलीवरी                                         | आवश्यकता है                                           |
+| --------- | ----------------------------------------------- | ----------------------------------------------------- |
+| `inbox`   | `notifications` तालिका पर कायम रहता है; घंटी UI | हमेशा चालू - आदिम का हिस्सा।                          |
+| `webhook` | POST JSON से कॉन्फ़िगर URL                      | `NOTIFICATIONS_WEBHOOK_URL` env var स्टार्टअप पर सेट। |
+
+वेबहुक चैनल मालिक के तदर्थ [secrets](/docs/security) के विरुद्ध URL और `NOTIFICATIONS_WEBHOOK_AUTH` दोनों में `${keys.NAME}` संदर्भों का समाधान करता है, इसलिए कच्चा मान कभी भी एजेंट के संदर्भ में प्रवेश नहीं करता है। प्रति-कुंजी URL अनुमति सूचियाँ लागू की जाती हैं - वही नियम जो ऑटोमेशन `web-request` टूल उपयोग करता है।
+
+```an-diagram title="चैनल और गंभीरता" summary="इनबॉक्स हमेशा चालू रहता है; वेबहुक को एक env var की आवश्यकता है; कस्टम चैनल स्टार्टअप पर पंजीकृत होते हैं। गंभीरता बैज स्टाइलिंग को संचालित करती है और इसे हर चैनल तक पहुंचाया जाता है।"
+{
+  "html": "<div class=\"diagram-channels\"><div class=\"diagram-panel col\" data-rough><strong>Channels</strong><div class=\"diagram-box\" data-rough>inbox<br><small class=\"diagram-muted\">always on &mdash; part of the primitive</small></div><div class=\"diagram-box\" data-rough>webhook<br><small class=\"diagram-muted\">needs NOTIFICATIONS_WEBHOOK_URL</small></div><div class=\"diagram-box\" data-rough>custom<br><small class=\"diagram-muted\">registerNotificationChannel()</small></div></div><div class=\"diagram-panel col\" data-rough><strong>गंभीरता badge चलाती है</strong><div class=\"sev-row\"><span class=\"diagram-pill\">info</span><span class=\"diagram-muted\">पुष्टियां, FYI</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">warning</span><span class=\"diagram-muted\">look at soon</span></div><div class=\"sev-row\"><span class=\"diagram-pill accent\">critical</span><span class=\"diagram-muted\">needs immediate attention</span></div></div></div>",
+  "css": ".diagram-channels{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}.diagram-channels .col{display:flex;flex-direction:column;gap:10px;padding:14px;min-width:240px}.diagram-channels .sev-row{display:flex;align-items:center;gap:10px}"
+}
+```
+
+## API {#api}
+
+### `notify(input, meta)` {#notify}
+
+एक सूचना वितरित करें. जब तक स्पष्ट रूप से बाहर न किया जाए, यह हमेशा इनबॉक्स में बना रहता है; अतिरिक्त पंजीकृत चैनल समानांतर, सर्वोत्तम प्रयास में चलते हैं।
+
+```ts
+await notify(
+  {
+    severity: "critical",
+    title: "Database offline",
+    body: "Primary dropped connections",
+    metadata: { runbookUrl: "https://runbooks/db-offline" },
+    channels: ["inbox", "webhook"], // optional allowlist; omit to run all
+  },
+  { owner: "ops@company.com" },
+);
+```
+
+`meta.owner` आवश्यक है - अधिसूचना को सीमित करता है ताकि केवल वह उपयोगकर्ता ही इसे घंटी में देख सके।
+
+### `registerNotificationChannel(channel)` {#register}
+
+किसी भी सर्वर प्लगइन से एक कस्टम चैनल पंजीकृत करें।
+
+```ts
+import { registerNotificationChannel } from "@agent-native/core/notifications";
+
+registerNotificationChannel({
+  name: "slack-ops",
+  async deliver(input, meta) {
+    await fetch(process.env.OPS_SLACK_WEBHOOK!, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: `*${input.severity.toUpperCase()}* — ${input.title}\n${input.body ?? ""}`,
+        owner: meta.owner,
+      }),
+    });
+  },
+});
+```
+
+चैनल के नाम अद्वितीय हैं - पुनः पंजीकरण करने से पिछला चैनल बदल जाता है। `deliver()` सर्वोत्तम प्रयास है; लॉग फेंकने से त्रुटि उत्पन्न होती है लेकिन अन्य चैनल या इनबॉक्स पंक्ति अवरुद्ध नहीं होती है।
+
+### सूचीबद्ध करना और पढ़ना {#read}
+
+```ts
+import {
+  listNotifications,
+  countUnread,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotification,
+} from "@agent-native/core/notifications";
+
+const rows = await listNotifications("steve@builder.io", {
+  unreadOnly: true,
+  limit: 50,
+});
+const unread = await countUnread("steve@builder.io");
+await markNotificationRead(rows[0].id, "steve@builder.io");
+await markAllNotificationsRead("steve@builder.io");
+await deleteNotification(rows[0].id, "steve@builder.io");
+```
+
+प्रत्येक फ़ंक्शन मालिक के दायरे वाला है - कोई क्रॉस-यूज़र नहीं पढ़ता है, कोई क्रॉस-यूज़र लिखता नहीं है।
+
+## नोटिफ़िकेशनचैनल इंटरफ़ेस {#channel-interface}
+
+```ts
+interface NotificationChannel {
+  name: string;
+  deliver(
+    input: NotificationInput,
+    meta: NotificationMeta,
+  ): void | Promise<void>;
+}
+
+interface NotificationInput {
+  severity: "info" | "warning" | "critical";
+  title: string;
+  body?: string;
+  metadata?: Record<string, unknown>;
+  channels?: string[];
+}
+
+interface NotificationMeta {
+  owner: string;
+}
+```
+
+## HTTP API {#http}
+
+कोर-रूट्स प्लगइन द्वारा `/_agent-native/notifications/*` पर माउंट किया गया। सभी रूट प्रमाणित सत्र के ईमेल के दायरे में हैं।
+
+| विधि     | पथ                                                  |
+| -------- | --------------------------------------------------- |
+| `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
+| `GET`    | `/_agent-native/notifications/count`                |
+| `POST`   | `/_agent-native/notifications/:id/read`             |
+| `POST`   | `/_agent-native/notifications/read-all`             |
+| `DELETE` | `/_agent-native/notifications/:id`                  |
+
+```an-api title="सूचनाएँ सूचीबद्ध करें" summary="The route behind listNotifications() — scoped to the authenticated session's email."
+{
+  "method": "GET",
+  "path": "/_agent-native/notifications?unread=true&limit=50",
+  "summary": "वर्तमान उपयोगकर्ता के लिए हाल की सूचनाएं सूचीबद्ध करें",
+  "auth": "Authenticated session; results are scoped to the session's email.",
+  "params": [
+    { "name": "unread", "in": "query", "type": "boolean", "required": false, "description": "When true, returns only unread notifications." },
+    { "name": "limit", "in": "query", "type": "number", "required": false, "description": "Max rows to return." }
+  ],
+  "responses": [
+    { "status": "200", "description": "Owner-scoped notification rows, newest first." }
+  ]
+}
+```
+
+## UI घटक {#ui}
+
+```tsx
+import { NotificationsBell } from "@agent-native/core/client/notifications";
+
+export function HeaderBar() {
+  return (
+    <header className="flex items-center gap-2">
+      {/* … */}
+      <NotificationsBell browserNotifications />
+    </header>
+  );
+}
+```
+
+अपठित बैज के साथ बेल आइकन। क्लिक करने से हाल की सूचनाओं का एक ड्रॉपडाउन खुल जाता है। शेडसीएन सिमेंटिक टोकन का उपयोग करता है, होस्ट टेम्पलेट की लाइट/डार्क थीम के अनुकूल होता है।
+
+प्रत्येक नए अपठित आइटम के लिए सिस्टम `new Notification(...)` पॉपअप को फायर करने के लिए `browserNotifications` पास करें - यह तब उपयोगी होता है जब उपयोगकर्ता का टैब पृष्ठभूमि में होता है। जब तक उपयोगकर्ता अनुमति नहीं देता तब तक ड्रॉपडाउन एक "सक्षम करें" संकेत प्रस्तुत करता है; अधिसूचना `tag` फ़ील्ड के माध्यम से प्रति-आईडी डुप्लिकेट को रोका जाता है।
+
+## एजेंट उपकरण {#agent-tools}
+
+प्रत्येक टेम्पलेट में एक एकल `manage-notifications` टूल पंजीकृत है। `action` पैरामीटर ऑपरेशन का चयन करता है:
+
+| कार्रवाई | पैरामीटर                                                                  | उद्देश्य                                                     |
+| -------- | ------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `send`   | `severity` (आवश्यक), `title` (आवश्यक), `body`, `metadataJson`, `channels` | उपयोगकर्ता के इनबॉक्स और पंजीकृत चैनलों पर एक अधिसूचना भेजें |
+| `list`   | `unreadOnly`, `limit` (अधिकतम 200, डिफ़ॉल्ट 20)                           | संदर्भ के लिए हाल की सूचनाओं की सूची बनाएं                   |
+
+ऑटोमेशन ([Automations](/docs/automations) देखें) अपने शरीर में `action=send` के साथ `manage-notifications` को कॉल कर सकते हैं - यह किसी बाहरी घटना को उपयोगकर्ता-दृश्य चेतावनी में बदलने के लिए विहित पैटर्न है।
+
+## इवेंट बस {#event-bus}
+
+प्रत्येक सफल डिलीवरी [event bus](/docs/automations#event-bus) पर `notification.sent` उत्सर्जित करती है:
+
+```json
+{
+  "notificationId": "n-123",
+  "severity": "critical",
+  "title": "DB offline",
+  "body": "Primary dropped connections",
+  "deliveredChannels": ["inbox", "webhook"]
+}
+```
+
+ऑटोमेशन इसे बंद कर सकता है - उदाहरण के लिए _"यदि कोई महत्वपूर्ण अधिसूचना सक्रिय होती है, तो पेज ऑन-कॉल भी करें।"_
+
+## यह कैसे काम करता है {#internals}
+
+- **मालिक का दायरा** - प्रत्येक पंक्ति में एक `owner` कॉलम होता है; प्रत्येक क्वेरी इस पर फ़िल्टर होती है; प्रत्येक मार्ग प्रमाणित सत्र के ईमेल का उपयोग करता है। उपयोगकर्ता कभी भी एक-दूसरे की सूचनाएं नहीं देखते हैं।
+- **पोल एकीकरण** - प्रत्येक उत्परिवर्तन `recordChange()` को कॉल करता है इसलिए [`useDbSync`](/docs/client) का उपयोग करने वाले टेम्पलेट बिना किसी अतिरिक्त वायरिंग के स्वतः-अमान्य हो जाते हैं।
+- **सर्वोत्तम प्रयास फैन-आउट** - चैनल त्रुटियां पकड़ी जाती हैं और लॉग की जाती हैं; एक असफल चैनल दूसरों को या इनबॉक्स लिखने को ब्लॉक नहीं करता है।
+- **आग लगाओ और भूल जाओ** - `notify()` इनबॉक्स लेखन पूरा होने के बाद वापस आता है; कस्टम चैनल पृष्ठभूमि में चलते हैं।
+
+## आगे क्या है
+
+- [**Automations**](/docs/automations) - `notify()` का सबसे आम कॉलर
+- [**Security**](/docs/security) - `${keys.NAME}` प्रतिस्थापन जो वेबहुक चैनल को शक्ति प्रदान करता है
+- [**Server plugins**](/docs/server) - जहां कस्टम चैनल स्टार्टअप पर पंजीकृत होते हैं

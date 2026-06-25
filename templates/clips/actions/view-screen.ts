@@ -15,13 +15,15 @@ import {
   readAppState,
   readAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { accessFilter } from "@agent-native/core/sharing";
 import { and, asc, desc, eq, gte, isNotNull, isNull, lte } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import { accessFilter } from "@agent-native/core/sharing";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   getActiveOrganizationId,
+  ownerEmailMatches,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
@@ -167,7 +169,7 @@ async function fetchFoldersForSpace(spaceId: string | null) {
     .from(schema.folders)
     .where(
       and(
-        eq(schema.folders.ownerEmail, ownerEmail),
+        ownerEmailMatches(schema.folders.ownerEmail, ownerEmail),
         spaceId
           ? eq(schema.folders.spaceId, spaceId)
           : isNull(schema.folders.spaceId),

@@ -1,12 +1,13 @@
 [build]
-  ignore = "node ./scripts/netlify-ignore-build.mjs slides"
-  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter slides build"
-  publish = "templates/slides/dist"
-  functions = "templates/slides/.netlify/functions-internal"
+ignore = "node ./scripts/netlify-ignore-build.mjs slides"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter slides build"
+publish = "templates/slides/dist"
+functions = "templates/slides/.netlify/functions-internal"
 
 [build.environment]
-  NITRO_PRESET = "netlify"
-  NPM_CONFIG_PRODUCTION = "false"
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+NITRO_PRESET = "netlify"
+NPM_CONFIG_PRODUCTION = "false"
 
 # Function wall for the non-agent long-request paths (deck import/export,
 # image generation). NOTE: this does NOT set the agent-chat chunk boundary —
@@ -16,4 +17,4 @@
 # auto-continuation hands off at ~40s; this 300s ceiling only protects the
 # longer non-agent HTTP handlers.
 [functions."*"]
-  timeout = 300
+timeout = 300

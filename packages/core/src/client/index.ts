@@ -1,5 +1,5 @@
-import { installRouteChunkRecovery } from "./route-chunk-recovery.js";
 import { stripAuthRedirectParamFromUrl } from "./auth-redirect-url.js";
+import { installRouteChunkRecovery } from "./route-chunk-recovery.js";
 
 installRouteChunkRecovery();
 stripAuthRedirectParamFromUrl();
@@ -170,6 +170,33 @@ export {
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
 export { cn } from "./utils.js";
+export {
+  AgentNativeI18nProvider,
+  LanguagePicker,
+  getLocaleInitScript,
+  localeDirection,
+  normalizeLocaleCode,
+  normalizeLocalePreference,
+  normalizeLocalizationPreference,
+  resolveLocaleFromCandidates,
+  resolveLocaleFromPreference,
+  useFormatters,
+  useLocale,
+  useT,
+  DEFAULT_LOCALE,
+  LOCALE_HYDRATION_GLOBAL,
+  LOCALE_METADATA,
+  LOCALE_STORAGE_KEY,
+  SUPPORTED_LOCALES,
+  type AgentNativeI18nCatalog,
+  type AgentNativeI18nProviderProps,
+  type LocaleCode,
+  type LocaleHydrationPayload,
+  type LocaleMessages,
+  type LocaleMetadata,
+  type LocalePreference,
+  type LocalizationPreference,
+} from "./i18n.js";
 export {
   // Shared editor core (Phase 1): the ONE configurable surface both the plan
   // and content editors build on.
@@ -609,6 +636,7 @@ export {
   type StarfieldBackgroundProps,
 } from "./StarfieldBackground.js";
 export { FeedbackButton, type FeedbackButtonProps } from "./FeedbackButton.js";
+export { getClientSurface, type ClientSurface } from "./client-surface.js";
 export {
   DevDatabaseLink,
   type DevDatabaseLinkProps,
@@ -707,6 +735,7 @@ export {
   CommandMenu,
   useCommandMenuShortcut,
   openAgentSidebar,
+  openAgentSettings,
   submitToAgent,
   type CommandMenuProps,
   type CommandMenuDoc,

@@ -1,19 +1,20 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
+import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
+import { buildLocalPlanBundleResult } from "../server/lib/local-plan-bundle.js";
+import {
+  readLocalPlanComments,
+  readPlanLocalFolder,
+  writePlanLocalFolder,
+} from "../server/lib/local-plan-files.js";
+import { normalizePlanContent } from "../server/plan-content.js";
 import {
   applyPlanContentPatches,
   planContentPatchesSchema,
   planContentSchema,
   type PlanContent,
 } from "../shared/plan-content.js";
-import { normalizePlanContent } from "../server/plan-content.js";
-import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
-import {
-  readLocalPlanComments,
-  readPlanLocalFolder,
-  writePlanLocalFolder,
-} from "../server/lib/local-plan-files.js";
-import { buildLocalPlanBundleResult } from "../server/lib/local-plan-bundle.js";
 import type { PlanKind } from "../shared/types.js";
 
 const localPlanKindSchema = z.enum(["plan", "recap"]);

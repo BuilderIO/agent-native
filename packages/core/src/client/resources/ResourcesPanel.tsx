@@ -1,5 +1,3 @@
-import { agentNativePath } from "../api-path.js";
-import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   IconPlus,
   IconUpload,
@@ -18,12 +16,43 @@ import {
   IconPlugConnected,
   IconCheck,
 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
-import { sendToAgentChat } from "../agent-chat.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
-import { ResourceTree } from "./ResourceTree.js";
-import { ResourceEditor } from "./ResourceEditor.js";
+import React, { useState, useRef, useCallback, useEffect } from "react";
+
 import { serializeFrontmatter } from "../../resources/metadata.js";
+import { sendToAgentChat } from "../agent-chat.js";
+import { agentNativePath } from "../api-path.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
+import { PromptComposer } from "../composer/PromptComposer.js";
+import { useOrg } from "../org/hooks.js";
+import { cn } from "../utils.js";
+import { BuiltinCapabilityDetail } from "./BuiltinCapabilityDetail.js";
+import { McpServerDetail } from "./McpServerDetail.js";
+import { ResourceEditor } from "./ResourceEditor.js";
+import { ResourceTree } from "./ResourceTree.js";
+import {
+  parseMcpBuiltinVirtualId,
+  useBuiltinCapabilities,
+} from "./use-builtin-capabilities.js";
+import {
+  formatMcpServerError,
+  getMcpUrlValidationError,
+  useMcpServers,
+  useCreateMcpServer,
+  useDeleteMcpServer,
+  testMcpServerUrl,
+  parseMcpVirtualId,
+  type McpServerScope,
+} from "./use-mcp-servers.js";
 import {
   useResourceTree,
   useResource,
@@ -37,34 +66,6 @@ import {
   type ResourceMeta,
   type Resource,
 } from "./use-resources.js";
-import {
-  formatMcpServerError,
-  getMcpUrlValidationError,
-  useMcpServers,
-  useCreateMcpServer,
-  useDeleteMcpServer,
-  testMcpServerUrl,
-  parseMcpVirtualId,
-  type McpServerScope,
-} from "./use-mcp-servers.js";
-import { McpServerDetail } from "./McpServerDetail.js";
-import { BuiltinCapabilityDetail } from "./BuiltinCapabilityDetail.js";
-import {
-  parseMcpBuiltinVirtualId,
-  useBuiltinCapabilities,
-} from "./use-builtin-capabilities.js";
-import { useOrg } from "../org/hooks.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
 
 const WORKSPACE_DOCS_URL = "https://agent-native.com/docs/workspace";
 const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE = "local-workspace-resource";

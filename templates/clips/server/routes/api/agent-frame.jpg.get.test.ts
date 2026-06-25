@@ -44,8 +44,8 @@ vi.mock("../../lib/video-frame.js", () => ({
   },
 }));
 
-import handler from "./agent-frame.jpg.get";
 import { RecordingMediaFetchError } from "../../lib/public-agent-context.js";
+import handler from "./agent-frame.jpg.get";
 
 function makeAccess(overrides: Record<string, unknown> = {}) {
   const { recording: recordingOverrides, ...accessOverrides } = overrides;

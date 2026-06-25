@@ -1,5 +1,3 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import { Toaster, toast } from "sonner";
 import {
   DESKTOP_DEFAULT_APPS,
   type AppDefinition,
@@ -7,19 +5,22 @@ import {
   type FrameSettings,
   toAppDefinition,
 } from "@shared/app-registry";
-import Sidebar from "./components/Sidebar.js";
-import TabBar from "./components/TabBar.js";
-import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
-import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
-import UpdatePrompt from "./components/UpdatePrompt.js";
-import CodeAgentsHub from "./components/CodeAgentsHub.js";
-import { getTabDisplayTitle } from "./lib/tab-title.js";
 import {
   CODE_AGENTS_SURFACE_ID,
   MIGRATION_APP_ID,
   getCodeAgentGoal,
 } from "@shared/code-agents";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { Toaster, toast } from "sonner";
+
+import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
+import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
+import CodeAgentsHub from "./components/CodeAgentsHub.js";
+import Sidebar from "./components/Sidebar.js";
+import TabBar from "./components/TabBar.js";
+import UpdatePrompt from "./components/UpdatePrompt.js";
 import { shouldReserveMacOSWindowControlsSpace } from "./lib/platform.js";
+import { getTabDisplayTitle } from "./lib/tab-title.js";
 
 const reserveMacOSWindowControlsSpace = shouldReserveMacOSWindowControlsSpace();
 
@@ -423,6 +424,10 @@ export default function App() {
     },
     [activeSidebarAppId],
   );
+
+  const handleTabRefresh = useCallback((tabId: string) => {
+    webviewRefs.current.get(tabId)?.reload();
+  }, []);
 
   const handleTabClose = useCallback(
     (tabId: string) => {
@@ -876,6 +881,7 @@ export default function App() {
           }
           onTabSelect={handleTabSelect}
           onTabClose={handleTabClose}
+          onTabRefresh={handleTabRefresh}
           onNewTab={handleNewTab}
         />
       )}

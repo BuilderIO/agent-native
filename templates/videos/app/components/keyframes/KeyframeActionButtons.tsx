@@ -1,10 +1,13 @@
-import { Button } from "../ui/button";
+import { useT } from "@agent-native/core/client";
 import { IconCopy, IconRotate, IconTrash } from "@tabler/icons-react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+import { Button } from "../ui/button";
 
 interface KeyframeActionButtonsProps {
   isOnKeyframe: boolean;
@@ -19,8 +22,11 @@ export function KeyframeActionButtons({
   onDuplicate,
   onReset,
   onRemove,
-  resetTooltip = "Reset to defaults",
+  resetTooltip,
 }: KeyframeActionButtonsProps) {
+  const t = useT();
+  const resetLabel = resetTooltip ?? t("raw.keyframes.resetDefaults");
+
   if (!isOnKeyframe) return null;
 
   return (
@@ -32,12 +38,12 @@ export function KeyframeActionButtons({
             size="sm"
             onClick={onDuplicate}
             className="text-xs border-muted-foreground/30 hover:bg-secondary/50"
-            aria-label="Duplicate keyframe +30 frames ahead"
+            aria-label={t("raw.keyframes.duplicateAhead")}
           >
             <IconCopy className="w-3 h-3" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Duplicate keyframe +30 frames ahead</TooltipContent>
+        <TooltipContent>{t("raw.keyframes.duplicateAhead")}</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
@@ -46,12 +52,12 @@ export function KeyframeActionButtons({
             size="sm"
             onClick={onReset}
             className="text-xs text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/30"
-            aria-label={resetTooltip}
+            aria-label={resetLabel}
           >
             <IconRotate className="h-3 w-3" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>{resetTooltip}</TooltipContent>
+        <TooltipContent>{resetLabel}</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
@@ -60,12 +66,12 @@ export function KeyframeActionButtons({
             size="sm"
             onClick={onRemove}
             className="text-destructive/80 border-destructive/30 hover:bg-destructive/10 text-xs ml-auto"
-            aria-label="Remove keyframe"
+            aria-label={t("raw.keyframes.remove")}
           >
             <IconTrash className="w-3.5 h-3.5" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Remove keyframe</TooltipContent>
+        <TooltipContent>{t("raw.keyframes.remove")}</TooltipContent>
       </Tooltip>
     </div>
   );

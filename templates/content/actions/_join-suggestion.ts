@@ -10,8 +10,8 @@
  * directly. No model is required here.
  */
 
-import { evaluateNormalizationFormula } from "../shared/properties.js";
 import type { DocumentPropertyValue } from "../shared/api.js";
+import { evaluateNormalizationFormula } from "../shared/properties.js";
 
 export interface JoinSide {
   keyField: string;

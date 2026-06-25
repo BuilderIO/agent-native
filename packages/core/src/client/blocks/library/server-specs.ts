@@ -1,6 +1,20 @@
-import { defineBlock, type BlockSpec } from "../types.js";
 import { registerBlocks, type BlockRegistry } from "../registry.js";
-
+import { defineBlock, type BlockSpec } from "../types.js";
+import {
+  annotatedCodeSchema,
+  annotatedCodeMdx,
+  type AnnotatedCodeData,
+} from "./annotated-code.config.js";
+import {
+  apiEndpointSchema,
+  apiEndpointMdx,
+  type ApiEndpointData,
+} from "./api-endpoint.config.js";
+import {
+  calloutSchema,
+  calloutMdx,
+  type CalloutData,
+} from "./callout.config.js";
 // React-free schema + MDX config for the standard library. The matching React
 // `Read`/`Edit` live in the full client entry; the server path only ever touches
 // `spec.schema` / `spec.mdx`, so these configs register with a render-only stub.
@@ -9,25 +23,49 @@ import {
   checklistMdx,
   type ChecklistData,
 } from "./checklist.config.js";
-import { tableSchema, tableMdx, type TableData } from "./table.config.js";
-import { codeSchema, codeMdx, type CodeData } from "./code.config.js";
 import {
   codeTabsSchema,
   codeTabsMdx,
   type CodeTabsData,
 } from "./code-tabs.config.js";
-import { htmlSchema, htmlMdx, type HtmlBlockData } from "./html.config.js";
-import { tabsSchema, tabsMdx, type TabsData } from "./tabs.config.js";
+import { codeSchema, codeMdx, type CodeData } from "./code.config.js";
 import {
   columnsSchema,
   columnsMdx,
   type ColumnsData,
 } from "./columns.config.js";
 import {
-  calloutSchema,
-  calloutMdx,
-  type CalloutData,
-} from "./callout.config.js";
+  dataModelSchema,
+  dataModelMdx,
+  type DataModelData,
+} from "./data-model.config.js";
+import {
+  diagramSchema,
+  diagramMdx,
+  type DiagramData,
+} from "./diagram.config.js";
+import { diffSchema, diffMdx, type DiffData } from "./diff.config.js";
+import {
+  fileTreeSchema,
+  fileTreeMdx,
+  type FileTreeData,
+} from "./file-tree.config.js";
+import { htmlSchema, htmlMdx, type HtmlBlockData } from "./html.config.js";
+import {
+  jsonExplorerSchema,
+  jsonExplorerMdx,
+  type JsonExplorerData,
+} from "./json-explorer.config.js";
+import {
+  mermaidSchema,
+  mermaidMdx,
+  type MermaidData,
+} from "./mermaid.config.js";
+import {
+  openApiSpecSchema,
+  openApiSpecMdx,
+  type OpenApiSpecData,
+} from "./openapi-spec.config.js";
 import {
   questionFormSchema,
   questionFormMdx,
@@ -36,52 +74,13 @@ import {
   type QuestionFormData,
   type VisualQuestionsData,
 } from "./question-form.config.js";
-import {
-  diagramSchema,
-  diagramMdx,
-  type DiagramData,
-} from "./diagram.config.js";
+import { tableSchema, tableMdx, type TableData } from "./table.config.js";
+import { tabsSchema, tabsMdx, type TabsData } from "./tabs.config.js";
 import {
   wireframeSchema,
   wireframeMdx,
   type WireframeData,
 } from "./wireframe.config.js";
-import {
-  mermaidSchema,
-  mermaidMdx,
-  type MermaidData,
-} from "./mermaid.config.js";
-import {
-  apiEndpointSchema,
-  apiEndpointMdx,
-  type ApiEndpointData,
-} from "./api-endpoint.config.js";
-import {
-  openApiSpecSchema,
-  openApiSpecMdx,
-  type OpenApiSpecData,
-} from "./openapi-spec.config.js";
-import {
-  dataModelSchema,
-  dataModelMdx,
-  type DataModelData,
-} from "./data-model.config.js";
-import { diffSchema, diffMdx, type DiffData } from "./diff.config.js";
-import {
-  fileTreeSchema,
-  fileTreeMdx,
-  type FileTreeData,
-} from "./file-tree.config.js";
-import {
-  jsonExplorerSchema,
-  jsonExplorerMdx,
-  type JsonExplorerData,
-} from "./json-explorer.config.js";
-import {
-  annotatedCodeSchema,
-  annotatedCodeMdx,
-  type AnnotatedCodeData,
-} from "./annotated-code.config.js";
 
 /** Render-only stub for server / agent registries (never invoked off-browser). */
 const ServerReadStub = () => null;

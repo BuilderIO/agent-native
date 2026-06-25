@@ -4,12 +4,13 @@ import {
   IconExternalLink,
   IconLoader2,
 } from "@tabler/icons-react";
+
+import { trackEvent } from "../analytics.js";
 import { SettingsSection } from "./SettingsSection.js";
 import {
   useBuilderStatus,
   withBuilderConnectTrackingParams,
 } from "./useBuilderStatus.js";
-import { trackEvent } from "../analytics.js";
 
 export function BrowserSection() {
   const { status: builder, loading } = useBuilderStatus();

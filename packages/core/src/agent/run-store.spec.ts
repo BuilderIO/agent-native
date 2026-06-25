@@ -10,6 +10,14 @@ let latestEventRows: Array<{ seq: number; event_data: string }> = [];
 let staleSelectRows: Array<{ id: string }> = [];
 let claimSlotRows: Array<{ id: string }> = [];
 let runStatusRows: Array<{ status: string }> = [];
+let claimStateRows: Array<{
+  dispatch_mode: string | null;
+  status: string | null;
+  diag_stage?: string | null;
+  started_at?: number | null;
+  heartbeat_at?: number | null;
+}> = [];
+let runOwnerRows: Array<{ owner_email: string | null }> = [];
 let insertEventBehavior: () => void = () => {};
 
 const mockDb = {
@@ -36,6 +44,18 @@ const mockDb = {
     // getRunStatus: SELECT status FROM agent_runs WHERE id = ?
     if (/SELECT status FROM agent_runs WHERE id/i.test(rawSql)) {
       return { rows: runStatusRows, rowsAffected: 0 };
+    }
+    // readBackgroundRunClaim: SELECT dispatch_mode, status, diag_stage, started_at, heartbeat_at FROM agent_runs WHERE id = ?
+    if (
+      /SELECT dispatch_mode, status, diag_stage.*FROM agent_runs WHERE id/i.test(
+        rawSql,
+      )
+    ) {
+      return { rows: claimStateRows, rowsAffected: 0 };
+    }
+    // getRunOwnerEmail: SELECT t.owner_email FROM agent_runs r JOIN chat_threads t ...
+    if (/JOIN chat_threads/i.test(rawSql)) {
+      return { rows: runOwnerRows, rowsAffected: 0 };
     }
     if (/INSERT INTO agent_run_events/i.test(rawSql)) {
       insertEventBehavior();
@@ -74,6 +94,8 @@ const {
   tryClaimRunSlot,
   updateRunStatusIfRunning,
   getRunStatus,
+  readBackgroundRunClaim,
+  getRunOwnerEmail,
   writeLedgerEntry,
   readLedgerEntry,
   clearLedgerForThread,
@@ -89,9 +111,60 @@ describe("run store", () => {
     staleSelectRows = [];
     claimSlotRows = [];
     runStatusRows = [];
+    claimStateRows = [];
+    runOwnerRows = [];
     ledgerRows = [];
     insertEventBehavior = () => {};
     vi.clearAllMocks();
+  });
+
+  it("readBackgroundRunClaim parses dispatch_mode + status + diag_stage + liveness, or null when missing", async () => {
+    claimStateRows = [
+      {
+        dispatch_mode: "background",
+        status: "running",
+        diag_stage: '{"stage":"route_entered"}',
+        started_at: 1000,
+        heartbeat_at: null,
+      },
+    ];
+    expect(await readBackgroundRunClaim("run-bg")).toEqual({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: '{"stage":"route_entered"}',
+      lastLivenessAt: 1000, // COALESCE(heartbeat_at, started_at)
+    });
+
+    claimStateRows = [
+      {
+        dispatch_mode: "background-processing",
+        status: "running",
+        started_at: 2000,
+        heartbeat_at: 2500,
+      },
+    ];
+    expect(await readBackgroundRunClaim("run-claimed")).toEqual({
+      dispatchMode: "background-processing",
+      status: "running",
+      diagStage: null,
+      lastLivenessAt: 2500, // heartbeat_at wins over started_at
+    });
+
+    claimStateRows = [];
+    expect(await readBackgroundRunClaim("run-missing")).toBeNull();
+  });
+
+  it("getRunOwnerEmail resolves the thread owner for a run, or null when missing", async () => {
+    runOwnerRows = [{ owner_email: "owner@example.com" }];
+    expect(await getRunOwnerEmail("run-1")).toBe("owner@example.com");
+    // resolves by joining agent_runs to chat_threads, keyed by the runId only —
+    // the caller cannot supply the owner, only select the HMAC-signed run row.
+    const joinCall = execCalls.find((c) => /JOIN chat_threads/i.test(c.sql));
+    expect(joinCall).toBeTruthy();
+    expect(joinCall?.args).toEqual(["run-1"]);
+
+    runOwnerRows = [];
+    expect(await getRunOwnerEmail("run-missing")).toBeNull();
   });
 
   it("persists a terminal event when marking a run aborted", async () => {
@@ -189,7 +262,14 @@ describe("run store", () => {
     const select = execCalls.find(
       (call) =>
         /SELECT id FROM agent_runs/i.test(call.sql) &&
-        /COALESCE\(heartbeat_at, started_at\) < \?/.test(call.sql) &&
+        // The heartbeat predicate now uses the background-aware cutoff fragment
+        // `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode LIKE 'background%' THEN
+        // ... END)` so a slow background cold-start isn't reaped early. Still one
+        // query, still covering both predicates.
+        /COALESCE\(heartbeat_at, started_at\) < \(CAST\(\? AS BIGINT\) -/.test(
+          call.sql,
+        ) &&
+        /dispatch_mode LIKE 'background%'/.test(call.sql) &&
         /OR started_at < \?/.test(call.sql),
     );
     expect(select).toBeDefined();
@@ -271,6 +351,23 @@ describe("run store", () => {
     expect(select).toBeDefined();
     // The heartbeat cutoff arg must be a recent timestamp
     expect(Number(select?.args[1])).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it("tryClaimRunSlot casts the now param to BIGINT so a ms epoch can't be typed as int4", async () => {
+    // Regression: the default (background-aware) cutoff does `? - <int4
+    // literal>` in SQL. Without an explicit cast Postgres infers the parameter
+    // as int4 from the literal windows, and Date.now() overflows with
+    // `value "…" is out of range for type integer`, failing every chat turn.
+    claimSlotRows = [];
+    await tryClaimRunSlot("thread-cast");
+    const select = execCalls.find(
+      (call) =>
+        /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(call.sql) &&
+        /COALESCE\(heartbeat_at, started_at\) >=/i.test(call.sql),
+    );
+    expect(select?.sql).toMatch(/CAST\(\?\s+AS\s+BIGINT\)\s*-\s*CASE/i);
+    // And the bound value is a full ms epoch (would overflow int4).
+    expect(Number(select?.args[1])).toBeGreaterThan(2_147_483_647);
   });
 
   // Fix 1c: conditional terminal status write

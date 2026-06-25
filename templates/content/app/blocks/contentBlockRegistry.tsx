@@ -11,24 +11,28 @@ import {
 } from "@agent-native/core/blocks";
 import { sendToAgentChat } from "@agent-native/core/client";
 import { useEffect, useRef, useState } from "react";
+
+import { uploadImageFile } from "@/components/editor/image-upload";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+
 import {
   ContentBlockMarkdown,
   ContentBlockMarkdownEditor,
 } from "./ContentBlockMarkdown";
-import { uploadImageFile } from "@/components/editor/image-upload";
+import { inlineDatabaseBlock } from "./InlineDatabaseBlock";
 
 /**
  * Content's BROWSER block registry. Registers the same structured-block library
  * the server NFM registry (`shared/nfm-registry.ts`) registers, but WITH the real
  * React `Read`/`Edit` renderers. Both registries share the identical core
  * `schema` + `mdx` config per block, so what the editor renders and what the
- * inline NFM source serializes to can never drift.
+ * inline NFM source serializes to can never drift. App-specific blocks register
+ * after the shared library; `inline-database` is content's first one.
  *
  * Block `type`s MUST match the server registry exactly: the NFM parser stamps a
  * `registryBlock` node's `blockType` from the server spec's `type`, and this
@@ -50,6 +54,12 @@ export const contentBlockRegistry = new BlockRegistry();
 registerLibraryBlocks(contentBlockRegistry, {
   overrides: { table: { type: "table-block" } },
 });
+contentBlockRegistry.register(inlineDatabaseBlock);
+
+type ContentBlockRenderContext = BlockRenderContext & {
+  documentId?: string | null;
+  canEdit?: boolean;
+};
 
 /**
  * Build the {@link BlockRenderContext} content's registry blocks render through.
@@ -66,9 +76,12 @@ registerLibraryBlocks(contentBlockRegistry, {
  */
 export function createContentBlockRenderContext(options?: {
   documentId?: string | null;
+  canEdit?: boolean;
 }): BlockRenderContext {
-  const ctx: BlockRenderContext = {
+  const ctx: ContentBlockRenderContext = {
     dialect: "nfm",
+    documentId: options?.documentId,
+    canEdit: options?.canEdit,
     renderMarkdown: (markdown) => <ContentBlockMarkdown markdown={markdown} />,
     renderMarkdownEditor: ({ value, onChange, editable }) => (
       <ContentBlockMarkdownEditor
@@ -106,19 +119,18 @@ export function createContentBlockRenderContext(options?: {
             className={cn(
               "flex max-h-[70vh] overflow-auto",
               compactMenu
-                ? "an-block-menu-popover w-64 flex-col gap-1 rounded-xl p-1"
+                ? "an-block-menu-popover w-80 flex-col gap-1 rounded-xl p-1"
                 : "an-block-edit-popover w-96 flex-col gap-3",
             )}
           >
             {compactMenu ? (
-              children
-            ) : (
               <>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0 truncate text-sm font-semibold text-foreground">
-                    {title}
-                  </div>
-                  {blockId && blockType ? (
+                {children}
+                {blockId && blockType ? (
+                  <div className="mt-1 border-t border-border px-1.5 pt-2">
+                    <div className="mb-1.5 text-xs font-medium text-muted-foreground">
+                      Ask AI to edit
+                    </div>
                     <ContentAiBlockAction
                       label={title}
                       blockId={blockId}
@@ -128,7 +140,15 @@ export function createContentBlockRenderContext(options?: {
                       blockData={blockData}
                       documentId={options?.documentId}
                     />
-                  ) : null}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 truncate text-sm font-semibold text-foreground">
+                    {title}
+                  </div>
                 </div>
                 {children}
               </>

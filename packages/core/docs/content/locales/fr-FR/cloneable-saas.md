@@ -1,0 +1,114 @@
+---
+title: "Modèles"
+description: "Créez un produit SaaS fonctionnel et personnalisez-le – agent inclus."
+---
+
+# Modèles
+
+Vous souhaitez proposer votre propre outil d'analyse basé sur l'IA ? Client de messagerie ? Générateur de formulaires ? Choisissez un modèle et vous obtenez un SaaS fonctionnel en quelques minutes : agent, base de données, authentification et pipeline de déploiement déjà connectés.
+
+La plupart des « modèles » vous donnent un échafaudage vierge et une longue liste TODO. L'agent natif inverse cela. Chacun est un **produit complet de qualité SaaS** — déjà exécutable dès le premier jour, déjà livrable et entièrement à vous pour personnaliser, personnaliser et déployer. Considérez-les comme des SaaS clonables, et non comme des kits de démarrage : vous créez un produit fini, et non un passe-partout.
+
+## Modèles disponibles {#catalog}
+
+Chacune est une véritable application que vous pouvez utiliser aujourd'hui, et une rampe de lancement pour votre propre version.
+
+| Modèle                                    | Qu'est-ce que c'est                                                                                                                                            |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [**Chat**](/docs/template-chat)           | Application minimale axée sur le chat avec des threads durables, actions, l'authentification et un chemin propre vers UI personnalisé ou votre propre backend. |
+| [**Mail**](/docs/template-mail)           | Un surhumain natif d'agent. Boîte de réception, étiquettes, tri IA, clavier d'abord, brouillons et envois via l'agent.                                         |
+| [**Calendar**](/docs/template-calendar)   | Un Google Calendar natif d’agent. Événements, synchronisation, liens de réservation publics, planification pilotée par les agents.                             |
+| [**Content**](/docs/template-content)     | Obsidienne open source pour MDX. Markdown/MDX local, éditeur Tiptap, synchronisation Notion, collaboration multi-utilisateurs en temps réel.                   |
+| [**Brain**](/docs/template-brain)         | Chat d'entreprise propre soutenu par la mémoire institutionnelle citée, les sources approuvées, les points d'examen et les citations.                          |
+| [**Assets**](/docs/template-assets)       | Gestionnaire d'actifs numériques pour les bibliothèques de marque, les téléchargements, les références et la génération d'images/vidéos de marque.             |
+| [**Slides**](/docs/template-slides)       | Un Google Slides natif pour les agents. Les decks basés sur React que l'agent génère et modifie directement.                                                   |
+| [**Video**](/docs/template-videos)        | Graphiques animés programmatiques et vidéos de démonstration de produits sur Remotion.                                                                         |
+| [**Analytics**](/docs/template-analytics) | Un Amplitude/Mixpanel natif d'agent. Connectez des sources de données, demandez des graphiques, épinglez-les aux tableaux de bord.                             |
+| [**Clips**](/docs/template-clips)         | Écran asynchrone + enregistrement par caméra avec transcription, chapitres et résumés IA.                                                                      |
+| [**Design**](/docs/template-design)       | Studio de prototypage HTML natif avec agent pour les conceptions interactives Alpine/Tailwind.                                                                 |
+| [**Forms**](/docs/template-forms)         | Un Typeform natif de l'agent. Créez, partagez, collectez et acheminez les soumissions vers Slack, Sheets, webhooks ou Discord.                                 |
+| [**Plan**](/docs/template-plan)           | Plans visuels et récapitulatifs des relations publiques avec diagrammes, wireframes et annotations.                                                            |
+| [**Dispatch**](/docs/template-dispatch)   | Le plan de contrôle de l'espace de travail : secrets partagés, intégrations réutilisables, Slack/Telegram, tâches planifiées.                                  |
+
+Vous ne voulez pas de modèle de domaine ? Utilisez [Chat](/docs/template-chat) lorsque vous souhaitez une application de base avec laquelle les utilisateurs peuvent parler immédiatement, ou lancez l'action en premier avec [Pure-Agent Apps](/docs/pure-agent-apps).
+
+Consultez le catalogue complet sous [Templates](/templates) ou passez directement à l'un d'entre eux. Par exemple, [Dispatch](/docs/template-dispatch) est un excellent point de départ si vous souhaitez une application de style espace de travail.
+
+## Ce que vous obtenez hors de la boîte {#what-you-get}
+
+Chaque modèle est livré avec les éléments dont la création prend normalement des mois :
+
+- **Un agent fonctionnel** — déjà connecté à l'application, déjà capable d'utiliser actions sur vos données, déjà conscient du contexte de ce que vous regardez. Voir [Messaging the agent](/docs/messaging) pour savoir comment cela fonctionne.
+- **Auth** : connexion, sessions, organisations, isolation multi-locataires. Déjà fait.
+- **Une base de données** : chaque modèle a son schéma, ses requêtes et ses migrations prêts à l'emploi. Apportez votre propre base de données SQL (Postgres, SQLite, Turso, D1) — le framework s'adapte.
+- **Un UI** en temps réel : l'écran reste synchronisé avec ce que fait l'agent. Cliquez sur « rédiger un e-mail » dans le chat et regardez le brouillon apparaître immédiatement dans votre boîte de réception.
+- **Prêt pour le déploiement** : envoyez-le vers Netlify, Vercel, Cloudflare, AWS ou n'importe quel autre endroit exécutant Node. Pas de dépendance envers un fournisseur.
+- **Crochets de branding** : le nom, les couleurs, le logo et la copie sont tous faciles à modifier.
+
+Ce n'est pas une affirmation théorique. L'auteur du framework exécute sa boîte de réception réelle sur le modèle Mail, son calendrier réel sur le modèle Calendrier et ses analyses réelles sur le modèle Analytics. Les modèles sont des logiciels pilotes quotidiens.
+
+## Ce que vous faites {#what-you-do}
+
+Le chemin de « Je veux mon propre SaaS » à « J'ai mon propre SaaS » est court :
+
+```an-diagram title="Fourcher et personnaliser" summary="Choisissez un produit fini, marquez-le, faites-le évoluer dans un anglais simple et expédiez-le vers votre propre domaine."
+{
+  "html": "<div class=\"diagram-fork\"><div class=\"diagram-card\"><span class=\"diagram-pill\">1</span><strong>Pick</strong><small class=\"diagram-muted\">a complete template</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2</span><strong>Brand</strong><small class=\"diagram-muted\">nom, couleurs, logo, texte</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">3</span><strong>Customize</strong><small class=\"diagram-muted\">ask the agent &#8635;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">4</span><strong>Ship</strong><small class=\"diagram-muted\">your own domain</small></div></div>",
+  "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px}.diagram-fork .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+1. **Choisissez un modèle.** Utilisez le sélecteur CLI ou parcourez la documentation et choisissez-en un pour commencer.
+2. **Marquez-le.** Modifiez le nom, les couleurs, le logo et la copie. La plupart des modèles exposent cela dans un seul fichier de configuration.
+3. **Personnalisez-le.** Demandez à l'agent d'ajouter la colonne dont vous avez besoin, modifiez la façon dont les groupes de boîtes de réception, connectez-vous à votre API interne, ajoutez une nouvelle vue. L'agent édite le code ; vous examinez la différence.
+4. **Expédiez-le.** Exécutez la commande de déploiement. Vous disposez désormais de votre propre SaaS de production sur votre propre domaine.
+
+Les étapes 2 à 4 prennent généralement des jours et non des mois. L'étape 3 est ouverte : votre SaaS forké évolue au fil du temps, en anglais simple, en discutant avec l'agent.
+
+## Pourquoi c'est pratique {#why}
+
+Un modèle traditionnel de fork-the-codebase s'effondre à grande échelle : chaque utilisateur gérant sa propre boîte de réception ressemble à un cauchemar de maintenance. Deux décisions-cadres permettent que cela fonctionne :
+
+1. **L'agent effectue la maintenance.** Vous n'écrivez pas de code pour ajouter une colonne ou câbler une nouvelle intégration : vous demandez à l'agent. Ainsi, « votre propre boîte de réception forkée » est une fonctionnalité, pas un fardeau.
+2. **Personnalisation par utilisateur sans code par utilisateur.** Skills, la mémoire, les instructions, les serveurs MCP connectés et les sous-agents résident tous dans SQL. Chaque utilisateur dispose de sa propre couche de personnalisation ; la base de code partagée les héberge tous en même temps.
+
+Le résultat : une flexibilité au niveau du code Claude pour chaque utilisateur, avec des coûts de déploiement SaaS normaux.
+
+```an-diagram title="Pourquoi les forks par utilisateur évoluent" summary="Deux idées maintiennent le modèle fork-and-customize pratique : l'agent effectue la maintenance et la personnalisation par utilisateur réside dans SQL – et non dans le code par utilisateur."
+{
+  "html": "<div class=\"diagram-why\"><div class=\"diagram-panel\" data-rough><strong>Partagerd codebase</strong><small class=\"diagram-muted\">une app, déployée une fois</small><div class=\"diagram-pill accent\">agent does the maintenance</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-panel\" data-rough><strong>Couche par utilisateur en SQL</strong><small class=\"diagram-muted\">skills · mémoire · instructions · MCP · sous-agents</small><div class=\"diagram-pill ok\">no per-user code</div></div></div>",
+  "css": ".diagram-why{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-why .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 18px;min-width:240px;flex:1}.diagram-why .diagram-arrow{font-size:24px;line-height:1}"
+}
+```
+
+## Vous ne voulez pas bifurquer ? {#hosted}
+
+Vous n'êtes pas obligé. Chaque modèle est également disponible sous forme d'application hébergée sur `agent-native.com` — `mail.agent-native.com`, `calendar.agent-native.com`, etc. Utilisez la version hébergée gratuitement ou payante ; fork uniquement lorsque vous souhaitez modifier quelque chose que la version hébergée n'expose pas.
+
+## Essayez-le avec une compétence {#try-with-a-skill}
+
+Pas prêt à monter un échafaudage ? Vous pouvez ajouter des super pouvoirs natifs à un agent de codage que vous utilisez déjà avec une seule commande – aucune application n'est nécessaire. Voir le [Skills Guide](/docs/skills-guide#app-backed-skills).
+
+## Construire sur cette base
+
+- [**Getting Started**](/docs/getting-started) : créez une application de chat minimale ou un agent sans tête
+- [**Messaging the agent**](/docs/messaging) : comment les utilisateurs (et vous) parlent à l'agent fourni avec chaque modèle
+- [**Multi-App Workspace**](/docs/multi-app-workspace) : regroupez plusieurs modèles dans un seul espace de travail qui partage l'authentification, la marque et l'agent
+- [**Dispatch**](/docs/template-dispatch) — le modèle de plan de contrôle de l'espace de travail
+- [**Creating Templates**](/docs/creating-templates) – créez et publiez votre propre modèle
+
+### Pour les développeurs {#dev-details}
+
+Si vous créez un échafaudage maintenant, la commande CLI est :
+
+```bash
+npx @agent-native/core@latest create my-platform
+```
+
+Vous obtiendrez un sélecteur à sélection multiple. Choisissez une application (autonome) ou plusieurs (espace de travail : les applications partagent l'authentification, la marque, la configuration de l'agent et la base de données). Chaque modèle sélectionné est intégré dans `apps/<name>/` avec chaque fichier dont vous avez besoin. Pour une application d'action uniquement au lieu d'un modèle UI, utilisez `npx @agent-native/core@latest create my-agent --headless`.
+
+Remplissez `.env` (principalement `ANTHROPIC_API_KEY` et `DATABASE_URL`), `pnpm install`, `pnpm dev`, et cela fonctionne. Pas de "TODO : implémenter la connexion", pas de routes d'espace réservé.
+
+Cibles de déploiement : tout hôte compatible Nitro (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) et toute base de données SQL compatible Drizzle (SQLite, Postgres, Turso, D1, Supabase, Neon). Pour les espaces de travail, `npx @agent-native/core@latest deploy` crée chaque application en même temps et les livre derrière une seule origine. Voir [Deployment](/docs/deployment).
+
+Pour créer et publier votre propre modèle, consultez [Creating Templates](/docs/creating-templates).

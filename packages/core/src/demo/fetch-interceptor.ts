@@ -1,3 +1,4 @@
+import { agentNativePath } from "../client/api-path.js";
 /**
  * Client-side demo-mode redaction.
  *
@@ -27,7 +28,6 @@
  *   - Any error during interception falls back to the original response.
  */
 import { redactDemoData } from "./redact.js";
-import { agentNativePath } from "../client/api-path.js";
 
 const STATUS_PATH = agentNativePath("/_agent-native/demo/status");
 const SKIP_SUBSTRINGS = [
@@ -91,7 +91,7 @@ function methodOf(input: RequestInfo | URL, init?: RequestInit): string {
 async function refreshDemoFlag(): Promise<void> {
   const f = originalFetch ?? fetch;
   try {
-    const res = await f(STATUS_PATH, { credentials: "include" });
+    const res = await f(STATUS_PATH, { credentials: "same-origin" });
     if (!res.ok) return;
     const json = (await res.json()) as {
       enabled?: boolean;

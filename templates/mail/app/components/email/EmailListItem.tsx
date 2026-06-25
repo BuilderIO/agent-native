@@ -1,5 +1,5 @@
-import { memo, useRef, useState, useCallback } from "react";
-import { cn, formatEmailDate, truncate } from "@/lib/utils";
+import { useT } from "@agent-native/core/client";
+import type { EmailMessage } from "@shared/types";
 import {
   IconArchive,
   IconStarFilled,
@@ -13,14 +13,16 @@ import {
   IconSend,
   IconX,
 } from "@tabler/icons-react";
-import type { EmailMessage } from "@shared/types";
-import type { ThreadSummary } from "@/lib/threads";
-import { useAccountFilter } from "@/hooks/use-account-filter";
+import { memo, useRef, useState, useCallback } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAccountFilter } from "@/hooks/use-account-filter";
+import type { ThreadSummary } from "@/lib/threads";
+import { cn, formatEmailDate, truncate } from "@/lib/utils";
 
 interface EmailListItemProps {
   email: EmailMessage;
@@ -158,6 +160,7 @@ export const EmailListItem = memo(function EmailListItem({
   onSwipeSnooze,
   highlight,
 }: EmailListItemProps) {
+  const t = useT();
   const { allAccounts } = useAccountFilter();
   const isMultiAccount = allAccounts.length > 1;
 
@@ -432,11 +435,11 @@ export const EmailListItem = memo(function EmailListItem({
       >
         {/* Multi-select left border indicator */}
         {isMultiSelected && (
-          <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary rounded-r" />
+          <div className="absolute start-0 top-0 bottom-0 w-[3px] bg-primary rounded-e" />
         )}
 
         {/* Selection / unread / account dot */}
-        <div className="relative mr-2 flex h-full w-5 shrink-0 items-center justify-center">
+        <div className="relative me-2 flex h-full w-5 shrink-0 items-center justify-center">
           <button
             type="button"
             aria-label={isMultiSelected ? "Deselect email" : "Select email"}
@@ -478,7 +481,7 @@ export const EmailListItem = memo(function EmailListItem({
         {/* Sender name — fixed width column */}
         <span
           className={cn(
-            "w-[100px] sm:w-[160px] shrink-0 text-sm sm:text-[13px] truncate mr-3",
+            "w-[100px] sm:w-[160px] shrink-0 text-sm sm:text-[13px] truncate me-3",
             isUnread
               ? "font-semibold text-foreground"
               : "font-normal text-foreground/90",
@@ -494,7 +497,7 @@ export const EmailListItem = memo(function EmailListItem({
 
         {/* Label badges */}
         {displayLabels.length > 0 && (
-          <div className="flex items-center gap-1 shrink-0 mr-2">
+          <div className="flex items-center gap-1 shrink-0 me-2">
             {displayLabels.slice(0, 2).map((labelId) => {
               const style = getLabelStyle(labelId);
               const displayName = labelId
@@ -594,10 +597,10 @@ export const EmailListItem = memo(function EmailListItem({
                     onClick={onSendNow}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
-                    <IconSend className="h-3.5 w-3.5" />
+                    <IconSend className="h-3.5 w-3.5 rtl:-scale-x-100" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Send now</TooltipContent>
+                <TooltipContent>{t("mail.sendLater.sendNow")}</TooltipContent>
               </Tooltip>
             )}
             {onCancelSchedule && (
@@ -611,7 +614,9 @@ export const EmailListItem = memo(function EmailListItem({
                     <IconX className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Cancel scheduled send</TooltipContent>
+                <TooltipContent>
+                  {t("mail.sendLater.cancelScheduledSend")}
+                </TooltipContent>
               </Tooltip>
             )}
             {onTrash && (
@@ -625,7 +630,7 @@ export const EmailListItem = memo(function EmailListItem({
                     <IconTrash className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Move to Trash</TooltipContent>
+                <TooltipContent>{t("mail.actions.moveToTrash")}</TooltipContent>
               </Tooltip>
             )}
             <Tooltip>

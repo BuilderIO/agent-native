@@ -1,11 +1,12 @@
-import { useId, useMemo, useState } from "react";
 import { IconChevronRight, IconLock } from "@tabler/icons-react";
+import { useId, useMemo, useState } from "react";
+
 import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
-import type { OpenApiSpecData } from "./openapi-spec.config.js";
 import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 import { CodeSurface } from "./HighlightedCode.js";
+import type { OpenApiSpecData } from "./openapi-spec.config.js";
 
 /**
  * Read + Edit renderers for an `openapi-spec` block — a Redoc / Swagger-UI-style

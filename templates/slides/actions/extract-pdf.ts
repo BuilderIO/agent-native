@@ -1,6 +1,7 @@
 import fs from "fs";
-import { PDFParse } from "pdf-parse";
+
 import { parseArgs } from "@agent-native/core";
+import { PDFParse } from "pdf-parse";
 
 export default async function (args: string[]) {
   const { path: pdfPath } = parseArgs(args);

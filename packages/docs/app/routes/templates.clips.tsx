@@ -1,33 +1,35 @@
-import { Link } from "react-router";
+import { useT } from "@agent-native/core/client";
 import { useState } from "react";
-import { templates, trackEvent } from "../components/TemplateCard";
+import { Link } from "react-router";
+
 import { TemplateDocsLink } from "../components/template-docs";
+import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
   withTemplateSocialImage(
     [
       {
-        title: "Agent-Native Clips — Open-Source Loom + Granola + Wisprflow",
+        title: "Agent-Native Clips — Open-Source Loom + Jam",
       },
       {
         name: "description",
         content:
-          "Screen recording, calendar-synced meeting notes, and Fn-hold voice dictation in one app you own. Paste Clips links into agents so they can read transcripts and see timestamped frames.",
+          "One-click screen recording with captured browser debug logs — console errors and failed network requests recorded alongside the video. Paste a Clips link into an agent and it reads the transcript, summaries, and timestamped frames to fix the bug.",
       },
       {
         property: "og:title",
-        content: "Agent-Native Clips — Open-Source Loom + Granola + Wisprflow",
+        content: "Agent-Native Clips — Open-Source Loom + Jam",
       },
       {
         property: "og:description",
         content:
-          "Screen recordings, meeting notes, and dictation — all transcribed, summarized, and shareable with agents as transcript plus timestamped visuals.",
+          "Screen recordings with browser debug capture, meeting notes, and dictation — all transcribed, summarized, and shareable with agents as transcript plus timestamped visuals.",
       },
       {
         name: "keywords",
         content:
-          "screen recording, async video, open source screen recorder, AI transcripts, AI video summaries, agent-readable video links, agent-friendly Loom, agent-native clips, meeting notes, meeting recorder, granola alternative, wisprflow alternative, loom alternative, voice dictation, voice to text, push to talk dictation, calendar sync, action items, transcription, video messaging, async communication, shareable video links",
+          "screen recording, async video, open source screen recorder, bug reporting, browser debug logs, console logs, network requests, repro video, jam alternative, AI transcripts, AI video summaries, agent-readable video links, agent-friendly Loom, agent-native clips, meeting notes, meeting recorder, granola alternative, wisprflow alternative, loom alternative, voice dictation, voice to text, push to talk dictation, calendar sync, action items, transcription, video messaging, async communication, shareable video links",
       },
     ],
     "Clips",
@@ -94,6 +96,7 @@ function CliCopy() {
 }
 
 export default function ClipsTemplate() {
+  const t = useT();
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
@@ -116,7 +119,7 @@ export default function ClipsTemplate() {
             >
               <polyline points="15 18 9 12 15 6" />
             </svg>
-            All Templates
+            {t("templateLanding.clips.s006")}
           </Link>
         </div>
 
@@ -131,16 +134,11 @@ export default function ClipsTemplate() {
             </div>
 
             <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              The open-source alternative to Loom, Granola, and Wisprflow
+              {t("templateLanding.clips.s007")}
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              One-click screen recording, calendar-synced meeting notes with AI
-              summaries and action items, and Fn-hold voice dictation — all in
-              one app, all transcribed, all agent-readable. Paste a Clips link
-              into an agent and it can hear the transcript, read summaries, and
-              see timestamped frames even if its model cannot ingest raw video
-              or audio.
+              {t("templateLanding.clips.s008")}
             </p>
 
             <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
@@ -156,7 +154,7 @@ export default function ClipsTemplate() {
                   })
                 }
               >
-                Try It
+                {t("templateLanding.clips.s009")}
                 <svg
                   width="16"
                   height="16"
@@ -180,7 +178,7 @@ export default function ClipsTemplate() {
           <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
             <img
               src={template.screenshot}
-              alt="Clips template screenshot"
+              alt={t("templateLanding.clips.s001")}
               className="w-full object-cover object-top"
             />
           </div>
@@ -191,10 +189,10 @@ export default function ClipsTemplate() {
       <section className="border-t border-[var(--docs-border)] py-16">
         <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">
           {[
-            { number: "1-click", label: "Screen Record" },
-            { number: "Auto", label: "Meeting Notes" },
-            { number: "Hold-to", label: "Dictate" },
-            { number: "Agent", label: "Can See + Hear" },
+            { number: "1-click", label: t("templateLanding.clips.s002") },
+            { number: "Auto", label: t("templateLanding.clips.s003") },
+            { number: "Hold-to", label: t("templateLanding.clips.s004") },
+            { number: "Agent", label: t("templateLanding.clips.s005") },
           ].map((stat) => (
             <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
               <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
@@ -211,11 +209,10 @@ export default function ClipsTemplate() {
       {/* Core capabilities */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          What you can do
+          {t("templateLanding.clips.s010")}
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          Three capture surfaces, one app, one library — without the
-          subscription stack.
+          {t("templateLanding.clips.s011")}
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -235,7 +232,7 @@ export default function ClipsTemplate() {
               </svg>
             </div>
             <h3 className="mb-1 text-sm font-semibold">
-              One-Click Screen Recording
+              {t("templateLanding.clips.s012")}
             </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Loom-style. Capture screen, camera, and microphone in a single
@@ -261,11 +258,11 @@ export default function ClipsTemplate() {
                 <line x1="16" y1="17" x2="8" y2="17" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">Auto Transcripts</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.clips.s013")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Every screen recording, meeting, and dictation gets a full
-              transcript. Agents can use that as the audio layer, and viewers
-              can click any line to jump to that moment.
+              {t("templateLanding.clips.s014")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -280,18 +277,18 @@ export default function ClipsTemplate() {
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
-                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
-                <polyline points="16 6 12 2 8 6" />
-                <line x1="12" y1="2" x2="12" y2="15" />
+                <polyline points="4 17 10 11 4 5" />
+                <line x1="12" y1="19" x2="20" y2="19" />
               </svg>
             </div>
             <h3 className="mb-1 text-sm font-semibold">
-              Calendar-Synced Meeting Notes
+              {t("templateLanding.clips.s003")}
             </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Granola-style. Connect your calendar, hit record on any meeting,
-              and get a live transcript plus AI summary, bullet notes, and
-              action items the moment it ends.
+              Jam-style. Record a bug in your browser and Clips captures the
+              console errors and failed network requests alongside the video —
+              redacted, never headers, bodies, or cookies. Hand the link to an
+              agent and it has the repro plus the logs to fix the issue.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -310,7 +307,7 @@ export default function ClipsTemplate() {
               </svg>
             </div>
             <h3 className="mb-1 text-sm font-semibold">
-              Push-to-Talk Dictation
+              {t("templateLanding.clips.s015")}
             </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Wisprflow-style. Hold Fn anywhere on your machine, speak, and the
@@ -326,12 +323,10 @@ export default function ClipsTemplate() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
-              Searchable Video Library
+              {t("templateLanding.clips.s016")}
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              Screen recordings, meeting transcripts, and dictations all indexed
-              together. Search across your whole library by what was said, not
-              just by title.
+              {t("templateLanding.clips.s017")}
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -348,7 +343,7 @@ export default function ClipsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Full-text search across every transcript
+                {t("templateLanding.clips.s018")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -364,7 +359,7 @@ export default function ClipsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Folders, tags, and team workspaces
+                {t("templateLanding.clips.s019")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -380,17 +375,16 @@ export default function ClipsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Timestamped comments and reactions
+                {t("templateLanding.clips.s020")}
               </li>
             </ul>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
-              Branded Player Page
+              {t("templateLanding.clips.s021")}
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              Self-host the player. Customize the brand, the call-to-action, and
-              the analytics — it's your code.
+              {t("templateLanding.clips.s022")}
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -407,7 +401,7 @@ export default function ClipsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Custom domain and theming
+                {t("templateLanding.clips.s023")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -423,7 +417,7 @@ export default function ClipsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                View counts, watch-through rate, drop-off
+                {t("templateLanding.clips.s024")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -439,7 +433,7 @@ export default function ClipsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Embeddable on any site
+                {t("templateLanding.clips.s025")}
               </li>
             </ul>
           </div>
@@ -451,13 +445,10 @@ export default function ClipsTemplate() {
         <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
             <h2 className="mb-3 text-2xl font-bold tracking-tight">
-              Agent-powered video workflows
+              {t("templateLanding.clips.s026")}
             </h2>
             <p className="mb-6 text-base text-[var(--fg-secondary)]">
-              Ask the agent anything about your library, or paste a shared Clips
-              link into another agent — it can read transcripts, inspect
-              timestamped frames, clip highlights, and draft written follow-ups
-              from your recordings.
+              {t("templateLanding.clips.s027")}
             </p>
             <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -474,7 +465,7 @@ export default function ClipsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Pull action items from today's standup"
+                {t("templateLanding.clips.s028")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -490,7 +481,7 @@ export default function ClipsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Find the dictation where I described the launch plan"
+                {t("templateLanding.clips.s029")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -506,7 +497,7 @@ export default function ClipsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Draft a follow-up email from this meeting"
+                {t("templateLanding.clips.s030")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -522,7 +513,7 @@ export default function ClipsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Pull every action item from this week's meetings"
+                {t("templateLanding.clips.s031")}
               </li>
             </ul>
           </div>
@@ -563,7 +554,7 @@ export default function ClipsTemplate() {
       {/* Comparison table */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          How it compares
+          {t("templateLanding.clips.s032")}
         </h2>
         <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table min-w-[42rem] w-full text-sm">
@@ -572,6 +563,9 @@ export default function ClipsTemplate() {
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   Loom
+                </th>
+                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
+                  Jam
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   Granola
@@ -587,80 +581,110 @@ export default function ClipsTemplate() {
             <tbody className="text-[var(--fg-secondary)]">
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Screen recording
+                  {t("templateLanding.clips.s033")}
                 </td>
-                <td className="px-5 py-3">Yes</td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Yes</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s034")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s034")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  {t("templateLanding.clips.s034")}
+                </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Calendar-synced meeting notes
+                  {t("templateLanding.clips.s036")}
                 </td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3">Yes</td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Yes</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s034")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  {t("templateLanding.clips.s034")}
+                </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Push-to-talk dictation
+                  {t("templateLanding.clips.s037")}
                 </td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3">Yes</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Yes</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s034")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  {t("templateLanding.clips.s034")}
+                </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  AI summaries &amp; action items
+                  {t("templateLanding.clips.s038")}
                 </td>
-                <td className="px-5 py-3">Limited</td>
-                <td className="px-5 py-3">Yes</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s034")}</td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  {t("templateLanding.clips.s034")}
+                </td>
+              </tr>
+              <tr className="border-b border-[var(--docs-border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">
+                  {t("templateLanding.clips.s039")}
+                </td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s040")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s040")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s034")}</td>
                 <td className="px-5 py-3">N/A</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Full agent: chapters, actions, Q&amp;A
+                  {t("templateLanding.clips.s041")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Agent edits transcripts &amp; code
+                  {t("templateLanding.clips.s042")}
                 </td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Yes</td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Pasteable agent media links
-                </td>
-                <td className="px-5 py-3">Transcript only</td>
-                <td className="px-5 py-3">Notes only</td>
-                <td className="px-5 py-3">Text only</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Transcript + timestamped frames
+                  {t("templateLanding.clips.s034")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Data ownership
+                  {t("templateLanding.clips.s043")}
                 </td>
-                <td className="px-5 py-3">Vendor's storage</td>
-                <td className="px-5 py-3">Vendor's storage</td>
-                <td className="px-5 py-3">Vendor's cloud</td>
-                <td className="px-5 py-3 text-[var(--fg)]">You own the code</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s044")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s045")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s046")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s047")}</td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  {t("templateLanding.clips.s048")}
+                </td>
+              </tr>
+              <tr className="border-b border-[var(--docs-border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">
+                  {t("templateLanding.clips.s049")}
+                </td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s050")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s050")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s050")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s051")}</td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  {t("templateLanding.clips.s052")}
+                </td>
               </tr>
               <tr>
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Pricing
+                  {t("templateLanding.clips.s053")}
                 </td>
-                <td className="px-5 py-3">$15-30/mo per user</td>
-                <td className="px-5 py-3">$18-25/mo per user</td>
-                <td className="px-5 py-3">$12-15/mo per user</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s054")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s055")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s056")}</td>
+                <td className="px-5 py-3">{t("templateLanding.clips.s057")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Free &amp; open source
+                  {t("templateLanding.clips.s058")}
                 </td>
               </tr>
             </tbody>
@@ -671,11 +695,10 @@ export default function ClipsTemplate() {
       {/* CTA */}
       <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Get started in minutes
+          {t("templateLanding.clips.s059")}
         </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Fork the template, plug in your storage, and start recording clips
-          your team actually owns.
+          {t("templateLanding.clips.s060")}
         </p>
         <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink
@@ -683,14 +706,14 @@ export default function ClipsTemplate() {
             location="landing_page_cta"
             className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
-            Read the docs
+            {t("templateLanding.clips.s061")}
           </TemplateDocsLink>
           <Link
             data-an-prefetch="render"
             to="/templates"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
-            View all templates
+            {t("templateLanding.clips.s062")}
           </Link>
         </div>
       </section>

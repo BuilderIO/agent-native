@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   View,
@@ -7,7 +8,6 @@ import {
   AppState,
 } from "react-native";
 import { WebView } from "react-native-webview";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface AppWebViewProps {
   url: string;

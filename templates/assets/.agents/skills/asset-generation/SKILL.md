@@ -16,9 +16,14 @@ or generated image/video assets that another app can reference by ID and URL.
 
 ## Choose The Path
 
-- Use `open-asset-picker` when a person should browse, search, generate, and
-  select an asset in UI. Pass `mediaType: "image"` by default, or
-  `mediaType: "video"` for video libraries.
+- Use `generate-asset` when a person should get newly generated, on-brand image
+  candidates and choose the winner in the inline picker. It matches a library
+  when `libraryId` is omitted, generates candidates, returns the picker filtered
+  to those run IDs, and works in in-app chat plus external MCP hosts.
+- Use `open-asset-picker` when a person should browse, search, or select an
+  existing asset in UI, or when you want the picker to handle generation itself.
+  Pass `mediaType: "image"` by default, or `mediaType: "video"` for video
+  libraries.
 - Use unattended actions when the agent already knows what to do:
   `search-assets`, `list-assets`, `generate-image`, `generate-image-batch`,
   `generate-video`, `refresh-generation-run`, and `export-asset`.
@@ -41,7 +46,9 @@ or generated image/video assets that another app can reference by ID and URL.
 
 ## Image Workflows
 
-1. Pick or match the library with `list-libraries` or `match-library`.
+1. For human-in-the-loop generation, call `generate-asset` first and preserve
+   the returned picker/candidate metadata. For unattended generation, pick or
+   match the library with `list-libraries` or `match-library`.
    If the user wants a default look rather than a brand library, call
    `list-library-presets` and then `create-library-from-preset`; the resulting
    library is editable and reusable like any other library.
@@ -85,8 +92,10 @@ deferred.
   Do not put shared secrets in skill files.
 - Local customization: run `npx @agent-native/core@latest app-skill launch --local` from the
   Assets app-skill manifest, or pass `--into <path>` for editable source.
-- For A2A or MCP callers, include exact `assetId`, `runId`, media type, and
-  URLs in the final response so the caller can attach or embed the media.
+- For MCP callers, `generate-asset` is the portable first choice because the
+  same MCP App picker renders inline in Agent-Native chat, ChatGPT, and Claude
+  when the host supports MCP Apps. Include exact `assetId`, `runId`, media type,
+  and URLs in the final response so the caller can attach or embed the media.
   Include `presetId` and `sessionId` when present.
 
 ## Don't

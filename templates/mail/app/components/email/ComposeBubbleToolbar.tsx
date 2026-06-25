@@ -1,4 +1,4 @@
-import type { Editor } from "@tiptap/react";
+import { useT } from "@agent-native/core/client";
 import {
   IconBold,
   IconItalic,
@@ -8,14 +8,17 @@ import {
   IconPencil,
   IconLoader2,
 } from "@tabler/icons-react";
-import { cn, formatShortcut } from "@/lib/utils";
+import type { Editor } from "@tiptap/react";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { createPortal } from "react-dom";
+import { cn, formatShortcut } from "@/lib/utils";
+
 import { getSelectedMarkdown } from "./compose-draft-context";
 
 interface ComposeBubbleToolbarProps {
@@ -51,6 +54,7 @@ export function ComposeBubbleToolbar({
   getCurrentDraftBody,
   sendToAgent,
 }: ComposeBubbleToolbarProps) {
+  const t = useT();
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [activeMarks, setActiveMarks] = useState({
@@ -244,32 +248,32 @@ export function ComposeBubbleToolbar({
   const items = [
     {
       icon: IconBold,
-      title: "Bold",
+      title: t("mail.compose.bold"),
       action: () => (editor.chain().focus() as any).toggleBold().run(),
       active: activeMarks.bold,
     },
     {
       icon: IconItalic,
-      title: "Italic",
+      title: t("mail.compose.italic"),
       action: () => (editor.chain().focus() as any).toggleItalic().run(),
       active: activeMarks.italic,
     },
     {
       icon: IconStrikethrough,
-      title: "Strikethrough",
+      title: t("mail.compose.strikethrough"),
       action: () => (editor.chain().focus() as any).toggleStrike().run(),
       active: activeMarks.strike,
     },
     {
       icon: IconCode,
-      title: "Code",
+      title: t("mail.compose.code"),
       action: () => (editor.chain().focus() as any).toggleCode().run(),
       active: activeMarks.code,
     },
     { type: "divider" as const },
     {
       icon: IconLink,
-      title: "Link",
+      title: t("mail.compose.link"),
       action: toggleLink,
       active: activeMarks.link,
     },
@@ -292,7 +296,7 @@ export function ComposeBubbleToolbar({
           <input
             autoFocus
             type="url"
-            placeholder="Paste link..."
+            placeholder={t("mail.compose.pasteLink")}
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
             onKeyDown={(e) => {
@@ -308,7 +312,7 @@ export function ComposeBubbleToolbar({
             onClick={handleSetLink}
             className="text-xs text-blue-400 hover:text-blue-300 px-1.5 py-0.5 font-medium"
           >
-            Apply
+            {t("mail.compose.apply")}
           </button>
         </div>
       ) : showAiInput || isGenerating ? (
@@ -316,13 +320,15 @@ export function ComposeBubbleToolbar({
           {isGenerating ? (
             <>
               <IconLoader2 size={14} className="animate-spin text-gray-400" />
-              <span className="text-xs text-gray-400 px-1">Generating…</span>
+              <span className="text-xs text-gray-400 px-1">
+                {t("mail.compose.generating")}
+              </span>
             </>
           ) : (
             <>
               <textarea
                 autoFocus
-                placeholder="e.g. make more formal..."
+                placeholder={t("mail.compose.aiAssistPlaceholder")}
                 value={aiPrompt}
                 rows={2}
                 onChange={(e) => setAiPrompt(e.target.value)}
@@ -346,11 +352,13 @@ export function ComposeBubbleToolbar({
                     onClick={() => void handleAiAssist()}
                     className="text-xs text-blue-400 hover:text-blue-300 px-1.5 py-0.5 font-medium shrink-0 self-end pb-1"
                   >
-                    Generate
+                    {t("mail.compose.generate")}
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  Generate ({formatShortcut("cmd+enter")})
+                  {t("mail.compose.generateShortcut", {
+                    shortcut: formatShortcut("cmd+enter"),
+                  })}
                 </TooltipContent>
               </Tooltip>
             </>
@@ -409,7 +417,7 @@ export function ComposeBubbleToolbar({
                 <IconPencil size={14} strokeWidth={2.5} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>AI Assist</TooltipContent>
+            <TooltipContent>{t("mail.compose.aiAssist")}</TooltipContent>
           </Tooltip>
         </div>
       )}

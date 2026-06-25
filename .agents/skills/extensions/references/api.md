@@ -153,9 +153,28 @@ await extensionData.remove("todos", "team-todo-1", { scope: "org" });
 
 Data is scoped per-extension. User-scoped items are private per-user;
 org-scoped items are shared across the org. Any org member can read,
-update, or delete org-scoped items. **Prefer `extensionData` over raw
-`dbExec` for extension-specific persistence** — it handles table creation,
-scoping, and upserts automatically.
+update, or delete org-scoped items when the caller has editor/admin/owner
+access to the extension. Viewer access is read-only. **Prefer
+`extensionData` over raw `dbExec` for extension-specific persistence** — it
+handles table creation, scoping, and upserts automatically.
+
+### Authenticated extension data routes
+
+`extensionData` uses the same authenticated HTTP routes that external
+logged-in clients may call directly:
+
+| Method | Path                                                              | Access             |
+| ------ | ----------------------------------------------------------------- | ------------------ |
+| GET    | `/_agent-native/extensions/data/:extensionId/:collection`         | viewer or above    |
+| POST   | `/_agent-native/extensions/data/:extensionId/:collection`         | editor/admin/owner |
+| DELETE | `/_agent-native/extensions/data/:extensionId/:collection/:itemId` | editor/admin/owner |
+
+Reads accept `?scope=user`, `?scope=org`, `?scope=all`, and `?limit=100`.
+Writes accept `{ id, data, scope }` where `scope` is `user` or `org`. These
+routes use the caller's app session and extension sharing role; they are not a
+public API-key or anonymous ingestion surface. If a template needs
+server-to-server access, add a template-specific action or route with explicit
+scoped keys and rate limits.
 
 ## Using `extensionFetch()` for API calls
 
@@ -251,15 +270,18 @@ set-url-path({ "pathname": "/extensions/EXTENSION_ID" })
 
 ## Routes
 
-| Method | Path                                   | Purpose                                       |
-| ------ | -------------------------------------- | --------------------------------------------- |
-| GET    | `/_agent-native/extensions`            | List extensions (filtered by ownership/share) |
-| POST   | `/_agent-native/extensions`            | Create an extension                           |
-| GET    | `/_agent-native/extensions/:id`        | Get an extension                              |
-| PUT    | `/_agent-native/extensions/:id`        | Update (supports `patches` for diffing)       |
-| DELETE | `/_agent-native/extensions/:id`        | Delete an extension                           |
-| GET    | `/_agent-native/extensions/:id/render` | Render HTML for iframe                        |
-| POST   | `/_agent-native/extensions/proxy`      | Authenticated proxy with secret injection     |
+| Method | Path                                                     | Purpose                                       |
+| ------ | -------------------------------------------------------- | --------------------------------------------- |
+| GET    | `/_agent-native/extensions`                              | List extensions (filtered by ownership/share) |
+| POST   | `/_agent-native/extensions`                              | Create an extension                           |
+| GET    | `/_agent-native/extensions/:id`                          | Get an extension                              |
+| PUT    | `/_agent-native/extensions/:id`                          | Update (supports `patches` for diffing)       |
+| DELETE | `/_agent-native/extensions/:id`                          | Delete an extension                           |
+| GET    | `/_agent-native/extensions/:id/render`                   | Render HTML for iframe                        |
+| POST   | `/_agent-native/extensions/proxy`                        | Authenticated proxy with secret injection     |
+| GET    | `/_agent-native/extensions/data/:id/:collection`         | List authenticated extension data             |
+| POST   | `/_agent-native/extensions/data/:id/:collection`         | Upsert authenticated extension data           |
+| DELETE | `/_agent-native/extensions/data/:id/:collection/:itemId` | Delete authenticated extension data           |
 
 ## Database & API names — back-compat reference
 

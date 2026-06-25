@@ -1,6 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { extractTranscriptText } from "./gong-calls";
+
+import {
+  getCallDetail,
+  getCallTranscript,
+  searchCallsForQueries,
+  type GongCall,
+} from "../server/lib/gong";
 import {
   getAssociatedHubSpotObjects,
   getDealOwners,
@@ -12,12 +18,7 @@ import {
   type HubSpotObjectRecord,
   type Pipeline,
 } from "../server/lib/hubspot";
-import {
-  getCallDetail,
-  getCallTranscript,
-  searchCallsForQueries,
-  type GongCall,
-} from "../server/lib/gong";
+import { extractTranscriptText } from "./gong-calls";
 import { cliBoolean } from "./schema-helpers";
 
 const DEFAULT_DEAL_LIMIT = 3;

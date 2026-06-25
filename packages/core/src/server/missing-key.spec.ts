@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+
 import { requireEnvKey } from "./missing-key.js";
 
 // Mock h3's setResponseStatus since we're testing in a Node context without a real H3 event

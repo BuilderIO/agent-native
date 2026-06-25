@@ -3,7 +3,13 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
+import {
+  isBlocksPropertyType,
+  serializePropertyOptions,
+  type DocumentPropertyType,
+} from "../shared/properties.js";
 import {
   listPropertiesForDocument,
   nanoid,
@@ -56,6 +62,15 @@ export default defineAction({
 
     const now = new Date().toISOString();
     const newPropertyId = nanoid();
+    const isBlocks = isBlocksPropertyType(
+      definition.type as DocumentPropertyType,
+    );
+    // A duplicated Blocks field is a brand-new, independent, EMPTY field — never
+    // primary (only one field backs the body) and with no copied content.
+    const optionsJson = isBlocks
+      ? serializePropertyOptions({ blocks: { primary: false } })
+      : definition.optionsJson;
+
     await db.insert(schema.documentPropertyDefinitions).values({
       id: newPropertyId,
       ownerEmail: definition.ownerEmail,
@@ -64,28 +79,31 @@ export default defineAction({
       name: `${definition.name} copy`,
       type: definition.type,
       visibility: definition.visibility,
-      optionsJson: definition.optionsJson,
+      optionsJson,
       position: (maxPos?.max ?? -1) + 1,
       createdAt: now,
       updatedAt: now,
     });
 
-    const values = await db
-      .select()
-      .from(schema.documentPropertyValues)
-      .where(eq(schema.documentPropertyValues.propertyId, propertyId));
-    if (values.length > 0) {
-      await db.insert(schema.documentPropertyValues).values(
-        values.map((value) => ({
-          id: nanoid(),
-          ownerEmail: value.ownerEmail,
-          documentId: value.documentId,
-          propertyId: newPropertyId,
-          valueJson: value.valueJson,
-          createdAt: now,
-          updatedAt: now,
-        })),
-      );
+    // Blocks fields don't use document_property_values; a duplicate starts empty.
+    if (!isBlocks) {
+      const values = await db
+        .select()
+        .from(schema.documentPropertyValues)
+        .where(eq(schema.documentPropertyValues.propertyId, propertyId));
+      if (values.length > 0) {
+        await db.insert(schema.documentPropertyValues).values(
+          values.map((value) => ({
+            id: nanoid(),
+            ownerEmail: value.ownerEmail,
+            documentId: value.documentId,
+            propertyId: newPropertyId,
+            valueJson: value.valueJson,
+            createdAt: now,
+            updatedAt: now,
+          })),
+        );
+      }
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });

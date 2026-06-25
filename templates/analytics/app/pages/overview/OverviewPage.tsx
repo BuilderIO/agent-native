@@ -1,5 +1,14 @@
+import { callAction, useChangeVersions, useT } from "@agent-native/core/client";
+import {
+  IconChartBar,
+  IconFlask,
+  IconClock,
+  IconBuilding,
+} from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
+
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -7,15 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  IconChartBar,
-  IconFlask,
-  IconClock,
-  IconBuilding,
-} from "@tabler/icons-react";
-import { callAction, useChangeVersions } from "@agent-native/core/client";
 
 type OrgItem = {
   id: string;
@@ -27,7 +28,13 @@ type OrgItem = {
   type: "dashboard" | "analysis";
 };
 
-async function fetchOrgSharedContent(): Promise<OrgItem[]> {
+async function fetchOrgSharedContent({
+  untitledDashboard,
+  untitledAnalysis,
+}: {
+  untitledDashboard: string;
+  untitledAnalysis: string;
+}): Promise<OrgItem[]> {
   const [dashRows, analysisRows] = await Promise.allSettled([
     callAction("list-sql-dashboards", {}, { method: "GET" }),
     callAction("list-analyses", {}, { method: "GET" }),
@@ -44,7 +51,7 @@ async function fetchOrgSharedContent(): Promise<OrgItem[]> {
         name:
           typeof d.name === "string" && d.name.trim()
             ? d.name
-            : "Untitled dashboard",
+            : untitledDashboard,
         updatedAt: d.updatedAt ?? undefined,
         createdAt: d.createdAt ?? undefined,
         author: d.author ?? undefined,
@@ -62,7 +69,7 @@ async function fetchOrgSharedContent(): Promise<OrgItem[]> {
         name:
           typeof a.name === "string" && a.name.trim()
             ? a.name
-            : "Untitled analysis",
+            : untitledAnalysis,
         description: a.description ?? undefined,
         updatedAt: a.updatedAt ?? undefined,
         createdAt: a.createdAt ?? undefined,
@@ -91,10 +98,15 @@ function formatRelativeDate(iso: string): string {
 }
 
 export default function OverviewPage() {
+  const t = useT();
   const sync = useChangeVersions(["dashboards", "analyses", "action"]);
   const { data: sharedItems = [], isLoading } = useQuery({
     queryKey: ["org-shared-overview", sync],
-    queryFn: fetchOrgSharedContent,
+    queryFn: () =>
+      fetchOrgSharedContent({
+        untitledDashboard: t("overview.untitledDashboard"),
+        untitledAnalysis: t("overview.untitledAnalysis"),
+      }),
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   });
@@ -102,9 +114,11 @@ export default function OverviewPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {t("overview.title")}
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Dashboards and analyses shared with the org
+          {t("overview.description")}
         </p>
       </div>
 
@@ -120,10 +134,11 @@ export default function OverviewPage() {
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 mb-4">
               <IconBuilding className="h-7 w-7 text-primary" />
             </div>
-            <h3 className="text-lg font-semibold mb-2">Nothing shared yet</h3>
+            <h3 className="text-lg font-semibold mb-2">
+              {t("overview.nothingShared")}
+            </h3>
             <p className="text-sm text-muted-foreground max-w-sm">
-              When teammates share dashboards or analyses with the org, they
-              appear here. Use the ⋯ menu in the sidebar to share any item.
+              {t("overview.nothingSharedDescription")}
             </p>
           </CardContent>
         </Card>
@@ -167,7 +182,9 @@ export default function OverviewPage() {
                       variant="secondary"
                       className="text-[10px] px-1.5 py-0"
                     >
-                      {item.type === "dashboard" ? "Dashboard" : "Analysis"}
+                      {item.type === "dashboard"
+                        ? t("overview.dashboard")
+                        : t("overview.analysis")}
                     </Badge>
                     {item.updatedAt && (
                       <span className="flex items-center gap-1">
@@ -176,7 +193,9 @@ export default function OverviewPage() {
                       </span>
                     )}
                     {item.author && (
-                      <span className="truncate">by {item.author}</span>
+                      <span className="truncate">
+                        {t("overview.byAuthor", { author: item.author })}
+                      </span>
                     )}
                   </div>
                 </CardContent>

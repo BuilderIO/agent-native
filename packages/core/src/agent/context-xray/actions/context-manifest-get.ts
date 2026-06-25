@@ -1,13 +1,14 @@
 import { z } from "zod";
+
 import { defineAction } from "../../../action.js";
 import { embedApp } from "../../../mcp/embed-app.js";
-import { callerOwnsThread } from "../../run-ownership.js";
-import { getRequestUserEmail } from "../../../server/request-context.js";
 import { buildDeepLink } from "../../../server/deep-link.js";
+import { getRequestUserEmail } from "../../../server/request-context.js";
 import {
   emptyContextManifest,
   type ContextManifest,
 } from "../../../shared/context-xray.js";
+import { callerOwnsThread } from "../../run-ownership.js";
 import { readContextManifest } from "../directives-store.js";
 import {
   contextXrayAuthError,

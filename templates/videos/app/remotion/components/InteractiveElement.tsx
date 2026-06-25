@@ -1,7 +1,8 @@
 import React, { ReactNode } from "react";
 import { useCurrentFrame } from "remotion";
-import { useHoverAnimationSmooth } from "../hooks/useHoverAnimationSmooth";
+
 import type { CursorFrame } from "../hooks/useCursorHistory";
+import { useHoverAnimationSmooth } from "../hooks/useHoverAnimationSmooth";
 import {
   getCursorTypeForElement,
   type InteractiveElementType,

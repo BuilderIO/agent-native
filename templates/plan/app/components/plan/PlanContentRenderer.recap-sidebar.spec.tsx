@@ -2,10 +2,12 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import type { PlanContent } from "@shared/plan-content";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PlanContent } from "@shared/plan-content";
+
 import { PlanContentRenderer } from "./PlanContentRenderer";
 import {
   setWireframeStyle,
@@ -461,11 +463,10 @@ describe("PlanContentRenderer recap changed files", () => {
       );
     });
 
-    const fileRow = container.querySelector<HTMLButtonElement>(
-      'button[data-file-path="templates/plan/app/pages/PlansPage.tsx"]',
+    const fileRow = container.querySelector<HTMLElement>(
+      '[data-file-path="templates/plan/app/pages/PlansPage.tsx"]',
     );
     expect(fileRow).not.toBeNull();
-    expect(fileRow?.disabled).toBe(false);
 
     act(() => {
       fileRow?.dispatchEvent(

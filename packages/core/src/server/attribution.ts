@@ -141,7 +141,8 @@ function isExternalReferrerHost(host: string | undefined): boolean {
  *   1. explicit `ref` wins;
  *   2. landing path under `/share/` => "clip_share";
  *   3. landing path that looks like a public plan page
- *      (contains `/p/`, `/plan/`, or `/share-plan/`) => "plan_share";
+ *      (`/p/`, `/plan/`, `/plans/`, `/recaps/`, or `/share-plan/`) =>
+ *      "plan_share";
  *   4. a non-empty external referring host => "external";
  *   5. otherwise => "direct".
  */
@@ -152,6 +153,8 @@ export function deriveReferralSource(ft: FirstTouchAttribution | null): string {
   if (
     path.includes("/p/") ||
     path.includes("/plan/") ||
+    path.includes("/plans/") ||
+    path.includes("/recaps/") ||
     path.includes("/share-plan/")
   ) {
     return "plan_share";

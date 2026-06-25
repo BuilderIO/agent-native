@@ -1,7 +1,9 @@
-import { useCurrentFrame, useVideoConfig } from "remotion";
-import type { AnimationTrack } from "@/types";
-import { findTrack, getPropValueKeyframed } from "./trackAnimation";
 import type { ReactNode } from "react";
+import { useCurrentFrame, useVideoConfig } from "remotion";
+
+import type { AnimationTrack } from "@/types";
+
+import { findTrack, getPropValueKeyframed } from "./trackAnimation";
 import { Cursor, type CursorType } from "./ui-components/Cursor";
 
 export interface CameraHostProps {

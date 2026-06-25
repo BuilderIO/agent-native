@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   contentHash,
@@ -13,8 +14,8 @@ import {
 } from "../server/lib/brain.js";
 import { sanitizeCaptureForStorage } from "../server/lib/capture-sanitization.js";
 import { redactSensitiveText } from "../server/lib/search.js";
-import { idSchema, stringArrayCliSchema } from "./_schemas.js";
 import type { BrainCaptureKind, BrainSourceProvider } from "../shared/types.js";
+import { idSchema, stringArrayCliSchema } from "./_schemas.js";
 
 function reviewPreview(value: string) {
   return redactSensitiveText(value).replace(/\s+/g, " ").trim().slice(0, 320);

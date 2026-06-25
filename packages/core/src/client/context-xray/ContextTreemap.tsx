@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Treemap } from "recharts";
+
 import type { ContextManifestSegment } from "../../shared/context-xray.js";
 import { formatTokens, groupFill } from "./format.js";
 

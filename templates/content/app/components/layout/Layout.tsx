@@ -1,3 +1,6 @@
+import { AgentSidebar, getBrowserTabId, useT } from "@agent-native/core/client";
+import { InvitationBanner } from "@agent-native/core/client/org";
+import { IconMenu2 } from "@tabler/icons-react";
 import {
   type CSSProperties,
   ReactNode,
@@ -7,13 +10,12 @@ import {
   useState,
 } from "react";
 import { useLocation } from "react-router";
+
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
-import { useCreatePage } from "@/hooks/use-create-page";
-import { AgentSidebar, getBrowserTabId } from "@agent-native/core/client";
-import { InvitationBanner } from "@agent-native/core/client/org";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { IconMenu2 } from "@tabler/icons-react";
+import { useCreatePage } from "@/hooks/use-create-page";
+import { useIsMobile } from "@/hooks/use-mobile";
+
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 
@@ -44,6 +46,7 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const t = useT();
   const activeDocumentId =
     location.pathname.match(/^\/page\/([^/]+)/)?.[1] ?? null;
   // Bind chat to the currently-open document. Everywhere else (list view,
@@ -92,7 +95,7 @@ export function Layout({ children }: LayoutProps) {
   const mobileSidebarTrigger = isMobile ? (
     <button
       type="button"
-      aria-label="Open sidebar"
+      aria-label={t("navigation.openSidebar")}
       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden"
       onClick={() => setMobileSidebarOpen(true)}
     >
@@ -127,8 +130,8 @@ export function Layout({ children }: LayoutProps) {
             {showHeader ? null : (
               <button
                 type="button"
-                aria-label="Open sidebar"
-                className="fixed left-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground md:hidden"
+                aria-label={t("navigation.openSidebar")}
+                className="fixed start-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground md:hidden"
                 onClick={() => setMobileSidebarOpen(true)}
               >
                 <IconMenu2 size={18} />
@@ -147,11 +150,11 @@ export function Layout({ children }: LayoutProps) {
         <AgentSidebar
           position="right"
           defaultOpen={!isMobile}
-          emptyStateText="Ask me anything about your documents"
+          emptyStateText={t("chat.emptyState")}
           suggestions={[
-            "Draft a PRD for a new feature",
-            "Summarize this page in 5 bullets",
-            "Pull this page from Notion",
+            t("chat.suggestionPrd"),
+            t("chat.suggestionSummary"),
+            t("chat.suggestionNotion"),
           ]}
           scope={documentScope}
           browserTabId={getBrowserTabId()}
@@ -168,7 +171,7 @@ export function Layout({ children }: LayoutProps) {
               <Header sidebarTrigger={mobileSidebarTrigger} />
             ) : null}
             <InvitationBanner
-              className={`${showHeader ? "pl-4" : "pl-16"} sm:pl-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
+              className={`${showHeader ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
             />
             {children}
           </main>

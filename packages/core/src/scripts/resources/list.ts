@@ -7,7 +7,6 @@
  *   pnpm action resource-list [--prefix <path>] [--scope personal|shared|workspace|all] [--format json|text] [--include-agent-scratch true]
  */
 
-import { parseArgs, fail } from "../utils.js";
 import {
   resourceList,
   resourceListAccessible,
@@ -16,6 +15,7 @@ import {
   WORKSPACE_OWNER,
 } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { parseArgs, fail } from "../utils.js";
 
 export default async function resourceListScript(
   args: string[],

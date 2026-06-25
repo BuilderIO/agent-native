@@ -17,6 +17,7 @@
  *   POST   /_agent-native/mcp/apps/read-resource read a ui:// app resource
  */
 
+import { isToolVisibilityModelOnly } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   defineEventHandler,
   getMethod,
@@ -25,21 +26,13 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { getH3App } from "../server/framework-request-handler.js";
-import { readBody } from "../server/h3-helpers.js";
+
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
+import { getH3App } from "../server/framework-request-handler.js";
+import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { getAllSettings } from "../settings/store.js";
-import {
-  buildMcpToolName,
-  parseMcpToolName,
-  type McpClientManager,
-  type McpTool,
-} from "./manager.js";
-import type { McpConfig, McpServerConfig } from "./config.js";
-import { loadMcpConfig, autoDetectMcpConfig } from "./config.js";
-import { formatMcpConnectError } from "./errors.js";
 import {
   areBuiltinMcpCapabilitiesSupported,
   BUILTIN_MCP_CAPABILITIES,
@@ -57,6 +50,16 @@ import {
   setBuiltinMcpCapabilityEnabled,
   setEnabledBuiltinMcpCapabilities,
 } from "./builtin-store.js";
+import type { McpConfig, McpServerConfig } from "./config.js";
+import { loadMcpConfig, autoDetectMcpConfig } from "./config.js";
+import { formatMcpConnectError } from "./errors.js";
+import { fetchHubServers } from "./hub-client.js";
+import {
+  buildMcpToolName,
+  parseMcpToolName,
+  type McpClientManager,
+  type McpTool,
+} from "./manager.js";
 import {
   addRemoteServer,
   listRemoteServers,
@@ -67,10 +70,8 @@ import {
   type RemoteMcpScope,
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
-import { fetchHubServers } from "./hub-client.js";
-import { loadWorkspaceMcpServers } from "./workspace-servers.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
-import { isToolVisibilityModelOnly } from "@modelcontextprotocol/ext-apps/app-bridge";
+import { loadWorkspaceMcpServers } from "./workspace-servers.js";
 
 export { formatMcpConnectError } from "./errors.js";
 
@@ -97,6 +98,7 @@ function projectForClient(
     url: stored.url,
     headers: redactHeaders(stored.headers),
     description: stored.description,
+    firstParty: stored.firstParty === true,
     createdAt: stored.createdAt,
     mergedId: mergedConfigKey(scope, stored, ownerId),
     status,
@@ -110,6 +112,7 @@ export interface ClientServer {
   url: string;
   headers?: Record<string, { set: true }>;
   description?: string;
+  firstParty?: boolean;
   createdAt: number;
   /** The key under which this server is registered in the running MCP manager. */
   mergedId: string;

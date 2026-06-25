@@ -4,6 +4,7 @@
 // Exposes annotations via the Agent-to-Agent (A2A) protocol.
 
 import type { Application } from "express";
+
 import { FileStore } from "../storage/file-store.js";
 import { PinSchema } from "../storage/schemas.js";
 

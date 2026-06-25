@@ -1,8 +1,3 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useCallback, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useTheme } from "next-themes";
-import { Toaster } from "@/components/ui/sonner";
 import { useDbSync } from "@agent-native/core/client";
 import {
   AppProviders,
@@ -10,14 +5,25 @@ import {
   appPath,
   configureTracking,
   createAgentNativeQueryClient,
+  getLocaleInitScript,
   getThemeInitScript,
   useCommandMenuShortcut,
+  useT,
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
-import { TAB_ID } from "@/lib/tab-id";
-import { AppLayout } from "@/components/layout/AppLayout";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import { useCallback, useState } from "react";
+import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import type { LinksFunction } from "react-router";
+
+import { AppLayout } from "@/components/layout/AppLayout";
+import { Toaster } from "@/components/ui/sonner";
+import { TAB_ID } from "@/lib/tab-id";
+
 import changelog from "../CHANGELOG.md?raw";
+import { i18nCatalog } from "./i18n";
+
 import stylesheet from "./global.css?url";
 
 configureTracking({
@@ -32,7 +38,31 @@ export const links: LinksFunction = () => [
 ];
 
 // Dark default: macros defaults to dark mode; enableSystem respects OS preference.
-const THEME_INIT_SCRIPT = getThemeInitScript("dark", true);
+const THEME_INIT_SCRIPT_SELECTOR = "script[data-agent-native-theme-init]";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
+
+function getHydrationStableThemeInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      THEME_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getThemeInitScript("dark", true);
+}
+
+function getHydrationStableLocaleInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      LOCALE_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getLocaleInitScript();
+}
+
+const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+const LOCALE_INIT_SCRIPT = getHydrationStableLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -44,8 +74,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
         <script
+          data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         <meta name="theme-color" content="#0a0a0a" />
@@ -87,6 +123,7 @@ function DbSyncSetup() {
 
 function ThemeToggleItem() {
   const { resolvedTheme, setTheme } = useTheme();
+  const t = useT();
   const isDark = resolvedTheme === "dark";
   return (
     <CommandMenu.Item
@@ -94,8 +131,35 @@ function ThemeToggleItem() {
       keywords={["theme", "dark", "light", "mode"]}
     >
       {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-      Toggle theme
+      {t("root.toggleTheme")}
     </CommandMenu.Item>
+  );
+}
+
+function MacrosCommandMenu({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const t = useT();
+  return (
+    <CommandMenu
+      open={open}
+      onOpenChange={onOpenChange}
+      changelog={changelog}
+      changelogKey="macros"
+    >
+      <CommandMenu.Group heading={t("root.commandActions")}>
+        <CommandMenu.Item onSelect={() => {}}>
+          {t("root.search")}
+        </CommandMenu.Item>
+      </CommandMenu.Group>
+      <CommandMenu.Group heading={t("root.appearance")}>
+        <ThemeToggleItem />
+      </CommandMenu.Group>
+    </CommandMenu>
   );
 }
 
@@ -123,21 +187,10 @@ export default function Root() {
       defaultTheme="dark"
       tooltipDelayDuration={300}
       toaster={<Toaster richColors position="bottom-left" />}
+      i18n={{ catalog: i18nCatalog }}
     >
       <DbSyncSetup />
-      <CommandMenu
-        open={cmdkOpen}
-        onOpenChange={setCmdkOpen}
-        changelog={changelog}
-        changelogKey="macros"
-      >
-        <CommandMenu.Group heading="Actions">
-          <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
-        </CommandMenu.Group>
-        <CommandMenu.Group heading="Appearance">
-          <ThemeToggleItem />
-        </CommandMenu.Group>
-      </CommandMenu>
+      <MacrosCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       <AppLayout>
         <Outlet />
       </AppLayout>

@@ -1,10 +1,25 @@
+import {
+  BlockRegistry,
+  prop,
+  attributeValue,
+  serializeSpecBlock,
+  parseSpecBlock,
+  type MdxJsxNode,
+} from "@agent-native/core/blocks/server";
 import matter from "gray-matter";
-import { unified } from "unified";
 import remarkMdx from "remark-mdx";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
+import { unified } from "unified";
 import { visit } from "unist-util-visit";
 import { z } from "zod";
+
+import {
+  PLAN_ASSET_MAX_SINGLE_BYTES,
+  PLAN_ASSET_MAX_TOTAL_BYTES,
+  mimeTypeFromFilename,
+} from "../shared/plan-assets.js";
+import { registerPlanBlocks } from "../shared/plan-block-registry.js";
 import {
   PLAN_CONTENT_VERSION,
   createPlanBlockId,
@@ -24,20 +39,6 @@ import {
   type PlanWireframeNode,
 } from "../shared/plan-content.js";
 import { normalizePlanContent } from "./plan-content.js";
-import {
-  BlockRegistry,
-  prop,
-  attributeValue,
-  serializeSpecBlock,
-  parseSpecBlock,
-  type MdxJsxNode,
-} from "@agent-native/core/blocks/server";
-import { registerPlanBlocks } from "../shared/plan-block-registry.js";
-import {
-  PLAN_ASSET_MAX_SINGLE_BYTES,
-  PLAN_ASSET_MAX_TOTAL_BYTES,
-  mimeTypeFromFilename,
-} from "../shared/plan-assets.js";
 
 // Server-side plan block registry. Registered specs (currently the editable
 // callout) drive serialize/parse via the registry; every other block type still

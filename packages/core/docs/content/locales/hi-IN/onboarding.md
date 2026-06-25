@@ -1,0 +1,216 @@
+---
+title: "ऑनबोर्डिंग और API कुंजियाँ"
+description: "प्रथम-रन कॉन्फ़िगरेशन के लिए सेटअप चेकलिस्ट - API कुंजी, OAuth, और प्रदाता कनेक्शन"
+---
+
+# ऑनबोर्डिंग
+
+जब आप पहली बार एजेंट-नेटिव फ्रेमवर्क पर बने किसी ऐप को खोलेंगे, तो आपको एक
+**सेटअप** चेकलिस्ट एजेंट साइडबार में। यह प्रथम-रन कॉन्फ़िगरेशन को बंद रखता है
+एजेंट चैट के लिए: एक एआई इंजन कनेक्ट करें, वैकल्पिक रूप से ऐप को साझा पर इंगित करें
+बुनियादी ढांचे, और प्रदाताओं को केवल तभी जोड़ें जब आपको उनकी आवश्यकता हो।
+
+```an-diagram title="सेटअप चेकलिस्ट" summary="केवल AI इंजन कनेक्ट करना आवश्यक है। पैनल पूर्णता को ट्रैक करता है और सभी आवश्यक चीजें पूरी हो जाने पर स्वतः छिप जाता है।"
+{
+  "html": "<div class=\"ob\"><div class=\"diagram-card\"><span class=\"diagram-pill warn\">required</span><strong>AI इंजन कनेक्ट करें</strong><small class=\"diagram-muted\">Connect Builder (one click) or paste an LLM key</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Database</strong><small class=\"diagram-muted\">set <code>DATABASE_URL</code></small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Authentication</strong><small class=\"diagram-muted\">OAuth / access token</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>ईमेल डिलीवरी</strong><small class=\"diagram-muted\">Resend / SendGrid</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">all required done &rarr; panel auto-hides</div></div>",
+  "css": ".ob{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ob .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 14px}.ob .diagram-arrow{font-size:22px}"
+}
+```
+
+## अंतिम उपयोगकर्ताओं के लिए
+
+### आप क्या देखेंगे
+
+- एजेंट चैट के ऊपर एक **सेटअप** पैनल जिसमें "कनेक्ट एन एआई
+  इंजन", "ईमेल डिलीवरी", आदि
+- शीर्ष पर एक काउंटर (उदाहरण के लिए "4 में से 1") दिखाता है कि कितने चरण तैयार हैं।
+- वर्तमान चरण का विस्तार किया गया है; समाप्त चरण हरे रंग का चेक दिखाएं और रुकें
+  यदि आप उन्हें खोलते हैं तो पढ़ने योग्य।
+- आवश्यक चरण एक छोटी लाल **आवश्यक** गोली दिखाते हैं। पैनल दृश्यमान रहता है
+  जब तक कि प्रत्येक आवश्यक चरण पूरा न हो जाए।
+- एक बार जब सभी आवश्यक चीजें पूरी हो जाती हैं, तो पैनल अपने आप छिप जाता है।
+- पूरे पैनल को शीर्ष-दाईं ओर शेवरॉन के साथ ढहाया जा सकता है, या
+  नीचे **सेटअप छुपाएं** के साथ पूरी तरह छिपा हुआ।
+
+### प्रत्येक चरण को कैसे पूरा करें
+
+चरण एक या अधिक **तरीके** प्रदान करते हैं — उन्हें संतुष्ट करने के विभिन्न तरीके
+आवश्यकता. प्राथमिक पथ पहले दिखाया गया है; द्वितीयक पथों को संक्षिप्त रखा जाता है
+एक पिकर या प्रकटीकरण के पीछे जब एक चरण में कई समकक्ष प्रदाता होते हैं।
+
+- **एक सेवा कनेक्ट करें (एक क्लिक)** - उदा. \_प्रबंधित
+  एआई गेटवे। बटन पर क्लिक करें, एक विंडो खुलती है, आप साइन इन करते हैं, विंडो बंद हो जाती है,
+  और चरण पूर्ण के रूप में चिह्नित किया गया है। कॉपी करने के लिए कोई कुंजी नहीं।
+- **एक API कुंजी चिपकाएँ या एक फ़ॉर्म भरें** — उदा. एक LLM प्रदाता, डेटाबेस चुनें
+  OAuth प्रदाता, या ईमेल प्रदाता, मान पेस्ट करें, **सहेजें** पर क्लिक करें।
+  गुप्त फ़ील्ड पासवर्ड इनपुट का उपयोग करते हैं इसलिए मान स्क्रीन पर नहीं दिखाया जाता है। सहेजा गया
+  मान आपके स्थानीय `.env` (या कार्यक्षेत्र सेटिंग्स) में जाते हैं - देखें
+  [Security](/docs/security) जहां वे रहते हैं।
+- **एक लिंक खोलें** — कुछ चरण एक साइन-इन पृष्ठ या दस्तावेज़ की ओर इशारा करते हैं। क्लिक करें
+  **जारी रखें** और नए टैब में प्रवाह समाप्त करें।
+- **एजेंट से पूछें** - कुछ चरण "एजेंट को इसे सेट करने दें" विकल्प प्रदान करते हैं।
+  इसे क्लिक करें और एजेंट आपको चैट में ले जाएगा, आपको किसी भी चीज़ के बारे में बताएगा
+  बाहरी सेटअप (OAuth क्रेडेंशियल आदि बनाना)।
+
+### अंतर्निहित चरण जो आप आमतौर पर देखेंगे
+
+- **एआई इंजन कनेक्ट करें** (आवश्यक) - एकमात्र अनिवार्य कदम। कनेक्ट करें
+  एक-क्लिक प्रबंधित गेटवे के लिए Builder, या द्वितीयक प्रदाता-कुंजी खोलें
+  अपनी स्वयं की LLM कुंजी चुनें और चिपकाएँ।
+- **डेटाबेस** (वैकल्पिक) - जब आप किसी विशिष्ट का उपयोग करना चाहते हैं तो `DATABASE_URL` सेट करें
+  SQL डेटाबेस कनेक्शन स्ट्रिंग।
+- **प्रमाणीकरण** (वैकल्पिक) - अंतर्निहित ईमेल/पासवर्ड खाते इसके द्वारा काम करते हैं
+  डिफ़ॉल्ट. OAuth या एक्सेस-टोकन साइन-इन तभी जोड़ें जब आप वे पथ चाहते हों।
+- **ईमेल डिलीवरी** (वैकल्पिक) - पासवर्ड रीसेट के लिए तैनात करने से पहले उपयोगी,
+  टीम आमंत्रण, और सूचनाएं साझा करें। उस प्रदाता का उपयोग करें जिसका आप पहले से उपयोग कर रहे हैं;
+  स्थानीय विकास इसके बिना चल सकता है।
+
+टेम्प्लेट इनके शीर्ष पर अपने स्वयं के चरण जोड़ सकते हैं - उदाहरण के लिए। एक CRM टेम्पलेट
+"कनेक्ट Gmail" जोड़ें, एक डॉक्स टेम्पलेट "एक डिफ़ॉल्ट कार्यक्षेत्र चुनें" जोड़ सकता है। देखें
+साइन-इन सेटअप विवरण के लिए [Authentication](/docs/authentication)।
+
+### चेकलिस्ट पर वापस आते हैं
+
+यदि आप **सेटअप छुपाएं** दबाते हैं, तो पैनल उस ब्राउज़र सत्र के लिए गायब हो जाता है।
+आवश्यक चरण जो अभी तक पूरे नहीं हुए हैं वे अगले लोड पर फिर से सामने आएंगे। एक बार
+सभी आवश्यक चीजें पूरी हो गई हैं, पैनल हमेशा के लिए अपने आप छिप जाता है - कुछ भी नहीं है
+करना बाकी है.
+
+## डेवलपर्स के लिए
+
+यदि आप एक टेम्पलेट बना रहे हैं, तो आप ऑनबोर्डिंग चरणों को पंजीकृत करते हैं ताकि वे इसमें दिखाई दें
+उपयोगकर्ता की साइडबार चेकलिस्ट। फ़्रेमवर्क रेंडरिंग, पूर्णता
+ट्रैकिंग, और बर्खास्तगी - आप बस घोषणा करें कि कदम क्या है और यह कैसा है
+संतुष्ट।
+
+सिस्टम **ऑटो-माउंटेड** है। टेम्प्लेट प्राप्त करने के लिए कुछ भी तार लगाने की आवश्यकता नहीं है
+चार अंतर्निहित चरण (LLM, डेटाबेस, ऑथ, ईमेल)। ऐप-विशिष्ट जोड़ने के लिए
+चरण (Gmail, Slack, Notion, आदि), एक से `registerOnboardingStep()` पर कॉल करें
+सर्वर प्लगइन.
+
+### स्वचालित मार्ग
+
+सभी मार्ग `/_agent-native/onboarding/` के अंतर्गत रहते हैं:
+
+| मार्ग                                               | उद्देश्य                                  |
+| --------------------------------------------------- | ----------------------------------------- |
+| `GET /_agent-native/onboarding/steps`               | पूर्णता स्थिति के साथ चरणों की सूची बनाएं |
+| `POST /_agent-native/onboarding/steps/:id/complete` | चरण पूर्ण (ओवरराइड) चिह्नित करें          |
+| `POST /_agent-native/onboarding/dismiss`            | ऑनबोर्डिंग बैनर को ख़ारिज करें            |
+| `POST /_agent-native/onboarding/reopen`             | बर्खास्तगी साफ़ करें (पैनल फिर से दिखाएं) |
+| `GET /_agent-native/onboarding/dismissed`           | बर्खास्तगी पढ़ें + सभी पूर्ण ध्वज         |
+
+```an-api title="ऑनबोर्डिंग चरणों की सूची बनाएं"
+{
+  "method": "GET",
+  "path": "/_agent-native/onboarding/steps",
+  "summary": "सभी पंजीकृत चरणों को उनकी पूर्णता स्थिति के साथ सूचीबद्ध करें",
+  "description": "Drives the sidebar checklist — returns each step's id, title, methods, required flag, and whether `isComplete` currently passes.",
+  "responses": [
+    { "status": "200", "description": "Array of steps with completion status for the current user/app." }
+  ]
+}
+```
+
+### टेम्पलेट से एक चरण जोड़ना
+
+```an-annotated-code title="एक कस्टम ऑनबोर्डिंग चरण पंजीकृत करना"
+{
+  "filename": "server/plugins/my-onboarding.ts",
+  "language": "ts",
+  "code": "import { defineNitroPlugin } from \"@agent-native/core/server\";\nimport { registerOnboardingStep } from \"@agent-native/core/onboarding\";\nimport { listOAuthAccounts } from \"@agent-native/core/oauth-tokens\";\n\nexport default defineNitroPlugin(() => {\n  registerOnboardingStep({\n    id: \"gmail\",\n    order: 100,\n    title: \"Connect Gmail\",\n    description: \"Grant read/send access so the agent can work with email.\",\n    methods: [\n      {\n        id: \"oauth\",\n        kind: \"link\",\n        primary: true,\n        label: \"Sign in with Google\",\n        payload: { url: \"/_agent-native/google/auth-url?scope=mail\", external: false },\n      },\n      {\n        id: \"delegate\",\n        kind: \"agent-task\",\n        label: \"Let the agent set it up\",\n        badge: \"beta\",\n        payload: { prompt: \"Walk me through connecting Gmail. Set env vars as needed.\" },\n      },\n    ],\n    isComplete: async () => {\n      const accounts = await listOAuthAccounts(\"google\");\n      return accounts.length > 0;\n    },\n  });\n});",
+  "annotations": [
+    { "lines": "5", "label": "ऑटो-माउंटेड", "note": "Nitro प्लगइन से रजिस्टर करें - फ्रेमवर्क रेंडरिंग, पूर्णता ट्रैकिंग और बर्खास्तगी को संभालता है।" },
+    { "lines": "7", "label": "स्टैक आईडी", "note": "डिफ़ॉल्ट लोड के बाद उसी `id` के साथ पुनः पंजीकरण करना एक अंतर्निहित चरण को ओवरराइड करता है।" },
+    { "lines": "12-19", "label": "प्राथमिक विधि", "note": "`primary: true` marks the big CTA. `kind: \"link\"` sends the user into the OAuth flow." },
+    { "lines": "20-26", "label": "प्रतिनिधि पथ", "note": "`kind: \"agent-task\"` hands the setup to the agent chat with a prompt." },
+    { "lines": "28-31", "label": "समापन जांच", "note": "`isComplete` सर्वर-साइड चलता है। OAuth टोकन `oauth_tokens` स्टोर में रहते हैं - इसे जांचें, `process.env.GMAIL_REFRESH_TOKEN` नहीं।" }
+  ]
+}
+```
+
+### ऑनबोर्डिंग में कार्यक्षेत्र कनेक्शन की जाँच करना
+
+बाहरी सेवाओं (जैसे Slack, Google Workspace, GitHub, या HubSpot) के साथ इंटरैक्ट करने वाले टेम्प्लेट बनाते समय, आपको जांचना चाहिए कि क्या वर्कस्पेस पहले से ही कनेक्ट हो चुका है और उस प्रदाता को आपके एप्लिकेशन से कनेक्शन दे चुका है। यह उपयोगकर्ताओं को केंद्रीय, प्रबंधित कनेक्शन मौजूद होने पर उनके स्थानीय पर्यावरण चर में क्रेडेंशियल्स (जैसे API कुंजी या रीफ्रेश टोकन) को डुप्लिकेट करने से रोकता है।
+
+आप कनेक्शन कैटलॉग APIs का उपयोग करके अपने `isComplete` कॉलबैक में कनेक्शन की तैयारी की जांच कर सकते हैं:
+
+```ts
+import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
+
+// Inside registerOnboardingStep:
+isComplete: async () => {
+  // Check if a managed workspace connection exists and is ready
+  const catalog = await listWorkspaceConnectionProviderCatalogForApp({
+    appId: "mail",
+    templateUse: "mail",
+    provider: "gmail",
+  });
+  const connection = catalog.providers[0];
+
+  if (
+    connection?.readiness.status === "ready" &&
+    connection.workspaceConnection.grantState === "granted"
+  ) {
+    return true;
+  }
+
+  // Fall back to local environment variable check
+  return !!process.env.GMAIL_REFRESH_TOKEN;
+};
+```
+
+कनेक्शन प्रदाता कैटलॉग विधियों की पूरी सूची के लिए [Workspace Connections](/docs/workspace-connections) दस्तावेज़ देखें।
+
+### विधि प्रकार
+
+| प्रकार             | पेलोड                                                 | के लिए उपयोग करें                                      |
+| ------------------ | ----------------------------------------------------- | ------------------------------------------------------ |
+| `link`             | `{ url, external? }`                                  | उपयोगकर्ता को OAuth प्रवाह या दस्तावेज़ पृष्ठ पर भेजें |
+| `form`             | `{ fields, writeScope? }`                             | एनवी संस्करण (कुंजियाँ, रहस्य, URLs) एकत्र करें        |
+| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)                 |
+| `agent-task`       | `{ prompt }`                                          | एजेंट चैट को संभालने के लिए एक संकेत भेजें             |
+
+`primary: true` ध्वज एक विधि को उसके चरण के लिए बड़े CTA के रूप में चिह्नित करता है।
+जब सेटअप पथ दिखाई दे तो `badge: "soon"` प्लस `disabled: true` का उपयोग करें
+उपलब्ध होने से पहले।
+
+### अंतर्निहित चरण
+
+| आईडी       | आवश्यक | विवरण                                              |
+| ---------- | ------ | -------------------------------------------------- |
+| `llm`      | हां    | Builder कनेक्शन या प्रदाता LLM कुंजी               |
+| `database` | नहीं   | डिफ़ॉल्ट डेटाबेस या कोई SQL `DATABASE_URL`         |
+| `auth`     | नहीं   | अंतर्निहित खाते, वैकल्पिक OAuth या एक्सेस टोकन     |
+| `email`    | नहीं   | लेन-देन संबंधी ईमेल के लिए पुनः भेजें या सेंडग्रिड |
+
+इनमें से किसी को भी उसी `id` के साथ पुनः पंजीकृत करके ओवरराइड किया जा सकता है
+डिफ़ॉल्ट लोड.
+
+### क्लाइंट उपयोग
+
+पैनल पहले से ही `<AgentPanel>` के अंदर है। एक कस्टम लेआउट बनाने के लिए:
+
+```tsx
+import {
+  OnboardingPanel,
+  OnboardingBanner,
+  useOnboarding,
+} from "@agent-native/core/client/onboarding";
+
+function MySidebar() {
+  const { allComplete, dismissed, currentStepId } = useOnboarding();
+  if (allComplete || dismissed) return <Chat />;
+  return (
+    <>
+      <OnboardingPanel />
+      <Chat />
+    </>
+  );
+}
+```
+
+पृष्ठभूमि के लिए जहां चरण मान संग्रहीत किए जाते हैं और रहस्यों को कैसे प्रबंधित किया जाता है,
+[Security](/docs/security) देखें। अंतिम-उपयोगकर्ता मैसेजिंग टचप्वाइंट (आमंत्रण,
+पासवर्ड रीसेट) जो **ईमेल डिलीवरी** चरण पर निर्भर करता है, देखें
+[Messaging](/docs/messaging).

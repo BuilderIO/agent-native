@@ -1,6 +1,6 @@
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from "react-native";
-import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import type { AppConfig } from "@agent-native/shared-app-config";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { View, Text, TouchableOpacity, StyleSheet, Alert } from "react-native";
 
 const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
   Mail: "mail",
