@@ -185,6 +185,19 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("root.setAttribute('dir', meta.dir || 'ltr')");
   });
 
+  it("localizes built-in Forms auth marketing copy from the locale picker", () => {
+    const html = getOnboardingHtml({
+      requestHost: "forms.agent-native.com",
+    });
+
+    expect(html).toContain('data-marketing-field="tagline"');
+    expect(html).toContain('data-marketing-feature-index="0"');
+    expect(html).toContain("你的 AI 代理与你一起构建、发布和分析表单。");
+    expect(html).toContain("用一句话创建完整表单");
+    expect(html).toContain("function __anApplyAuthMarketingCopy");
+    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "forms"');
+  });
+
   it("shows configured terms and privacy links on custom email signup", () => {
     const html = getOnboardingHtml({
       signupLegalNotice: {

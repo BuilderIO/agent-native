@@ -569,11 +569,10 @@ export default function Home() {
   const t = useT();
   const { locale } = useLocale();
   const localizedPath = (path: string) => sitePathForLocale(path, locale);
-  const chatCommand =
-    "npx @agent-native/core@latest create my-clips-app --template clips";
+  const chatCommand = "npx @agent-native/core@latest create my-app";
   const quickStartCode = `# ${t("home.code.quickStartComment")}
 ${chatCommand}
-cd my-clips-app
+cd my-app
 pnpm install
 pnpm action hello --name Builder
 pnpm agent "Call hello for Builder"`;

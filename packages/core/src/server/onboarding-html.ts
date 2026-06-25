@@ -15,6 +15,7 @@ import {
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 import { identitySsoLoginButtonHtml } from "./identity-sso-store.js";
 import {
+  BUILT_IN_AUTH_MARKETING,
   resolveBuiltInAuthMarketing,
   type AuthMarketingContent,
 } from "./auth-marketing.js";
@@ -1021,6 +1022,126 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
 
 const defaultAuthCopy = AUTH_LOCALE_COPY[DEFAULT_LOCALE];
 
+type AuthMarketingLocalization = Pick<
+  AuthMarketingContent,
+  "tagline" | "description" | "features"
+>;
+
+const AUTH_MARKETING_LOCALE_COPY: Partial<
+  Record<LocaleCode, Record<string, Partial<AuthMarketingLocalization>>>
+> = {
+  "zh-CN": {
+    forms: {
+      tagline: "你的 AI 代理与你一起构建、发布和分析表单。",
+      features: [
+        "用一句话创建完整表单",
+        "即时发布，生成可分享链接和验证码",
+        "按需获取回复摘要、导出和趋势分析",
+      ],
+    },
+  },
+  "es-ES": {
+    forms: {
+      tagline: "Tu agente de IA crea, publica y analiza formularios contigo.",
+      features: [
+        "Crea formularios completos con una sola frase",
+        "Publicación instantánea con enlaces compartibles y captcha",
+        "Resúmenes de respuestas, exportaciones y análisis de tendencias al instante",
+      ],
+    },
+  },
+  "fr-FR": {
+    forms: {
+      tagline:
+        "Votre agent IA crée, publie et analyse des formulaires avec vous.",
+      features: [
+        "Créez des formulaires complets à partir d'une seule phrase",
+        "Publication instantanée avec liens partageables et captcha",
+        "Résumés de réponses, exports et analyse des tendances à la demande",
+      ],
+    },
+  },
+  "de-DE": {
+    forms: {
+      tagline:
+        "Dein KI-Agent erstellt, veröffentlicht und analysiert Formulare mit dir.",
+      features: [
+        "Erstelle vollständige Formulare aus einem einzigen Satz",
+        "Sofortige Veröffentlichung mit teilbaren Links und Captcha",
+        "Antwortzusammenfassungen, Exporte und Trendanalysen auf Abruf",
+      ],
+    },
+  },
+  "ja-JP": {
+    forms: {
+      tagline: "AI エージェントがフォームの作成、公開、分析を一緒に進めます。",
+      features: [
+        "一文から完全なフォームを作成",
+        "共有リンクと CAPTCHA 付きで即時公開",
+        "回答の要約、エクスポート、トレンド分析を必要なときに実行",
+      ],
+    },
+  },
+  "ko-KR": {
+    forms: {
+      tagline: "AI 에이전트가 양식 생성, 게시, 분석을 함께 도와줍니다.",
+      features: [
+        "한 문장으로 완성된 양식 만들기",
+        "공유 링크와 captcha로 즉시 게시",
+        "응답 요약, 내보내기, 추세 분석을 필요할 때 실행",
+      ],
+    },
+  },
+  "pt-BR": {
+    forms: {
+      tagline:
+        "Seu agente de IA cria, publica e analisa formulários junto com você.",
+      features: [
+        "Crie formulários completos a partir de uma única frase",
+        "Publicação instantânea com links compartilháveis e captcha",
+        "Resumos de respostas, exportações e análise de tendências sob demanda",
+      ],
+    },
+  },
+  "hi-IN": {
+    forms: {
+      tagline:
+        "आपका AI एजेंट आपके साथ फ़ॉर्म बनाता, प्रकाशित करता और उनका विश्लेषण करता है।",
+      features: [
+        "एक वाक्य से पूरे फ़ॉर्म बनाएं",
+        "शेयर करने योग्य लिंक और captcha के साथ तुरंत प्रकाशित करें",
+        "ज़रूरत पड़ने पर प्रतिक्रिया सारांश, exports और trend analysis पाएं",
+      ],
+    },
+  },
+  "ar-SA": {
+    forms: {
+      tagline:
+        "يساعدك وكيل الذكاء الاصطناعي على إنشاء النماذج ونشرها وتحليلها.",
+      features: [
+        "أنشئ نماذج كاملة من جملة واحدة",
+        "نشر فوري مع روابط قابلة للمشاركة وcaptcha",
+        "ملخصات للإجابات وتصدير وتحليل اتجاهات عند الطلب",
+      ],
+    },
+  },
+};
+
+function resolveBuiltInMarketingSlug(
+  marketing: AuthMarketingContent | undefined,
+): string | undefined {
+  if (!marketing) return undefined;
+  for (const [slug, builtIn] of Object.entries(BUILT_IN_AUTH_MARKETING)) {
+    if (
+      marketing.appName === builtIn.appName &&
+      marketing.tagline === builtIn.tagline
+    ) {
+      return slug;
+    }
+  }
+  return undefined;
+}
+
 export interface SignupLegalNoticeOptions {
   termsUrl: string;
   privacyUrl: string;
@@ -1126,6 +1247,15 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       requestPath: opts.requestPath,
     });
   const hasMarketing = !!marketing;
+  const marketingSlug = resolveBuiltInMarketingSlug(marketing);
+  const defaultMarketingCopy: Partial<AuthMarketingLocalization> | undefined =
+    marketing
+      ? {
+          tagline: marketing.tagline,
+          description: marketing.description,
+          features: marketing.features,
+        }
+      : undefined;
   const runLocalCommand = marketing?.runLocalCommand?.trim();
   const brandMarkSrc = withAppBasePath("/agent-native-icon-dark.svg");
   const socialImageUrl = withAgentNativeSocialImageCacheBuster(
@@ -1469,10 +1599,10 @@ ${googleNoticeRunLocalPanelHtml}
         <img class="brand-mark" src="${esc(brandMarkSrc)}" alt="" aria-hidden="true" />
         <span>${esc(marketing!.appName)}</span>
       </h2>
-      <p class="app-tagline">${esc(marketing!.tagline)}</p>
-${marketing!.description ? `      <p class="app-desc">${esc(marketing!.description)}</p>\n` : ""}${
+      <p class="app-tagline" data-marketing-field="tagline">${esc(marketing!.tagline)}</p>
+${marketing!.description ? `      <p class="app-desc" data-marketing-field="description">${esc(marketing!.description)}</p>\n` : ""}${
         marketing!.features?.length
-          ? `      <ul class="feature-list">\n${marketing!.features.map((f) => `        <li>${esc(f)}</li>`).join("\n")}\n      </ul>\n`
+          ? `      <ul class="feature-list">\n${marketing!.features.map((f, index) => `        <li data-marketing-feature-index="${index}">${esc(f)}</li>`).join("\n")}\n      </ul>\n`
           : ""
       }      <div class="marketing-actions">
 ${runLocalCommand ? `        <button type="button" class="run-local-button" id="run-local-button" aria-expanded="false" aria-controls="run-local-panel" onclick="__anToggleRunLocalCommand()"${i18nAttr("runLocally")}>${esc(t("runLocally"))}</button>\n` : ""}        <a class="oss-link" href="https://github.com/BuilderIO/agent-native" target="_blank" rel="noreferrer">
@@ -2315,6 +2445,9 @@ ${signupLegalNoteHtml}
     var __AN_AUTH_LOCALES = ${JSON.stringify(AUTH_LOCALE_COPY)};
     var __AN_AUTH_MARKETING_APP_NAME = ${JSON.stringify(marketing?.appName ?? "")};
     var __AN_AUTH_HAS_MARKETING = ${JSON.stringify(hasMarketing)};
+    var __AN_AUTH_MARKETING_SLUG = ${JSON.stringify(marketingSlug ?? "")};
+    var __AN_AUTH_MARKETING_DEFAULT = ${JSON.stringify(defaultMarketingCopy ?? {})};
+    var __AN_AUTH_MARKETING_LOCALES = ${JSON.stringify(AUTH_MARKETING_LOCALE_COPY)};
     var __anAuthLocale = __AN_AUTH_DEFAULT_LOCALE;
     var __anAuthLocalePreference = 'system';
     var __anAuthView = ${JSON.stringify(googleOnly ? "googleOnly" : "signup")};
@@ -2396,6 +2529,27 @@ ${signupLegalNoteHtml}
       __anAuthView = view || 'signup';
       __anRefreshAuthViewCopy();
     }
+    function __anMarketingCopy() {
+      if (!__AN_AUTH_MARKETING_SLUG) return __AN_AUTH_MARKETING_DEFAULT || {};
+      var localeMarketing = (__AN_AUTH_MARKETING_LOCALES[__anAuthLocale] || {})[__AN_AUTH_MARKETING_SLUG] || {};
+      return {
+        tagline: localeMarketing.tagline || __AN_AUTH_MARKETING_DEFAULT.tagline,
+        description: localeMarketing.description || __AN_AUTH_MARKETING_DEFAULT.description,
+        features: localeMarketing.features || __AN_AUTH_MARKETING_DEFAULT.features || []
+      };
+    }
+    function __anApplyAuthMarketingCopy() {
+      var copy = __anMarketingCopy();
+      var tagline = document.querySelector('[data-marketing-field="tagline"]');
+      if (tagline && copy.tagline) tagline.textContent = copy.tagline;
+      var description = document.querySelector('[data-marketing-field="description"]');
+      if (description && copy.description) description.textContent = copy.description;
+      document.querySelectorAll('[data-marketing-feature-index]').forEach(function(node) {
+        var index = Number(node.getAttribute('data-marketing-feature-index'));
+        var feature = copy.features && copy.features[index];
+        if (feature) node.textContent = feature;
+      });
+    }
     function __anApplyAuthLocale(preference) {
       __anAuthLocalePreference = __anNormalizeAuthLocalePreference(preference) || __anReadAuthLocalePreference();
       __anAuthLocale = __anResolveAuthLocale(__anAuthLocalePreference);
@@ -2426,6 +2580,7 @@ ${signupLegalNoteHtml}
       document.title = __AN_AUTH_HAS_MARKETING && __AN_AUTH_MARKETING_APP_NAME
         ? __AN_AUTH_MARKETING_APP_NAME + ' — ' + __anT('pageTitleSignIn')
         : __anT('pageTitleWelcome');
+      __anApplyAuthMarketingCopy();
       __anRefreshAuthViewCopy();
     }
     function __anSetAuthLocaleMenuOpen(open) {
