@@ -293,7 +293,8 @@ const enUS = {
     title: "Open-source, Agent-native apps you own",
     eyebrow: "100% free and open source",
     body: "Fork a template, run it locally, and let the agent evolve it. You own the code and can customize everything.",
-    community: "Want a blank app instead? Start from scratch with the framework guide.",
+    community:
+      "Want a blank app instead? Start from scratch with the framework guide.",
     createYourOwn: "Start from scratch",
   },
   templateCard: {

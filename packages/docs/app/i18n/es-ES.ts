@@ -294,7 +294,8 @@ const esES = {
     title: "Aplicaciones nativas del agente de código abierto de su propiedad",
     eyebrow: "100% gratis y de código abierto",
     body: "Bifurque una plantilla, ejecútela localmente y deje que el agente la evolucione. Eres dueño del código y puedes personalizarlo todo.",
-    community: "¿Prefieres una app en blanco? Empieza desde cero con la guía del framework.",
+    community:
+      "¿Prefieres una app en blanco? Empieza desde cero con la guía del framework.",
     createYourOwn: "Empezar desde cero",
   },
   templateCard: {

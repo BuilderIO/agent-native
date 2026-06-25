@@ -36,7 +36,7 @@ export default function TemplatesPage() {
           {t("templatesPage.community")}
         </p>
         <Link
-data-an-prefetch="render"
+          data-an-prefetch="render"
           to={sitePathForLocale("/docs/getting-started", locale)}
           onClick={() =>
             trackEvent("start from scratch", { location: "templates_index" })

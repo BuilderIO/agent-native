@@ -639,7 +639,7 @@ export default defineAction({
             <div className="flex flex-wrap items-center justify-center gap-4">
               <Link
                 data-an-prefetch="render"
-to={localizedPath("/templates")}
+                to={localizedPath("/templates")}
                 className="primary-button"
                 onClick={() =>
                   trackEvent("click cta", {
