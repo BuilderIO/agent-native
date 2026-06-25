@@ -4321,85 +4321,70 @@ function DatabaseSettingsSourcePanel({
           ) : null}
         </div>
 
-        {reviewableBuilderChangeSets.length > 0 ||
-        conflictChangeSets.length > 0 ? (
-          <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-muted/30 p-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm font-medium">
-                  {conflictChangeSets.length > 0
-                    ? `${conflictChangeSets.length} change${
-                        conflictChangeSets.length === 1 ? "" : "s"
-                      } need review`
-                    : `${reviewableBuilderChangeSets.length} change${
-                        reviewableBuilderChangeSets.length === 1 ? "" : "s"
-                      } ready to push`}
-                </div>
-                <div className="mt-0.5 break-words text-xs text-muted-foreground">
-                  Review before they reach Builder.
-                </div>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                className="shrink-0"
-                disabled={!canEdit || sourceActionPending}
-                onClick={onReviewBuilderUpdate}
-              >
-                <IconCheck className="mr-1.5 size-3.5" />
-                Review diff
-              </Button>
+        {pendingOutboundChangeSets.length > 0 ||
+        appliedOutboundChangeSets.length > 0 ||
+        isCodeMode ? (
+          <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
+            <div className="font-medium">Builder changes</div>
+            <div className="text-xs text-muted-foreground">
+              {source.capabilities.liveWritesEnabled
+                ? "Review local edits before they reach Builder."
+                : "Live writes are off — local edits are staged for review only."}
             </div>
-          </div>
-        ) : null}
 
-        {isCodeMode ? (
-          <>
-            <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
-              <div className="font-medium">
-                {source.sourceType === "builder-cms"
-                  ? "Local Builder changes"
-                  : "Local outbound changes"}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {source.sourceType === "builder-cms"
-                  ? source.capabilities.liveWritesEnabled
-                    ? "Review local edits before they’re written to Builder."
-                    : "Live writes are off — local edits are staged for review only."
-                  : "No local outbound push lane is active for this mock source."}
-              </div>
+            {pendingOutboundChangeSets.length > 0 ? (
               <div className="grid min-w-0 gap-2">
                 {pendingOutboundChangeSets.slice(0, 6).map((changeSet) => (
                   <SourceChangeSetReviewCard
                     key={changeSet.id}
                     changeSet={changeSet}
                     source={source}
+                    showDetails={isCodeMode}
                   />
                 ))}
-                {pendingOutboundChangeSets.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">
-                    {source.sourceType === "builder-cms"
-                      ? "No pending local Builder changes yet. Rename a source-backed row to queue one here."
-                      : "No local outbound changes yet."}
-                  </div>
-                ) : null}
-                {appliedOutboundChangeSets.length > 0 ? (
-                  <div className="mt-1 grid min-w-0 gap-1.5">
-                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Recently pushed
-                    </div>
-                    {appliedOutboundChangeSets.slice(0, 4).map((changeSet) => (
-                      <SourceChangeSetReviewCard
-                        key={changeSet.id}
-                        changeSet={changeSet}
-                        source={source}
-                      />
-                    ))}
+              </div>
+            ) : isCodeMode ? (
+              <div className="text-xs text-muted-foreground">
+                No pending changes. Edit a source-backed row to queue one here.
+              </div>
+            ) : null}
+
+            {reviewableBuilderChangeSets.length > 0 ||
+            conflictChangeSets.length > 0 ? (
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!canEdit || sourceActionPending}
+                  onClick={onReviewBuilderUpdate}
+                >
+                  <IconCheck className="mr-1.5 size-3.5" />
+                  Review changes
+                </Button>
+              </div>
+            ) : null}
+
+            {appliedOutboundChangeSets.length > 0 ? (
+              <div className="mt-1 grid min-w-0 gap-1.5 border-t border-border/60 pt-2">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Recently pushed
+                </div>
+                {appliedOutboundChangeSets.slice(0, 3).map((changeSet) => (
+                  <SourceChangeSetReviewCard
+                    key={changeSet.id}
+                    changeSet={changeSet}
+                    source={source}
+                    showDetails={isCodeMode}
+                  />
+                ))}
+                {appliedOutboundChangeSets.length > 3 ? (
+                  <div className="text-[11px] text-muted-foreground">
+                    +{appliedOutboundChangeSets.length - 3} more
                   </div>
                 ) : null}
               </div>
-            </div>
-          </>
+            ) : null}
+          </div>
         ) : null}
 
         <div className="rounded-lg border border-border bg-background p-3">
@@ -5067,9 +5052,11 @@ function changeSetDisplayTitle(changeSet: ContentDatabaseSourceChangeSet) {
 function SourceChangeSetReviewCard({
   changeSet,
   source,
+  showDetails = false,
 }: {
   changeSet: ContentDatabaseSourceChangeSet;
   source: ContentDatabaseSource;
+  showDetails?: boolean;
 }) {
   const latestReview =
     changeSet.reviewEvents[changeSet.reviewEvents.length - 1] ?? null;
@@ -5153,8 +5140,8 @@ function SourceChangeSetReviewCard({
       <div className="mt-1.5 text-xs text-muted-foreground">
         {changeSet.fieldChanges.length} field change
         {changeSet.fieldChanges.length === 1 ? "" : "s"}
-        {changeSet.bodyChange ? " · body diff" : ""} · open “Review diff” to see
-        details
+        {changeSet.bodyChange ? " · body diff" : ""} · “Review changes” to see
+        the diff
       </div>
 
       {blockers.length > 0 ? (
@@ -5172,39 +5159,43 @@ function SourceChangeSetReviewCard({
         </div>
       ) : null}
 
-      <details className="mt-2 text-xs text-muted-foreground">
-        <summary className="cursor-pointer text-[11px] hover:text-foreground">
-          Details
-        </summary>
-        <div className="mt-1 grid gap-1">
-          <div className="break-words">
-            {changeSet.riskReasons.join(", ")}
-            {" • "}
-            {formatSourceTimestamp(changeSet.updatedAt)}
-          </div>
-          {latestReview ? (
+      {showDetails ? (
+        <details className="mt-2 text-xs text-muted-foreground">
+          <summary className="cursor-pointer text-[11px] hover:text-foreground">
+            Details
+          </summary>
+          <div className="mt-1 grid gap-1">
             <div className="break-words">
-              {latestReview.decision} by {latestReview.reviewerEmail}
+              {changeSet.riskReasons.join(", ")}
               {" • "}
-              {formatSourceTimestamp(latestReview.createdAt)}
+              {formatSourceTimestamp(changeSet.updatedAt)}
             </div>
-          ) : null}
-          {latestExecution ? (
-            <>
+            {latestReview ? (
               <div className="break-words">
-                Execution gate: {latestExecution.state.replace(/_/g, " ")}
-                {dryRunStatus ? ` · dry run ${dryRunStatus.status}` : ""}
+                {latestReview.decision} by {latestReview.reviewerEmail}
+                {" • "}
+                {formatSourceTimestamp(latestReview.createdAt)}
               </div>
-              {builderExecutionRequestLine(latestExecution.payload) ? (
+            ) : null}
+            {latestExecution ? (
+              <>
                 <div className="break-words">
-                  {builderExecutionRequestLine(latestExecution.payload)}
+                  Execution gate: {latestExecution.state.replace(/_/g, " ")}
+                  {dryRunStatus ? ` · dry run ${dryRunStatus.status}` : ""}
                 </div>
-              ) : null}
-              <div className="break-all">{latestExecution.idempotencyKey}</div>
-            </>
-          ) : null}
-        </div>
-      </details>
+                {builderExecutionRequestLine(latestExecution.payload) ? (
+                  <div className="break-words">
+                    {builderExecutionRequestLine(latestExecution.payload)}
+                  </div>
+                ) : null}
+                <div className="break-all">
+                  {latestExecution.idempotencyKey}
+                </div>
+              </>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }

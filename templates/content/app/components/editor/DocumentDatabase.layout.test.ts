@@ -180,8 +180,8 @@ describe("document database layout", () => {
     expect(source).toContain("Builder write mode");
     expect(source).toContain("Publish updates");
     expect(source).toContain("Allow publish/unpublish per item");
-    // The dormant diff slot is the single push-review entry point.
-    expect(source).toContain("Review diff");
+    // The merged Builder changes card is the single push-review entry point.
+    expect(source).toContain("Review changes");
     // A failed sync surfaces inline instead of silently going stale.
     expect(source).toContain("Couldn’t sync · Retry");
     // Disconnect stays available, tucked at the bottom.
