@@ -392,10 +392,42 @@ const rawLiteralFileIgnore = [
 
 const rawLiteralAttributeNames = [
   "aria-label",
+  "aria-description",
   "placeholder",
   "title",
   "alt",
   "label",
+];
+
+const rawLiteralObjectPropertyNames = [
+  "actionLabel",
+  "ariaLabel",
+  "badge",
+  "caption",
+  "description",
+  "emptyDescription",
+  "emptyStateText",
+  "emptyTitle",
+  "heading",
+  "helperText",
+  "label",
+  "message",
+  "name",
+  "placeholder",
+  "searchPlaceholder",
+  "subtitle",
+  "summary",
+  "text",
+  "title",
+  "tooltip",
+];
+
+const rawLiteralCallNames = [
+  "toast.error",
+  "toast.info",
+  "toast.message",
+  "toast.success",
+  "toast.warning",
 ];
 
 const rawLiteralAllowPatterns = [
@@ -505,7 +537,31 @@ function checkRawVisibleLiteralFile(
     report(match.index ?? 0, match[1] ?? "");
   }
 
+  const propertyPattern = new RegExp(
+    `\\b(?:${rawLiteralObjectPropertyNames.join(
+      "|",
+    )})\\s*:\\s*(["'\`])([^"'\\\`]*[A-Za-z][^"'\\\`]*)\\1`,
+    "g",
+  );
+  for (const match of text.matchAll(propertyPattern)) {
+    report(match.index ?? 0, match[2] ?? "");
+  }
+
+  const callPattern = new RegExp(
+    `\\b(?:${rawLiteralCallNames
+      .map(escapeRegExp)
+      .join("|")})\\s*\\(\\s*(["'\`])([^"'\\\`]*[A-Za-z][^"'\\\`]*)\\1`,
+    "g",
+  );
+  for (const match of text.matchAll(callPattern)) {
+    report(match.index ?? 0, match[2] ?? "");
+  }
+
   return issues;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function lineNumberAt(text: string, index: number): number {

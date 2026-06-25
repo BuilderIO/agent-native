@@ -464,6 +464,10 @@ export function useLocale(): LocaleContextValue {
   return value;
 }
 
+export function useOptionalLocale(): LocaleContextValue | null {
+  return useContext(LocaleContext);
+}
+
 const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "runsTray.runs": "Runs",
   "runsTray.agentRuns": "Agent runs",

@@ -31,6 +31,7 @@ import {
   sanitizeWireframeCss,
   scopeDesignCss,
 } from "./sanitize-html.js";
+import { useBlockCopy } from "./block-copy.js";
 import {
   diagramMdx,
   diagramSchema,
@@ -626,13 +627,14 @@ function ExpandableDiagramBody({
   const [expanded, setExpanded] = useState(false);
   const supportsStyleToggle = Boolean(data.html);
   const style = useWireframeStyle();
+  const copy = useBlockCopy();
   const sketchy = style === "sketchy";
   const styleLabel = sketchy
-    ? "Switch to clean diagrams"
-    : "Switch to hand-drawn diagrams";
+    ? copy.switchToCleanDiagrams
+    : copy.switchToHandDrawnDiagrams;
   const styleTooltip = sketchy
-    ? "Hand-drawn diagrams - switch to clean"
-    : "Clean diagrams - switch to hand-drawn";
+    ? copy.handDrawnDiagramsSwitch
+    : copy.cleanDiagramsSwitch;
   return (
     <div className="group/diagram relative">
       <DiagramBody data={data} ctx={ctx} compact={compact} />
@@ -665,13 +667,13 @@ function ExpandableDiagramBody({
                 type="button"
                 data-plan-interactive
                 onClick={() => setExpanded(true)}
-                aria-label="Expand diagram"
+                aria-label={copy.expandDiagram}
                 className="an-diagram-expand-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
               >
                 <IconArrowsMaximize className="size-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="left">Expand diagram</TooltipContent>
+            <TooltipContent side="left">{copy.expandDiagram}</TooltipContent>
           </Tooltip>
         </div>
       </TooltipProvider>
