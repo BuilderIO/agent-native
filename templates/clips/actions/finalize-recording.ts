@@ -28,7 +28,10 @@ import {
   applyFaststart,
   hasPlayableMp4Metadata,
 } from "../server/lib/faststart.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import {
+  getCurrentOwnerEmail,
+  ownerEmailMatches,
+} from "../server/lib/recordings.js";
 import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -151,7 +154,7 @@ export default defineAction({
         .where(
           and(
             eq(schema.recordings.id, id),
-            eq(schema.recordings.ownerEmail, ownerEmail),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           ),
         );
 

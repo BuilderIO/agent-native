@@ -3934,6 +3934,22 @@ export function createProductionAgentHandler(
         ? body[AGENT_CHAT_BACKGROUND_RUN_FIELD]!
         : null;
     const isBackgroundWorker = backgroundRunMarker !== null;
+    // DIAGNOSTIC-ONLY: progressive per-stage hang localizer for the bg worker.
+    // The worker's runId is available EARLY on the marker (the general `runId`
+    // var resolves much later), so capture it now and emit the LAST setup stage
+    // reached as the run's `diag_stage`. Best-effort, gated on the worker, never
+    // blocks or alters control flow.
+    const bgRunId = isBackgroundWorker
+      ? (backgroundRunMarker?.runId as string)
+      : null;
+    const workerStep = (s: string) => {
+      if (bgRunId)
+        void recordRunDiagnostic(
+          bgRunId,
+          RUN_DIAG_STAGE.workerSetupStep,
+          `${s}=${Date.now() - setupT0}ms`,
+        ).catch(() => {});
+    };
     // Whether this worker is REALLY executing inside a 15-min Netlify
     // `-background` function (proven by the runtime function name), not merely a
     // `_process-run` re-entry that may have landed on the ~60s synchronous
@@ -4002,7 +4018,13 @@ export function createProductionAgentHandler(
         requestAttachments = preparedRequest.attachments;
       }
     }
+    // DIAGNOSTIC-ONLY: owner/request context prep (resolveAgentOwnerEmail +
+    // prepareRequest) finished. A worker stuck before this points at the
+    // owner/request-context awaits.
+    workerStep("db_request_ctx");
 
+    // DIAGNOSTIC-ONLY: bracket attachment upload + text-attachment persistence.
+    workerStep("attach_start");
     // Pre-upload chat attachments (images AND files/PDFs) through the framework
     // file-upload provider (Builder.io by default). The model still sees the
     // base64 multimodal content for the current turn; each uploaded attachment
@@ -4065,9 +4087,13 @@ export function createProductionAgentHandler(
         );
       }
     }
+    // DIAGNOSTIC-ONLY: attachment upload + persistence finished.
+    workerStep("attach_done");
 
     // When a per-request engine override is specified, resolve the API key
     // for that provider instead of the global active engine's provider.
+    // DIAGNOSTIC-ONLY: bracket per-owner API-key resolution (settings/app_secrets reads).
+    workerStep("apikey_start");
     let userApiKey: string | undefined;
     if (requestEngine) {
       const provider = engineToProvider(requestEngine);
@@ -4083,6 +4109,8 @@ export function createProductionAgentHandler(
     } else {
       userApiKey = await getOwnerActiveApiKey(ownerEmail);
     }
+    // DIAGNOSTIC-ONLY: API-key resolution finished.
+    workerStep("apikey_done");
 
     // `options.apiKey` is the value the template constructed the plugin with
     // (e.g. wired from a deployment env var). On a shared hosted deploy this
@@ -4097,6 +4125,9 @@ export function createProductionAgentHandler(
         readDeployCredentialEnv("ANTHROPIC_API_KEY"));
 
     // Resolve engine — per-request engine override takes priority
+    // DIAGNOSTIC-ONLY: bracket engine resolution (Builder credential / app-default
+    // settings reads inside resolveEngine).
+    workerStep("engine_start");
     let engine: AgentEngine;
     try {
       engine = await resolveEngine({
@@ -4111,17 +4142,24 @@ export function createProductionAgentHandler(
         appId: options.appId,
       });
     }
+    // DIAGNOSTIC-ONLY: engine resolution finished.
+    workerStep("engine_done");
 
     // Honor the model the user picked in the settings UI (written via
     // `manage-agent-engine` action="set"), but only when the caller hasn't overridden it for
     // this request or at plugin construction time. Read per-request so a
     // dropdown change in the UI takes effect without a server restart. Skip
     // the DB read entirely when a higher-precedence value is set.
+    // DIAGNOSTIC-ONLY: bracket stored-model resolution (getStoredModelForEngine
+    // settings read).
+    workerStep("model_start");
     const modelCandidate =
       requestModel ??
       configuredModel ??
       (await getStoredModelForEngine(engine, { appId: options.appId })) ??
       engine.defaultModel;
+    // DIAGNOSTIC-ONLY: stored-model resolution finished.
+    workerStep("model_done");
     const model = normalizeModelForEngine(engine, modelCandidate);
     const reasoningEffort = normalizeReasoningEffortForModel(
       model,
@@ -4164,6 +4202,10 @@ export function createProductionAgentHandler(
     }
 
     setupMark("prepDone");
+    // DIAGNOSTIC-ONLY: engine/model/api-key resolution finished. A worker that
+    // reached db_request_ctx but not env_config hung in attachment upload or
+    // engine/model resolution.
+    workerStep("env_config");
     // Run all independent pre-send steps in parallel. Each of these hits
     // the DB or invokes an action; running them sequentially was the
     // single biggest contributor to pre-LLM latency.
@@ -4418,6 +4460,9 @@ export function createProductionAgentHandler(
       enrichedMessagePromise,
     ]);
     setupMark("ctxAll");
+    // DIAGNOSTIC-ONLY: all parallel context gathering (system prompt, screen,
+    // files, loop settings, enriched message) resolved.
+    workerStep("context_all");
 
     if (systemPromptError) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -4446,6 +4491,8 @@ export function createProductionAgentHandler(
       options.initialToolNames,
     );
     setupMark("actions");
+    // DIAGNOSTIC-ONLY: action/tool resolution + engine-tool filtering finished.
+    workerStep("action_tool_setup");
     const requestSystemPrompt =
       requestMode === "plan"
         ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
@@ -4557,6 +4604,9 @@ export function createProductionAgentHandler(
       }
     }
     setupMark("depsThread");
+    // DIAGNOSTIC-ONLY: owner/thread resolution + runId/effectiveThreadId +
+    // chained-continuation thread fetch finished.
+    workerStep("owner_thread");
 
     // Persist the user's turn exactly once. The foreground POST does this
     // before dispatching; the background worker must NOT repeat it (it re-enters
@@ -4971,6 +5021,9 @@ export function createProductionAgentHandler(
     // startRun's callback below — the run row does not exist until startRun
     // inserts it, so a pre-startRun write would no-op on the inline path.
     setupMark("preStart");
+    // DIAGNOSTIC-ONLY: last stage before startRun fires. A worker that reaches
+    // prestart but never workerStarted is hanging inside startRun itself.
+    workerStep("prestart");
     const setupDetail =
       Object.entries(setupMarks)
         .map(([k, v]) => `${k}=${v}`)

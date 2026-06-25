@@ -39,10 +39,10 @@ describe("PlanImageViewer", () => {
     expect(container.firstElementChild?.tagName).toBe("SPAN");
 
     expect(
-      container.querySelector('[aria-label="View full size"]'),
+      container.querySelector('[aria-label="raw.imageViewer.viewFullSize"]'),
     ).toBeTruthy();
     expect(
-      container.querySelector('[aria-label="Image options"]'),
+      container.querySelector('[aria-label="raw.imageViewer.imageOptions"]'),
     ).toBeTruthy();
   });
 
@@ -50,7 +50,7 @@ describe("PlanImageViewer", () => {
     render(<PlanImageViewer src="" alt="A cat" uploading />);
 
     expect(container.querySelector("img")).toBeNull();
-    expect(container.textContent).toContain("Uploading image");
+    expect(container.textContent).toContain("raw.imageViewer.uploadingImage");
   });
 
   it("opens a full-size lightbox when the zoom button is clicked", () => {
@@ -59,15 +59,17 @@ describe("PlanImageViewer", () => {
     );
 
     const zoom = container.querySelector(
-      '[aria-label="View full size"]',
+      '[aria-label="raw.imageViewer.viewFullSize"]',
     ) as HTMLButtonElement;
     act(() => zoom.click());
 
     // The lightbox portals to <body> with its own toolbar; the "Fit" /
     // "Actual size" zoom label only exists inside the lightbox.
-    expect(document.body.textContent).toContain("Fit");
+    expect(document.body.textContent).toContain("raw.imageViewer.fitToScreen");
     expect(
-      document.body.querySelector('[aria-label="Download image"]'),
+      document.body.querySelector(
+        '[aria-label="raw.imageViewer.downloadImage"]',
+      ),
     ).toBeTruthy();
   });
 
@@ -88,10 +90,10 @@ describe("PlanImageViewer", () => {
     expect(actions).toBeTruthy();
     expect(actions!.querySelectorAll("button")).toHaveLength(2);
     expect(
-      container.querySelector('[aria-label="View full size"]'),
+      container.querySelector('[aria-label="raw.imageViewer.viewFullSize"]'),
     ).toBeTruthy();
     expect(
-      container.querySelector('[aria-label="Image options"]'),
+      container.querySelector('[aria-label="raw.imageViewer.imageOptions"]'),
     ).toBeTruthy();
   });
 

@@ -428,16 +428,24 @@ function HistoryPopover({
   openTabIds,
   activeThreadId,
   currentScope,
+  hasMoreThreads = false,
+  isLoadingMoreThreads = false,
+  loadError,
   onSelect,
   onClose,
+  onLoadMore,
   onSearch,
 }: {
   threads: ChatThreadSummary[];
   openTabIds: Set<string>;
   activeThreadId: string | null;
   currentScope?: ChatThreadScope | null;
+  hasMoreThreads?: boolean;
+  isLoadingMoreThreads?: boolean;
+  loadError?: string | null;
   onSelect: (id: string) => void;
   onClose: () => void;
+  onLoadMore?: () => void;
   onSearch?: (query: string) => Promise<ChatThreadSummary[]>;
 }) {
   const [search, setSearch] = useState("");
@@ -542,7 +550,11 @@ function HistoryPopover({
           />
         </div>
         <div className="max-h-64 overflow-y-auto py-1">
-          {isSearching ? (
+          {loadError && !search.trim() ? (
+            <div className="px-3 py-4 text-xs text-amber-500 text-center">
+              {loadError}
+            </div>
+          ) : isSearching ? (
             <div className="px-3 py-4 text-xs text-muted-foreground text-center">
               Searching...
             </div>
@@ -598,6 +610,16 @@ function HistoryPopover({
                 onClose,
               ),
             )
+          )}
+          {!search.trim() && hasMoreThreads && (
+            <button
+              type="button"
+              onClick={() => onLoadMore?.()}
+              disabled={isLoadingMoreThreads}
+              className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-60"
+            >
+              {isLoadingMoreThreads ? "Loading..." : "Load older chats"}
+            </button>
           )}
         </div>
       </PopoverContent>
@@ -1034,7 +1056,11 @@ export function MultiTabAssistantChat({
     saveThreadData,
     generateTitle,
     searchThreads,
+    loadMoreThreads,
     refreshThreads,
+    hasMoreThreads,
+    isLoadingMoreThreads,
+    threadsLoadError,
     isNewThread,
   } = useChatThreads(apiUrl, storageKey, scope, {
     restoreActiveThread,
@@ -2649,8 +2675,12 @@ export function MultiTabAssistantChat({
             openTabIds={new Set(openTabIds)}
             activeThreadId={activeThreadId}
             currentScope={scope}
+            hasMoreThreads={hasMoreThreads}
+            isLoadingMoreThreads={isLoadingMoreThreads}
+            loadError={threadsLoadError}
             onSelect={openFromHistory}
             onClose={() => setShowHistory(false)}
+            onLoadMore={loadMoreThreads}
             onSearch={searchThreads}
           />
         )}

@@ -35,7 +35,10 @@ import {
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
-import { getEventOwnerContext } from "../../../../lib/recordings.js";
+import {
+  getEventOwnerContext,
+  ownerEmailMatches,
+} from "../../../../lib/recordings.js";
 import {
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -156,7 +159,7 @@ export default defineEventHandler(async (event: H3Event) => {
       .where(
         and(
           eq(schema.recordings.id, recordingId),
-          eq(schema.recordings.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
 

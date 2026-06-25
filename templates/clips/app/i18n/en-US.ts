@@ -547,6 +547,20 @@ const messages = {
     languageDescription:
       "Choose the interface language for this account. Clips remembers it across devices.",
     languageLabel: "Interface language",
+    whatsNew: "What's new",
+    changelogEmpty: "No updates yet.",
+    viewAllUpdates: "View all updates",
+    expand: "Expand",
+    collapse: "Collapse",
+    changelogMarkdown: `# Changelog
+
+All notable user-facing changes to Clips are documented here. Open it any time from the command menu (Cmd+K -> "What's new") or from Settings.
+
+## 2026-06-23
+
+### Added
+
+- See what's new right inside Clips. A changelog now lives in the command menu (Cmd+K) and in Settings.`,
     profile: "Profile",
     email: "Email",
     displayName: "Display name",

@@ -64,13 +64,15 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
 - Browser recordings can include redacted browser diagnostics captured during
   the recording session. `save-browser-diagnostics` is UI/internal and stores
   bounded console logs plus fetch/XHR method, URL path/query keys, status, and
-  duration; it never captures headers, bodies, cookies, or query values. Use
-  `get-recording-player-data` for full diagnostics when you have editor access.
-  Public agent context exposes the redacted console stream (all levels) as
-  `browserDiagnostics.consoleLogs` and the fetch/XHR stream as
-  `browserDiagnostics.networkRequests` (method, sanitized URL with query values
-  redacted, status, duration), plus `consoleIssues` and `failedNetworkRequests`
-  highlights. All bounded; page URL, headers, bodies, and cookies stay omitted.
+  duration; it never captures headers, bodies, cookies, or network URL query
+  values. Console text keeps useful non-secret values while redacting
+  credential-looking keys/headers. Use `get-recording-player-data` for full
+  diagnostics when you have editor access. Public agent context exposes the
+  redacted console stream (all levels) as `browserDiagnostics.consoleLogs` and
+  the fetch/XHR stream as `browserDiagnostics.networkRequests` (method,
+  sanitized URL with query values redacted, status, duration), plus
+  `consoleIssues` and `failedNetworkRequests` highlights. All bounded; page
+  URL, headers, bodies, and cookies stay omitted.
 - The Chrome extension lives in `chrome-extension/`. It launches `/record` with
   `clipsExtensionId` and `clipsCaptureSessionId`, then the recorder sends
   `CLIPS_CAPTURE_START/STOP/CANCEL` back to the extension. The extension uses

@@ -2,6 +2,7 @@ import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
+  focusAgentChat,
   navigateWithAgentChatViewTransition,
   useActionQuery,
   useChatThreads,
@@ -507,14 +508,16 @@ export function Sidebar() {
                 onClick={(event) => {
                   if (
                     item.href === "/" &&
-                    !isCreateRoute &&
                     !event.metaKey &&
                     !event.ctrlKey &&
                     !event.shiftKey &&
                     !event.altKey
                   ) {
                     event.preventDefault();
-                    navigateWithAgentChatViewTransition(navigate, "/");
+                    focusAgentChat();
+                    if (!isCreateRoute || location.pathname !== "/") {
+                      navigateWithAgentChatViewTransition(navigate, "/");
+                    }
                   }
                 }}
                 className={cn(

@@ -1,5 +1,53 @@
 # @agent-native/core
 
+## 0.77.8
+
+### Patch Changes
+
+- 7dc2828: Guard on-demand `ensureTable()` schema-init so the already-migrated path takes no
+  `ACCESS EXCLUSIVE` lock on Postgres. The app-secrets (`app_secrets`) and `settings`
+  stores now probe `information_schema`/`pg_indexes` first (plain reads, no lock) and
+  issue `CREATE`/`ALTER`/`CREATE INDEX` only when something is actually missing; any
+  DDL that must run is wrapped in a transaction-scoped `SET LOCAL lock_timeout` so a
+  contended lock fails fast instead of hanging (and never leaks onto the pooled
+  connection). This fixes background-function workers hanging indefinitely on
+  first-touch schema DDL behind a concurrent connection on shared Neon — observed as
+  durable agent-chat workers stalling right after auth and never claiming the run.
+  SQLite (local dev) behavior is unchanged. Adds a shared `db/ddl-guard.ts` helper
+  (`pgTableExists`/`pgColumnExists`/`pgIndexExists`/`runGuardedDdl`). Also adds
+  diagnostic-only worker setup sub-stage breadcrumbs to localize such stalls.
+
+## 0.77.7
+
+### Patch Changes
+
+- e5bdcb3: Paginate the All Chats history client so older conversations can be loaded without truncating the history list.
+- e5bdcb3: Drop benign reasonless browser AbortError events from Sentry reporting.
+- e5bdcb3: Repair duplicate persisted chat message ids during thread normalization.
+- e5bdcb3: Ensure hosted template apps can inject Google Analytics from Netlify build-time configuration.
+- e5bdcb3: Normalize email casing when resolving shareable-resource ownership and user shares, and let resources opt into owner access across active-org drift.
+- e5bdcb3: Re-check current LLM connection status before a stale missing-credentials event can keep chat locked after reconnecting Builder, and prevent page chat surfaces from rendering sidebar settings in the main content area.
+- e5bdcb3: Allow browser Sentry initialization to build a DSN from Vite-exposed Sentry client key, project id, and ingest host env vars when runtime config injection is unavailable.
+
+## 0.77.6
+
+### Patch Changes
+
+- 1fab043: Localize shared extension sidebar chrome and changelog labels/dates.
+
+## 0.77.5
+
+### Patch Changes
+
+- 355be37: Add diagnostic-only worker-side progressive setup-stage diagnostics
+  (`worker_setup_step`) to localize where a durable background worker hangs between
+  `auth_passed` and `claimBackgroundRun`. For the background worker only (gated on
+  `isBackgroundWorker`, using the marker's early-available runId), emit the last
+  setup stage reached — `db_request_ctx`, `env_config`, `context_all`,
+  `action_tool_setup`, `owner_thread`, `prestart` — as the run's `diag_stage`, so a
+  worker that stalls leaves a breadcrumb at the stage it stopped in. Best-effort and
+  fire-and-forget; no control-flow change.
+
 ## 0.77.4
 
 ### Patch Changes

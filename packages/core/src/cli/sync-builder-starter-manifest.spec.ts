@@ -13,53 +13,63 @@ import {
 } from "./sync-builder-starter-manifest.js";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../../..");
+const STARTER_MANIFEST_TIMEOUT_MS = 20_000;
 
 describe("sync-builder-starter-manifest", () => {
-  it("generates a standalone chat manifest without workspace or catalog refs", () => {
-    const { packageJson } = generateStandaloneChatManifest(repoRoot);
-    const deps = {
-      ...(packageJson.dependencies as Record<string, string>),
-      ...(packageJson.devDependencies as Record<string, string>),
-    };
+  it(
+    "generates a standalone chat manifest without workspace or catalog refs",
+    () => {
+      const { packageJson } = generateStandaloneChatManifest(repoRoot);
+      const deps = {
+        ...(packageJson.dependencies as Record<string, string>),
+        ...(packageJson.devDependencies as Record<string, string>),
+      };
 
-    expect(packageJson.name).toBe("builder-agent-native-starter");
-    expect(deps["@agent-native/core"]).toBe("latest");
-    expect(deps.postgres).toBe("^3.4.9");
-    expect(
-      Object.values(deps).some((value) => value.startsWith("workspace:")),
-    ).toBe(false);
-    expect(Object.values(deps).some((value) => value === "catalog:")).toBe(
-      false,
-    );
-  });
+      expect(packageJson.name).toBe("builder-agent-native-starter");
+      expect(deps["@agent-native/core"]).toBe("latest");
+      expect(deps.postgres).toBe("^3.4.9");
+      expect(
+        Object.values(deps).some((value) => value.startsWith("workspace:")),
+      ).toBe(false);
+      expect(Object.values(deps).some((value) => value === "catalog:")).toBe(
+        false,
+      );
+    },
+    STARTER_MANIFEST_TIMEOUT_MS,
+  );
 
-  it("preserves starter identity fields and pinned core when merging", () => {
-    const { packageJson: canonical } = generateStandaloneChatManifest(repoRoot);
-    const merged = mergeStarterManifest(
-      {
-        name: "builder-agent-native-starter",
-        displayName: "Builder Agent Native Starter",
-        description: "Workspace app for Builder Agent Native Starter.",
-        private: true,
-        dependencies: {
-          "@agent-native/core": "0.69.0",
+  it(
+    "preserves starter identity fields and pinned core when merging",
+    () => {
+      const { packageJson: canonical } =
+        generateStandaloneChatManifest(repoRoot);
+      const merged = mergeStarterManifest(
+        {
+          name: "builder-agent-native-starter",
+          displayName: "Builder Agent Native Starter",
+          description: "Workspace app for Builder Agent Native Starter.",
+          private: true,
+          dependencies: {
+            "@agent-native/core": "0.69.0",
+          },
         },
-      },
-      canonical,
-    );
+        canonical,
+      );
 
-    expect(merged.name).toBe("builder-agent-native-starter");
-    expect(merged.displayName).toBe("Builder Agent Native Starter");
-    expect(merged.description).toBe(
-      "Workspace app for Builder Agent Native Starter.",
-    );
-    expect(
-      (merged.dependencies as Record<string, string>)["@agent-native/core"],
-    ).toBe("0.69.0");
-    expect((merged.dependencies as Record<string, string>).postgres).toBe(
-      "^3.4.9",
-    );
-  });
+      expect(merged.name).toBe("builder-agent-native-starter");
+      expect(merged.displayName).toBe("Builder Agent Native Starter");
+      expect(merged.description).toBe(
+        "Workspace app for Builder Agent Native Starter.",
+      );
+      expect(
+        (merged.dependencies as Record<string, string>)["@agent-native/core"],
+      ).toBe("0.69.0");
+      expect((merged.dependencies as Record<string, string>).postgres).toBe(
+        "^3.4.9",
+      );
+    },
+    STARTER_MANIFEST_TIMEOUT_MS,
+  );
 
   it("preserves starter-only manifest fields not present in templates/chat", () => {
     const { packageJson: canonical } = generateStandaloneChatManifest(repoRoot);

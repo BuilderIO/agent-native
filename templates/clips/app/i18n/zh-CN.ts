@@ -526,6 +526,20 @@ const messages = {
     languageDescription:
       "选择此账号的界面语言。Clips 会在不同设备上记住你的选择。",
     languageLabel: "界面语言",
+    whatsNew: "最新变化",
+    changelogEmpty: "暂无更新。",
+    viewAllUpdates: "查看所有更新",
+    expand: "展开",
+    collapse: "收起",
+    changelogMarkdown: `# 更新日志
+
+Clips 中所有面向用户的重要更改都会记录在这里。你可以随时从命令菜单（Cmd+K -> “最新变化”）或设置中打开。
+
+## 2026-06-23
+
+### 新增
+
+- 现在可以直接在 Clips 中查看最新变化。更新日志已加入命令菜单（Cmd+K）和设置。`,
     profile: "个人资料",
     email: "邮箱",
     displayName: "显示名称",

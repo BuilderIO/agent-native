@@ -5,5 +5,6 @@ publish = "templates/macros/dist"
 functions = "templates/macros/.netlify/functions-internal"
 
 [build.environment]
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"

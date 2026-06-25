@@ -79,11 +79,15 @@ export default async (): Promise<void> => {
           () => ({ db: null as any, schema: null as any }),
         );
         if (!db || !schema?.calendarAccounts) return false;
-        const { eq } = await import("drizzle-orm");
+        const { ownerEmailMatches } = await import(
+          "../lib/recordings.js" as string
+        );
         const rows = await db
           .select({ id: schema.calendarAccounts.id })
           .from(schema.calendarAccounts)
-          .where(eq(schema.calendarAccounts.ownerEmail, userEmail))
+          .where(
+            ownerEmailMatches(schema.calendarAccounts.ownerEmail, userEmail),
+          )
           .limit(1);
         return rows.length > 0;
       } catch {

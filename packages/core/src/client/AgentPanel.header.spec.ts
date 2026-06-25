@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   getAgentPanelChatTabGroups,
+  normalizeAgentPanelModeForSurface,
+  shouldAllowAgentChatSurfaceSettingsMode,
   shouldDefaultAgentChatSurfacePageNewChatButton,
   shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
@@ -56,10 +58,10 @@ describe("AgentPanel header tab visibility", () => {
     expect(shouldShowAgentPanelCliTabBar(["cli-1", "cli-2"])).toBe(true);
   });
 
-  it("shows the page new-chat button only after the active chat has work", () => {
+  it("shows the page new-chat button when there is an active chat", () => {
     expect(
       shouldShowAgentPanelPageNewChatButton([chatTab("main")], "main", 0),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldShowAgentPanelPageNewChatButton([chatTab("main")], "main", 1),
     ).toBe(true);
@@ -70,9 +72,12 @@ describe("AgentPanel header tab visibility", () => {
         0,
       ),
     ).toBe(true);
+    expect(
+      shouldShowAgentPanelPageNewChatButton([chatTab("main")], "", 1),
+    ).toBe(false);
   });
 
-  it("defaults the page new-chat button off when chat tabs are hidden", () => {
+  it("defaults the page new-chat button on for page chats", () => {
     expect(
       shouldDefaultAgentChatSurfacePageNewChatButton("page", undefined),
     ).toBe(true);
@@ -80,10 +85,30 @@ describe("AgentPanel header tab visibility", () => {
       true,
     );
     expect(shouldDefaultAgentChatSurfacePageNewChatButton("page", false)).toBe(
-      false,
+      true,
     );
     expect(shouldDefaultAgentChatSurfacePageNewChatButton("panel", true)).toBe(
       false,
+    );
+  });
+
+  it("does not allow sidebar settings mode in page chat by default", () => {
+    expect(shouldAllowAgentChatSurfaceSettingsMode("page", undefined)).toBe(
+      false,
+    );
+    expect(shouldAllowAgentChatSurfaceSettingsMode("panel", undefined)).toBe(
+      true,
+    );
+    expect(shouldAllowAgentChatSurfaceSettingsMode("page", true)).toBe(true);
+  });
+
+  it("normalizes settings back to chat when settings mode is not allowed", () => {
+    expect(normalizeAgentPanelModeForSurface("settings", false)).toBe("chat");
+    expect(normalizeAgentPanelModeForSurface("settings", true)).toBe(
+      "settings",
+    );
+    expect(normalizeAgentPanelModeForSurface("resources", false)).toBe(
+      "resources",
     );
   });
 });

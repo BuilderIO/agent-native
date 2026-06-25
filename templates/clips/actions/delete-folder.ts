@@ -4,7 +4,10 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import {
+  getCurrentOwnerEmail,
+  ownerEmailMatches,
+} from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
@@ -23,7 +26,7 @@ export default defineAction({
       .where(
         and(
           eq(schema.folders.id, args.id),
-          eq(schema.folders.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.folders.ownerEmail, ownerEmail),
         ),
       );
 
@@ -41,7 +44,7 @@ export default defineAction({
         .where(
           and(
             inArray(schema.folders.parentId, frontier),
-            eq(schema.folders.ownerEmail, ownerEmail),
+            ownerEmailMatches(schema.folders.ownerEmail, ownerEmail),
           ),
         );
       const nextIds = children.map((c) => c.id);
@@ -63,7 +66,7 @@ export default defineAction({
       .where(
         and(
           inArray(schema.folders.id, descendants),
-          eq(schema.folders.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.folders.ownerEmail, ownerEmail),
         ),
       );
 

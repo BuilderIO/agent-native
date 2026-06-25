@@ -20,31 +20,35 @@ afterEach(() => {
 });
 
 describe("action discovery", () => {
-  it("loads TypeScript action files from plain source directories", async () => {
-    const actionsDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "agent-native-actions-"),
-    );
-    tmpDirs.push(actionsDir);
-    fs.writeFileSync(
-      path.join(actionsDir, "hello.ts"),
-      [
-        "export default {",
-        '  tool: { description: "Greet", parameters: { type: "object", properties: {} } },',
-        "  readOnly: true,",
-        '  run: async () => ({ message: "Hello from TS" }),',
-        "};",
-        "",
-      ].join("\n"),
-    );
+  it(
+    "loads TypeScript action files from plain source directories",
+    async () => {
+      const actionsDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-actions-"),
+      );
+      tmpDirs.push(actionsDir);
+      fs.writeFileSync(
+        path.join(actionsDir, "hello.ts"),
+        [
+          "export default {",
+          '  tool: { description: "Greet", parameters: { type: "object", properties: {} } },',
+          "  readOnly: true,",
+          '  run: async () => ({ message: "Hello from TS" }),',
+          "};",
+          "",
+        ].join("\n"),
+      );
 
-    const registry = await autoDiscoverActions(actionsDir);
+      const registry = await autoDiscoverActions(actionsDir);
 
-    expect(registry.hello).toBeDefined();
-    expect(registry.hello.readOnly).toBe(true);
-    await expect(registry.hello.run({})).resolves.toEqual({
-      message: "Hello from TS",
-    });
-  });
+      expect(registry.hello).toBeDefined();
+      expect(registry.hello.readOnly).toBe(true);
+      await expect(registry.hello.run({})).resolves.toEqual({
+        message: "Hello from TS",
+      });
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
 
   it("preserves explicit readOnly false from static defineAction entries", () => {
     const registry = loadActionsFromStaticRegistry({
