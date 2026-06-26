@@ -167,8 +167,10 @@ Filters auto-apply on change — there is no Apply button. Each filter change wr
 
 ## Modifying A Dashboard
 
-For most existing dashboard edits, prefer `mutate-dashboard`. It gives the
+For existing dashboard edits, default to `mutate-dashboard`. It gives the
 agent a small typed script API without exposing arbitrary JavaScript execution.
+The main action payload is a string, so it avoids native-array serialization
+traps in tool calls while still giving the agent a code-like editing surface.
 The server parses only documented `dashboard.*` method calls, applies the
 resulting operations in memory, validates the final dashboard config, writes
 SQL once, syncs collab, and returns compact proof.
@@ -238,9 +240,9 @@ Native tool call:
 }
 ```
 
-Use `reorder-dashboard-panels` for the simplest chart/section moves. Use
-`update-dashboard` only when you specifically need low-level JSON-pointer ops or
-a full config replace.
+Use `reorder-dashboard-panels` only as a shortcut when exact panel ids are known
+and a native `panelIds` array can be passed. Use `update-dashboard` only when you
+specifically need low-level JSON-pointer ops or a full config replace.
 
 `get-sql-dashboard` is compact by default. It returns panel summaries, ids,
 titles, chart types, sources, layout groups, `layout.panelOrder`, and
@@ -263,9 +265,19 @@ After a mutation, navigate to the dashboard if the user is elsewhere. The app sy
 
 ### Reordering Panels
 
-For simple "move this chart/section" requests, use `reorder-dashboard-panels`.
-Do not do index arithmetic with `/panels/<index>` unless the user specifically
-asks for a low-level JSON-pointer edit.
+For simple "move this chart/section" requests, prefer `mutate-dashboard` with a
+string script:
+
+```json
+{
+  "dashboardId": "weekly-metrics",
+  "code": "dashboard.panels([\"dau-over-time\",\"wau-over-time\"]).moveToTop();"
+}
+```
+
+`reorder-dashboard-panels` is also valid when you can pass a native array. Do
+not do index arithmetic with `/panels/<index>` unless the user specifically asks
+for a low-level JSON-pointer edit.
 
 ```json
 {

@@ -168,9 +168,9 @@ function helpResult() {
 export default defineAction({
   description:
     "Apply general SQL dashboard edits through a small typed mutation API in ONE atomic save. " +
-    "Prefer this for dashboard layout and panel edits that are broader than a simple reorder: move panels by id, edit titles/SQL/width/config, remove panels, duplicate panels, insert panels, or patch dashboard fields. " +
+    "Prefer this for dashboard layout and panel edits: move panels by id, edit titles/SQL/width/config, remove panels, duplicate panels, insert panels, or patch dashboard fields. " +
     "This is code-shaped but not arbitrary code execution: the server parses the allowed dashboard methods, validates the resulting config with the same invariants as update-dashboard, saves once, syncs collab, and returns compact proof. " +
-    "For the simplest 'move these charts' request, reorder-dashboard-panels is still the shortest path. " +
+    "The main code argument is a string, so it avoids brittle JSON-pointer indexes and native-array serialization issues. " +
     `Common example: ${DASHBOARD_MUTATION_EXAMPLES[0]}`,
   schema: z.object({
     dashboardId: z

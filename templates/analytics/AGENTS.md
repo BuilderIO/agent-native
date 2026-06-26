@@ -65,18 +65,16 @@ details live in `.agents/skills/`.
 - For shipped dashboard templates, call `list-dashboard-templates` first, then
   `install-dashboard-template` with the selected `templateId`. Do not recreate a
   catalog template by hand unless the user asks for a custom variant.
-- For simple dashboard panel moves, use `reorder-dashboard-panels` with
-  `panelIds` and a target (`position`, `beforePanelId`, `afterPanelId`, or
-  `index`). Do not count shifting `/panels/<index>` values for "move this chart"
-  requests. If you already have a desired leading order, `update-dashboard`
-  accepts `panelOrder`; it moves those ids to the front and preserves all
-  omitted panels in their existing order.
-- For broader dashboard edits, use `mutate-dashboard` with its typed
+- For dashboard edits, default to `mutate-dashboard` with its typed
   `dashboard.*` script API. It supports id-based panel moves, title/SQL/config
   edits, inserts, duplication, removal, and dashboard field patches in one
-  atomic save. The script is constrained: only documented dashboard method
-  calls with JSON-compatible arguments are parsed; variables, imports, loops,
-  functions, network, filesystem, and DB access are not available.
+  atomic save. The main payload is a string, so it avoids native-array
+  serialization traps. The script is constrained: only documented dashboard
+  method calls with JSON-compatible arguments are parsed; variables, imports,
+  loops, functions, network, filesystem, and DB access are not available.
+- `reorder-dashboard-panels` remains a shortcut for simple moves when exact
+  panel ids are known and a native `panelIds` array can be passed. Do not count
+  shifting `/panels/<index>` values for ordinary dashboard edit requests.
 - `get-sql-dashboard` is compact by default for agents. Use its `panels`
   summaries and `layout.panelOrder` / `layout.firstPanelIds` for orientation and
   proof. Pass `includeConfig: true` only when full panel SQL/config is needed.
