@@ -82,6 +82,25 @@ export const NITRO_RUNTIME_IGNORE_PATTERNS = [
   "**/*.test.cjs",
 ];
 
+export const CLOUDFLARE_WORKER_ESBUILD_EXTERNALS = [
+  "mermaid",
+  "@excalidraw/excalidraw",
+  "@excalidraw/mermaid-to-excalidraw",
+  "pdf-parse",
+  "pdfjs-dist",
+  "@google/genai",
+  "chartjs-node-canvas",
+  "@napi-rs/canvas",
+  "@anthropic-ai/tokenizer",
+  "@resvg/resvg-js",
+  "playwright",
+  "playwright-core",
+  "chromium-bidi",
+  "chromium-bidi/*",
+  "@sparticuz/chromium-min",
+  "fsevents",
+];
+
 function normalizeConfiguredAppBasePath(): string {
   return normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
@@ -946,18 +965,9 @@ async function buildCloudflarePages() {
   // files. Both import sites degrade gracefully when the runtime import
   // fails: context-xray token counts fall back to char/4 estimates and the
   // OG image route falls back to SVG.
-  const heavyClientExternals = [
-    "mermaid",
-    "@excalidraw/excalidraw",
-    "@excalidraw/mermaid-to-excalidraw",
-    "pdf-parse",
-    "pdfjs-dist",
-    "@google/genai",
-    "chartjs-node-canvas",
-    "@napi-rs/canvas",
-    "@anthropic-ai/tokenizer",
-    "@resvg/resvg-js",
-  ].map((p) => `--external:${p}`);
+  const heavyClientExternals = CLOUDFLARE_WORKER_ESBUILD_EXTERNALS.map(
+    (p) => `--external:${p}`,
+  );
 
   execFileSync(
     esbuildBin,
