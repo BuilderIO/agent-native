@@ -1506,6 +1506,17 @@ export default function SqlDashboardPage() {
             <IconPencil className="h-3 w-3 mt-0.5 shrink-0 opacity-0 group-hover:opacity-60" />
           ) : null}
         </button>
+      ) : canEdit ? (
+        <button
+          className="text-xs text-muted-foreground/60 hover:text-muted-foreground flex items-center gap-1"
+          onClick={() => {
+            setDescriptionInput("");
+            setEditingDescription(true);
+          }}
+        >
+          <IconPencil className="h-3 w-3" />
+          {t("sqlDashboard.addDescription")}
+        </button>
       ) : null}
 
       {/* Tabs */}
