@@ -2458,6 +2458,11 @@ export async function ensureDatabaseSourceProperty(args: {
     });
   }
 
+  // Select VALUES are matched against option IDs throughout the UI (board
+  // grouping, pills, filters), not names — store the option id per row.
+  const optionIdByName = new Map(
+    options.map((option) => [option.name, option.id]),
+  );
   const sourceNameById = new Map(
     sources.map((source) => [source.id, source.sourceName]),
   );
@@ -2485,8 +2490,9 @@ export async function ensureDatabaseSourceProperty(args: {
     .from(schema.contentDatabaseItems)
     .where(eq(schema.contentDatabaseItems.databaseId, args.database.id));
   for (const item of items) {
+    const optionName = sourceNameByDocumentId.get(item.documentId) ?? "Local";
     const valueJson = serializePropertyValue(
-      sourceNameByDocumentId.get(item.documentId) ?? "Local",
+      optionIdByName.get(optionName) ?? "",
     );
     const [existingValue] = await db
       .select({ id: schema.documentPropertyValues.id })

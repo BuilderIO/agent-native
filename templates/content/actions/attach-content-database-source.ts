@@ -258,6 +258,12 @@ export default defineAction({
         sourceTable,
         now,
       });
+      // Snapshot existing items BEFORE importing so we can bind the new source
+      // to ONLY the rows it imports — never the primary's existing rows.
+      const beforeSetup = await sourceSetupPayload(database.id);
+      const priorDocumentIds = new Set(
+        beforeSetup.response.items.map((item) => item.document.id),
+      );
       if (additionalRead.state === "live") {
         await importBuilderCmsEntriesAsDatabaseItems({
           database,
@@ -269,11 +275,15 @@ export default defineAction({
         });
       }
       const additionalSetup = await sourceSetupPayload(database.id);
+      // Only the items this collection just created — exclude the primary's.
+      const importedItems = additionalSetup.response.items.filter(
+        (item) => !priorDocumentIds.has(item.document.id),
+      );
       const additionalEntriesByDocumentId =
         additionalRead.state === "live"
           ? mapBuilderCmsEntriesToLocalItems({
               entries: additionalRead.entries,
-              items: additionalSetup.response.items,
+              items: importedItems,
               sourceTable,
               now,
               existingRows: [],
@@ -294,7 +304,7 @@ export default defineAction({
         ownerEmail: database.ownerEmail,
         sourceType,
         sourceTable,
-        items: additionalSetup.response.items,
+        items: importedItems,
         now,
         builderEntriesByDocumentId: additionalEntriesByDocumentId,
       });

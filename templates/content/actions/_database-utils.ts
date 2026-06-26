@@ -178,21 +178,19 @@ export async function getContentDatabaseResponse(
   const serializedDocumentIds = new Set(
     serializedItems.map((item) => item.document.id),
   );
-  // When paginating, the *primary* source's rows are document-backed, so we can
-  // scope them to the visible page. Secondary rows join by canonical key (no
-  // document), so they're left intact — only matched ones overlay anyway.
+  // When paginating, scope every DOCUMENT-BACKED source's rows to the visible
+  // page — that's the primary AND any row-union secondary (each row maps to a
+  // real document). Federated join rows carry no document (empty documentId),
+  // so they're kept intact — only matched ones overlay anyway.
   const pagedSources =
     limit !== null
-      ? sources.map((source, index) =>
-          index === 0
-            ? {
-                ...source,
-                rows: source.rows.filter((row) =>
-                  serializedDocumentIds.has(row.documentId),
-                ),
-              }
-            : source,
-        )
+      ? sources.map((source) => ({
+          ...source,
+          rows: source.rows.filter(
+            (row) =>
+              !row.documentId || serializedDocumentIds.has(row.documentId),
+          ),
+        }))
       : sources;
   const pagedPrimary = pagedSources[0] ?? null;
 
