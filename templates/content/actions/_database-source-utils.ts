@@ -2065,12 +2065,34 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       builderRead.state === "live" ? builderRead.entries : [],
     now: args.now,
   });
+  // Row-union: a resync must only (re)link items that BELONG to this source —
+  // never claim every database item. With a single source, all items belong to
+  // it (back-compat). With multiple sources, link only this source's
+  // remote-backed rows when the read is live (this self-heals any prior
+  // over-claim, since rows are deleted then reseeded); when offline, preserve
+  // just the rows already owned so nothing is orphaned. New / "Local" /
+  // other-collection rows stay unlinked, so the Source-tag create path can
+  // adopt them into the right collection.
+  const databaseSourceCount = (
+    await db
+      .select({ id: schema.contentDatabaseSources.id })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, args.database.id))
+  ).length;
+  const itemsToLink =
+    databaseSourceCount > 1
+      ? response.items.filter((item) =>
+          builderRead.state === "live"
+            ? builderEntriesByDocumentId.has(item.document.id)
+            : existingBuilderRows.has(item.document.id),
+        )
+      : response.items;
   await seedMockSourceRows({
     sourceId: args.source.id,
     ownerEmail: args.database.ownerEmail,
     sourceType: "builder-cms",
     sourceTable: args.source.sourceTable,
-    items: response.items,
+    items: itemsToLink,
     now: args.now,
     existingBuilderRows,
     builderEntriesByDocumentId,
