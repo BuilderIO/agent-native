@@ -102,8 +102,13 @@ vi.mock("./builtin-tools.js", () => ({
     },
   }),
 }));
+const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn(async () => null));
+
 vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: vi.fn(async () => null),
+  resolveOrgIdForEmail: (
+    ...args: Parameters<typeof resolveOrgIdForEmailMock>
+  ) => resolveOrgIdForEmailMock(...args),
 }));
 
 const embedSessionMocks = vi.hoisted(() => ({
@@ -507,6 +512,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
     delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
     mockOAuthClients.clear();
+    resolveOrgIdForEmailMock.mockReset();
+    resolveOrgIdForEmailMock.mockResolvedValue(null);
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
@@ -2136,6 +2143,56 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(new URL(openLink.vscodeUrl).searchParams.get("url")).toBe(
       openLink.webUrl,
     );
+  });
+
+  it("runs `tools/call` with org scope resolved from the verified token email", async () => {
+    resolveOrgIdForEmailMock.mockResolvedValue("org-from-email");
+    const scopedConfig = {
+      ...config,
+      actions: {
+        "whoami-scope": {
+          tool: {
+            description: "Return the request context visible to the action",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          readOnly: true,
+          run: async () => {
+            const { getRequestOrgId, getRequestUserEmail } =
+              await import("../server/request-context.js");
+            return {
+              userEmail: getRequestUserEmail(),
+              orgId: getRequestOrgId() ?? null,
+            };
+          },
+          mcpApp: {
+            resource: {
+              title: "Scope probe",
+              html: "<!doctype html><html><body>Scope</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 301,
+        method: "tools/call",
+        params: { name: "whoami-scope", arguments: {} },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: scopedConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toMatchObject({
+      userEmail: "oauth@example.com",
+      orgId: "org-from-email",
+    });
+    expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith("oauth@example.com");
   });
 
   it("preserves MCP action-result errors as errored tools/call responses", async () => {

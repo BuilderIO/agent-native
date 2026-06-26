@@ -1340,9 +1340,7 @@ export async function createMCPServerForRequest(
   // in that case we run with no userEmail/orgId, which makes downstream
   // tools that require per-user scope return empty results rather than
   // cross-tenant data (the safe default).
-  const orgIdPromise = effectiveIdentity?.orgId
-    ? Promise.resolve(effectiveIdentity.orgId)
-    : resolveOrgIdFromDomain(effectiveIdentity?.orgDomain);
+  const orgIdPromise = resolveMcpIdentityOrgId(effectiveIdentity);
 
   /**
    * Wrap a callback in
@@ -2062,6 +2060,24 @@ export async function resolveOrgIdFromDomain(
     const { resolveOrgByDomain } = await import("../org/context.js");
     const org = await resolveOrgByDomain(orgDomain);
     return org?.orgId ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function resolveMcpIdentityOrgId(
+  identity: MCPCallerIdentity | undefined,
+): Promise<string | undefined> {
+  if (identity?.orgId) return identity.orgId;
+
+  const orgIdFromDomain = await resolveOrgIdFromDomain(identity?.orgDomain);
+  if (orgIdFromDomain) return orgIdFromDomain;
+
+  const userEmail = identity?.userEmail?.trim();
+  if (!userEmail) return undefined;
+  try {
+    const { resolveOrgIdForEmail } = await import("../org/context.js");
+    return (await resolveOrgIdForEmail(userEmail)) ?? undefined;
   } catch {
     return undefined;
   }
