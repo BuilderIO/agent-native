@@ -1,5 +1,11 @@
 # @agent-native/scheduling
 
+## 0.1.15
+
+### Patch Changes
+
+- 6338989: Add Traditional Chinese copy for shared scheduling booking-link components.
+
 ## 0.1.14
 
 ### Patch Changes
