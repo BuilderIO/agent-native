@@ -88,9 +88,8 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    await server?.close();
-  });
+    await Promise.allSettled([browser?.close(), server?.close()]);
+  }, 60_000);
 
   it("runs a sandboxed extension through real iframe postMessage boundaries", async () => {
     const page = await browser.newPage();

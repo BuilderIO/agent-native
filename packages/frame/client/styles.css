@@ -70,13 +70,28 @@ body {
 
 .agent-frame-shell {
   --agent-native-lower-surface: hsl(var(--background));
+  --agent-native-raised-border: hsl(var(--border));
   --agent-native-raised-radius: 8px;
-  --agent-native-raised-shadow-right: 2px 0 8px rgb(0 0 0 / 0.035);
+  --agent-native-raised-shadow-right: 1px 0 3px rgb(0 0 0 / 0.018);
   background: var(--agent-native-lower-surface);
 }
 
 @supports (background: color-mix(in srgb, white, black)) {
   .agent-frame-shell {
+    --agent-native-lower-surface: color-mix(
+      in srgb,
+      hsl(var(--background)) 98%,
+      black
+    );
+    --agent-native-raised-border: color-mix(
+      in srgb,
+      hsl(var(--border)) 84%,
+      transparent
+    );
+  }
+
+  .dark .agent-frame-shell,
+  .dark.agent-frame-shell {
     --agent-native-lower-surface: color-mix(
       in srgb,
       hsl(var(--background)) 94%,
@@ -105,6 +120,7 @@ body {
   .agent-frame-main-surface[data-agent-frame-main-state="open"] {
     border-start-end-radius: var(--agent-native-raised-radius);
     border-end-end-radius: var(--agent-native-raised-radius);
+    border-inline-end: 1px solid var(--agent-native-raised-border);
     box-shadow: var(--agent-native-raised-shadow-right);
   }
 }

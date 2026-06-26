@@ -184,7 +184,7 @@ type AgentPanelStyle = React.CSSProperties & {
   "--agent-sidebar-width"?: string;
 };
 const AGENT_PANEL_HEADER_CLASS =
-  "relative z-[240] flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border";
+  "agent-native-shell-topbar relative z-[240] flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border";
 const AGENT_PANEL_HEADER_STYLE = {
   paddingLeft: 8,
   paddingRight: 8,
@@ -1880,8 +1880,7 @@ function ResizeHandle({
     <div
       ref={ref}
       className={cn(
-        "relative z-20 shrink-0 w-px touch-none select-none transition-colors",
-        "bg-border hover:bg-accent active:bg-accent",
+        "agent-sidebar-resize-handle relative z-20 w-px shrink-0 touch-none select-none bg-transparent transition-colors hover:bg-border active:bg-border",
       )}
       style={{ cursor: "col-resize" }}
     />
