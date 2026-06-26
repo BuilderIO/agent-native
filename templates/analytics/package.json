@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "agent-native dev",
+    "dev": "DATABASE_URL=${ANALYTICS_DATABASE_URL:-file:./data/app.db} agent-native dev",
     "build": "agent-native build && tsx scripts/emit-netlify-dashboard-report-cron.ts",
     "start": "agent-native start",
     "test": "vitest --run",
