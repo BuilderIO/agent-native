@@ -296,7 +296,7 @@ async function saveS3StorageSettings(
         name: key,
         value,
         scope: "workspace",
-        description: "Clips S3-compatible storage",
+        description: "Clips S3-compatible storage", // i18n-ignore -- secret metadata description, not visible UI
       }),
     });
 

@@ -17,6 +17,7 @@ const messages = {
     settings: "الإعدادات",
     brand: "النماذج",
     askForms: "اسأل Forms",
+    allForms: "كل النماذج",
     team: "الفريق",
   },
   settings: {

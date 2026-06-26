@@ -17,6 +17,7 @@ const messages = {
     settings: "設定",
     brand: "フォーム",
     askForms: "フォームに質問する",
+    allForms: "すべてのフォーム",
     team: "チーム",
   },
   settings: {

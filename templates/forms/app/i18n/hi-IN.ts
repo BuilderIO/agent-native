@@ -17,6 +17,7 @@ const messages = {
     settings: "सेटिंग्स",
     brand: "फॉर्म",
     askForms: "प्रपत्र पूछें",
+    allForms: "सभी फॉर्म",
     team: "टीम",
   },
   settings: {

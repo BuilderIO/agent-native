@@ -17,6 +17,7 @@ const messages = {
     settings: "设置",
     brand: "表单",
     askForms: "询问表单",
+    allForms: "所有表单",
     team: "团队",
   },
   settings: {

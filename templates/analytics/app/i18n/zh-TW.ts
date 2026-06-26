@@ -1,4 +1,7 @@
 const messages = {
+  root: {
+    whatsNew: "最新消息",
+  },
   navigation: {
     brand: "Analytics",
     ask: "提問",
