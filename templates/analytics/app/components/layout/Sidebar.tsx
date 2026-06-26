@@ -14,7 +14,6 @@ import {
   IconReportAnalytics,
   IconSearch,
   IconArchive,
-  IconHome,
   IconTemplate,
   IconBuilding,
   IconLock,
@@ -22,6 +21,7 @@ import {
   IconMessageCircle,
   IconEye,
   IconEyeOff,
+  IconPlayerPlay,
 } from "@tabler/icons-react";
 import {
   useQuery,
@@ -1920,18 +1920,18 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             {t("navigation.ask")}
           </Link>
 
-          {/* Overview link */}
+          {/* Sessions link */}
           <Link
-            to="/overview"
+            to="/sessions"
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-              location.pathname === "/overview"
+              location.pathname.startsWith("/sessions")
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <IconHome className="h-4 w-4" />
-            {t("navigation.overview")}
+            <IconPlayerPlay className="h-4 w-4" />
+            {t("navigation.sessions")}
           </Link>
 
           {/* Data Sources link */}

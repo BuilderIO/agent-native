@@ -523,37 +523,41 @@ export function App() {
             inert={showFrameSidebar ? undefined : true}
             aria-hidden={showFrameSidebar ? undefined : true}
           >
-            <Suspense
-              fallback={
-                <div
-                  className="flex items-center justify-center h-full text-sm"
-                  style={{ color: "hsl(var(--muted-foreground))" }}
-                >
-                  Loading...
-                </div>
-              }
-            >
-              <AgentPanel
-                emptyStateText={`Ask me anything about ${app?.label || "your app"}`}
-                suggestions={suggestions}
-                onCollapse={() => setSidebarOpen(false)}
-                isFullscreen={sidebarFullscreen}
-                onToggleFullscreen={() => setSidebarFullscreen((prev) => !prev)}
-                devAppUrl={appUrl}
-                storageKey={appId}
-                agentChatSurface="dev-frame"
-                codeAccess={{
-                  enabled: isDesktop,
-                  unavailableTitle: "Open Desktop to use CLI",
-                  unavailableDescription:
-                    "Open Agent Native Desktop, click the + button, and add this app with its local dev URL to use CLI.",
-                  unavailableCtaLabel: "Open Desktop",
-                  unavailableCtaHref: OPEN_DESKTOP_URL,
-                  unavailableSecondaryCtaLabel: "Download",
-                  unavailableSecondaryCtaHref: DOWNLOAD_DESKTOP_URL,
-                }}
-              />
-            </Suspense>
+            <div className="agent-frame-sidebar-inner flex min-h-0 flex-1 flex-col">
+              <Suspense
+                fallback={
+                  <div
+                    className="flex items-center justify-center h-full text-sm"
+                    style={{ color: "hsl(var(--muted-foreground))" }}
+                  >
+                    Loading...
+                  </div>
+                }
+              >
+                <AgentPanel
+                  emptyStateText={`Ask me anything about ${app?.label || "your app"}`}
+                  suggestions={suggestions}
+                  onCollapse={() => setSidebarOpen(false)}
+                  isFullscreen={sidebarFullscreen}
+                  onToggleFullscreen={() =>
+                    setSidebarFullscreen((prev) => !prev)
+                  }
+                  devAppUrl={appUrl}
+                  storageKey={appId}
+                  agentChatSurface="dev-frame"
+                  codeAccess={{
+                    enabled: isDesktop,
+                    unavailableTitle: "Open Desktop to use CLI",
+                    unavailableDescription:
+                      "Open Agent Native Desktop, click the + button, and add this app with its local dev URL to use CLI.",
+                    unavailableCtaLabel: "Open Desktop",
+                    unavailableCtaHref: OPEN_DESKTOP_URL,
+                    unavailableSecondaryCtaLabel: "Download",
+                    unavailableSecondaryCtaHref: DOWNLOAD_DESKTOP_URL,
+                  }}
+                />
+              </Suspense>
+            </div>
           </div>
         </>
       )}

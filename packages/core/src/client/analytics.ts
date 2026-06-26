@@ -6,8 +6,17 @@ import {
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
 import { agentNativePath } from "./api-path.js";
+import type {
+  SessionReplayOptions,
+  SessionReplayStartResult,
+} from "./session-replay.js";
 import { scrubUrl } from "./url-scrub.js";
 export { scrubUrl } from "./url-scrub.js";
+export type {
+  SessionReplayOptions,
+  SessionReplayStartResult,
+  SessionReplayUrlMatcher,
+} from "./session-replay.js";
 
 declare global {
   interface Window {
@@ -233,6 +242,10 @@ function getOrCreateAnonymousId(): string | undefined {
   return id;
 }
 
+export function getAnalyticsAnonymousId(): string | undefined {
+  return getOrCreateAnonymousId();
+}
+
 function getOrCreateSessionId(): string | undefined {
   if (typeof window === "undefined") return undefined;
   const now = Date.now();
@@ -251,6 +264,10 @@ function getOrCreateSessionId(): string | undefined {
   }
   safeStorageSet(SESSION_LAST_ACTIVITY_STORAGE_KEY, String(now));
   return id;
+}
+
+export function getAnalyticsSessionId(): string | undefined {
+  return getOrCreateSessionId();
 }
 
 function truncateFirstTouchField(value: string | null | undefined): string {
@@ -727,6 +744,7 @@ function getPageviewTrackingState(): PageviewTrackingState {
 
 export function configureTracking(options: {
   getDefaultProps?: GetDefaultProps;
+  sessionReplay?: boolean | SessionReplayOptions;
 }): void {
   if (options.getDefaultProps) {
     _getDefaultProps = options.getDefaultProps;
@@ -737,7 +755,57 @@ export function configureTracking(options: {
     captureFirstTouchAttribution();
     installLlmConnectionRefresh();
     installPageviewTracking();
+    maybeInstallSessionReplay(options.sessionReplay);
   }
+}
+
+function sessionReplayEnabledFromEnv(): boolean {
+  const env = (import.meta.env as Record<string, string | undefined>) ?? {};
+  const value =
+    env.VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED ||
+    env.VITE_SESSION_REPLAY_ENABLED;
+  return /^(1|true|yes|on)$/i.test((value ?? "").trim());
+}
+
+function configuredSessionReplayOptions(
+  config: boolean | SessionReplayOptions | undefined,
+): SessionReplayOptions | null {
+  if (config === true) return {};
+  if (config && typeof config === "object") {
+    if (config.enabled === false) return null;
+    return config;
+  }
+  return sessionReplayEnabledFromEnv() ? {} : null;
+}
+
+function maybeInstallSessionReplay(
+  config: boolean | SessionReplayOptions | undefined,
+): void {
+  if (typeof window === "undefined") return;
+  const options = configuredSessionReplayOptions(config);
+  if (!options) return;
+  import("./session-replay.js")
+    .then((mod) => mod.startSessionReplay(options))
+    .catch(() => {});
+}
+
+export async function startSessionReplay(
+  options: SessionReplayOptions = {},
+): Promise<SessionReplayStartResult> {
+  const mod = await import("./session-replay.js");
+  return mod.startSessionReplay(options);
+}
+
+export async function maybeStartSessionReplay(
+  options: SessionReplayOptions = {},
+): Promise<SessionReplayStartResult> {
+  const mod = await import("./session-replay.js");
+  return mod.maybeStartSessionReplay(options);
+}
+
+export async function stopSessionReplay(reason = "manual"): Promise<void> {
+  const mod = await import("./session-replay.js");
+  mod.stopSessionReplay(reason);
 }
 
 function inferTemplateName(properties: Record<string, unknown>): string | null {

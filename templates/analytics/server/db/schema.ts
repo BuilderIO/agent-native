@@ -50,6 +50,38 @@ export const dashboardViews = table("dashboard_views", {
 });
 
 /**
+ * Scheduled email snapshots for SQL dashboards. Each row belongs to the user
+ * who created the subscription; dashboard access is re-checked before every
+ * send so revoking dashboard access also stops future deliveries.
+ */
+export const dashboardReportSubscriptions = table(
+  "dashboard_report_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    dashboardId: text("dashboard_id").notNull(),
+    name: text("name").notNull(),
+    recipients: text("recipients").notNull().default("[]"),
+    filters: text("filters").notNull().default("{}"),
+    frequency: text("frequency", { enum: ["daily"] })
+      .notNull()
+      .default("daily"),
+    timeOfDay: text("time_of_day").notNull().default("09:00"),
+    timezone: text("timezone").notNull().default("UTC"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    nextRunAt: text("next_run_at"),
+    lastRunAt: text("last_run_at"),
+    lastStatus: text("last_status", {
+      enum: ["success", "error", "running"],
+    }),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+  },
+);
+
+/**
  * Ad-hoc analyses. Previously stored in the settings KV store under
  * `adhoc-analysis-{id}`. Those keys are read as a fallback during lazy
  * migration. See server/lib/analyses-store.ts.
@@ -102,6 +134,13 @@ export const analyticsPublicKeys = table("analytics_public_keys", {
   name: text("name").notNull(),
   publicKey: text("public_key").notNull(),
   publicKeyPrefix: text("public_key_prefix").notNull(),
+  replayAllowedOrigins: text("replay_allowed_origins").notNull().default("[]"),
+  replayMaxBytesPerDay: integer("replay_max_bytes_per_day")
+    .notNull()
+    .default(100 * 1024 * 1024),
+  replayMaxRequestsPerMinute: integer("replay_max_requests_per_minute")
+    .notNull()
+    .default(120),
   createdAt: text("created_at").notNull().default(now()),
   lastUsedAt: text("last_used_at"),
   revokedAt: text("revoked_at"),
@@ -134,6 +173,67 @@ export const analyticsEvents = table("analytics_events", {
   signedIn: text("signed_in"),
   properties: text("properties").notNull().default("{}"),
   context: text("context").notNull().default("{}"),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+});
+
+/**
+ * Session replay summaries recorded through the first-party analytics replay
+ * endpoint. Raw replay chunks live in session_replay_chunks and are only read
+ * through scoped replay helpers, not first-party dashboard SQL.
+ */
+export const sessionRecordings = table("session_recordings", {
+  id: text("id").primaryKey(),
+  publicKeyId: text("public_key_id").notNull(),
+  clientRecordingId: text("client_recording_id").notNull(),
+  sessionId: text("session_id").notNull(),
+  userId: text("user_id"),
+  anonymousId: text("anonymous_id"),
+  userKey: text("user_key"),
+  startedAt: text("started_at").notNull(),
+  endedAt: text("ended_at"),
+  durationMs: integer("duration_ms"),
+  chunkCount: integer("chunk_count").notNull().default(0),
+  eventCount: integer("event_count").notNull().default(0),
+  totalBytes: integer("total_bytes").notNull().default(0),
+  pageCount: integer("page_count").notNull().default(0),
+  errorCount: integer("error_count").notNull().default(0),
+  rageClickCount: integer("rage_click_count").notNull().default(0),
+  privacyMode: text("privacy_mode").notNull().default("unknown"),
+  firstUrl: text("first_url"),
+  lastUrl: text("last_url"),
+  path: text("path"),
+  hostname: text("hostname"),
+  referrer: text("referrer"),
+  app: text("app"),
+  template: text("template"),
+  status: text("status", { enum: ["active", "completed"] })
+    .notNull()
+    .default("active"),
+  metadata: text("metadata").notNull().default("{}"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  lastIngestedAt: text("last_ingested_at"),
+  ...ownableColumns(),
+});
+
+export const sessionRecordingShares = createSharesTable(
+  "session_recording_shares",
+);
+
+export const sessionReplayChunks = table("session_replay_chunks", {
+  id: text("id").primaryKey(),
+  recordingId: text("recording_id").notNull(),
+  seq: integer("seq").notNull(),
+  checksum: text("checksum").notNull(),
+  byteLength: integer("byte_length").notNull().default(0),
+  eventCount: integer("event_count").notNull().default(0),
+  startedAt: text("started_at"),
+  endedAt: text("ended_at"),
+  storageKind: text("storage_kind", { enum: ["inline", "blob"] }).notNull(),
+  storageRef: text("storage_ref"),
+  inlineData: text("inline_data"),
+  createdAt: text("created_at").notNull().default(now()),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   orgId: text("org_id"),
 });

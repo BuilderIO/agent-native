@@ -671,12 +671,20 @@ export {
   trackEvent,
   trackSessionStatus,
   configureTracking,
+  maybeStartSessionReplay,
+  startSessionReplay,
+  stopSessionReplay,
+  getAnalyticsAnonymousId,
+  getAnalyticsSessionId,
   getFirstTouchAttribution,
   setSentryUser,
   captureError,
   captureClientException,
   type ClientCaptureContext,
   type FirstTouchAttribution,
+  type SessionReplayOptions,
+  type SessionReplayStartResult,
+  type SessionReplayUrlMatcher,
 } from "./analytics.js";
 export { track } from "./track.js";
 export {

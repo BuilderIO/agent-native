@@ -132,6 +132,45 @@ Key differences from the [server `track()`](#track):
 
 This is distinct from the framework's internal browser telemetry (`trackEvent()` / automatic pageviews — see [Browser defaults](#browser-defaults) below), which powers Agent Native's own product analytics. Use `track()` for your app's own analytics events that should reach your configured providers.
 
+## Session replay {#session-replay}
+
+Agent Native apps can opt into first-party browser session replay without adding a second analytics SDK. Template roots already call `configureTracking()`, so the usual production setup is just environment variables on the site you want to record:
+
+```bash
+VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
+VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
+VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
+```
+
+When `VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED` is truthy, the client dynamically imports `@rrweb/record` after startup and posts replay chunks to the replay endpoint. If `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT` ends in `/api/analytics/track` or `/track`, the replay endpoint is derived automatically as `/api/analytics/replay`. Override it explicitly with `VITE_AGENT_NATIVE_ANALYTICS_REPLAY_ENDPOINT` when the replay collector lives somewhere else.
+
+For custom Vite/React apps, call `configureTracking()` once in the browser root:
+
+```ts
+import { configureTracking } from "@agent-native/core/client";
+
+configureTracking({
+  getDefaultProps: (_event, props) => ({
+    ...props,
+    app: "my-app",
+    template: "my-template",
+  }),
+});
+```
+
+Privacy defaults are intentionally conservative but still useful for playback:
+
+- Inputs are masked by default (`maskAllInputs: true`).
+- Page text remains visible unless an element is marked with `.an-mask` or `data-an-mask`.
+- Sensitive zones are blocked with selectors such as `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private`, and credit-card/password/SSN-like fields.
+- URLs are scrubbed with the same `scrubUrl()` helper used by browser analytics.
+- Replay capture is web-only and opt-in; it does not record native desktop screens.
+
+The Analytics template stores replay metadata in SQL (`session_recordings`) and stores chunks through private blob refs (`session_replay_chunks`). Browsers and agents never receive provider URLs. Playback goes through scoped server routes and the default agent tools return summaries or bounded replay events, not raw chunk table access.
+
+For local development only, Analytics can fall back to capped SQL inline chunks when private blob storage is unavailable. Production deployments should configure private or encrypted blob storage rather than relying on Postgres for replay payloads.
+
 ## Advanced: custom providers & internals {#advanced}
 
 Most apps only need `track()` / `identify()` and a built-in provider. The rest of the surface — registering custom providers, the `TrackingProvider` interface, batching internals, and the framework's own browser telemetry — is below.

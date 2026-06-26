@@ -906,7 +906,12 @@ export function SqlChart({
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
   if (!loadData || isLoading) {
-    return <Skeleton className={`w-full flex-1 ${placeholderMinH}`} />;
+    return (
+      <Skeleton
+        data-dashboard-report-loading="true"
+        className={`w-full flex-1 ${placeholderMinH}`}
+      />
+    );
   }
 
   if (error) {
@@ -1131,6 +1136,34 @@ function renderDeltaCell(value: unknown): ReactNode {
   );
 }
 
+function rowString(
+  row: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function sessionReplayHref(row: Record<string, unknown>): string | null {
+  const recordingId = rowString(row, [
+    "recording_id",
+    "session_recording_id",
+    "sessionRecordingId",
+  ]);
+  if (recordingId) return `/sessions/${encodeURIComponent(recordingId)}`;
+
+  const sessionId = rowString(row, ["session_id", "sessionId"]);
+  if (!sessionId) return null;
+  return `/sessions/${encodeURIComponent(sessionId)}`;
+}
+
+function isSessionColumn(key: string): boolean {
+  return key === "session_id" || key === "sessionId";
+}
+
 function TableRenderer({
   rows,
   panel,
@@ -1303,6 +1336,9 @@ function TableRenderer({
                     col.format === "delta"
                       ? renderDeltaCell(raw)
                       : formatCell(raw, col.format);
+                  const replayHref = isSessionColumn(col.key)
+                    ? sessionReplayHref(row)
+                    : null;
                   return (
                     <td
                       key={col.key}
@@ -1310,7 +1346,19 @@ function TableRenderer({
                         numeric ? "text-right tabular-nums" : ""
                       }`}
                     >
-                      {content}
+                      {replayHref ? (
+                        <span className="inline-flex flex-col gap-0.5">
+                          <span>{content}</span>
+                          <a
+                            href={replayHref}
+                            className="text-xs font-medium text-primary hover:underline"
+                          >
+                            {t("sessions.watchReplay")}
+                          </a>
+                        </span>
+                      ) : (
+                        content
+                      )}
                     </td>
                   );
                 })}
