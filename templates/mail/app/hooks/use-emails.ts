@@ -90,6 +90,17 @@ export function markExternalEmailRefresh() {
   externalRefreshAt = Date.now();
 }
 
+export function consumeExternalEmailRefresh(): number | undefined {
+  const refreshAt = externalRefreshAt;
+  if (!refreshAt) return undefined;
+  if (Date.now() - refreshAt >= 5000) {
+    externalRefreshAt = 0;
+    return undefined;
+  }
+  externalRefreshAt = 0;
+  return refreshAt;
+}
+
 function parseRecipients(value?: string): EmailMessage["to"] {
   return (value || "")
     .split(",")
@@ -501,8 +512,11 @@ export function useEmails(
       if (search) params.set("q", search);
       if (label) params.set("label", label);
       if (pageParam) params.set("pageToken", pageParam);
-      if (externalRefreshAt && Date.now() - externalRefreshAt < 5000) {
-        params.set("forceRefresh", String(externalRefreshAt));
+      const forceRefreshAt = !pageParam
+        ? consumeExternalEmailRefresh()
+        : undefined;
+      if (forceRefreshAt) {
+        params.set("forceRefresh", String(forceRefreshAt));
       }
       return apiFetch<EmailsPage>(`/api/emails?${params}`, { signal });
     },
@@ -682,6 +696,7 @@ export function useMarkThreadRead() {
         .map((e) => ({ id: e.id, accountEmail: e.accountEmail }));
       pendingByThread.current.set(threadId, unreadEntries);
       const unreadIds = unreadEntries.map((e) => e.id);
+      const previousThread = getCachedThread(threadId);
       // Set overrides so refetches don't revert read state
       for (const id of unreadIds) {
         setOptimisticOverride(id, { isRead: true });
@@ -694,13 +709,22 @@ export function useMarkThreadRead() {
           ),
         ),
       );
-      return { previous, overrideIds: [...unreadIds] };
+      if (previousThread) {
+        setCachedThread(
+          threadId,
+          previousThread.map((message) => ({ ...message, isRead: true })),
+        );
+      }
+      return { previous, overrideIds: [...unreadIds], previousThread };
     },
-    onError: (_err, _vars, context) => {
+    onError: (_err, threadId, context) => {
       for (const id of context?.overrideIds ?? []) {
         clearOptimisticOverride(id);
       }
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.previousThread) {
+        setCachedThread(threadId, context.previousThread);
+      }
     },
     onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
   });
