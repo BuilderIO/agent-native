@@ -1,5 +1,16 @@
 # @agent-native/core
 
+## 0.79.0
+
+### Minor Changes
+
+- 6e25485: Add Generative UI support for transient and persisted sandboxed inline extensions in chat.
+
+### Patch Changes
+
+- 6e25485: Improve session replay playback and inline extension chat surfaces.
+- 6e25485: Teach generated saved extensions to persist reusable user-edited state with extensionData.
+
 ## 0.78.9
 
 ### Patch Changes
