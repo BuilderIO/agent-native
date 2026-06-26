@@ -91,7 +91,22 @@ describe("update-dashboard proof-of-done summary", () => {
     expect(result.panelCount).toBe(3);
     expect(result.appliedOps).toBe(0);
     expect(result.summary).toMatch(/3 panel/);
+    expect(result.config).toBeUndefined();
+    expect(result.firstPanelIds).toEqual(["a", "b", "c"]);
+  });
+
+  it("can include the full config when explicitly requested", async () => {
+    const result: any = await updateDashboard.run({
+      dashboardId: "weekly",
+      returnConfig: true,
+      config: {
+        name: "Weekly",
+        panels: [panel("a")],
+      },
+    });
+
     expect(result.config).toBeDefined();
+    expect(result.panelOrder).toEqual(["a"]);
   });
 
   it("returns appliedOps + resulting panelCount after batched insert ops", async () => {
@@ -118,5 +133,57 @@ describe("update-dashboard proof-of-done summary", () => {
       panels: Array<{ id: string }>;
     };
     expect(saved.panels.map((p) => p.id)).toEqual(["a", "b", "c"]);
+    expect(result.config).toBeUndefined();
+    expect(result.panelOrder).toEqual(["a", "b", "c"]);
+  });
+
+  it("supports id alias plus panelOrder for simple panel reorders", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: { name: "Weekly", panels: [panel("a"), panel("b"), panel("c")] },
+    });
+
+    const result: any = await updateDashboard.run({
+      id: "weekly",
+      panelOrder: ["c", "a"],
+    });
+
+    expect(mocks.dryRunQuery).not.toHaveBeenCalled();
+    expect(result.panelOrder).toEqual(["c", "a", "b"]);
+    expect(result.firstPanelIds).toEqual(["c", "a", "b"]);
+    const saved = mocks.upsertDashboard.mock.calls[0][2] as {
+      panels: Array<{ id: string }>;
+    };
+    expect(saved.panels.map((p) => p.id)).toEqual(["c", "a", "b"]);
+  });
+
+  it("accepts panelOrder as a JSON string for shell and legacy callers", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: { name: "Weekly", panels: [panel("a"), panel("b"), panel("c")] },
+    });
+
+    const result: any = await updateDashboard.run({
+      dashboardId: "weekly",
+      panelOrder: '["b","c"]',
+    });
+
+    expect(result.panelOrder).toEqual(["b", "c", "a"]);
+  });
+
+  it("validates dashboard config after ops before saving", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: { name: "Weekly", panels: [panel("a")] },
+    });
+
+    await expect(
+      updateDashboard.run({
+        dashboardId: "weekly",
+        ops: [{ op: "remove", path: "/panels/0/title" }],
+      }),
+    ).rejects.toThrow(/panel\[0\]\.title is required/);
+
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
   });
 });

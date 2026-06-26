@@ -57,11 +57,14 @@ describe("get-sql-dashboard seed fallback", () => {
 
     const result = (await getSqlDashboard.run({ id: "seeded" })) as {
       panels: Array<{ id: string }>;
+      layout: { panelOrder: string[]; firstPanelIds: string[] };
       ownerEmail: string | null;
       visibility: string;
     };
 
     expect(result.panels.map((panel) => panel.id)).toEqual(["seed-panel"]);
+    expect(result.layout.panelOrder).toEqual(["seed-panel"]);
+    expect(result.layout.firstPanelIds).toEqual(["seed-panel"]);
     expect(result.ownerEmail).toBeNull();
     expect(result.visibility).toBe("org");
   });
@@ -89,12 +92,14 @@ describe("get-sql-dashboard seed fallback", () => {
 
     const result = (await getSqlDashboard.run({ id: "seeded" })) as {
       panels: Array<{ id: string }>;
+      layout: { panelOrder: string[] };
       name: string;
       ownerEmail: string | null;
     };
 
     expect(result.name).toBe("Blank");
     expect(result.panels).toEqual([]);
+    expect(result.layout.panelOrder).toEqual([]);
     expect(result.ownerEmail).toBe("alice@example.com");
   });
 });

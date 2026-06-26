@@ -45,6 +45,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Fragment,
+  memo,
   useState,
   useEffect,
   useCallback,
@@ -203,6 +204,89 @@ function DashboardDragPreview({ panel }: { panel: SqlPanel | null }) {
     </div>
   );
 }
+
+/**
+ * A single chart cell, memoized so that drag interactions — which re-render the
+ * dashboard page on every drop-slot change — do NOT re-render every chart's
+ * Recharts subtree. During a drag the panel, vars, remoteEditor, and the
+ * stable callbacks below don't change, so React skips these cells entirely and
+ * only the lightweight drop-line indicators update. This keeps dragging smooth
+ * on dense dashboards. Outside a drag, prop changes (filter/vars edits, remote
+ * collaborator highlights, panel edits) still re-render normally.
+ */
+const PanelCell = memo(function PanelCell({
+  panel,
+  vars,
+  remoteEditor,
+  editable,
+  eagerLoad,
+  onRemovePanel,
+  onEditPanel,
+  onSavePanel,
+}: {
+  panel: SqlPanel;
+  vars: Record<string, string>;
+  remoteEditor: { color: string; name: string } | undefined;
+  editable: boolean;
+  eagerLoad: boolean;
+  onRemovePanel: (panelId: string) => void;
+  onEditPanel: (panel: SqlPanel) => void;
+  onSavePanel: (panel: SqlPanel) => Promise<void>;
+}) {
+  const resolved = useMemo(
+    () =>
+      panel.config?.description
+        ? {
+            ...panel,
+            config: {
+              ...panel.config,
+              description: interpolate(panel.config.description, vars),
+            },
+          }
+        : panel,
+    [panel, vars],
+  );
+  const resolvedSql = useMemo(
+    () => interpolate(serializePanelSql(panel.sql), vars),
+    [panel.sql, vars],
+  );
+
+  return (
+    <div
+      className="dashboard-grid-cell relative h-full"
+      style={
+        remoteEditor
+          ? {
+              outline: `2px solid ${remoteEditor.color}`,
+              outlineOffset: 2,
+              borderRadius: 8,
+            }
+          : undefined
+      }
+    >
+      {remoteEditor && (
+        <span
+          className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
+          style={{
+            backgroundColor: remoteEditor.color,
+            color: "#fff",
+          }}
+        >
+          {remoteEditor.name}
+        </span>
+      )}
+      <SqlChartCard
+        panel={resolved}
+        resolvedSql={resolvedSql}
+        onRemove={() => onRemovePanel(panel.id)}
+        onEdit={() => onEditPanel(panel)}
+        onSaveSql={(sql) => onSavePanel({ ...panel, sql })}
+        editable={editable}
+        eagerLoad={eagerLoad}
+      />
+    </div>
+  );
+});
 
 type FetchedDashboard = {
   id: string;
@@ -1483,65 +1567,6 @@ export default function SqlDashboardPage() {
             data-dashboard-dragging={activeDragPanel ? "true" : undefined}
           >
             {panelGroups.map((group) => {
-              const renderPanelCell = (panel: SqlPanel) => {
-                const resolved = panel.config?.description
-                  ? {
-                      ...panel,
-                      config: {
-                        ...panel.config,
-                        description: interpolate(
-                          panel.config.description,
-                          vars,
-                        ),
-                      },
-                    }
-                  : panel;
-                const remoteEditor = reportScreenshot
-                  ? undefined
-                  : remoteEditingPanels.get(panel.id);
-                return (
-                  <div
-                    key={panel.id}
-                    className="dashboard-grid-cell relative h-full"
-                    style={
-                      {
-                        ...(remoteEditor
-                          ? {
-                              outline: `2px solid ${remoteEditor.color}`,
-                              outlineOffset: 2,
-                              borderRadius: 8,
-                            }
-                          : null),
-                      } as React.CSSProperties
-                    }
-                  >
-                    {remoteEditor && (
-                      <span
-                        className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
-                        style={{
-                          backgroundColor: remoteEditor.color,
-                          color: "#fff",
-                        }}
-                      >
-                        {remoteEditor.name}
-                      </span>
-                    )}
-                    <SqlChartCard
-                      panel={resolved}
-                      resolvedSql={interpolate(
-                        serializePanelSql(panel.sql),
-                        vars,
-                      )}
-                      onRemove={() => removePanel(panel.id)}
-                      onEdit={() => openEditPanel(panel)}
-                      onSaveSql={(sql) => handleSavePanel({ ...panel, sql })}
-                      editable={canEdit}
-                      eagerLoad={reportScreenshot}
-                    />
-                  </div>
-                );
-              };
-
               const renderSection = (section: SqlPanel) => {
                 const remoteEditor = reportScreenshot
                   ? undefined
@@ -1630,7 +1655,20 @@ export default function SqlDashboardPage() {
                           />
                           {row.panels.map((panel, columnIndex) => (
                             <Fragment key={panel.id}>
-                              {renderPanelCell(panel)}
+                              <PanelCell
+                                panel={panel}
+                                vars={vars}
+                                remoteEditor={
+                                  reportScreenshot
+                                    ? undefined
+                                    : remoteEditingPanels.get(panel.id)
+                                }
+                                editable={canEdit}
+                                eagerLoad={reportScreenshot}
+                                onRemovePanel={removePanel}
+                                onEditPanel={openEditPanel}
+                                onSavePanel={handleSavePanel}
+                              />
                               <DashboardDropLine
                                 slot={{
                                   type: "column",

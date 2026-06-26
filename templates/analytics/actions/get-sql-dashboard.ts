@@ -6,8 +6,39 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { buildDashboardPanelGroups } from "../app/pages/adhoc/sql-dashboard/dashboard-layout";
+import {
+  clampDashboardColumns,
+  type SqlPanel,
+} from "../app/pages/adhoc/sql-dashboard/types";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
 import { getDashboard } from "../server/lib/dashboards-store";
+import { getPanelOrder } from "./dashboard-panel-order";
+
+function dashboardLayoutSummary(config: Record<string, unknown>) {
+  const panels = Array.isArray(config.panels)
+    ? (config.panels as SqlPanel[])
+    : [];
+  const columns = clampDashboardColumns(config.columns);
+  const groups = buildDashboardPanelGroups(panels, columns);
+  const panelOrder = getPanelOrder(config);
+
+  return {
+    panelCount: panelOrder.length,
+    panelOrder,
+    firstPanelIds: panelOrder.slice(0, 10),
+    groups: groups.map((group) => ({
+      key: group.key,
+      sectionId: group.section?.id ?? null,
+      sectionTitle: group.section?.title ?? null,
+      columns: group.columns,
+      rows: group.rows.map((row, rowIndex) => ({
+        rowIndex,
+        panelIds: row.panels.map((panel) => panel.id),
+      })),
+    })),
+  };
+}
 
 function seededResponse(
   id: string,
@@ -16,6 +47,7 @@ function seededResponse(
   return {
     id,
     ...seed,
+    layout: dashboardLayoutSummary(seed),
     ownerEmail: null,
     orgId: null,
     visibility: "org",
@@ -78,6 +110,7 @@ export default defineAction({
     return {
       id: args.id,
       ...config,
+      layout: dashboardLayoutSummary(config),
       ownerEmail: dash.ownerEmail,
       orgId: dash.orgId,
       visibility: dash.visibility,

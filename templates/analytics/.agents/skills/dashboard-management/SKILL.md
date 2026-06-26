@@ -180,17 +180,45 @@ pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
 
 After a mutation, navigate to the dashboard if the user is elsewhere. The app syncs through the framework's polling/query invalidation path.
 
+### Reordering Panels
+
+For simple "move this chart/section" requests, use `reorder-dashboard-panels`.
+Do not do index arithmetic with `/panels/<index>` unless the user specifically
+asks for a low-level JSON-pointer edit.
+
+```json
+{
+  "dashboardId": "weekly-metrics",
+  "panelIds": ["dau-over-time", "wau-over-time"],
+  "position": "top"
+}
+```
+
+The action moves the requested panel ids as a group in the order supplied, keeps
+every omitted panel in its existing relative order, saves once, and returns
+compact proof: `panelCount`, `movedPanelIds`, `firstPanelIds`, and `panelOrder`.
+Use `beforePanelId`, `afterPanelId`, or `index` when the target is not the top or
+bottom. If you already have the desired leading order, `update-dashboard` also
+accepts `panelOrder: ["panel-a", "panel-b"]`; those ids move to the front in
+that order and omitted panels keep their existing relative order.
+
+`get-sql-dashboard` returns `layout.panelOrder`, `layout.firstPanelIds`, and
+row/group summaries. Use those fields for orientation and verification instead
+of re-reading stale screenshots or counting positions from memory.
+
 ### Existing Dashboard Edits
 
 When the user asks to change existing panels:
 
 1. Read the current dashboard config through the dashboard/action surface.
-2. Find panel indexes by `panel.id` from the current config you just read. Do
-   not rely on seed-file order, stale memory, or screenshots.
-3. Build one `ops` array that includes every change.
-4. Call `update-dashboard` once.
-5. Verify the returned `panelCount`, `appliedOps`, and `summary`. If possible,
-   read the affected panels back and confirm the exact fields changed.
+2. For reorders, call `reorder-dashboard-panels` by id. For field edits, find
+   panel indexes by `panel.id` from the current config you just read. Do not
+   rely on seed-file order, stale memory, or screenshots.
+3. For field edits, build one `ops` array that includes every change and call
+   `update-dashboard` once.
+4. Verify the returned `panelCount`, `appliedOps`, `firstPanelIds`, and
+   `summary`. If possible, read the affected panels back and confirm the exact
+   fields changed.
 
 For native production tools, pass `ops` as a native array:
 
@@ -227,11 +255,11 @@ type, width, or config shape changes together, replace the whole panel object at
 
 For first-party `/track` events, be precise about identity:
 
-| Metric intent                                | Identity expression                                      |
-| -------------------------------------------- | -------------------------------------------------------- |
-| Account users, DAU, WAU, retention, cohorts  | `NULLIF(user_id, '')` plus `NULLIF(user_id, '') IS NOT NULL`, but only on events that actually represent the activity being measured |
+| Metric intent                                | Identity expression                                                                                                                                                                |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Account users, DAU, WAU, retention, cohorts  | `NULLIF(user_id, '')` plus `NULLIF(user_id, '') IS NOT NULL`, but only on events that actually represent the activity being measured                                               |
 | Signed-in visitor activity                   | `event_name = 'session status' AND signed_in = 'true'` keyed by `COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))`, labeled as signed-in visitors rather than account users |
-| Public traffic, visitors, clip/share viewers | `COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))` |
+| Public traffic, visitors, clip/share viewers | `COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))`                                                                                                                          |
 
 Do not call anonymous visitors "users" in dashboard labels or descriptions.
 When a user asks for DAU, WAU, retention, repeat users, or account cohorts,

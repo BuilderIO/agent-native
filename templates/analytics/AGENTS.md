@@ -65,6 +65,12 @@ details live in `.agents/skills/`.
 - For shipped dashboard templates, call `list-dashboard-templates` first, then
   `install-dashboard-template` with the selected `templateId`. Do not recreate a
   catalog template by hand unless the user asks for a custom variant.
+- For simple dashboard panel moves, use `reorder-dashboard-panels` with
+  `panelIds` and a target (`position`, `beforePanelId`, `afterPanelId`, or
+  `index`). Do not count shifting `/panels/<index>` values for "move this chart"
+  requests. If you already have a desired leading order, `update-dashboard`
+  accepts `panelOrder`; it moves those ids to the front and preserves all
+  omitted panels in their existing order.
 - Native dashboards and saved analyses are constrained artifacts. If a requested
   dashboard, analysis surface, visualization, interaction model, custom layout,
   or bespoke workflow cannot be done faithfully with the built-in dashboard JSON

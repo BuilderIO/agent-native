@@ -16,6 +16,10 @@ import { dryRunQuery } from "../server/lib/bigquery";
 import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
 import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
+import {
+  applyPanelOrder,
+  compactDashboardResult,
+} from "./dashboard-panel-order";
 
 /**
  * Same validation shape used in the sql-dashboard save path.
@@ -79,6 +83,62 @@ type JsonOp = {
   from?: string;
   value?: unknown;
 };
+
+const jsonOpSchema = z.object({
+  op: z.enum(["set", "replace", "remove", "move", "move-before", "insert"]),
+  path: z.string().optional(),
+  from: z.string().optional(),
+  value: z.unknown().optional(),
+});
+
+function parseJsonArrayString(value: string, fieldName: string): unknown[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch (err: any) {
+    throw new Error(`${fieldName} must be a JSON array: ${err.message}`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${fieldName} must be a JSON array`);
+  }
+  return parsed;
+}
+
+const jsonOpsInputSchema = z
+  .union([
+    z.array(jsonOpSchema),
+    z.string().transform((value) => parseJsonArrayString(value, "ops")),
+  ])
+  .optional();
+
+const panelOrderInputSchema = z
+  .union([
+    z.array(z.string()),
+    z
+      .string()
+      .transform((value) =>
+        parseJsonArrayString(value, "panelOrder").map((item) => String(item)),
+      ),
+  ])
+  .optional();
+
+const configInputSchema = z
+  .union([
+    z.record(z.string(), z.unknown()),
+    z.string().transform((value) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(value);
+      } catch (err: any) {
+        throw new Error(`config must be a JSON object: ${err.message}`);
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("config must be a JSON object");
+      }
+      return parsed as Record<string, unknown>;
+    }),
+  ])
+  .optional();
 
 function parsePointer(pointer: string): string[] {
   if (pointer === "" || pointer === "/") return [];
@@ -383,6 +443,55 @@ function countPanels(config: Record<string, unknown>): number {
   return Array.isArray(config.panels) ? config.panels.length : 0;
 }
 
+function resolveDashboardId(args: { dashboardId?: string; id?: string }) {
+  const dashboardId = args.dashboardId || args.id;
+  if (!dashboardId) {
+    throw new Error("provide `dashboardId` (or legacy `id`).");
+  }
+  return dashboardId;
+}
+
+function dashboardResult(
+  dashboardId: string,
+  config: Record<string, unknown>,
+  appliedOps: number,
+  summary: string,
+  movedPanelIds: string[] = [],
+  returnConfig = false,
+) {
+  const compact = compactDashboardResult(config, movedPanelIds);
+  return {
+    id: dashboardId,
+    dashboardId,
+    name: typeof config.name === "string" ? config.name : dashboardId,
+    ...compact,
+    appliedOps,
+    summary,
+    ...(returnConfig ? { config } : {}),
+    urlPath: `/dashboards/${dashboardId}`,
+    deepLink: buildDeepLink({
+      app: "analytics",
+      view: "adhoc",
+      params: { dashboardId },
+    }),
+    message:
+      `${summary} First panels: ${compact.firstPanelIds.join(", ")}.` +
+      (returnConfig
+        ? ""
+        : " Full config omitted; call get-sql-dashboard if needed."),
+  };
+}
+
+function opCanChangePanelSql(op: JsonOp): boolean {
+  if (op.op === "move" || op.op === "move-before" || op.op === "remove") {
+    return false;
+  }
+  if (!op.path) return true;
+  return (
+    op.path === "/panels" || /^\/panels\/(?:-|[0-9]+)(?:\/|$)/.test(op.path)
+  );
+}
+
 /**
  * Push a config update through the collab layer so open dashboard editors
  * receive the change in real time. Seeds the collab state if it doesn't
@@ -414,7 +523,7 @@ export default defineAction({
   description:
     "Edit a SQL dashboard config (scope-aware) atomically in ONE call. Prefer this over raw db-patch on the settings table — " +
     "it resolves org vs. user scope correctly so the edit lands on the row the UI actually renders. " +
-    "BATCH ALL EDITS INTO A SINGLE CALL. Never call this action repeatedly in a loop: hosted agent runs have a ~40s budget, and many sequential update-dashboard calls time out mid-way and leave the dashboard in a partial state even though earlier calls looked like they succeeded. Put every change you want to make into one `ops` array (or one `config`). " +
+    "BATCH ALL EDITS INTO A SINGLE CALL. Never call this action repeatedly in a loop: hosted agent runs have a ~40s budget, and many sequential update-dashboard calls time out mid-way and leave the dashboard in a partial state even though earlier calls looked like they succeeded. Put every change you want to make into one `ops` array, one `panelOrder`, or one `config`. " +
     "`ops` is an array of { op, path, from?, value? } applied in order in a single atomic save. " +
     "When calling this as a native tool, pass `ops` as a real array, not a JSON string; the shell examples quote JSON only for CLI parsing. If a call fails because `ops` was stringified, retry this action with a native array instead of switching to db-patch or settings writes. " +
     "`op` is one of: set | replace | remove | insert | move | move-before. " +
@@ -422,51 +531,42 @@ export default defineAction({
     "`value` is the panel or object to set/insert. `from` is the source JSON Pointer for move / move-before. " +
     "To ADD N panels in one call, pass N entries of { op: 'insert', path: '/panels/-', value: <panel> }. " +
     "To reorder: [{ op: 'move', from: '/panels/2', path: '/panels/0' }]. " +
+    "For simple panel reorders by id, pass `panelOrder: ['panel-a','panel-b']`; those ids move to the front in that order and omitted panels keep their existing relative order. " +
     "To edit a field: [{ op: 'replace', path: '/panels/0/title', value: 'Events by Day' }]. " +
-    "Use `config` to replace the entire dashboard config in one call. Provide `ops` OR `config`, not both. " +
+    "Use `config` to replace the entire dashboard config in one call. Provide only one of `ops`, `panelOrder`, or `config`. " +
     "To add a shipped catalog template's panels to an existing dashboard, prefer `install-dashboard-template` with `mergePanels: true` — it appends the template's panels in one call without you having to author each panel. " +
-    "The result includes `panelCount` (resulting number of panels), `appliedOps` (count), and a `summary` string — use them as proof-of-done and report the new panel count back to the user instead of assuming success. " +
+    "The result is compact by default: `panelCount`, `appliedOps`, `panelOrder`, `firstPanelIds`, and `summary`. Set `returnConfig: true` only when you truly need the full config in the tool result. " +
     "The UI auto-refreshes after this action — do NOT call `refresh-screen`.",
   schema: z.object({
     dashboardId: z
       .string()
+      .optional()
       .describe(
         "Dashboard id (without the `sql-dashboard-` prefix). e.g. 'devrel-leaderboard'",
       ),
-    ops: z
-      .preprocess(
-        (v) => (typeof v === "string" ? JSON.parse(v) : v),
-        z.array(
-          z.object({
-            op: z.enum([
-              "set",
-              "replace",
-              "remove",
-              "move",
-              "move-before",
-              "insert",
-            ]),
-            path: z.string().optional(),
-            from: z.string().optional(),
-            value: z.unknown().optional(),
-          }),
-        ),
-      )
+    id: z
+      .string()
+      .optional()
+      .describe("Legacy alias for dashboardId. Prefer dashboardId."),
+    ops: jsonOpsInputSchema.describe(
+      "Array of JSON-patch-style ops applied in order in ONE atomic save (or a JSON string). " +
+        "Each op is { op, path, from?, value? }. op ∈ set|replace|remove|insert|move|move-before. " +
+        "path is a JSON Pointer (e.g. '/panels/3', and '/panels/-' appends to the end). " +
+        "Add N panels at once with N {op:'insert', path:'/panels/-', value:<panel>} entries. " +
+        "For simple reorders by id, use panelOrder instead of counting shifted indexes.",
+    ),
+    panelOrder: panelOrderInputSchema.describe(
+      "Panel ids to move to the front in this exact order. Omitted panels keep their existing relative order. Accepts a native array, or a JSON string for shell/legacy callers.",
+    ),
+    config: configInputSchema.describe(
+      "Replace the whole dashboard config (or a JSON string).",
+    ),
+    returnConfig: z
+      .boolean()
       .optional()
       .describe(
-        "Array of JSON-patch-style ops applied in order in ONE atomic save (or a JSON string). " +
-          "Each op is { op, path, from?, value? }. op ∈ set|replace|remove|insert|move|move-before. " +
-          "path is a JSON Pointer (e.g. '/panels/3', and '/panels/-' appends to the end). " +
-          "Add N panels at once with N {op:'insert', path:'/panels/-', value:<panel>} entries. " +
-          "Example reorder: [{op:'move', from:'/panels/2', path:'/panels/0'}].",
+        "If true, include the full dashboard config in the result. Defaults to false to keep tool output compact.",
       ),
-    config: z
-      .preprocess(
-        (v) => (typeof v === "string" ? JSON.parse(v) : v),
-        z.record(z.string(), z.unknown()),
-      )
-      .optional()
-      .describe("Replace the whole dashboard config (or a JSON string)."),
   }),
   // The SQL dashboard editor persists user edits through callAction(), which
   // needs this action mounted under /_agent-native/actions/update-dashboard.
@@ -482,13 +582,18 @@ export default defineAction({
     }),
   },
   run: async (args) => {
-    if (!args.ops && !args.config) {
+    const dashboardId = resolveDashboardId(args);
+    const modeCount = [args.ops, args.panelOrder, args.config].filter(
+      (value) => value !== undefined,
+    ).length;
+
+    if (modeCount === 0) {
       throw new Error(
-        "provide either `ops` (for surgical edits) or `config` (for full replace).",
+        "provide `ops` (surgical edits), `panelOrder` (id reorder), or `config` (full replace).",
       );
     }
-    if (args.ops && args.config) {
-      throw new Error("provide `ops` OR `config`, not both.");
+    if (modeCount > 1) {
+      throw new Error("provide only one of `ops`, `panelOrder`, or `config`.");
     }
 
     const scope = resolveScope();
@@ -499,40 +604,49 @@ export default defineAction({
       if (validation) throw new Error(validation);
       const sqlError = await validatePanelSql(args.config);
       if (sqlError) throw new Error(sqlError);
-      await upsertDashboard(args.dashboardId, "sql", args.config, ctx);
-      await syncToCollab(args.dashboardId, args.config);
+      await upsertDashboard(dashboardId, "sql", args.config, ctx);
+      await syncToCollab(dashboardId, args.config);
       const panelCount = countPanels(args.config);
-      return {
-        id: args.dashboardId,
-        dashboardId: args.dashboardId,
-        name:
-          typeof args.config.name === "string"
-            ? args.config.name
-            : args.dashboardId,
-        // Proof-of-done: lead with verifiable state so the agent/UI can
-        // confirm the new shape cheaply instead of assuming success.
-        panelCount,
-        appliedOps: 0,
-        summary: `Replaced dashboard "${args.dashboardId}"; it now has ${panelCount} panel(s).`,
-        config: args.config,
-        urlPath: `/dashboards/${args.dashboardId}`,
-        deepLink: buildDeepLink({
-          app: "analytics",
-          view: "adhoc",
-          params: { dashboardId: args.dashboardId },
-        }),
-        message: `Dashboard "${args.dashboardId}" replaced.`,
-      };
+      return dashboardResult(
+        dashboardId,
+        args.config,
+        0,
+        `Replaced dashboard "${dashboardId}"; it now has ${panelCount} panel(s).`,
+        [],
+        args.returnConfig === true,
+      );
     }
 
-    const existing = await getDashboard(args.dashboardId, ctx);
+    const existing = await getDashboard(dashboardId, ctx);
     if (!existing) {
       throw new Error(
-        `dashboard "${args.dashboardId}" not found (or you don't have access).`,
+        `dashboard "${dashboardId}" not found (or you don't have access).`,
       );
     }
 
     const root = existing.config as any;
+
+    if (args.panelOrder) {
+      const orderDetails = applyPanelOrder(root, args.panelOrder);
+      const validation = validateDashboardConfig(root);
+      if (validation) throw new Error(validation);
+      await upsertDashboard(
+        dashboardId,
+        existing.kind,
+        root as Record<string, unknown>,
+        ctx,
+      );
+      await syncToCollab(dashboardId, root as Record<string, unknown>);
+      return dashboardResult(
+        dashboardId,
+        root as Record<string, unknown>,
+        1,
+        `Moved ${orderDetails.movedPanelIds.length} panel id(s) to the front of dashboard "${dashboardId}"; it now has ${orderDetails.panelCount} panel(s).`,
+        orderDetails.movedPanelIds,
+        args.returnConfig === true,
+      );
+    }
+
     const details: string[] = [];
     for (const op of args.ops!) {
       try {
@@ -542,39 +656,30 @@ export default defineAction({
       }
     }
 
-    const sqlError = await validatePanelSql(root);
-    if (sqlError) throw new Error(sqlError);
+    const validation = validateDashboardConfig(root);
+    if (validation) throw new Error(validation);
+    if (args.ops!.some((op) => opCanChangePanelSql(op as JsonOp))) {
+      const sqlError = await validatePanelSql(root);
+      if (sqlError) throw new Error(sqlError);
+    }
 
     await upsertDashboard(
-      args.dashboardId,
+      dashboardId,
       existing.kind,
       root as Record<string, unknown>,
       ctx,
     );
-    await syncToCollab(args.dashboardId, root as Record<string, unknown>);
+    await syncToCollab(dashboardId, root as Record<string, unknown>);
 
     const panelCount = countPanels(root as Record<string, unknown>);
-    return {
-      id: args.dashboardId,
-      dashboardId: args.dashboardId,
-      name: typeof root.name === "string" ? root.name : args.dashboardId,
-      // Proof-of-done: lead with verifiable state (op count + resulting panel
-      // count) so the agent/UI can confirm success without re-fetching.
-      panelCount,
-      appliedOps: details.length,
-      summary: `Applied ${details.length} op(s); dashboard "${args.dashboardId}" now has ${panelCount} panel(s).`,
-      config: root,
-      urlPath: `/dashboards/${args.dashboardId}`,
-      deepLink: buildDeepLink({
-        app: "analytics",
-        view: "adhoc",
-        params: { dashboardId: args.dashboardId },
-      }),
-      message:
-        `Dashboard "${args.dashboardId}" updated. ` +
-        `Applied ${details.length} op(s): ${details.join("; ")}. ` +
-        `Now ${panelCount} panel(s).`,
-    };
+    return dashboardResult(
+      dashboardId,
+      root as Record<string, unknown>,
+      details.length,
+      `Applied ${details.length} op(s); dashboard "${dashboardId}" now has ${panelCount} panel(s).`,
+      [],
+      args.returnConfig === true,
+    );
   },
   link: ({ result }) => {
     const dashboardId =
