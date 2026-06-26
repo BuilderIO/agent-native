@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.79.3
+
+### Patch Changes
+
+- d64e550: Add zh-TW Traditional Chinese localization support.
+
 ## 0.79.2
 
 ### Patch Changes
