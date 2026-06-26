@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.79.16
+
+### Patch Changes
+
+- 5bf3efe: Fix Cloudflare Pages worker builds for content actions that import Node built-in helpers, and refine shared shell depth styling.
+
 ## 0.79.15
 
 ### Patch Changes
