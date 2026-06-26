@@ -2340,6 +2340,24 @@ export async function getExistingSourceForWrite(
     : getExistingSource(databaseId);
 }
 
+/** Whether a source for this model (sourceTable) is already attached. */
+export async function databaseSourceExistsForTable(
+  databaseId: string,
+  sourceTable: string,
+): Promise<boolean> {
+  const db = getDb();
+  const [row] = await db
+    .select({ id: schema.contentDatabaseSources.id })
+    .from(schema.contentDatabaseSources)
+    .where(
+      and(
+        eq(schema.contentDatabaseSources.databaseId, databaseId),
+        eq(schema.contentDatabaseSources.sourceTable, sourceTable),
+      ),
+    );
+  return !!row;
+}
+
 export const SOURCE_PROPERTY_NAME = "Source";
 
 const SOURCE_OPTION_PALETTE: DocumentPropertyOptionColor[] = [

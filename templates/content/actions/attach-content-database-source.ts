@@ -10,6 +10,7 @@ import type {
 import { sanitizeNormalizationFormula } from "../shared/properties.js";
 import type { BuilderCmsSourceEntry } from "./_builder-cms-source-adapter.js";
 import {
+  databaseSourceExistsForTable,
   ensureDatabaseSourceProperty,
   getExistingSource,
   getSourceRows,
@@ -239,6 +240,11 @@ export default defineAction({
     // source and import its entries as their OWN rows, instead of replacing the
     // primary. No canonical-key join — each row belongs to exactly one source.
     if (args.mode === "add" && existingSource && sourceType === "builder-cms") {
+      // Don't add the same collection twice — each "add" starts a fresh source
+      // with no prior rows, so a duplicate attach would re-import duplicate rows.
+      if (await databaseSourceExistsForTable(database.id, sourceTable)) {
+        throw new Error(`"${sourceTable}" is already attached as a source.`);
+      }
       const additionalRead = await readBuilderCmsContentEntries({
         model: sourceTable,
       });
