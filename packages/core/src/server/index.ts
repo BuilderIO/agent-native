@@ -381,6 +381,7 @@ export {
   resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
   resolveBuilderCredential,
+  readDeployCredentialEnv,
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,

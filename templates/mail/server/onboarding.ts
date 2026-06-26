@@ -13,10 +13,7 @@
  */
 
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
-import {
-  resolveSecret,
-  runWithRequestContext,
-} from "@agent-native/core/server";
+import { readDeployCredentialEnv } from "@agent-native/core/server";
 
 registerOnboardingStep({
   id: "gmail",
@@ -40,22 +37,13 @@ registerOnboardingStep({
       label: "Have the agent set it up for me",
       payload: {
         prompt:
-          'Help me connect Gmail. Walk me through creating Google OAuth credentials by driving my browser (use any mcp__*browser* tools available, or fall back to giving me step-by-step instructions with exact URLs and values). When client_id and client_secret are ready, save them as workspace-scoped keys via POST /_agent-native/env-vars with scope "workspace". Then tell me to click "Sign in with Google" in the mail onboarding banner to finish the OAuth sign-in.',
+          "Help me connect Gmail. Walk me through creating Google OAuth credentials by driving my browser (use any mcp__*browser* tools available, or fall back to giving me step-by-step instructions with exact URLs and values). When client_id and client_secret are ready, help me configure GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET as deployment or local environment variables for Mail, then restart or redeploy before clicking Sign in with Google.",
       },
     },
   ],
-  isComplete: async (context) => {
-    const resolve = async () =>
-      Boolean(
-        (await resolveSecret("GOOGLE_CLIENT_ID")) &&
-        (await resolveSecret("GOOGLE_CLIENT_SECRET")),
-      );
-    if (context?.userEmail) {
-      return runWithRequestContext(
-        { userEmail: context.userEmail, orgId: context.orgId ?? undefined },
-        resolve,
-      );
-    }
-    return resolve();
-  },
+  isComplete: async () =>
+    Boolean(
+      readDeployCredentialEnv("GOOGLE_CLIENT_ID") &&
+      readDeployCredentialEnv("GOOGLE_CLIENT_SECRET"),
+    ),
 });

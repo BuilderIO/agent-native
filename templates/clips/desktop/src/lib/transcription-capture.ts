@@ -98,6 +98,55 @@ function shouldUseBrowserTranscriptionFallback(): boolean {
   return !/mac/i.test(platform);
 }
 
+function appendTranscriptText(current: string, next: string): string {
+  const cleanCurrent = current.trim();
+  const cleanNext = next.trim();
+  if (!cleanNext) return cleanCurrent;
+  if (!cleanCurrent) return cleanNext;
+  return `${cleanCurrent} ${cleanNext}`;
+}
+
+function createWebSpeechTranscriptBuffer() {
+  let committedFinalText = "";
+  let sessionFinalText = "";
+  let interimText = "";
+
+  return {
+    update(event: SpeechRecognitionEventLike) {
+      let nextFinal = "";
+      let nextInterim = "";
+      for (let i = 0; i < event.results.length; i++) {
+        const result = event.results[i];
+        const text = result[0]?.transcript ?? "";
+        if (result.isFinal) {
+          nextFinal += text;
+        } else {
+          nextInterim += text;
+        }
+      }
+      sessionFinalText = nextFinal;
+      interimText = nextInterim;
+    },
+    commitSession(opts?: { preserveInterim?: boolean }) {
+      committedFinalText = appendTranscriptText(
+        committedFinalText,
+        sessionFinalText,
+      );
+      sessionFinalText = "";
+      if (!opts?.preserveInterim) {
+        interimText = "";
+      }
+    },
+    text() {
+      return [committedFinalText, sessionFinalText, interimText]
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+    },
+  };
+}
+
 async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture | null> {
   const Ctor = getSpeechRecognitionCtor();
   if (!Ctor) return null;
@@ -105,13 +154,12 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
   const recognition = new Ctor();
   let disposed = false;
   let stopped = false;
-  let finalText = "";
-  let interimText = "";
+  const transcriptBuffer = createWebSpeechTranscriptBuffer();
   let stopResolver: ((value: CapturedTranscript) => void) | null = null;
   let settleTimer: ReturnType<typeof window.setTimeout> | null = null;
 
   const captured = (): CapturedTranscript => ({
-    text: [finalText, interimText].join(" ").trim(),
+    text: transcriptBuffer.text(),
     segments: [],
     source: "web-speech",
   });
@@ -134,19 +182,7 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
   recognition.maxAlternatives = 1;
 
   recognition.onresult = (event) => {
-    let nextFinal = "";
-    let nextInterim = "";
-    for (let i = 0; i < event.results.length; i++) {
-      const result = event.results[i];
-      const text = result[0]?.transcript ?? "";
-      if (result.isFinal) {
-        nextFinal += text;
-      } else {
-        nextInterim += text;
-      }
-    }
-    finalText = nextFinal;
-    interimText = nextInterim;
+    transcriptBuffer.update(event);
   };
 
   recognition.onerror = (event) => {
@@ -159,6 +195,7 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
 
   recognition.onend = () => {
     if (disposed) return;
+    transcriptBuffer.commitSession({ preserveInterim: stopped });
     if (stopped) {
       settleStop();
       return;
@@ -210,6 +247,8 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
     },
   };
 }
+
+export const __test = { createWebSpeechTranscriptBuffer };
 
 export async function startTranscriptionCapture(
   mic?: {

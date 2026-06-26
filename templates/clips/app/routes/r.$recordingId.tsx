@@ -24,6 +24,7 @@ import {
   IconClipboardCopy,
   IconFileText,
   IconSparkles,
+  IconLayoutSidebarRightExpand,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -54,6 +55,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -100,6 +107,20 @@ interface GeneratedWorkflowState {
   error?: string;
 }
 
+function useIsCompactRecordingLayout() {
+  const [isCompact, setIsCompact] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1279px)");
+    const update = () => setIsCompact(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  return isCompact;
+}
+
 function isNativeSaveFailureReason(reason: string | null | undefined): boolean {
   return /native recording upload|native fullscreen|screencapture|avconvert/i.test(
     reason ?? "",
@@ -129,6 +150,7 @@ function nativeSaveFailureMessage(reason: string | null | undefined): string {
 
 function InsightsUnavailableState() {
   const t = useT();
+
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
       <p className="text-sm font-medium text-foreground">
@@ -179,9 +201,11 @@ export default function RecordingPage() {
   const playerRef = useRef<VideoPlayerHandle | null>(null);
 
   const [panel, setPanel] = useState<SidePanel>("agent");
+  const [sidePanelOpen, setSidePanelOpen] = useState(false);
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
+  const isCompactLayout = useIsCompactRecordingLayout();
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
@@ -412,6 +436,10 @@ export default function RecordingPage() {
   useEffect(() => {
     if (!canUseNativeEditor && editing) setEditing(false);
   }, [canUseNativeEditor, editing]);
+
+  useEffect(() => {
+    if (editing || !isCompactLayout) setSidePanelOpen(false);
+  }, [editing, isCompactLayout]);
 
   useEffect(() => {
     if (!recording) return;
@@ -647,6 +675,158 @@ export default function RecordingPage() {
     );
   }
 
+  const renderSidePanel = (compact = false) => (
+    <Tabs
+      value={panel}
+      onValueChange={(v) => setPanel(v as SidePanel)}
+      className={cn("flex h-full flex-col", compact && "pt-8")}
+    >
+      <TabsList
+        className={cn(
+          "mx-3 mt-3 grid w-auto",
+          canEdit ? "grid-cols-5" : "grid-cols-4",
+        )}
+      >
+        <TabsTrigger value="agent" className="min-w-0 px-2 text-xs">
+          {t("recordingPage.agent")}
+        </TabsTrigger>
+        <TabsTrigger value="comments" className="min-w-0 px-2 text-xs">
+          {t("recordingPage.activity")}
+        </TabsTrigger>
+        <TabsTrigger value="transcript" className="min-w-0 px-2 text-xs">
+          {t("recordingPage.transcript")}
+        </TabsTrigger>
+        <TabsTrigger value="insights" className="min-w-0 px-2 text-xs">
+          {t("recordingPage.insights")}
+        </TabsTrigger>
+        {canEdit ? (
+          <TabsTrigger value="settings" className="min-w-0 px-2 text-xs">
+            {t("recordingPage.settings")}
+          </TabsTrigger>
+        ) : null}
+      </TabsList>
+
+      <TabsContent
+        value="agent"
+        className="mt-0 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
+      >
+        <AgentPanel
+          browserTabId={getBrowserTabId()}
+          emptyStateText={t("recordingPage.askAboutClip")}
+          dynamicSuggestions={false}
+          chatNotice={
+            generatedWorkflow ? (
+              <GeneratedWorkflowNotice workflow={generatedWorkflow} />
+            ) : null
+          }
+          suggestions={
+            canEdit
+              ? [
+                  t("recordingPage.summarizeClip"),
+                  t("recordingPage.generateChapters"),
+                  t("recordingPage.findActionItems"),
+                  t("recordingPage.draftRecap"),
+                ]
+              : [
+                  t("recordingPage.summarizeClip"),
+                  t("recordingPage.findKeyMoments"),
+                  t("recordingPage.listFollowUpActions"),
+                  t("recordingPage.draftQuestions"),
+                ]
+          }
+        />
+      </TabsContent>
+      <TabsContent
+        value="transcript"
+        className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
+      >
+        <TranscriptPanel
+          segments={transcriptSegments}
+          fullText={transcriptFullText}
+          durationMs={recording.durationMs}
+          currentMs={currentMs}
+          onSeek={(ms) => playerRef.current?.seek(ms)}
+          status={transcriptStatus}
+          failureReason={transcriptFailureReason}
+          cleanup={transcriptCleanup}
+          recordingTitle={recording.title}
+          onRetry={() => {
+            // Force a fresh transcript job, then let polling swap the panel
+            // back to the pending state while it runs.
+            fetch(
+              agentNativePath("/_agent-native/actions/request-transcript"),
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  recordingId: recording.id,
+                  force: true,
+                }),
+              },
+            )
+              .then((res) => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              })
+              .catch((err) =>
+                toast.error(
+                  t("recordingPage.retryFailed", {
+                    message: err?.message ?? t("recordingPage.networkError"),
+                  }),
+                ),
+              )
+              .finally(() => playerDataQ.refetch());
+          }}
+        />
+      </TabsContent>
+      <TabsContent
+        value="comments"
+        className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
+      >
+        <CommentsPanel
+          recordingId={recording.id}
+          comments={comments}
+          currentMs={currentMs}
+          currentUserEmail={session?.email}
+          enableComments={recording.enableComments}
+          onSeek={(ms) => playerRef.current?.seek(ms)}
+          queryKey={[
+            "action",
+            "get-recording-player-data",
+            { recordingId: recordingId ?? "" },
+          ]}
+        />
+      </TabsContent>
+      <TabsContent
+        value="insights"
+        className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
+      >
+        {canEdit ? (
+          <InsightsPanel
+            recordingId={recording.id}
+            durationMs={recording.durationMs}
+          />
+        ) : (
+          <InsightsUnavailableState />
+        )}
+      </TabsContent>
+      {canEdit ? (
+        <TabsContent
+          value="settings"
+          className="mt-3 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
+        >
+          <SettingsPanel
+            recording={recording}
+            visibility={recording.visibility}
+            ctas={ctas}
+            onClose={() => setPanel("agent")}
+            onRefetch={() => playerDataQ.refetch()}
+            showHeader={false}
+          />
+        </TabsContent>
+      ) : null}
+    </Tabs>
+  );
+
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden">
       {/* Main video column */}
@@ -797,6 +977,23 @@ export default function RecordingPage() {
             </DropdownMenu>
           ) : null}
 
+          {!editing ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="xl:hidden"
+                  onClick={() => setSidePanelOpen(true)}
+                  aria-label={t("recordingPage.details")}
+                >
+                  <IconLayoutSidebarRightExpand className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("recordingPage.details")}</TooltipContent>
+            </Tooltip>
+          ) : null}
+
           <ShareRecordingPopover
             recordingId={recording.id}
             recordingTitle={recording.title}
@@ -935,162 +1132,29 @@ export default function RecordingPage() {
 
       {/* Side panel */}
       {!editing ? (
-        <aside className="w-[380px] border-s border-border flex flex-col shrink-0 bg-background">
-          <Tabs
-            value={panel}
-            onValueChange={(v) => setPanel(v as SidePanel)}
-            className="flex flex-col h-full"
-          >
-            <TabsList
-              className={cn(
-                "mx-3 mt-3 grid w-auto",
-                canEdit ? "grid-cols-5" : "grid-cols-4",
-              )}
-            >
-              <TabsTrigger value="agent" className="min-w-0 px-2 text-xs">
-                {t("recordingPage.agent")}
-              </TabsTrigger>
-              <TabsTrigger value="comments" className="min-w-0 px-2 text-xs">
-                {t("recordingPage.activity")}
-              </TabsTrigger>
-              <TabsTrigger value="transcript" className="min-w-0 px-2 text-xs">
-                {t("recordingPage.transcript")}
-              </TabsTrigger>
-              <TabsTrigger value="insights" className="min-w-0 px-2 text-xs">
-                {t("recordingPage.insights")}
-              </TabsTrigger>
-              {canEdit ? (
-                <TabsTrigger value="settings" className="min-w-0 px-2 text-xs">
-                  {t("recordingPage.settings")}
-                </TabsTrigger>
-              ) : null}
-            </TabsList>
-
-            <TabsContent
-              value="agent"
-              className="mt-0 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
-            >
-              <AgentPanel
-                browserTabId={getBrowserTabId()}
-                emptyStateText={t("recordingPage.askAboutClip")}
-                dynamicSuggestions={false}
-                chatNotice={
-                  generatedWorkflow ? (
-                    <GeneratedWorkflowNotice workflow={generatedWorkflow} />
-                  ) : null
-                }
-                suggestions={
-                  canEdit
-                    ? [
-                        t("recordingPage.summarizeClip"),
-                        t("recordingPage.generateChapters"),
-                        t("recordingPage.findActionItems"),
-                        t("recordingPage.draftRecap"),
-                      ]
-                    : [
-                        t("recordingPage.summarizeClip"),
-                        t("recordingPage.findKeyMoments"),
-                        t("recordingPage.listFollowUpActions"),
-                        t("recordingPage.draftQuestions"),
-                      ]
-                }
-              />
-            </TabsContent>
-            <TabsContent
-              value="transcript"
-              className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
-            >
-              <TranscriptPanel
-                segments={transcriptSegments}
-                fullText={transcriptFullText}
-                durationMs={recording.durationMs}
-                currentMs={currentMs}
-                onSeek={(ms) => playerRef.current?.seek(ms)}
-                status={transcriptStatus}
-                failureReason={transcriptFailureReason}
-                cleanup={transcriptCleanup}
-                recordingTitle={recording.title}
-                onRetry={() => {
-                  // Re-run transcription now that the user may have connected
-                  // Builder/Gemini or after a one-off network error. The action
-                  // flips the row to 'pending' first, so the UI swaps back to
-                  // "Transcribing…".
-                  fetch(
-                    agentNativePath(
-                      "/_agent-native/actions/request-transcript",
-                    ),
-                    {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        recordingId: recording.id,
-                        force: true,
-                      }),
-                    },
-                  )
-                    .then((res) => {
-                      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    })
-                    .catch((err) =>
-                      toast.error(
-                        t("recordingPage.retryFailed", {
-                          message:
-                            err?.message ?? t("recordingPage.networkError"),
-                        }),
-                      ),
-                    )
-                    .finally(() => playerDataQ.refetch());
-                }}
-              />
-            </TabsContent>
-            <TabsContent
-              value="comments"
-              className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
-            >
-              <CommentsPanel
-                recordingId={recording.id}
-                comments={comments}
-                currentMs={currentMs}
-                currentUserEmail={session?.email}
-                enableComments={recording.enableComments}
-                onSeek={(ms) => playerRef.current?.seek(ms)}
-                queryKey={[
-                  "action",
-                  "get-recording-player-data",
-                  { recordingId: recordingId ?? "" },
-                ]}
-              />
-            </TabsContent>
-            <TabsContent
-              value="insights"
-              className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
-            >
-              {canEdit ? (
-                <InsightsPanel
-                  recordingId={recording.id}
-                  durationMs={recording.durationMs}
-                />
-              ) : (
-                <InsightsUnavailableState />
-              )}
-            </TabsContent>
-            {canEdit ? (
-              <TabsContent
-                value="settings"
-                className="mt-3 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
+        <>
+          {isCompactLayout ? (
+            <Sheet open={sidePanelOpen} onOpenChange={setSidePanelOpen}>
+              <SheetContent
+                side="right"
+                className="flex h-full w-[calc(100vw-24px)] max-w-[420px] flex-col gap-0 p-0 sm:max-w-[420px]"
               >
-                <SettingsPanel
-                  recording={recording}
-                  visibility={recording.visibility}
-                  ctas={ctas}
-                  onClose={() => setPanel("agent")}
-                  onRefetch={() => playerDataQ.refetch()}
-                  showHeader={false}
-                />
-              </TabsContent>
-            ) : null}
-          </Tabs>
-        </aside>
+                <SheetTitle className="sr-only">
+                  {t("recordingPage.details")}
+                </SheetTitle>
+                <SheetDescription className="sr-only">
+                  {t("recordingPage.askAboutClip")}
+                </SheetDescription>
+                {renderSidePanel(true)}
+              </SheetContent>
+            </Sheet>
+          ) : null}
+          {!isCompactLayout ? (
+            <aside className="hidden w-[380px] shrink-0 flex-col border-s border-border bg-background xl:flex">
+              {renderSidePanel()}
+            </aside>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
