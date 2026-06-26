@@ -50,6 +50,7 @@ const CHART_TYPES: { value: ChartType; labelKey: string }[] = [
   { value: "pie", labelKey: "panelEditor.chartTypePie" },
   { value: "metric", labelKey: "panelEditor.chartTypeMetric" },
   { value: "table", labelKey: "panelEditor.chartTypeTable" },
+  { value: "cards", labelKey: "panelEditor.chartTypeCards" },
 ];
 
 const SOURCES: { value: DataSourceType; label: string }[] = [
