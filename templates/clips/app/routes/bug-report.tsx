@@ -12,7 +12,7 @@ import {
   IconShieldCheck,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router";
+import { useLocation, useOutlet } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,15 +33,22 @@ export function meta() {
 }
 
 function openRecorder(url: string) {
-  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  const opened = window.open(
+    url,
+    "agent-native-clips-bug-report",
+    "popup,width=1120,height=820",
+  );
   if (!opened) {
     window.location.href = url;
+    return;
   }
+  opened.focus();
 }
 
 export default function BugReportRoute() {
   const t = useT();
   const location = useLocation();
+  const outlet = useOutlet();
   const initialContext = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return parseBugReportContext(params, { allowLoose: true });
@@ -67,6 +74,8 @@ export default function BugReportRoute() {
   const pageTitle = initialContext?.pageTitle ?? null;
   const sourceLabel =
     pageTitle || sourceUrl || t("bugReportRoute.sourceUnknown");
+
+  if (outlet) return outlet;
 
   const startRecording = () => {
     const context: BugReportContext = {
