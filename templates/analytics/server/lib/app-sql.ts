@@ -39,10 +39,7 @@ const MAX_QUERY_ROWS = 5_000;
  * uses — honoring visibility (private/org/public) and explicit share rows, not
  * just owner/org_id.
  */
-const ALLOWED_TABLES_MAP: Record<
-  string,
-  { table: any; shares: any }
-> = {
+const ALLOWED_TABLES_MAP: Record<string, { table: any; shares: any }> = {
   strategic_accounts: {
     table: schema.strategicAccounts,
     shares: schema.strategicAccountShares,
@@ -142,9 +139,10 @@ function extractTableRefs(stripped: string): string[] {
       // Derived table / subquery; its inner FROM is matched by the outer scan.
       continue;
     }
-    const idMatch = /^[A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*)*/.exec(
-      stripped.slice(i),
-    );
+    const idMatch =
+      /^[A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*)*/.exec(
+        stripped.slice(i),
+      );
     if (!idMatch) continue;
     const ident = idMatch[0];
     if (CLAUSE_STOP_WORDS.has(ident.toLowerCase())) continue;
@@ -247,7 +245,10 @@ function scopedTableSubquery(
     orgId: scope.orgId ?? undefined,
   });
   const compiled = db.select().from(entry.table).where(where).toSQL();
-  return { sql: compiled.sql as string, args: (compiled.params ?? []) as unknown[] };
+  return {
+    sql: compiled.sql as string,
+    args: (compiled.params ?? []) as unknown[],
+  };
 }
 
 function scopedAppSql(
