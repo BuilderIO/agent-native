@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.79.18
+
+### Patch Changes
+
+- a6492db: Quiet app-shell divider lines, taller center headers, and soften raised drawer/card surfaces in dark mode.
+- a6492db: Save legacy key setup requests to scoped DB secrets instead of writing deployment env vars, and let file upload providers resolve request-scoped credentials.
+- a6492db: Add a reusable settings tab shell and let team settings hide their duplicate panel title.
+
 ## 0.79.17
 
 ### Patch Changes
