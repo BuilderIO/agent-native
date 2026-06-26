@@ -146,6 +146,7 @@ import { createPollEventsHandler } from "./poll-events.js";
 import { createPollHandler } from "./poll.js";
 import { runWithRequestContext } from "./request-context.js";
 import {
+  findUnsupportedScopedKeyNames,
   saveKeyValuesToScopedSecrets,
   ScopedKeyStorageError,
   type ScopedKeySaveRequestScope,
@@ -2208,6 +2209,7 @@ export function createCoreRoutesPlugin(
       ];
       {
         const envKeys = [...frameworkEnvKeys, ...(options.envKeys ?? [])];
+        const allowedEnvKeyNames = envKeys.map(({ key }) => key);
 
         getH3App(nitroApp).use(
           `${P}/env-status`,
@@ -2225,10 +2227,11 @@ export function createCoreRoutesPlugin(
             }
             return Promise.all(
               envKeys.map(async (cfg) => {
-                const configured = await runWithRequestContext(
-                  { userEmail, orgId },
-                  () => resolveSecret(cfg.key).then(Boolean),
-                );
+                const configured =
+                  Boolean(process.env[cfg.key]) ||
+                  (await runWithRequestContext({ userEmail, orgId }, () =>
+                    resolveSecret(cfg.key).then(Boolean),
+                  ));
                 return {
                   key: cfg.key,
                   label: cfg.label,
@@ -2254,6 +2257,16 @@ export function createCoreRoutesPlugin(
               vars?: Array<{ key: string; value: string }>;
               scope?: ScopedKeySaveRequestScope;
             };
+            const unsupportedKeys = findUnsupportedScopedKeyNames(
+              vars,
+              allowedEnvKeyNames,
+            );
+            if (unsupportedKeys.length > 0) {
+              setResponseStatus(event, 400);
+              return {
+                error: `Unsupported env key${unsupportedKeys.length === 1 ? "" : "s"}: ${unsupportedKeys.join(", ")}`,
+              };
+            }
 
             try {
               const result = await saveKeyValuesToScopedSecrets(

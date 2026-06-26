@@ -22,6 +22,7 @@ vi.mock("../secrets/storage.js", () => ({
 }));
 
 import {
+  findUnsupportedScopedKeyNames,
   saveKeyValuesToScopedSecrets,
   ScopedKeyStorageError,
 } from "./scoped-key-storage.js";
@@ -121,5 +122,20 @@ describe("saveKeyValuesToScopedSecrets", () => {
       ]),
     ).rejects.toBeInstanceOf(ScopedKeyStorageError);
     expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+});
+
+describe("findUnsupportedScopedKeyNames", () => {
+  it("deduplicates key names that are not in the allowlist", () => {
+    expect(
+      findUnsupportedScopedKeyNames(
+        [
+          { key: "GOOGLE_CLIENT_ID", value: "id" },
+          { key: "UNKNOWN_KEY", value: "secret" },
+          { key: " UNKNOWN_KEY ", value: "secret-again" },
+        ],
+        ["GOOGLE_CLIENT_ID"],
+      ),
+    ).toEqual(["UNKNOWN_KEY"]);
   });
 });

@@ -26,6 +26,7 @@ import {
 import { resolveSecret } from "./credential-provider.js";
 import { runWithRequestContext } from "./request-context.js";
 import {
+  findUnsupportedScopedKeyNames,
   saveKeyValuesToScopedSecrets,
   ScopedKeyStorageError,
   type ScopedKeySaveRequestScope,
@@ -187,7 +188,6 @@ export function createServer(
   }
 
   const router = createRouter();
-  app.use(router);
 
   // Health check
   if (!options.disablePing) {
@@ -204,6 +204,7 @@ export function createServer(
   // Env key management routes
   if (options.envKeys) {
     const envKeys = options.envKeys;
+    const allowedEnvKeyNames = envKeys.map(({ key }) => key);
 
     router.get(
       "/_agent-native/env-status",
@@ -220,9 +221,11 @@ export function createServer(
             key: cfg.key,
             label: cfg.label,
             required: cfg.required ?? false,
-            configured: await runWithRequestContext({ userEmail, orgId }, () =>
-              resolveSecret(cfg.key).then(Boolean),
-            ),
+            configured:
+              Boolean(process.env[cfg.key]) ||
+              (await runWithRequestContext({ userEmail, orgId }, () =>
+                resolveSecret(cfg.key).then(Boolean),
+              )),
             ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
           })),
         );
@@ -237,6 +240,16 @@ export function createServer(
           vars?: Array<{ key: string; value: string }>;
           scope?: ScopedKeySaveRequestScope;
         };
+        const unsupportedKeys = findUnsupportedScopedKeyNames(
+          vars,
+          allowedEnvKeyNames,
+        );
+        if (unsupportedKeys.length > 0) {
+          setResponseStatus(event, 400);
+          return {
+            error: `Unsupported env key${unsupportedKeys.length === 1 ? "" : "s"}: ${unsupportedKeys.join(", ")}`,
+          };
+        }
         try {
           const result = await saveKeyValuesToScopedSecrets(event, vars, scope);
           return { saved: result.saved, storage: "scoped-secrets" };
@@ -252,5 +265,6 @@ export function createServer(
     );
   }
 
+  app.use(router);
   return { app, router };
 }

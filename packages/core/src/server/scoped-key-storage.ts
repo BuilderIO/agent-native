@@ -40,6 +40,25 @@ export class ScopedKeyStorageError extends Error {
   }
 }
 
+export function findUnsupportedScopedKeyNames(
+  vars: unknown,
+  allowedKeys: Iterable<string>,
+): string[] {
+  if (!Array.isArray(vars)) return [];
+
+  const allowed = new Set(allowedKeys);
+  const unsupported = new Set<string>();
+  for (const entry of vars) {
+    if (!entry || typeof entry !== "object") continue;
+    const key = (entry as { key?: unknown }).key;
+    const normalizedKey = typeof key === "string" ? key.trim() : "";
+    if (normalizedKey && !allowed.has(normalizedKey)) {
+      unsupported.add(normalizedKey);
+    }
+  }
+  return [...unsupported];
+}
+
 function redactSecretFromMessage(message: string, secretValue: string): string {
   if (!message || !secretValue) return message;
   return message.split(secretValue).join("[redacted]");

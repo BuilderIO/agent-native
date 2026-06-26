@@ -113,6 +113,7 @@ export function GoogleSetupWizard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          scope: "workspace",
           vars: [
             { key: "GOOGLE_CLIENT_ID", value: id },
             { key: "GOOGLE_CLIENT_SECRET", value: secret },
@@ -149,6 +150,7 @@ export function GoogleSetupWizard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          scope: "workspace",
           vars: [
             { key: "GOOGLE_CLIENT_ID", value: clientId.trim() },
             { key: "GOOGLE_CLIENT_SECRET", value: clientSecret.trim() },
