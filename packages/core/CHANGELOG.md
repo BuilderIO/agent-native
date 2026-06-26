@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.79.17
+
+### Patch Changes
+
+- fed6702: Polish shared shell drawer edge borders during depth transitions.
+
 ## 0.79.16
 
 ### Patch Changes
