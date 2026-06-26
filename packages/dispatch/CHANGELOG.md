@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.13.2
+
+### Patch Changes
+
+- a6492db: Read Dispatch integration credentials from scoped secrets and move team management into Settings tabs.
+
 ## 0.13.1
 
 ### Patch Changes
