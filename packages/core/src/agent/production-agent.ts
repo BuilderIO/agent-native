@@ -3972,25 +3972,6 @@ export function createProductionAgentHandler(
           `${s}=${Date.now() - setupT0}ms`,
         ).catch(() => {});
     };
-    // DIAGNOSTIC-ONLY: AWAITED worker mark. Fire-and-forget workerStep marks
-    // after `post_model_ok` stopped landing even though writes still work
-    // there — so the worker's MAIN FLOW stalls between post_model and pre_claim
-    // (not a write hang). Awaited marks block until they land (or withDbTimeout-
-    // reject), so `worker_stage` reliably advances to the last phase the main
-    // flow actually reached — pinpointing the stall. Bg worker only.
-    const awaitedWorkerMark = async (s: string) => {
-      if (!isBackgroundWorker || !bgRunId) return;
-      try {
-        await recordRunDiagnostic(
-          bgRunId,
-          RUN_DIAG_STAGE.workerSetupStep,
-          `${s}=${Date.now() - setupT0}ms`,
-        );
-      } catch {
-        // bounded by withDbTimeout; ignore — the absence of the next mark is
-        // itself the signal.
-      }
-    };
     // Whether this worker is REALLY executing inside a 15-min Netlify
     // `-background` function (proven by the runtime function name), not merely a
     // `_process-run` re-entry that may have landed on the ~60s synchronous
@@ -4215,35 +4196,6 @@ export function createProductionAgentHandler(
     );
 
     options.onEngineResolved?.(engine, model);
-    // DIAGNOSTIC-ONLY: localize where the worker stalls AFTER model_done. These
-    // land in `worker_stage` (foreground-independent), so even though the
-    // foreground overwrites `diag_stage` on inline recovery, the worker's last
-    // reached point survives. If the last worker_stage is `model_done`, writes
-    // hang right after model resolution (DB connection); if it's
-    // `engine_resolved`/`systemprompt_enter`, the stall is in the named step.
-    workerStep("engine_resolved");
-    // DIAGNOSTIC-ONLY: AWAITED probe (bg worker only). worker_stage stalls at
-    // `model_done` even though the code right after is trivial sync — this
-    // distinguishes the two causes: if `post_model_awaited` lands, DB writes
-    // still work after model_done and the stall is later in the main flow; if it
-    // never lands (stays `model_done`), the bg-fn DB connection itself is hung
-    // right after model resolution. `recordRunDiagnostic` is `withDbTimeout`-
-    // bounded, so a hung write rejects (caught) rather than blocking forever.
-    if (isBackgroundWorker && bgRunId) {
-      const probeStart = Date.now();
-      try {
-        await recordRunDiagnostic(
-          bgRunId,
-          RUN_DIAG_STAGE.workerSetupStep,
-          "post_model_awaited",
-        );
-        workerStep(`post_model_ok=${Date.now() - probeStart}ms`);
-      } catch (e) {
-        workerStep(
-          `post_model_threw=${Date.now() - probeStart}ms:${String((e as Error)?.message ?? e).slice(0, 80)}`,
-        );
-      }
-    }
 
     // One-line per-turn resolution log so it's obvious in dev which engine
     // is actually handling the request. `requestEngine` is what the client
@@ -4254,14 +4206,6 @@ export function createProductionAgentHandler(
       `[agent-chat] resolved engine=${engine.name} model=${model} requestEngine=${requestEngine ?? "(none)"}`,
     );
 
-    // DIAGNOSTIC-ONLY: the worker reaches post_model_ok but never aw_env — the
-    // only exit between them is this anthropic key check. Capture the exact
-    // resolution state so we know WHY effectiveApiKey is falsy in the worker
-    // (owner not resolved from the HMAC/thread? owner has no stored key? deploy
-    // fallback blocked?) vs the foreground which resolves it fine.
-    await awaitedWorkerMark(
-      `apikey_state:engine=${engine.name},owner=${ownerEmail ? "Y" : "N"},userKey=${userApiKey ? "Y" : "N"},effKey=${effectiveApiKey ? "Y" : "N"},block=${shouldBlockDeployCredentialFallback()}`,
-    );
     // Check for API key before starting a run (only for anthropic engine)
     if (engine.name === "anthropic" && !effectiveApiKey) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -4289,7 +4233,6 @@ export function createProductionAgentHandler(
     // reached db_request_ctx but not env_config hung in attachment upload or
     // engine/model resolution.
     workerStep("env_config");
-    await awaitedWorkerMark("aw_env");
     // Run all independent pre-send steps in parallel. Each of these hits
     // the DB or invokes an action; running them sequentially was the
     // single biggest contributor to pre-LLM latency.
@@ -4305,17 +4248,11 @@ export function createProductionAgentHandler(
     const systemPromptThunk = (): Promise<string> =>
       (async (): Promise<string> => {
         const sysPromptStart = Date.now();
-        // Brackets the system-prompt build (which runs the template's
-        // extraContext / data-dictionary). If worker_stage stalls at
-        // `systemprompt_enter` with no `systemprompt_done`, the build itself is
-        // the stall point.
-        workerStep("systemprompt_enter");
         try {
           const built =
             typeof options.systemPrompt === "function"
               ? await options.systemPrompt(event)
               : options.systemPrompt;
-          workerStep("systemprompt_done");
           return built;
         } catch (error) {
           systemPromptError = error;
@@ -4614,7 +4551,6 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: all parallel context gathering (system prompt, screen,
     // files, loop settings, enriched message) resolved.
     workerStep("context_all");
-    await awaitedWorkerMark("aw_presend");
 
     if (systemPromptError) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -4645,7 +4581,6 @@ export function createProductionAgentHandler(
     setupMark("actions");
     // DIAGNOSTIC-ONLY: action/tool resolution + engine-tool filtering finished.
     workerStep("action_tool_setup");
-    await awaitedWorkerMark("aw_actions");
     const requestSystemPrompt =
       requestMode === "plan"
         ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
@@ -4760,7 +4695,6 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: owner/thread resolution + runId/effectiveThreadId +
     // chained-continuation thread fetch finished.
     workerStep("owner_thread");
-    await awaitedWorkerMark("aw_owner");
 
     // Persist the user's turn exactly once. The foreground POST does this
     // before dispatching; the background worker must NOT repeat it (it re-enters
@@ -5178,33 +5112,6 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: last stage before startRun fires. A worker that reaches
     // prestart but never workerStarted is hanging inside startRun itself.
     workerStep("prestart");
-    // DIAGNOSTIC-ONLY: AWAITED probe right before startRun (bg worker only). If
-    // worker_stage reaches `pre_claim_ok` but the run never flips to
-    // `worker_started`, the stall is inside startRun's claim itself; if it never
-    // reaches `pre_claim_*`, the stall is somewhere in the setup between
-    // post_model and here.
-    if (isBackgroundWorker && bgRunId) {
-      const claimProbeStart = Date.now();
-      try {
-        await recordRunDiagnostic(
-          bgRunId,
-          RUN_DIAG_STAGE.workerSetupStep,
-          "pre_claim",
-        );
-        workerStep(`pre_claim_ok=${Date.now() - claimProbeStart}ms`);
-      } catch (e) {
-        workerStep(
-          `pre_claim_threw=${Date.now() - claimProbeStart}ms:${String((e as Error)?.message ?? e).slice(0, 80)}`,
-        );
-      }
-    }
-    // DIAGNOSTIC-ONLY: peak-ish RSS (MB) + assembled system-prompt size (KB) at
-    // prestart. The analytics bg worker dies right after model_done; if the
-    // FOREGROUND (identical build, writes land) is already near the ~1024MB
-    // Netlify function limit, an OOM kill in the heavier worker explains the
-    // freeze. Both numbers ride along in the existing setup-timings detail.
-    setupMarks.rssMB = Math.round(process.memoryUsage().rss / 1048576);
-    setupMarks.promptKB = Math.round((systemPrompt?.length ?? 0) / 1024);
     const setupDetail =
       Object.entries(setupMarks)
         .map(([k, v]) => `${k}=${v}`)
