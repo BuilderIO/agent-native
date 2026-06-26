@@ -4456,7 +4456,11 @@ export function createProductionAgentHandler(
     // foreground keeps the un-capped path, so its behaviour is unchanged. On a
     // rejection (e.g. enrichMessage has no .catch) the cap also resolves to the
     // fallback rather than rejecting the whole Promise.all.
-    const presendCap = <T,>(p: Promise<T>, fallback: T, ms: number): Promise<T> => {
+    const presendCap = <T>(
+      p: Promise<T>,
+      fallback: T,
+      ms: number,
+    ): Promise<T> => {
       if (!isBackgroundWorker) return p;
       return new Promise<T>((resolve) => {
         const timer = setTimeout(() => resolve(fallback), ms);
