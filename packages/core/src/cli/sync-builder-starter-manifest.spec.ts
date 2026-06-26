@@ -63,7 +63,7 @@ describe("sync-builder-starter-manifest", () => {
             paths?: Record<string, string[]>;
           };
         };
-        expect(tsconfig.compilerOptions?.baseUrl).toBe(".");
+        expect(tsconfig.compilerOptions?.baseUrl).toBeUndefined();
         expect(tsconfig.compilerOptions?.paths?.["*"]).toEqual(["./*"]);
         expect(
           fs.readFileSync(

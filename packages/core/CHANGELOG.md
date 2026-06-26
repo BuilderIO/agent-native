@@ -1,5 +1,21 @@
 # @agent-native/core
 
+## 0.77.20
+
+### Patch Changes
+
+- 97a642e: Stop injecting the `baseUrl` compiler option into scaffolded app tsconfigs. `baseUrl` is deprecated and errors in TypeScript 6 (TS5101/TS5102) and removed in TypeScript 7. The `create` CLI now relies on `paths` (including the `"*": ["./*"]` catch-all) which resolve relative to the project's own tsconfig, fixing `error TS5102: Option 'baseUrl' has been removed` under tsgo / `@typescript/native-preview` in generated starters.
+
+## 0.77.19
+
+### Patch Changes
+
+- 27fc4c2: Route the background-worker's awaited milestone diagnostics through a dedicated
+  (non-pooled) DB connection. The pooled connection becomes unusable right after
+  the model-resolution block (model_done lands, the next pooled write hangs), so a
+  dedicated connection lets the post-model_done milestones land and makes the
+  worker's true freeze point visible in /runs/active.
+
 ## 0.77.18
 
 ### Patch Changes
