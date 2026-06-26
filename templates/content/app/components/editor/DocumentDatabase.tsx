@@ -433,6 +433,37 @@ function DatabaseTable({
   const databaseId = data?.database.id ?? null;
   const source = data?.source ?? null;
   const sources = data?.sources ?? (source ? [source] : []);
+  // New-row source picker (row-union): when a database has 2+ sources, the auto
+  // -created "Source" select tags which collection a row belongs to. Surface a
+  // picker on "New" so a row is created already tagged for its collection (the
+  // backend then routes its create_draft to that source). Mirrors the server's
+  // SOURCE_PROPERTY_NAME ("Source", a select).
+  const sourceTagPicker = useMemo(() => {
+    if (sources.length < 2) return null;
+    const property = properties.find(
+      (item) =>
+        item.definition.name === "Source" &&
+        item.definition.type === "select",
+    );
+    if (!property) return null;
+    const optionIdByName = new Map(
+      (property.definition.options.options ?? []).map((option) => [
+        option.name,
+        option.id,
+      ]),
+    );
+    const collections = sources
+      .filter((item) => item.sourceType === "builder-cms")
+      .map((item) => ({
+        label: item.sourceName,
+        optionId: optionIdByName.get(item.sourceName) ?? null,
+      }));
+    return {
+      propertyId: property.definition.id,
+      collections,
+      localOptionId: optionIdByName.get("Local") ?? null,
+    };
+  }, [properties, sources]);
   const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(
     null,
   );
@@ -1166,18 +1197,76 @@ function DatabaseTable({
             ) : null}
           </Button>
           {canEdit ? (
-            <Button
-              type="button"
-              size="sm"
-              className="h-7 rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90"
-              disabled={addItem.isPending || !databaseId}
-              onClick={() => void createRow()}
-            >
-              {addItem.isPending ? (
-                <Spinner className="mr-1.5 size-3.5" />
-              ) : null}
-              New
-            </Button>
+            sourceTagPicker ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7 rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90"
+                    disabled={addItem.isPending || !databaseId}
+                  >
+                    {addItem.isPending ? (
+                      <Spinner className="mr-1.5 size-3.5" />
+                    ) : null}
+                    New
+                    <IconChevronDown className="ml-1 size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuLabel>Add a row to…</DropdownMenuLabel>
+                  {sourceTagPicker.collections.map((collection) => (
+                    <DropdownMenuItem
+                      key={collection.label}
+                      onClick={() =>
+                        void createRow(
+                          "",
+                          collection.optionId
+                            ? {
+                                [sourceTagPicker.propertyId]:
+                                  collection.optionId,
+                              }
+                            : {},
+                        )
+                      }
+                    >
+                      <BuilderLogoMark className="mr-2 size-3.5 shrink-0" />
+                      <span className="truncate">{collection.label}</span>
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() =>
+                      void createRow(
+                        "",
+                        sourceTagPicker.localOptionId
+                          ? {
+                              [sourceTagPicker.propertyId]:
+                                sourceTagPicker.localOptionId,
+                            }
+                          : {},
+                      )
+                    }
+                  >
+                    <IconLayoutGrid className="mr-2 size-3.5 shrink-0" />
+                    <span className="truncate">Local (no collection)</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90"
+                disabled={addItem.isPending || !databaseId}
+                onClick={() => void createRow()}
+              >
+                {addItem.isPending ? (
+                  <Spinner className="mr-1.5 size-3.5" />
+                ) : null}
+                New
+              </Button>
+            )
           ) : null}
         </div>
       </div>
