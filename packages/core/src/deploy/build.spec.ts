@@ -12,6 +12,8 @@ import {
 import {
   addImmutableAssetRouteRulesForClientBuild,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
+  CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
+  CLOUDFLARE_WORKER_STUB_MODULES,
   copyDir,
   emitSingleTemplateNetlifyBackgroundFunction,
   findInstalledFfmpegStaticPackage,
@@ -754,6 +756,28 @@ describe("CLOUDFLARE_WORKER_ESBUILD_EXTERNALS", () => {
       "@sparticuz/chromium-min",
     );
     expect(CLOUDFLARE_WORKER_ESBUILD_EXTERNALS).toContain("fsevents");
+  });
+
+  it("stubs edge-incompatible optional packages before externalizing", () => {
+    expect(CLOUDFLARE_WORKER_STUB_MODULES["@sentry/node"]).toContain("init");
+    expect(CLOUDFLARE_WORKER_STUB_MODULES["@resvg/resvg-js"]).toContain(
+      "Resvg",
+    );
+    expect(CLOUDFLARE_WORKER_STUB_MODULES["playwright-core"]).toContain(
+      "chromium",
+    );
+  });
+
+  it("stubs node builtins that Cloudflare Pages rejects at upload time", () => {
+    expect(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES.child_process).toContain(
+      "execFileSync",
+    );
+    expect(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES.fs).toContain(
+      "existsSync",
+    );
+    expect(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES.module).toContain(
+      "createRequire",
+    );
   });
 });
 

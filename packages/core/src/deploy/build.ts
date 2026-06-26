@@ -100,6 +100,363 @@ export const CLOUDFLARE_WORKER_ESBUILD_EXTERNALS = [
   "@sparticuz/chromium-min",
   "fsevents",
 ];
+export const CLOUDFLARE_WORKER_STUB_MODULES: Record<string, string> = {
+  "better-sqlite3":
+    "export default {}; export const Database = class {}; export const watch = () => ({ close() {} });\n",
+  "node-pty":
+    "export default {}; export const watch = () => ({ close() {} });\n",
+  chokidar: "export default {}; export const watch = () => ({ close() {} });\n",
+  fsevents: "export default {}; export const watch = () => ({ close() {} });\n",
+  dotenv: "export default {}; export const config = () => ({ parsed: {} });\n",
+  "@anthropic-ai/sdk": "export default class Anthropic {}\n",
+  "@anthropic-ai/tokenizer":
+    "export default {}; export const countTokens = undefined;\n",
+  "@sentry/node": [
+    "export const init = () => {};",
+    "const scope = {",
+    "  setUser() {},",
+    "  setTag() {},",
+    "  setExtra() {},",
+    "  setContext() {},",
+    "  setLevel() {},",
+    "  getScopeData() { return {}; },",
+    "};",
+    "export const getIsolationScope = () => scope;",
+    "export const withScope = (fn) => fn(scope);",
+    "export const captureException = () => undefined;",
+    "export default { init, getIsolationScope, withScope, captureException };",
+    "",
+  ].join("\n"),
+  "@resvg/resvg-js": [
+    "export class Resvg {",
+    '  constructor() { throw new Error("@resvg/resvg-js unavailable in Cloudflare Pages worker"); }',
+    "}",
+    "export default { Resvg };",
+    "",
+  ].join("\n"),
+  "playwright-core": [
+    "const unavailable = async () => { throw new Error('playwright-core unavailable in Cloudflare Pages worker'); };",
+    "export const chromium = { launch: unavailable };",
+    "export const firefox = { launch: unavailable };",
+    "export const webkit = { launch: unavailable };",
+    "export default { chromium, firefox, webkit };",
+    "",
+  ].join("\n"),
+  "@sparticuz/chromium-min": [
+    "const chromium = {",
+    "  args: [],",
+    "  setGraphicsMode: false,",
+    "  executablePath: async () => { throw new Error('@sparticuz/chromium-min unavailable in Cloudflare Pages worker'); },",
+    "};",
+    "export default chromium;",
+    "",
+  ].join("\n"),
+  "@google/genai": [
+    "export class GoogleGenAI {",
+    "  constructor() { throw new Error('@google/genai unavailable in Cloudflare Pages worker'); }",
+    "}",
+    "export default { GoogleGenAI };",
+    "",
+  ].join("\n"),
+  "pdf-parse": [
+    "export class PDFParse {",
+    "  constructor() { throw new Error('pdf-parse unavailable in Cloudflare Pages worker'); }",
+    "}",
+    "export default { PDFParse };",
+    "",
+  ].join("\n"),
+  "pdfjs-dist":
+    "export default {}; export const getDocument = () => { throw new Error('pdfjs-dist unavailable in Cloudflare Pages worker'); };\n",
+  "chartjs-node-canvas": [
+    "export class ChartJSNodeCanvas {",
+    "  constructor() { throw new Error('chartjs-node-canvas unavailable in Cloudflare Pages worker'); }",
+    "}",
+    "export default { ChartJSNodeCanvas };",
+    "",
+  ].join("\n"),
+  "@napi-rs/canvas":
+    "export default {}; export const createCanvas = () => { throw new Error('@napi-rs/canvas unavailable in Cloudflare Pages worker'); };\n",
+  mermaid: "export default {}; export const mermaidAPI = {};\n",
+  "@excalidraw/excalidraw":
+    "export default {}; export const MainMenu = {}; export const WelcomeScreen = {};\n",
+  "@excalidraw/mermaid-to-excalidraw":
+    "export default async () => ({ elements: [], files: {} });\n",
+};
+
+function cloudflareNodeBuiltinStubSource(
+  moduleName: string,
+  namedExports: string[],
+  overrides: string[] = [],
+): string {
+  const overridden = new Set(
+    overrides.flatMap((source) =>
+      Array.from(source.matchAll(/\bexport const ([A-Za-z_$][\w$]*)/g)).map(
+        (match) => match[1],
+      ),
+    ),
+  );
+  const exports = Array.from(new Set(namedExports))
+    .filter((name) => !overridden.has(name))
+    .sort();
+  return [
+    `const unavailable = (name) => (..._args) => { throw new Error(name + " is unavailable in Cloudflare Pages workers"); };`,
+    `const proxy = new Proxy({}, { get(_target, prop) { return unavailable("${moduleName}." + String(prop)); } });`,
+    ...overrides,
+    ...exports.map(
+      (name) => `export const ${name} = unavailable("${moduleName}.${name}");`,
+    ),
+    "export default proxy;",
+    "",
+  ].join("\n");
+}
+
+export const CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES: Record<
+  string,
+  string
+> = {
+  child_process: cloudflareNodeBuiltinStubSource("child_process", [
+    "exec",
+    "execFile",
+    "execFileSync",
+    "execSync",
+    "fork",
+    "spawn",
+    "spawnSync",
+  ]),
+  cluster: cloudflareNodeBuiltinStubSource("cluster", [
+    "disconnect",
+    "fork",
+    "isMaster",
+    "isPrimary",
+    "isWorker",
+    "setupMaster",
+    "setupPrimary",
+    "worker",
+    "workers",
+  ]),
+  dgram: cloudflareNodeBuiltinStubSource("dgram", ["createSocket"]),
+  dns: cloudflareNodeBuiltinStubSource("dns", [
+    "lookup",
+    "promises",
+    "resolve",
+    "resolve4",
+    "resolve6",
+  ]),
+  "dns/promises": cloudflareNodeBuiltinStubSource("dns/promises", [
+    "lookup",
+    "resolve",
+    "resolve4",
+    "resolve6",
+  ]),
+  domain: cloudflareNodeBuiltinStubSource("domain", ["create"]),
+  fs: cloudflareNodeBuiltinStubSource(
+    "fs",
+    [
+      "access",
+      "accessSync",
+      "appendFile",
+      "appendFileSync",
+      "chmod",
+      "chmodSync",
+      "close",
+      "closeSync",
+      "copyFile",
+      "copyFileSync",
+      "cp",
+      "cpSync",
+      "createReadStream",
+      "createWriteStream",
+      "existsSync",
+      "lstat",
+      "lstatSync",
+      "mkdir",
+      "mkdirSync",
+      "open",
+      "openSync",
+      "readFile",
+      "readFileSync",
+      "readdir",
+      "readdirSync",
+      "readlink",
+      "readlinkSync",
+      "realpath",
+      "realpathSync",
+      "rename",
+      "renameSync",
+      "rm",
+      "rmSync",
+      "stat",
+      "statSync",
+      "symlink",
+      "symlinkSync",
+      "unlink",
+      "unlinkSync",
+      "watch",
+      "writeFile",
+      "writeFileSync",
+    ],
+    [
+      "export const constants = {};",
+      "export const promises = {};",
+      "export const existsSync = () => false;",
+      "export const readdirSync = () => [];",
+      "export const realpathSync = (value) => value;",
+      "export const mkdirSync = () => undefined;",
+      "export const rmSync = () => undefined;",
+    ],
+  ),
+  "fs/promises": cloudflareNodeBuiltinStubSource("fs/promises", [
+    "access",
+    "appendFile",
+    "chmod",
+    "copyFile",
+    "cp",
+    "lstat",
+    "mkdir",
+    "readFile",
+    "readdir",
+    "readlink",
+    "realpath",
+    "rename",
+    "rm",
+    "stat",
+    "symlink",
+    "unlink",
+    "writeFile",
+  ]),
+  http: cloudflareNodeBuiltinStubSource("http", [
+    "Agent",
+    "ClientRequest",
+    "IncomingMessage",
+    "ServerResponse",
+    "createServer",
+    "get",
+    "request",
+  ]),
+  http2: cloudflareNodeBuiltinStubSource("http2", [
+    "Http2ServerRequest",
+    "Http2ServerResponse",
+    "constants",
+    "connect",
+    "createSecureServer",
+    "createServer",
+  ]),
+  https: cloudflareNodeBuiltinStubSource("https", [
+    "Agent",
+    "createServer",
+    "get",
+    "request",
+  ]),
+  inspector: cloudflareNodeBuiltinStubSource("inspector", [
+    "Session",
+    "close",
+    "open",
+    "url",
+    "waitForDebugger",
+  ]),
+  module: cloudflareNodeBuiltinStubSource(
+    "module",
+    ["Module", "builtinModules", "createRequire", "syncBuiltinESMExports"],
+    [
+      "export const builtinModules = [];",
+      "export const createRequire = () => globalThis.require ?? ((specifier) => { throw new Error('Cannot require: ' + specifier); });",
+    ],
+  ),
+  net: cloudflareNodeBuiltinStubSource("net", [
+    "Socket",
+    "connect",
+    "createConnection",
+    "createServer",
+  ]),
+  os: cloudflareNodeBuiltinStubSource(
+    "os",
+    [
+      "arch",
+      "cpus",
+      "endianness",
+      "freemem",
+      "homedir",
+      "hostname",
+      "networkInterfaces",
+      "platform",
+      "release",
+      "tmpdir",
+      "totalmem",
+      "type",
+      "userInfo",
+    ],
+    [
+      'export const EOL = "\\n";',
+      'export const arch = () => "x64";',
+      "export const cpus = () => [];",
+      'export const endianness = () => "LE";',
+      "export const freemem = () => 0;",
+      'export const homedir = () => "/tmp";',
+      'export const hostname = () => "cloudflare-worker";',
+      "export const networkInterfaces = () => ({});",
+      'export const platform = () => "linux";',
+      'export const release = () => "";',
+      'export const tmpdir = () => "/tmp";',
+      "export const totalmem = () => 0;",
+      'export const type = () => "Worker";',
+      "export const userInfo = () => ({ username: 'worker', homedir: '/tmp' });",
+    ],
+  ),
+  readline: cloudflareNodeBuiltinStubSource("readline", [
+    "Interface",
+    "clearLine",
+    "clearScreenDown",
+    "createInterface",
+    "cursorTo",
+    "emitKeypressEvents",
+    "moveCursor",
+  ]),
+  repl: cloudflareNodeBuiltinStubSource("repl", ["start"]),
+  sqlite: cloudflareNodeBuiltinStubSource("sqlite", ["DatabaseSync"]),
+  sys: cloudflareNodeBuiltinStubSource("sys", [
+    "debug",
+    "deprecate",
+    "error",
+    "inspect",
+    "log",
+    "print",
+    "puts",
+  ]),
+  tls: cloudflareNodeBuiltinStubSource("tls", [
+    "TLSSocket",
+    "connect",
+    "createSecureContext",
+    "createServer",
+  ]),
+  trace_events: cloudflareNodeBuiltinStubSource("trace_events", [
+    "createTracing",
+    "getEnabledCategories",
+  ]),
+  tty: cloudflareNodeBuiltinStubSource("tty", [
+    "ReadStream",
+    "WriteStream",
+    "isatty",
+  ]),
+  v8: cloudflareNodeBuiltinStubSource("v8", [
+    "deserialize",
+    "getHeapStatistics",
+    "serialize",
+  ]),
+  vm: cloudflareNodeBuiltinStubSource("vm", [
+    "Script",
+    "compileFunction",
+    "createContext",
+    "runInContext",
+    "runInNewContext",
+    "runInThisContext",
+  ]),
+  wasi: cloudflareNodeBuiltinStubSource("wasi", ["WASI"]),
+  worker_threads: cloudflareNodeBuiltinStubSource(
+    "worker_threads",
+    ["MessageChannel", "MessagePort", "Worker", "isMainThread", "parentPort"],
+    ["export const isMainThread = true;", "export const parentPort = null;"],
+  ),
+};
 
 export interface GenerateWorkerEntryOptions {
   includeReactRouterSsr?: boolean;
@@ -1119,9 +1476,8 @@ async function buildCloudflarePages() {
   // Exclude _worker.js from being served as a public asset
   fs.writeFileSync(path.join(distDir, ".assetsignore"), "_worker.js\n");
 
-  // Write package metadata inside _worker.js/ for the pre-bundled ES module
-  // worker. The Pages wrangler configs set no_bundle=true so Cloudflare uploads
-  // this output directly instead of re-bundling the esbuild result.
+  // Write package metadata inside _worker.js/ for the ES module worker that
+  // Wrangler compiles and uploads for Cloudflare Pages.
   fs.mkdirSync(path.join(distDir, "_worker.js"), { recursive: true });
   fs.writeFileSync(
     path.join(distDir, "_worker.js", "package.json"),
@@ -1223,25 +1579,33 @@ async function buildCloudflarePages() {
   // Create stub modules for native/Node-only deps that can't run on Workers.
   // These get resolved by esbuild instead of the real modules, avoiding bundling
   // native code that would fail on the Workers runtime.
-  const stubModules = [
-    "better-sqlite3",
-    "node-pty",
-    "chokidar",
-    "fsevents",
-    "dotenv",
-    "@anthropic-ai/sdk",
-  ];
   const stubDir = path.join(tmpDir, "node_modules");
-  for (const mod of stubModules) {
+  for (const [mod, source] of Object.entries(CLOUDFLARE_WORKER_STUB_MODULES)) {
     const modDir = path.join(stubDir, mod);
     fs.mkdirSync(modDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(modDir, "index.js"),
-      `export default {}; export const watch = () => ({ close() {} });`,
-    );
+    fs.writeFileSync(path.join(modDir, "index.js"), source);
     fs.writeFileSync(
       path.join(modDir, "package.json"),
       JSON.stringify({ name: mod, main: "index.js", type: "module" }),
+    );
+  }
+  const stubAliases = Object.keys(CLOUDFLARE_WORKER_STUB_MODULES).map(
+    (mod) => `--alias:${mod}=${path.join(stubDir, mod, "index.js")}`,
+  );
+  const nodeBuiltinStubDir = path.join(tmpDir, "node-builtin-stubs");
+  fs.mkdirSync(nodeBuiltinStubDir, { recursive: true });
+  const nodeBuiltinStubAliases: string[] = [];
+  for (const [mod, source] of Object.entries(
+    CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
+  ).sort(([a], [b]) => b.length - a.length)) {
+    const stubFile = path.join(
+      nodeBuiltinStubDir,
+      `${mod.replace(/\W+/g, "_")}.js`,
+    );
+    fs.writeFileSync(stubFile, source);
+    nodeBuiltinStubAliases.push(
+      `--alias:${mod}=${stubFile}`,
+      `--alias:node:${mod}=${stubFile}`,
     );
   }
 
@@ -1259,8 +1623,17 @@ async function buildCloudflarePages() {
   // Only externalize bare names. node:* externals would otherwise pin
   // the prefix in output; instead we alias node:* → bare so anything that
   // resolves past alias land as bare externals.
-  const nodeExternals = builtinNames.map((n) => `--external:${n}`);
-  const nodeAliases = builtinNames.map((n) => `--alias:node:${n}=${n}`);
+  const nodeBuiltinStubs = new Set(
+    Object.keys(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES),
+  );
+  const nodeExternals = builtinNames
+    .filter((n) => !nodeBuiltinStubs.has(n))
+    .sort((a, b) => b.length - a.length)
+    .map((n) => `--external:${n}`);
+  const nodeAliases = builtinNames
+    .filter((n) => !nodeBuiltinStubs.has(n))
+    .sort((a, b) => b.length - a.length)
+    .map((n) => `--alias:node:${n}=${n}`);
 
   // Hard externalize large client-only / node-only libraries so they don't
   // bloat the edge worker. These are never executed in the CF Pages runtime
@@ -1273,9 +1646,9 @@ async function buildCloudflarePages() {
   // files. Both import sites degrade gracefully when the runtime import
   // fails: context-xray token counts fall back to char/4 estimates and the
   // OG image route falls back to SVG.
-  const heavyClientExternals = CLOUDFLARE_WORKER_ESBUILD_EXTERNALS.map(
-    (p) => `--external:${p}`,
-  );
+  const heavyClientExternals = CLOUDFLARE_WORKER_ESBUILD_EXTERNALS.filter(
+    (p) => !Object.hasOwn(CLOUDFLARE_WORKER_STUB_MODULES, p),
+  ).map((p) => `--external:${p}`);
 
   execFileSync(
     esbuildBin,
@@ -1304,6 +1677,8 @@ async function buildCloudflarePages() {
       // Externalize node: builtins — CF Workers runtime provides them
       ...nodeExternals,
       ...heavyClientExternals,
+      ...stubAliases,
+      ...nodeBuiltinStubAliases,
       // Rewrite node:* -> bare names so chunks never contain node: imports
       ...nodeAliases,
     ],
@@ -1422,6 +1797,7 @@ const NODE_BUILTINS = [
   "dgram",
   "diagnostics_channel",
   "dns",
+  "dns/promises",
   "domain",
   "events",
   "fs",
@@ -1467,22 +1843,14 @@ export function getNodeBuiltinNames(): string[] {
  * Injected via esbuild --inject so CJS deps work on Workers runtime.
  */
 function generateRequireShim(): string {
-  // Shim the full set of node builtins so any CJS `require("X")` from a
-  // transitive dep resolves to the imported ESM module. Anything less is
-  // whack-a-mole: terminal helpers pull in `tty`, transformer libs pull in
-  // `worker_threads`, etc. — every miss fails deploy with a generic
-  // "Cannot require: <name>" thrown by this shim itself.
-  //
-  // Some builtins exist only as runtime polyfills under nodejs_compat
-  // (some are no-op stubs). That's fine — the `import` returns whatever
-  // the runtime provides; failures only surface when callers actually USE
-  // the unsupported APIs at request time, which is the same as if the
-  // shim wasn't there.
-  //
-  // `sqlite` is excluded because it's Node 22+ only and Workers'
-  // nodejs_compat doesn't expose it yet — importing it makes the whole
-  // bundle fail to load.
-  const shimmed = NODE_BUILTINS.filter((name) => name !== "sqlite");
+  // Shim Node builtins that Cloudflare Pages can import, and return lazy
+  // unavailable proxies for builtins that Pages Functions reject at upload
+  // time (child_process, fs, net, etc.). This lets optional Node-only code stay
+  // present in the shared bundle without making worker initialization fail.
+  const stubbed = new Set(
+    Object.keys(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES),
+  );
+  const shimmed = NODE_BUILTINS.filter((name) => !stubbed.has(name));
 
   // Bare module names — CF Pages Functions runs under nodejs_compat v1,
   // which rejects "node:fs" and only accepts "fs". The post-build pass in
@@ -1500,9 +1868,14 @@ function generateRequireShim(): string {
   const entries = shimmed
     .map((m) => `"${m}":__${m.replace("/", "_")}`)
     .join(",");
+  const stubEntries = Array.from(stubbed)
+    .sort()
+    .map((m) => `"${m}":__unavailable("${m}")`)
+    .join(",");
+  const allEntries = [entries, stubEntries].filter(Boolean).join(",");
 
   const messageChannelPolyfill = `if(typeof MessageChannel==="undefined"){globalThis.MessageChannel=class{constructor(){const a={onmessage:null},b={onmessage:null};a.postMessage=d=>{if(b.onmessage)setTimeout(()=>b.onmessage({data:d}),0)};b.postMessage=d=>{if(a.onmessage)setTimeout(()=>a.onmessage({data:d}),0)};this.port1=a;this.port2=b}}}`;
-  return `${imports}\n${messageChannelPolyfill}\nconst __mods={${entries}};export var require=globalThis.require||function(m){const r=__mods[m];if(r!==undefined)return r;throw new Error("Cannot require: "+m)};\n`;
+  return `${imports}\n${messageChannelPolyfill}\nconst __unavailable=(m)=>new Proxy({}, { get(_target, prop) { return (..._args) => { throw new Error(m + "." + String(prop) + " is unavailable in Cloudflare Pages workers"); }; } });\nconst __mods={${allEntries}};export var require=globalThis.require||function(m){const r=__mods[m];if(r!==undefined)return r;throw new Error("Cannot require: "+m)};\n`;
 }
 
 function findEsbuild(): string {

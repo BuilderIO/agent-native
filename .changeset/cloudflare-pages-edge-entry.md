@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Avoid pulling Node-only server exports into Cloudflare Pages worker bundles and upload pre-bundled Pages workers without Wrangler re-bundling.
+Avoid pulling Node-only server exports and edge-incompatible optional packages into Cloudflare Pages worker bundles.
