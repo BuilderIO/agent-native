@@ -936,7 +936,17 @@ export function embedApp(
         throw new Error("Embedded app returned HTTP " + response.status + ".");
       }
       const html = await response.text();
-      const appUrl = source.url || new URL(response.url || src);
+      // Use the FINAL URL the fetch landed on after following redirects, NOT
+      // the pre-redirect embed-start location. The embed ticket's targetPath is
+      // /_agent-native/open?...&to=/plans/<id>, which 302-redirects to the real
+      // app route; we render that route's HTML. If we replaceState to the
+      // pre-redirect /_agent-native/open (a server-only framework route), the
+      // hydrated React Router has no matching client route and throws a 404
+      // ("No route matches URL /_agent-native/open"). response.url is the
+      // resolved app route (/plans/<id>) the router can actually match.
+      const appUrl = new URL(
+        response.url || (source.url ? source.url.href : src),
+      );
       try {
         window.history.replaceState(window.history.state, "", localPathFromUrl(appUrl, false));
       } catch {}
