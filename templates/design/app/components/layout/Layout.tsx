@@ -111,7 +111,7 @@ export function Layout({ children }: LayoutProps) {
           scope={designScope}
           browserTabId={getBrowserTabId()}
         >
-          <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+          <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
             {mobileSidebarOpen && (
               <div
                 className="fixed inset-0 z-40 bg-black/50 md:hidden"
@@ -120,7 +120,7 @@ export function Layout({ children }: LayoutProps) {
             )}
             <div
               className={cn(
-                "fixed inset-y-0 start-0 z-50 md:static md:z-auto",
+                "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 md:static md:z-auto",
                 mobileSidebarOpen
                   ? "translate-x-0"
                   : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
@@ -128,7 +128,7 @@ export function Layout({ children }: LayoutProps) {
             >
               <Sidebar />
             </div>
-            <div className="flex h-full flex-1 flex-col overflow-hidden">
+            <div className="agent-layout-main-surface flex h-full flex-1 flex-col overflow-hidden">
               {/* Mobile-only top bar with hamburger */}
               {showMobileTopBar && (
                 <div className="flex h-12 shrink-0 items-center border-b border-border bg-sidebar px-4 md:hidden">

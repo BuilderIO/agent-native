@@ -804,7 +804,9 @@ export function Layout({
     </div>
   );
   const content = isChatRoute ? (
-    appContent
+    <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
+      {appContent}
+    </div>
   ) : (
     <AgentSidebar
       position="right"
@@ -822,8 +824,8 @@ export function Layout({
 
   return (
     <HeaderActionsProvider>
-      <div className="flex h-screen w-full overflow-hidden bg-background">
-        <aside className="hidden lg:flex w-64 shrink-0 flex-col border-e bg-sidebar text-sidebar-foreground">
+      <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
+        <aside className="agent-layout-left-drawer hidden lg:flex w-64 shrink-0 flex-col border-e bg-sidebar text-sidebar-foreground">
           <NavContent extensions={extensions} />
         </aside>
 

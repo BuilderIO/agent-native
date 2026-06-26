@@ -56,8 +56,8 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <HeaderActionsProvider>
-      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-        <div className="hidden md:block">
+      <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+        <div className="agent-layout-left-drawer hidden md:block">
           <NavSidebar />
         </div>
         <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>

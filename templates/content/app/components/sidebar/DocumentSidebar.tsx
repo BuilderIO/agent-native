@@ -763,7 +763,7 @@ export function DocumentSidebar({
   return (
     <div
       className={cn(
-        "relative flex h-full min-h-0 flex-col border-e border-border bg-muted/30",
+        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-muted/30",
         width === undefined && "w-full",
       )}
       style={width === undefined ? undefined : { width, flexShrink: 0 }}

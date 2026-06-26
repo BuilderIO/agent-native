@@ -451,7 +451,7 @@ export function App() {
 
   return (
     <div
-      className="flex h-screen w-screen overflow-hidden"
+      className="agent-frame-shell flex h-screen w-screen overflow-hidden"
       style={{
         background: "hsl(var(--background))",
         color: "hsl(var(--foreground))",
@@ -459,7 +459,10 @@ export function App() {
     >
       {/* App iframe — takes all remaining space. Hidden when sidebar is fullscreen. */}
       <div
-        className="flex-1 min-w-0 relative"
+        className="agent-frame-main-surface flex-1 min-w-0 relative overflow-hidden"
+        data-agent-frame-main-state={
+          showFrameSidebar && !sidebarFullscreen ? "open" : "closed"
+        }
         style={
           showFrameSidebar && sidebarFullscreen
             ? { display: "none" }

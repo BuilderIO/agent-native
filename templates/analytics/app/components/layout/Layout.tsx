@@ -147,12 +147,14 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <HeaderActionsProvider>
-      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-        <div className="hidden shrink-0 md:block">
+      <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+        <div className="agent-layout-left-drawer hidden shrink-0 md:block">
           <Sidebar />
         </div>
         {isAskRoute ? (
-          contentFrame
+          <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
+            {contentFrame}
+          </div>
         ) : (
           <AgentSidebar
             position="right"

@@ -39,7 +39,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const sidebarFrame = (
     <>
-      <div className="hidden md:block">
+      <div className="agent-layout-left-drawer hidden md:block">
         <Sidebar />
       </div>
       <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
@@ -78,9 +78,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   if (isAskRoute) {
     return (
-      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+      <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
         {sidebarFrame}
-        {contentFrame}
+        <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
+          {contentFrame}
+        </div>
       </div>
     );
   }
@@ -91,7 +93,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+    <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
       {sidebarFrame}
       <AgentSidebar
         position="right"

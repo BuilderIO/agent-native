@@ -178,6 +178,7 @@ const AGENT_PANEL_ROOT_STYLE = {
   lineHeight: 1.2,
 } satisfies React.CSSProperties;
 type AgentPanelStyle = React.CSSProperties & {
+  "--agent-sidebar-background"?: string;
   "--agent-sidebar-closed-transform"?: string;
   "--agent-sidebar-inner-closed-transform"?: string;
   "--agent-sidebar-width"?: string;
@@ -2819,6 +2820,11 @@ export function AgentSidebar({
     ? renderAnimatedPanel
     : shouldMountPanel;
   const panelOpen = open && shouldMountPanel;
+  const panelLayout = isMobile
+    ? "mobile"
+    : effectiveFullscreen
+      ? "fullscreen"
+      : "desktop";
   // On desktop the resize handle is also the visual divider. Avoid painting a
   // second panel border next to it.
   const showResizeHandle = !isMobile && !effectiveFullscreen && panelOpen;
@@ -2838,7 +2844,9 @@ export function AgentSidebar({
       maxWidth: "85vw",
       maxHeight: "100vh",
       zIndex: SIDEBAR_OVERLAY_Z_INDEX,
-      background: "hsl(var(--background))",
+      "--agent-sidebar-background":
+        "var(--agent-native-lower-surface, hsl(var(--background)))",
+      background: "var(--agent-sidebar-background)",
       borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
       borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
       display: mobileAnimationEnabled || panelOpen ? "flex" : "none",
@@ -2861,6 +2869,9 @@ export function AgentSidebar({
       ...AGENT_PANEL_ROOT_STYLE,
       "--agent-sidebar-width": `${width}px`,
       "--agent-sidebar-inner-closed-transform": `translateX(${isLeft ? "-" : ""}100%)`,
+      "--agent-sidebar-background":
+        "var(--agent-native-lower-surface, hsl(var(--background)))",
+      background: "var(--agent-sidebar-background)",
       width: desktopAnimationEnabled ? undefined : width,
       maxHeight: "100vh",
       borderLeft:
@@ -2897,6 +2908,8 @@ export function AgentSidebar({
               ? "desktop"
               : undefined
         }
+        data-agent-sidebar-layout={panelLayout}
+        data-agent-sidebar-position={position}
         data-agent-sidebar-state={panelOpen ? "open" : "closed"}
         style={
           chatViewTransition
@@ -2933,7 +2946,10 @@ export function AgentSidebar({
   ) : null;
 
   return (
-    <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
+    <div
+      className="agent-sidebar-shell flex min-w-0 flex-1 h-screen overflow-hidden"
+      data-agent-sidebar-position={position}
+    >
       <AgentNativeRouteWarmup />
       {/* Mobile backdrop — tapping it closes the sidebar */}
       {isMobile &&
@@ -2957,7 +2973,15 @@ export function AgentSidebar({
           commands the agent writes via `set-search-params` / `set-url`. */}
       {shouldMountPanel ? <URLSync browserTabId={browserTabId} /> : null}
       {isLeft && !presentationMode ? sidebar : null}
-      <div className="flex flex-1 flex-col overflow-auto min-w-0">
+      <div
+        className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
+        data-agent-sidebar-main-position={position}
+        data-agent-sidebar-main-state={
+          !isMobile && !effectiveFullscreen && !presentationMode && panelOpen
+            ? "open"
+            : "closed"
+        }
+      >
         {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
             counter, remounting only the main content subtree so it re-fetches
             its data. The sidebar above stays mounted, preserving chat state. */}

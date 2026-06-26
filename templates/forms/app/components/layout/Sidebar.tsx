@@ -173,7 +173,7 @@ export function Sidebar() {
   const sidebarContent = (
     <div
       className={cn(
-        "flex h-screen w-60 min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-muted/30",
+        "agent-layout-left-drawer flex h-screen w-60 min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-muted/30",
         isMobile && "w-full",
       )}
     >
