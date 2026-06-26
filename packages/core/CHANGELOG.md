@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.79.11
+
+### Patch Changes
+
+- 72c1b3d: Fix Cloudflare Pages worker builds for apps with browser screenshot helpers.
+
 ## 0.79.10
 
 ### Patch Changes
