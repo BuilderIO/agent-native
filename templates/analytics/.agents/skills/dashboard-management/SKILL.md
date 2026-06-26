@@ -167,6 +167,81 @@ Filters auto-apply on change — there is no Apply button. Each filter change wr
 
 ## Modifying A Dashboard
 
+For most existing dashboard edits, prefer `mutate-dashboard`. It gives the
+agent a small typed script API without exposing arbitrary JavaScript execution.
+The server parses only documented `dashboard.*` method calls, applies the
+resulting operations in memory, validates the final dashboard config, writes
+SQL once, syncs collab, and returns compact proof.
+
+Arguments must be JSON-compatible literals, so quote object keys. Variables,
+imports, loops, functions, templates, network, filesystem, DB access, and
+calling other actions from the script are not available.
+
+```ts
+type DashboardMutationApi = {
+  dashboard: {
+    set(patch: DashboardPatch): void;
+    panel(id: string): PanelSelection;
+    section(id: string): SectionSelection;
+    panels(ids: string[]): PanelSelection;
+    panelsMatching(filter: PanelFilter): PanelSelection;
+    insertPanel(panel: PanelInput): InsertedPanel;
+  };
+};
+
+type PanelSelection = {
+  moveToTop(): void;
+  moveToBottom(): void;
+  moveBefore(panelId: string): void;
+  moveAfter(panelId: string): void;
+  moveToIndex(index: number): void;
+  remove(): void;
+  set(patch: PanelPatch): void;
+  setTitle(title: string): void;
+  setSql(sql: string): void;
+  setWidth(width: number): void;
+  setConfig(patch: Record<string, unknown>): void;
+  duplicate(newPanelId: string, patch?: PanelPatch): void;
+};
+```
+
+Examples:
+
+```ts
+dashboard.panels(["dau-over-time", "wau-over-time"]).moveToTop();
+dashboard.panel("top-referrers").setTitle("Top Referrers by Domain");
+dashboard.panel("retention").set({
+  "width": 2,
+  "config": { "description": "Updated definition." }
+});
+dashboard.panelsMatching({ "titleIncludes": "Signed-In" }).moveToTop();
+dashboard.section("retention-activity-section").append([
+  "repeat-users",
+  "retention-over-time"
+]);
+dashboard.insertPanel({
+  "id": "new-kpi",
+  "title": "New KPI",
+  "source": "first-party",
+  "chartType": "metric",
+  "width": 1,
+  "sql": "SELECT COUNT(*) AS value FROM analytics_events"
+}).atTop();
+```
+
+Native tool call:
+
+```json
+{
+  "dashboardId": "weekly-metrics",
+  "code": "dashboard.panels([\"dau-over-time\",\"wau-over-time\"]).moveToTop();"
+}
+```
+
+Use `reorder-dashboard-panels` for the simplest chart/section moves. Use
+`update-dashboard` only when you specifically need low-level JSON-pointer ops or
+a full config replace.
+
 Preferred patterns:
 
 ```bash
@@ -349,4 +424,6 @@ Writes require editor access; deletes require admin access. Owners always satisf
   `update-dashboard` and fix the action arguments.
 - Never set `panel.source` to a table name or unsupported backend.
 - Use `first-party` for `/track` data and `query-agent-native-analytics` for ad-hoc first-party event questions.
-- Use `update-dashboard` for creates and edits.
+- Use `update-dashboard` for new dashboard config saves and full config
+  replacements. Use `mutate-dashboard` for existing dashboard edits unless a
+  low-level JSON-pointer operation is explicitly needed.

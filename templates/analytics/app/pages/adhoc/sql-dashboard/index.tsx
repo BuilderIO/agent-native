@@ -738,6 +738,24 @@ export default function SqlDashboardPage() {
     [collabDocId],
   );
 
+  const updateCachedDashboardConfig = useCallback(
+    (updated: SqlDashboardConfig) => {
+      if (!dashboardId) return;
+      queryClient.setQueriesData<FetchedDashboard | null>(
+        { queryKey: ["data", "sql-dashboard", dashboardId] },
+        (prev) => (prev ? { ...prev, config: updated } : prev),
+      );
+      queryClient.setQueryData<PrefetchSnapshot<FetchedDashboard | null>>(
+        sqlDashboardPrefetchKey(dashboardId),
+        (prev) =>
+          prev?.data
+            ? { ...prev, data: { ...prev.data, config: updated } }
+            : prev,
+      );
+    },
+    [dashboardId, queryClient],
+  );
+
   /**
    * Persist without throwing — background save used for drag reorder, width
    * toggle, title/description edits, and panel delete. If the save fails
@@ -752,6 +770,7 @@ export default function SqlDashboardPage() {
         return;
       }
       setDashboard(updated);
+      updateCachedDashboardConfig(updated);
       pushToCollab(updated);
       saveDashboard(dashboardId, updated)
         .then(() => {
@@ -778,7 +797,14 @@ export default function SqlDashboardPage() {
           );
         });
     },
-    [dashboardId, canEdit, queryClient, pushToCollab, t],
+    [
+      dashboardId,
+      canEdit,
+      queryClient,
+      pushToCollab,
+      t,
+      updateCachedDashboardConfig,
+    ],
   );
 
   /**
@@ -793,6 +819,7 @@ export default function SqlDashboardPage() {
       }
       await saveDashboard(dashboardId, updated);
       setDashboard(updated);
+      updateCachedDashboardConfig(updated);
       pushToCollab(updated);
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId),
@@ -803,7 +830,14 @@ export default function SqlDashboardPage() {
         queryKey: ["data", "sql-dashboard", dashboardId],
       });
     },
-    [dashboardId, canEdit, queryClient, pushToCollab, t],
+    [
+      dashboardId,
+      canEdit,
+      queryClient,
+      pushToCollab,
+      t,
+      updateCachedDashboardConfig,
+    ],
   );
 
   const removePanel = useCallback(

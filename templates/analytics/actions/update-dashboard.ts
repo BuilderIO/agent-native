@@ -268,7 +268,7 @@ function applyJsonOp(root: any, op: JsonOp): string {
  * Returns a human-readable error string, or `null` when the config passes.
  * Mirrors the shape required by `app/pages/adhoc/sql-dashboard/types.ts`.
  */
-function validateDashboardConfig(
+export function validateDashboardConfig(
   config: Record<string, unknown>,
 ): string | null {
   if (!config || typeof config !== "object") {
@@ -366,7 +366,7 @@ function validateDashboardConfig(
  * mismatches fail here, with the full BigQuery error text, rather than
  * silently saving a broken dashboard that crashes on render.
  */
-async function validatePanelSql(
+export async function validatePanelSql(
   config: Record<string, unknown>,
 ): Promise<string | null> {
   const panels = config.panels;

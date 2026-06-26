@@ -71,6 +71,12 @@ details live in `.agents/skills/`.
   requests. If you already have a desired leading order, `update-dashboard`
   accepts `panelOrder`; it moves those ids to the front and preserves all
   omitted panels in their existing order.
+- For broader dashboard edits, use `mutate-dashboard` with its typed
+  `dashboard.*` script API. It supports id-based panel moves, title/SQL/config
+  edits, inserts, duplication, removal, and dashboard field patches in one
+  atomic save. The script is constrained: only documented dashboard method
+  calls with JSON-compatible arguments are parsed; variables, imports, loops,
+  functions, network, filesystem, and DB access are not available.
 - Native dashboards and saved analyses are constrained artifacts. If a requested
   dashboard, analysis surface, visualization, interaction model, custom layout,
   or bespoke workflow cannot be done faithfully with the built-in dashboard JSON
