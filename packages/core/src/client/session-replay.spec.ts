@@ -228,6 +228,13 @@ describe("session replay", () => {
       recordCrossOriginIframes: false,
       collectFonts: false,
       inlineImages: false,
+      sampling: {
+        mousemove: 50,
+        mouseInteraction: true,
+        scroll: 100,
+        media: 800,
+        input: "last",
+      },
     });
 
     recordOptions.emit({
@@ -265,6 +272,27 @@ describe("session replay", () => {
 
     stopSessionReplay();
     expect(stop).toHaveBeenCalled();
+  });
+
+  it("passes custom rrweb event sampling through to the recorder", async () => {
+    installBrowser("https://app.agent-native.com/inbox");
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { startSessionReplay, stopSessionReplay } =
+      await freshSessionReplay();
+
+    const sampling = { mousemove: false, scroll: 250, input: "last" };
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      eventSampling: sampling,
+    });
+
+    expect(recordOptions.sampling).toBe(sampling);
+    stopSessionReplay();
   });
 
   it("continues replay sequence across reloads for the same replay id", async () => {

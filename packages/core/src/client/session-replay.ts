@@ -38,7 +38,8 @@ interface SessionReplayState {
   active: boolean;
   replayId: string | null;
   sequence: number;
-  queue: ReplayEvent[];
+  /** Pre-serialized + scrubbed event JSON strings, ready to splice at flush. */
+  queue: string[];
   queuedBytes: number;
   flushTimer: number | null;
   maxDurationTimer: number | null;
@@ -54,6 +55,9 @@ interface StoredReplaySession {
   replayId?: string;
   sequence?: number;
 }
+
+/** rrweb `sampling` shape (mousemove/scroll/media throttles, input strategy). */
+export type ReplayEventSampling = Record<string, unknown>;
 
 export interface SessionReplayOptions {
   enabled?: boolean;
@@ -79,6 +83,13 @@ export interface SessionReplayOptions {
   recordCrossOriginIframes?: boolean;
   collectFonts?: boolean;
   inlineImages?: boolean;
+  /**
+   * rrweb per-event throttling (distinct from `sampleRate`, which decides
+   * whether a whole session records). Throttles high-frequency event types
+   * (mousemove/scroll/input) to keep the recorded page responsive and the
+   * payloads small. Passed straight through to `rrweb.record({ sampling })`.
+   */
+  eventSampling?: ReplayEventSampling;
   extraProperties?:
     | Record<string, unknown>
     | (() => Record<string, unknown> | undefined);
@@ -125,11 +136,25 @@ interface NormalizedSessionReplayOptions {
   recordCrossOriginIframes: boolean;
   collectFonts: boolean;
   inlineImages: boolean;
+  eventSampling: ReplayEventSampling;
   extraProperties?: SessionReplayOptions["extraProperties"];
 }
 
 const DEFAULT_REPLAY_PATH = "/api/analytics/replay";
 const DEFAULT_SAMPLING_SALT = "agent-native-session-replay";
+
+/**
+ * Default rrweb event throttling. Without this, rrweb captures every
+ * mousemove/scroll which dominates event volume and main-thread cost on
+ * interactive pages. These caps keep replays faithful while staying light.
+ */
+const DEFAULT_EVENT_SAMPLING: ReplayEventSampling = {
+  mousemove: 50,
+  mouseInteraction: true,
+  scroll: 100,
+  media: 800,
+  input: "last",
+};
 const SESSION_REPLAY_STATE_KEY = Symbol.for(
   "agent-native.client.sessionReplay",
 );
@@ -467,6 +492,7 @@ function normalizeOptions(
     recordCrossOriginIframes: options.recordCrossOriginIframes ?? false,
     collectFonts: options.collectFonts ?? false,
     inlineImages: options.inlineImages ?? false,
+    eventSampling: options.eventSampling ?? DEFAULT_EVENT_SAMPLING,
     extraProperties: options.extraProperties,
   };
 }
@@ -506,15 +532,25 @@ function scrubReplayValue(
   return out;
 }
 
-function scrubReplayEvent(event: ReplayEvent): ReplayEvent {
-  return scrubReplayValue(event) as ReplayEvent;
+/**
+ * JSON.stringify replacer that scrubs URL-like string values inline. Folding
+ * the scrub into the single serialization pass avoids a separate deep-clone of
+ * every emitted event (FullSnapshots are large DOM trees) on the hot path.
+ */
+function scrubReplayReplacer(key: string, value: unknown): unknown {
+  return typeof value === "string" ? scrubStringValue(key, value) : value;
 }
 
-function estimateJsonBytes(value: unknown): number {
+/**
+ * Serialize + scrub one event in a single pass. The resulting string is stored
+ * directly on the queue and reused verbatim at flush, so each event is
+ * stringified exactly once (was: deep-clone + size-stringify + flush-stringify).
+ */
+function serializeReplayEvent(event: ReplayEvent): string {
   try {
-    return JSON.stringify(value).length;
+    return JSON.stringify(event, scrubReplayReplacer);
   } catch {
-    return 0;
+    return "";
   }
 }
 
@@ -523,15 +559,16 @@ function enqueueReplayEvent(
   event: ReplayEvent,
 ): void {
   if (!state.options) return;
-  const sanitized = scrubReplayEvent(event);
-  const estimatedBytes = estimateJsonBytes(sanitized);
+  const serialized = serializeReplayEvent(event);
+  if (!serialized) return;
+  const estimatedBytes = serialized.length;
   if (
     state.queue.length > 0 &&
     state.queuedBytes + estimatedBytes > state.options.maxBatchBytes
   ) {
     void flushSessionReplay("max-bytes");
   }
-  state.queue.push(sanitized);
+  state.queue.push(serialized);
   state.queuedBytes += estimatedBytes;
   if (state.queue.length >= state.options.maxEventsPerBatch) {
     void flushSessionReplay("max-events");
@@ -559,7 +596,7 @@ function replayString(value: unknown): string | undefined {
 function buildReplayBody(
   state: SessionReplayState,
   reason: string,
-  events: ReplayEvent[],
+  eventJsonParts: string[],
 ): string | null {
   const options = state.options;
   if (!options || !state.replayId) return null;
@@ -567,7 +604,7 @@ function buildReplayBody(
   if (!sessionId) return null;
   const properties = replayExtraProperties(options);
   const userId = replayString(properties?.userId ?? properties?.user_id);
-  const body = {
+  const envelope = {
     publicKey: options.publicKey,
     type: "session_replay",
     replayId: state.replayId,
@@ -584,11 +621,13 @@ function buildReplayBody(
         : undefined,
     timestamp: new Date().toISOString(),
     properties,
-    events,
   };
   state.sequence += 1;
   persistReplaySequence(sessionId, state.replayId, state.sequence);
-  return JSON.stringify(body);
+  // Events are already serialized+scrubbed JSON strings; splice them into the
+  // envelope without re-serializing the (potentially large) events array.
+  const envelopeJson = JSON.stringify(envelope);
+  return `${envelopeJson.slice(0, -1)},"events":[${eventJsonParts.join(",")}]}`;
 }
 
 function isFinalFlushReason(reason: string): boolean {
@@ -742,6 +781,7 @@ export async function startSessionReplay(
   try {
     const stopRecorder = rrweb.record({
       emit: (event) => enqueueReplayEvent(state, event),
+      sampling: normalized.eventSampling,
       checkoutEveryNth: normalized.checkoutEveryNth,
       checkoutEveryNms: normalized.checkoutEveryNms,
       blockSelector: normalized.blockSelector,
