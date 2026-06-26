@@ -13,6 +13,11 @@ export {
   EmbeddedExtension,
   type EmbeddedExtensionProps,
 } from "./EmbeddedExtension.js";
+export {
+  InlineExtensionFrame,
+  type InlineExtensionDefinition,
+  type InlineExtensionFrameProps,
+} from "./InlineExtensionFrame.js";
 export { ExtensionSlot, type ExtensionSlotProps } from "./ExtensionSlot.js";
 export {
   deleteOrHideExtension,
