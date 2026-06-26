@@ -76,6 +76,8 @@ export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.panel("top-referrers").setTitle("Top Referrers by Domain");',
   'dashboard.panel("retention").set({"width":2,"config":{"description":"Updated definition."}});',
   'dashboard.panelsMatching({"titleIncludes":"Signed-In"}).moveToTop();',
+  'dashboard.panelsMatching({"source":"first-party"}).setWidth(2);',
+  'dashboard.panel("retention").setConfigPath("yAxis.format","percent");',
   'dashboard.section("retention-activity-section").append(["repeat-users","retention-over-time"]);',
   'dashboard.insertPanel({"id":"new-kpi","title":"New KPI","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).atTop();',
 ] as const;
@@ -248,6 +250,44 @@ function nearest(value: string, candidates: string[], limit = 3): string[] {
     .map((item) => item.candidate);
 }
 
+function normalizeWords(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+}
+
+function nearestPanelIds(
+  value: string,
+  panels: Array<Record<string, unknown>>,
+  limit = 3,
+): string[] {
+  const words = normalizeWords(value);
+  return panels
+    .map((panel) => {
+      const id = panelId(panel);
+      const searchableWords = new Set(
+        normalizeWords(`${id} ${panelTitle(panel)}`),
+      );
+      const matchedWords = words.filter((word) => searchableWords.has(word));
+      const wordScore =
+        words.length > 0 ? words.length - matchedWords.length : 100;
+      const distanceScore = Math.min(
+        editDistance(value, id),
+        editDistance(value, panelTitle(panel) || id),
+      );
+      return {
+        id,
+        score: wordScore === 0 ? 0 : wordScore * 20 + distanceScore,
+      };
+    })
+    .filter((item) => item.id)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, limit)
+    .map((item) => item.id);
+}
+
 function methodHelp(method: string, methods: string[]): string {
   const suggestions = nearest(method, methods);
   return ` Did you mean ${suggestions.map((item) => `"${item}"`).join(", ")}? Valid methods: ${methods.join(", ")}.`;
@@ -258,7 +298,7 @@ function missingPanelHelp(
   id: string,
 ): string {
   const ids = panelIdsFromPanels(panels);
-  const suggestions = nearest(id, ids);
+  const suggestions = nearestPanelIds(id, panels);
   return (
     `panel "${id}" was not found.` +
     (suggestions.length
@@ -342,6 +382,11 @@ function requirePanel(
   const index = findPanelIndex(panels, id);
   if (index < 0) throw new Error(missingPanelHelp(panels, id));
   return panels[index];
+}
+
+function requirePanelIds(config: Record<string, unknown>, ids: string[]): void {
+  const panels = panelsFromConfig(config);
+  for (const id of ids) requirePanel(panels, id);
 }
 
 function enhancePanelError(
@@ -435,7 +480,7 @@ function setConfigPath(
   if (segments[0] === "config") segments.shift();
   if (segments.length === 0) {
     throw new Error(
-      "setConfigPath path must point under panel.config, e.g. \"yAxis.format\".",
+      'setConfigPath path must point under panel.config, e.g. "yAxis.format".',
     );
   }
   for (const segment of segments) {
@@ -444,7 +489,9 @@ function setConfigPath(
     }
   }
   const config =
-    panel.config && typeof panel.config === "object" && !Array.isArray(panel.config)
+    panel.config &&
+    typeof panel.config === "object" &&
+    !Array.isArray(panel.config)
       ? { ...(panel.config as Record<string, unknown>) }
       : {};
   let cursor: Record<string, unknown> = config;
@@ -577,12 +624,12 @@ export function applyDashboardMutationOperations(
           break;
         }
         default:
-          throw new Error(`unsupported dashboard mutation op ${(op as any).op}`);
+          throw new Error(
+            `unsupported dashboard mutation op ${(op as any).op}`,
+          );
       }
     } catch (err: any) {
-      throw new Error(
-        `operation ${opIndex + 1} (${op.op}): ${err.message}`,
-      );
+      throw new Error(`operation ${opIndex + 1} (${op.op}): ${err.message}`);
     }
   }
 
@@ -973,19 +1020,22 @@ function operationsFromStatement(
 
   if (subject.name === "section") {
     const sectionId = assertString(subject.args[0], "section id");
+    requirePanelIds(config, [sectionId]);
     const command = commands[0];
     if (command.name === "append") {
       if (commands.length > 1) {
         throw new Error("dashboard.section(...).append(...) cannot be chained");
       }
-    return [
-      {
-        op: "movePanels",
-          panelIds: assertStringArray(command.args[0], "append panelIds"),
+      const appendIds = assertStringArray(command.args[0], "append panelIds");
+      requirePanelIds(config, appendIds);
+      return [
+        {
+          op: "movePanels",
+          panelIds: appendIds,
           afterPanelId: sectionId,
-      },
-    ];
-  }
+        },
+      ];
+    }
     return operationFromPanelCommand([sectionId], command);
   }
 
@@ -1009,6 +1059,8 @@ function operationsFromStatement(
       `unsupported dashboard subject "${subject.name}".${methodHelp(subject.name, DASHBOARD_SUBJECTS)}`,
     );
   }
+
+  requirePanelIds(config, panelIds);
 
   return commands.flatMap((command) =>
     operationFromPanelCommand(panelIds, command),

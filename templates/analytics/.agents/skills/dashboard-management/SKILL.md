@@ -23,13 +23,17 @@ Current storage:
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
 
-Use `update-dashboard` for dashboard edits. It resolves the current user/org context, validates the config, applies JSON-pointer operations when provided, writes the SQL-backed record, and preserves sharing semantics.
+Use `mutate-dashboard` for existing dashboard edits. It resolves the current
+user/org context, validates the resulting config, writes the SQL-backed record,
+syncs collab, and returns compact proof. Use `update-dashboard` for new
+full-config saves, UI full-config saves, or explicitly requested low-level
+JSON-pointer edits.
 
 Never use `db-patch`, raw SQL, or settings-key edits to create or modify a
 dashboard config. Those bypass the dashboard action's access checks, SQL
-validation, collab sync, and proof-of-done return. If an `update-dashboard`
-call fails because the argument shape was wrong, fix the `update-dashboard`
-arguments and retry once — do not switch tools.
+validation, collab sync, and proof-of-done return. If a dashboard action fails
+because the argument shape was wrong, fix that action's arguments and retry
+once — do not switch to db-patch or raw SQL.
 
 ## Valid Panel Sources
 
@@ -68,7 +72,7 @@ The save path dry-runs BigQuery panels before persisting. If validation returns 
 ## When To Use An Extension Instead
 
 Native Analytics dashboards are JSON configs rendered by the built-in dashboard
-components. Use `update-dashboard` only when the request fits that model:
+components. Use native dashboard actions only when the request fits that model:
 standard panels, supported chart types, filters, variables, sections, and grid
 layout.
 
@@ -191,6 +195,38 @@ type DashboardMutationApi = {
   };
 };
 
+type DashboardPatch = {
+  name?: string;
+  description?: string;
+  columns?: number;
+  filters?: unknown[];
+  variables?: Record<string, string>;
+};
+
+type PanelPatch = {
+  title?: string;
+  sql?: string;
+  source?: "bigquery" | "ga4" | "amplitude" | "first-party" | "demo" | "prometheus";
+  chartType?: "line" | "area" | "bar" | "metric" | "table" | "pie" | "section" | "heatmap" | "callout";
+  width?: number;
+  columns?: number;
+  tab?: string;
+  config?: Record<string, unknown>;
+  description?: string;
+};
+
+type PanelFilter = {
+  id?: string;
+  ids?: string[];
+  idIncludes?: string;
+  title?: string;
+  titleIncludes?: string;
+  chartType?: PanelPatch["chartType"];
+  source?: PanelPatch["source"];
+  tab?: string;
+  isSection?: boolean;
+};
+
 type PanelSelection = {
   moveToTop(): void;
   moveToBottom(): void;
@@ -203,7 +239,20 @@ type PanelSelection = {
   setSql(sql: string): void;
   setWidth(width: number): void;
   setConfig(patch: Record<string, unknown>): void;
+  setConfigPath(path: string, value: unknown): void;
   duplicate(newPanelId: string, patch?: PanelPatch): void;
+};
+
+type SectionSelection = PanelSelection & {
+  append(panelIds: string[]): void;
+};
+
+type InsertedPanel = {
+  atTop(): void;
+  atBottom(): void;
+  before(panelId: string): void;
+  after(panelId: string): void;
+  atIndex(index: number): void;
 };
 ```
 
@@ -216,6 +265,11 @@ dashboard.panel("retention").set({
   "width": 2,
   "config": { "description": "Updated definition." }
 });
+dashboard.panelsMatching({ "source": "first-party" }).setWidth(2);
+dashboard.panelsMatching({ "titleIncludes": "Revenue" }).setConfigPath(
+  "yAxis.format",
+  "currency"
+);
 dashboard.panelsMatching({ "titleIncludes": "Signed-In" }).moveToTop();
 dashboard.section("retention-activity-section").append([
   "repeat-users",
@@ -240,26 +294,14 @@ Native tool call:
 }
 ```
 
-Use `reorder-dashboard-panels` only as a shortcut when exact panel ids are known
-and a native `panelIds` array can be passed. Use `update-dashboard` only when you
-specifically need low-level JSON-pointer ops or a full config replace.
+Use `update-dashboard` only for new full-config saves, UI full-config saves, or
+when the user specifically requests low-level JSON-pointer edits.
 
 `get-sql-dashboard` is compact by default. It returns panel summaries, ids,
 titles, chart types, sources, layout groups, `layout.panelOrder`, and
 `layout.firstPanelIds` without embedding every panel's full SQL. Use that
 compact result to find panel ids and verify order. Pass `includeConfig: true`
 only when you need full panel SQL/config for a detailed edit.
-
-Preferred patterns:
-
-```bash
-# JSON-pointer style patch
-pnpm action update-dashboard --dashboardId weekly-metrics \
-  --ops '[{"op":"replace","path":"/panels/0/title","value":"Events by Day"}]'
-
-# Full config replacement
-pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
-```
 
 After a mutation, navigate to the dashboard if the user is elsewhere. The app syncs through the framework's polling/query invalidation path.
 
@@ -275,25 +317,9 @@ string script:
 }
 ```
 
-`reorder-dashboard-panels` is also valid when you can pass a native array. Do
-not do index arithmetic with `/panels/<index>` unless the user specifically asks
-for a low-level JSON-pointer edit.
-
-```json
-{
-  "dashboardId": "weekly-metrics",
-  "panelIds": ["dau-over-time", "wau-over-time"],
-  "position": "top"
-}
-```
-
-The action moves the requested panel ids as a group in the order supplied, keeps
-every omitted panel in its existing relative order, saves once, and returns
-compact proof: `panelCount`, `movedPanelIds`, `firstPanelIds`, and `panelOrder`.
-Use `beforePanelId`, `afterPanelId`, or `index` when the target is not the top or
-bottom. If you already have the desired leading order, `update-dashboard` also
-accepts `panelOrder: ["panel-a", "panel-b"]`; those ids move to the front in
-that order and omitted panels keep their existing relative order.
+Do not do index arithmetic with `/panels/<index>` unless the user specifically
+asks for a low-level JSON-pointer edit. Use `moveBefore`, `moveAfter`,
+`moveToTop`, `moveToBottom`, or `moveToIndex` against panel ids instead.
 
 `get-sql-dashboard` returns `layout.panelOrder`, `layout.firstPanelIds`, and
 row/group summaries. Use those fields for orientation and verification instead
@@ -303,46 +329,20 @@ of re-reading stale screenshots or counting positions from memory.
 
 When the user asks to change existing panels:
 
-1. Read the current dashboard config through the dashboard/action surface.
-2. For reorders, call `reorder-dashboard-panels` by id. For field edits, find
-   panel indexes by `panel.id` from the current config you just read. Do not
-   rely on seed-file order, stale memory, or screenshots.
-3. For field edits, build one `ops` array that includes every change and call
-   `update-dashboard` once.
-4. Verify the returned `panelCount`, `appliedOps`, `firstPanelIds`, and
+1. Read the current dashboard with `get-sql-dashboard` compact mode unless full
+   SQL/config is required.
+2. Call `mutate-dashboard` once with every change in one script. Use
+   `panel(...)`, `panels([...])`, or `panelsMatching({...})` selectors by id or
+   metadata; do not compute shifted array indexes.
+3. Verify the returned `panelCount`, `appliedOps`, `firstPanelIds`, and
    `summary`. If possible, read the affected panels back and confirm the exact
    fields changed.
 
-For native production tools, pass `ops` as a native array:
-
-```json
-{
-  "dashboardId": "weekly-metrics",
-  "ops": [
-    {
-      "op": "replace",
-      "path": "/panels/3/sql",
-      "value": "SELECT COUNT(*) AS value FROM analytics_events"
-    },
-    {
-      "op": "replace",
-      "path": "/panels/3/config/description",
-      "value": "Updated definition."
-    }
-  ]
-}
-```
-
-The quoted JSON examples in this skill are for shell commands only. In native
-tool calls, do not pass `ops` as a string. If the tool complains about the
-shape, retry `update-dashboard` with a native array and continue from the same
-dashboard config.
-
-For SQL-only panel edits, replacing `/panels/<index>/sql` is enough. If the
-metric semantics changed, also replace `/panels/<index>/config/description` so
-the visible dashboard explains the new definition. If the title, source, chart
-type, width, or config shape changes together, replace the whole panel object at
-`/panels/<index>` in the same `ops` array.
+For SQL-only panel edits, use `dashboard.panel("id").setSql("...")`. If the
+metric semantics changed, also update the visible definition with
+`setConfigPath("description", "...")` or `set({ "description": "..." })`. If
+the title, source, chart type, width, or config shape changes together, put them
+in the same `set({...})` call.
 
 ### First-Party User Metrics
 
@@ -393,18 +393,26 @@ This is the dashboard-specific application of the framework-wide `reliable-mutat
 Hosted agent runs have a **~40s budget**. Many sequential `update-dashboard` calls (one per panel, plus schema-discovery calls) will blow that budget and leave the dashboard in a partial state — earlier inserts looked like they succeeded (✓), but nothing actually persisted. Avoid this:
 
 - **For a large first-party dashboard, use `compose-dashboard`** (see the section above): name the metrics, the server generates the panels in one call. Do not hand-author the big config.
-- **Batch ALL changes into ONE `update-dashboard` call.** A single `update-dashboard` is atomic: it applies every op to an in-memory config, validates all panel SQL, then upserts once. Never loop the action.
-  - To add N panels, pass N ops in one call: `ops: [{op:"insert", path:"/panels/-", value:<panel>}, … ]` (`/panels/-` appends to the end).
-  - The `ops` format needs no discovery: each op is `{ op, path, from?, value? }`, `op ∈ set | replace | remove | insert | move | move-before`, and `path` is a JSON Pointer (e.g. `/panels/3`, `/panels/3/title`, `/name`).
-  - In native tool calls, `ops` is an array, not a JSON string. Shell commands quote JSON only because shells need strings.
+- **Batch ALL edits into ONE `mutate-dashboard` call.** One script can move,
+  insert, remove, duplicate, and update many panels. Never loop dashboard edit
+  actions panel-by-panel.
+  - To bulk edit existing panels, use selectors:
+    `dashboard.panelsMatching({"source":"first-party"}).setWidth(2);`
+  - To make nested config edits, use
+    `setConfigPath("yAxis.format", "percent")` instead of resending/clobbering
+    the whole nested object.
 - **To add a shipped template's panels, prefer `install-dashboard-template` with `mergePanels: true`** and the existing `dashboardId`. It appends only the template panels whose id is not already present (preserving existing panels and order) in one atomic save — you don't author each panel yourself.
-- **Always verify the returned proof-of-done and report it.** `update-dashboard` returns `panelCount`, `appliedOps`, and a `summary` string; `install-dashboard-template --mergePanels` returns `addedPanelIds`, `skippedExistingIds`, and `panelCount`. Tell the user the resulting panel count instead of assuming success.
+- **Always verify the returned proof-of-done and report it.**
+  `mutate-dashboard` returns `panelCount`, `appliedOps`, `panelOrder`,
+  `firstPanelIds`, `changedPanelIds`, `commandLog`, and a `summary` string.
+  `install-dashboard-template --mergePanels` returns `addedPanelIds`,
+  `skippedExistingIds`, and `panelCount`. Tell the user the resulting panel
+  count instead of assuming success.
 
 ```bash
-# Add several panels in ONE atomic call (never one call per panel)
-pnpm action update-dashboard --dashboardId weekly-metrics \
-  --ops '[{"op":"insert","path":"/panels/-","value":{"id":"p1","title":"A","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}},
-          {"op":"insert","path":"/panels/-","value":{"id":"p2","title":"B","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(DISTINCT user_id) AS value FROM analytics_events"}}]'
+# Add or edit several panels in ONE atomic call (never one call per panel)
+pnpm action mutate-dashboard --dashboardId weekly-metrics \
+  --code 'dashboard.panelsMatching({"source":"first-party"}).setWidth(2);'
 
 # Append a template's panels to an existing dashboard in one call
 pnpm action install-dashboard-template --templateId skills-cli-funnel --dashboardId weekly-metrics --mergePanels true
@@ -439,9 +447,9 @@ Writes require editor access; deletes require admin access. Owners always satisf
 - Never fabricate data or create a dashboard from guessed schema. A panel's SQL must hit a real source; do not present figures you did not actually query.
 - Never write dashboard configs into the settings table.
 - Never use `db-patch` as a fallback for dashboard config edits. Use
-  `update-dashboard` and fix the action arguments.
+  `mutate-dashboard` for existing edits, or `update-dashboard` for new/full
+  config saves, and fix the action arguments.
 - Never set `panel.source` to a table name or unsupported backend.
 - Use `first-party` for `/track` data and `query-agent-native-analytics` for ad-hoc first-party event questions.
 - Use `update-dashboard` for new dashboard config saves and full config
-  replacements. Use `mutate-dashboard` for existing dashboard edits unless a
-  low-level JSON-pointer operation is explicitly needed.
+  replacements. Use `mutate-dashboard` for existing dashboard edits.

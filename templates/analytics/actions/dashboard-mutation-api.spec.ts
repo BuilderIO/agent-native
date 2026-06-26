@@ -93,6 +93,35 @@ describe("dashboard mutation api", () => {
     ]);
   });
 
+  it("supports bulk field edits and nested config path edits", () => {
+    const root = clone(config());
+    const operations = parseDashboardMutationScript(
+      root,
+      [
+        'dashboard.panelsMatching({"titleIncludes":"Signed-In"}).setWidth(2);',
+        'dashboard.panels(["b","c"]).setConfigPath("yAxis.format","percent");',
+      ].join("\n"),
+    );
+
+    const result = applyDashboardMutationOperations(root, operations);
+    const signedInPanels = root.panels.filter(
+      (p) => p.id === "b" || p.id === "c",
+    );
+
+    expect(signedInPanels.map((p) => p.width)).toEqual([2, 2]);
+    expect(signedInPanels.map((p) => p.config)).toEqual([
+      { yAxis: { format: "percent" } },
+      { yAxis: { format: "percent" } },
+    ]);
+    expect(result.changedPanelIds).toEqual(["b", "c"]);
+    expect(result.commandLog).toEqual([
+      "updatePanel(b: width)",
+      "updatePanel(c: width)",
+      "updatePanelPath(b: config.yAxis.format)",
+      "updatePanelPath(c: config.yAxis.format)",
+    ]);
+  });
+
   it("can insert and duplicate panels with explicit placement", () => {
     const root = clone(config());
     const operations = parseDashboardMutationScript(
@@ -133,5 +162,47 @@ describe("dashboard mutation api", () => {
         'dashboard.panel("a").set({title:"Alpha"});',
       ),
     ).toThrow(/JSON-compatible/);
+  });
+
+  it("returns teachable statement errors", () => {
+    expect(() =>
+      parseDashboardMutationScript(
+        config(),
+        'dashboard.panel("signed-in-daily").setTitle("Daily");',
+      ),
+    ).toThrow(
+      /statement 1 .*panel "signed-in-daily" was not found.*Did you mean "b"/,
+    );
+
+    expect(() =>
+      parseDashboardMutationScript(config(), 'dashboard.panel("a").resize(2);'),
+    ).toThrow(/statement 1 .*unsupported panel method "resize".*Valid methods/);
+
+    expect(() =>
+      parseDashboardMutationScript(
+        config(),
+        'dashboard.panelsMatching({"titleIncludes":"Revenue"}).moveToTop();',
+      ),
+    ).toThrow(/statement 1 .*did not match any panels.*Candidate panels/);
+
+    expect(() =>
+      parseDashboardMutationScript(
+        config(),
+        [
+          'dashboard.panel("a").setTitle("Alpha");',
+          'dashboard.panel("b").setWidth("wide");',
+        ].join("\n"),
+      ),
+    ).toThrow(/statement 2 .*width must be a finite number/);
+  });
+
+  it("rejects panel id changes and gives structured op context", () => {
+    const root = clone(config());
+
+    expect(() =>
+      applyDashboardMutationOperations(root, [
+        { op: "updatePanel", panelId: "a", patch: { id: "renamed" } },
+      ]),
+    ).toThrow(/operation 1 \(updatePanel\).*panel\.id cannot be changed/);
   });
 });
