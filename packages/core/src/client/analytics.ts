@@ -802,11 +802,17 @@ function configuredSessionReplayOptions(
     : undefined;
   const withTrackingDefaults = (
     options: SessionReplayOptions,
-  ): SessionReplayOptions => ({
-    ...(publicKey && !options.publicKey ? { publicKey } : {}),
-    ...(endpoint && !options.endpoint ? { endpoint } : {}),
-    ...options,
-  });
+  ): SessionReplayOptions => {
+    const extraProperties = replayExtraPropertiesWithDefaults(
+      options.extraProperties,
+    );
+    return {
+      ...(publicKey && !options.publicKey ? { publicKey } : {}),
+      ...(endpoint && !options.endpoint ? { endpoint } : {}),
+      ...options,
+      ...(extraProperties ? { extraProperties } : {}),
+    };
+  };
 
   if (config === true) return withTrackingDefaults({});
   if (config && typeof config === "object") {
@@ -814,6 +820,22 @@ function configuredSessionReplayOptions(
     return withTrackingDefaults(config);
   }
   return sessionReplayEnabledFromEnv() ? withTrackingDefaults({}) : null;
+}
+
+function replayExtraPropertiesWithDefaults(
+  source: SessionReplayOptions["extraProperties"],
+): SessionReplayOptions["extraProperties"] {
+  if (!_getDefaultProps) return source;
+  return () => {
+    const rawProps =
+      typeof source === "function"
+        ? source()
+        : source && typeof source === "object"
+          ? source
+          : {};
+    const props = rawProps && typeof rawProps === "object" ? rawProps : {};
+    return _getDefaultProps?.("session_replay", props) ?? props;
+  };
 }
 
 function replayEndpointFromTrackingEndpoint(value: string): string | undefined {

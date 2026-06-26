@@ -337,6 +337,46 @@ describe("session replay", () => {
     });
   });
 
+  it("applies configureTracking default props to replay metadata", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    vi.resetModules();
+    const { configureTracking, stopSessionReplay } =
+      await import("./analytics.js");
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        app: "agent-native-test",
+        userId: "user_123",
+      }),
+      sessionReplay: true,
+    });
+    await tick();
+
+    recordOptions.emit({ type: 3, data: { href: "/inbox" } });
+    await stopSessionReplay();
+    await tick();
+
+    const replayCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/api/analytics/replay"),
+    );
+    expect(replayCalls).toHaveLength(1);
+    const [, init] = replayCalls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.userId).toBe("user_123");
+    expect(body.properties).toMatchObject({
+      app: "agent-native-test",
+      userId: "user_123",
+    });
+  });
+
   it("uses deterministic per-session sampling", async () => {
     const { shouldSampleSessionReplay, getSessionReplaySamplingScore } =
       await freshSessionReplay();

@@ -478,7 +478,7 @@ function dashboardResult(
       `${summary} First panels: ${compact.firstPanelIds.join(", ")}.` +
       (returnConfig
         ? ""
-        : " Full config omitted; call get-sql-dashboard if needed."),
+        : " Full config omitted; call get-sql-dashboard with includeConfig=true only if full SQL/config is needed."),
   };
 }
 

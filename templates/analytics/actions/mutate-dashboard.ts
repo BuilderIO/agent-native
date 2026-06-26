@@ -94,7 +94,7 @@ const operationsInputSchema = z
 const apiHelp =
   "Constrained TypeScript-like dashboard mutation script. The server parses only calls on `dashboard`; it does not execute arbitrary JavaScript. " +
   "No variables, imports, loops, functions, templates, network, filesystem, or DB access. Arguments must be JSON-compatible literals, so quote object keys. " +
-  `${DASHBOARD_MUTATION_API_TYPES}\n\nExamples:\n${DASHBOARD_MUTATION_EXAMPLES.join("\n")}`;
+  `Examples: ${DASHBOARD_MUTATION_EXAMPLES.slice(0, 3).join(" ")} Set returnTypes=true for the full allowed TS API.`;
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -303,7 +303,7 @@ export default defineAction({
         `${summary} ` +
         (args.returnConfig === true
           ? ""
-          : "Full config omitted; call get-sql-dashboard if needed."),
+          : "Full config omitted; call get-sql-dashboard with includeConfig=true only if full SQL/config is needed."),
     };
   },
   link: ({ result }) => {

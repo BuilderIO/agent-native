@@ -77,6 +77,9 @@ details live in `.agents/skills/`.
   atomic save. The script is constrained: only documented dashboard method
   calls with JSON-compatible arguments are parsed; variables, imports, loops,
   functions, network, filesystem, and DB access are not available.
+- `get-sql-dashboard` is compact by default for agents. Use its `panels`
+  summaries and `layout.panelOrder` / `layout.firstPanelIds` for orientation and
+  proof. Pass `includeConfig: true` only when full panel SQL/config is needed.
 - Native dashboards and saved analyses are constrained artifacts. If a requested
   dashboard, analysis surface, visualization, interaction model, custom layout,
   or bespoke workflow cannot be done faithfully with the built-in dashboard JSON

@@ -1112,7 +1112,7 @@ async function fetchSqlDashboardForPrefetch(
   try {
     const data: any = await callAction(
       "get-sql-dashboard",
-      { id },
+      { id, includeConfig: true },
       { method: "GET" },
     );
     if (!data || data.error) return null;

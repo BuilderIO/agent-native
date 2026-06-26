@@ -242,6 +242,12 @@ Use `reorder-dashboard-panels` for the simplest chart/section moves. Use
 `update-dashboard` only when you specifically need low-level JSON-pointer ops or
 a full config replace.
 
+`get-sql-dashboard` is compact by default. It returns panel summaries, ids,
+titles, chart types, sources, layout groups, `layout.panelOrder`, and
+`layout.firstPanelIds` without embedding every panel's full SQL. Use that
+compact result to find panel ids and verify order. Pass `includeConfig: true`
+only when you need full panel SQL/config for a detailed edit.
+
 Preferred patterns:
 
 ```bash

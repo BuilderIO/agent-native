@@ -536,6 +536,10 @@ function replayExtraProperties(
   }
 }
 
+function replayString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
 function buildReplayBody(
   state: SessionReplayState,
   reason: string,
@@ -545,11 +549,14 @@ function buildReplayBody(
   if (!options || !state.replayId) return null;
   const sessionId = getAnalyticsSessionId();
   if (!sessionId) return null;
+  const properties = replayExtraProperties(options);
+  const userId = replayString(properties?.userId ?? properties?.user_id);
   const body = {
     publicKey: options.publicKey,
     type: "session_replay",
     replayId: state.replayId,
     sessionId,
+    ...(userId ? { userId } : {}),
     anonymousId: getAnalyticsAnonymousId(),
     sequence: state.sequence,
     reason,
@@ -560,7 +567,7 @@ function buildReplayBody(
         ? scrubUrl(window.location.href)
         : undefined,
     timestamp: new Date().toISOString(),
-    properties: replayExtraProperties(options),
+    properties,
     events,
   };
   state.sequence += 1;

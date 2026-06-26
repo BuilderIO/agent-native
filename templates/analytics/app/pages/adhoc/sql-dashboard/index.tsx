@@ -336,7 +336,7 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
   try {
     const data: any = await callAction(
       "get-sql-dashboard",
-      { id },
+      { id, includeConfig: true },
       { method: "GET" },
     );
     if (!data || data.error) return null;
