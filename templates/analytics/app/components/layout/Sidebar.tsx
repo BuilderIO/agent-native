@@ -520,11 +520,7 @@ function SortableRow({
   }, [href, t]);
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="group/item relative min-w-0"
-    >
+    <div ref={setNodeRef} style={style} className="group/item relative min-w-0">
       <button
         type="button"
         className="absolute -start-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
@@ -1440,26 +1436,21 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       visibility: d.visibility,
     }));
     const all = [...staticItems, ...sqlItems];
-    let sorted: SidebarDashboard[];
     if (dashboardSortMode === "alphabetical") {
-      sorted = sortByName(all);
-    } else if (
-      dashboardSortMode === "manual" &&
-      dashboardOrderState.length > 0
-    ) {
-      sorted = applyOrder(all, dashboardOrderState);
-    } else {
-      sorted = [...all].sort((a, b) => {
-        const aFav = favoriteIds.has(a.id) ? 0 : 1;
-        const bFav = favoriteIds.has(b.id) ? 0 : 1;
-        if (aFav !== bFav) return aFav - bFav;
-        const aPop = popularityOf(popularity, "dashboard", a.id);
-        const bPop = popularityOf(popularity, "dashboard", b.id);
-        if (aPop !== bPop) return bPop - aPop;
-        return a.name.localeCompare(b.name);
-      });
+      return sortByName(all);
     }
-    return sorted;
+    if (dashboardSortMode === "manual" && dashboardOrderState.length > 0) {
+      return applyOrder(all, dashboardOrderState);
+    }
+    return [...all].sort((a, b) => {
+      const aFav = favoriteIds.has(a.id) ? 0 : 1;
+      const bFav = favoriteIds.has(b.id) ? 0 : 1;
+      if (aFav !== bFav) return aFav - bFav;
+      const aPop = popularityOf(popularity, "dashboard", a.id);
+      const bPop = popularityOf(popularity, "dashboard", b.id);
+      if (aPop !== bPop) return bPop - aPop;
+      return a.name.localeCompare(b.name);
+    });
   }, [
     hiddenIds,
     staticDashboardRenames,
