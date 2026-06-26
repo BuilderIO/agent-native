@@ -58,15 +58,21 @@ export default defineAction({
       if (library) {
         await Promise.all([
           readPart("generationPresets", () =>
-            listGenerationPresets.run({
-              libraryId: nav.libraryId,
-            }, ctx),
+            listGenerationPresets.run(
+              {
+                libraryId: nav.libraryId,
+              },
+              ctx,
+            ),
           ),
           readPart("generationSessions", () =>
-            listGenerationSessions.run({
-              libraryId: nav.libraryId,
-              limit: 20,
-            }, ctx),
+            listGenerationSessions.run(
+              {
+                libraryId: nav.libraryId,
+                limit: 20,
+              },
+              ctx,
+            ),
           ),
         ]);
       }
@@ -76,16 +82,22 @@ export default defineAction({
     }
     if (nav?.sessionId) {
       await readPart("generationSession", () =>
-        getGenerationSession.run({
-          id: nav.sessionId,
-        }, ctx),
+        getGenerationSession.run(
+          {
+            id: nav.sessionId,
+          },
+          ctx,
+        ),
       );
     }
     if (nav?.runId) {
       await readPart("generationRun", () =>
-        getGenerationRun.run({
-          runId: nav.runId,
-        }, ctx),
+        getGenerationRun.run(
+          {
+            runId: nav.runId,
+          },
+          ctx,
+        ),
       );
     }
     if (nav?.view === "picker") {
@@ -94,32 +106,36 @@ export default defineAction({
       );
       if (nav.libraryId) {
         await readPart("assets", () =>
-          listAssets.run({
-            libraryId: nav.libraryId,
-            mediaType:
-              nav.mediaType === "image" || nav.mediaType === "video"
-                ? nav.mediaType
-                : undefined,
-            query:
-              typeof nav.query === "string" && nav.query.trim()
-                ? nav.query
-                : undefined,
-          }, ctx),
+          listAssets.run(
+            {
+              libraryId: nav.libraryId,
+              mediaType:
+                nav.mediaType === "image" || nav.mediaType === "video"
+                  ? nav.mediaType
+                  : undefined,
+              query:
+                typeof nav.query === "string" && nav.query.trim()
+                  ? nav.query
+                  : undefined,
+            },
+            ctx,
+          ),
         );
       }
     }
     if (nav?.view === "library" && nav?.selection === "all") {
       await Promise.all([
-        readPart("libraries", () =>
-          listLibraries.run({ compact: false }, ctx),
-        ),
+        readPart("libraries", () => listLibraries.run({ compact: false }, ctx)),
         readPart("assets", () =>
-          listAssets.run({
-            query:
-              typeof nav.search === "string" && nav.search.trim()
-                ? nav.search
-                : undefined,
-          }, ctx),
+          listAssets.run(
+            {
+              query:
+                typeof nav.search === "string" && nav.search.trim()
+                  ? nav.search
+                  : undefined,
+            },
+            ctx,
+          ),
         ),
       ]);
     }
