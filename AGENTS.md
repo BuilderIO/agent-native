@@ -208,5 +208,6 @@ Read the relevant skill before making changes in that area:
 - `frontend-design`, `shadcn-ui` for interface work.
 - `changelog` for the per-app user-facing "What's new" CHANGELOG workflow.
 - `extensions` for sandboxed mini-apps.
+- `generative-ui` for transient or persisted sandboxed inline chat UI.
 - `observability`, `tracking`, `voice-transcription`, `a2a-protocol`,
   `external-agents`, and template-specific skills as needed.
