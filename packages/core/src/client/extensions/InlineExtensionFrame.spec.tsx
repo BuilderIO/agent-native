@@ -123,4 +123,66 @@ describe("InlineExtensionFrame", () => {
       },
     ]);
   });
+
+  it("proxies passive output application-state writes from generated UI", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(JSON.stringify({ value: { threshold: 42 } }), {
+        status: 200,
+        statusText: "OK",
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <InlineExtensionFrame
+          extension={{
+            id: "inline-test",
+            mode: "transient",
+            name: "Inline controls",
+            content: '<input type="range" />',
+          }}
+          context={{ threadId: "thread-1" }}
+        />,
+      );
+    });
+
+    const iframe = container.querySelector("iframe");
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe?.contentWindow ?? window,
+          data: {
+            type: "agent-native-extension-request",
+            requestId: "req-1",
+            path: "/_agent-native/application-state/inline-ui:inline-test:output",
+            options: {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Request-Source": "inline-ui",
+              },
+              body: JSON.stringify({ value: { threshold: 42 } }),
+            },
+          },
+        }),
+      );
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/application-state/inline-ui:inline-test:output",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ value: { threshold: 42 } }),
+        credentials: "same-origin",
+      }),
+    );
+    const [, request] = fetchMock.mock.calls[0]!;
+    expect((request as RequestInit).headers).toBeInstanceOf(Headers);
+    const headers = (request as RequestInit).headers as Headers;
+    expect(headers.get("X-Request-Source")).toBe("inline-ui");
+    expect(headers.get("X-Agent-Native-Extension-Id")).toBe("inline-test");
+  });
 });
