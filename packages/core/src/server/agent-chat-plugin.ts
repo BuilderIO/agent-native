@@ -61,6 +61,7 @@ import {
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import { callerOwnsRun, callerOwnsThread } from "../agent/run-ownership.js";
 import type { AgentRunSummary } from "../agent/run-store.js";
+import { readBackgroundRunClaim } from "../agent/run-store.js";
 import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
@@ -7178,6 +7179,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 lastProgressAt: null,
               };
             }
+            // The durable worker writes its pre-claim progression to a separate
+            // `worker_stage` column that the foreground inline-recovery's
+            // `setup_timings` write never overwrites — so the worker's last
+            // reached stage (where it stalled before claiming) survives even
+            // after the foreground takes over `diag_stage`. Best-effort.
+            const workerClaim = run.runId
+              ? await readBackgroundRunClaim(run.runId).catch(() => null)
+              : null;
 
             return {
               active: true,
@@ -7195,6 +7204,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // `/runs/active?threadId=...` and inspect `diagStage`.
               dispatchMode: run.dispatchMode ?? null,
               diagStage: run.diagStage ?? null,
+              workerStage: workerClaim?.workerStage ?? null,
               // Server clock so the client computes "stuck" elapsed time
               // server-relative, immune to client clock skew.
               serverNow: Date.now(),

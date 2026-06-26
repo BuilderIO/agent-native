@@ -4177,6 +4177,13 @@ export function createProductionAgentHandler(
     );
 
     options.onEngineResolved?.(engine, model);
+    // DIAGNOSTIC-ONLY: localize where the worker stalls AFTER model_done. These
+    // land in `worker_stage` (foreground-independent), so even though the
+    // foreground overwrites `diag_stage` on inline recovery, the worker's last
+    // reached point survives. If the last worker_stage is `model_done`, writes
+    // hang right after model resolution (DB connection); if it's
+    // `engine_resolved`/`systemprompt_enter`, the stall is in the named step.
+    workerStep("engine_resolved");
 
     // One-line per-turn resolution log so it's obvious in dev which engine
     // is actually handling the request. `requestEngine` is what the client
@@ -4229,10 +4236,18 @@ export function createProductionAgentHandler(
     const systemPromptThunk = (): Promise<string> =>
       (async (): Promise<string> => {
         const sysPromptStart = Date.now();
+        // Brackets the system-prompt build (which runs the template's
+        // extraContext / data-dictionary). If worker_stage stalls at
+        // `systemprompt_enter` with no `systemprompt_done`, the build itself is
+        // the stall point.
+        workerStep("systemprompt_enter");
         try {
-          return typeof options.systemPrompt === "function"
-            ? await options.systemPrompt(event)
-            : options.systemPrompt;
+          const built =
+            typeof options.systemPrompt === "function"
+              ? await options.systemPrompt(event)
+              : options.systemPrompt;
+          workerStep("systemprompt_done");
+          return built;
         } catch (error) {
           systemPromptError = error;
           return "";
