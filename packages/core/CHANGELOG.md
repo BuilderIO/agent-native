@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.78.6
+
+### Patch Changes
+
+- 81a7f90: diag(agent): add awaited `post_model_awaited` and `pre_claim` probes in the durable background worker. `worker_stage` stalls at `model_done` even though the code right after is trivial sync; these awaited (withDbTimeout-bounded) writes distinguish a hung bg-fn DB connection right after model resolution (probe never lands) from a later main-flow stall (probe lands, then the stall is downstream).
+
 ## 0.78.5
 
 ### Patch Changes
