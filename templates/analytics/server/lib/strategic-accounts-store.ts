@@ -7,6 +7,7 @@ import {
 import { and, asc, eq, isNull, or } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { assertCanManageOrgRoster } from "./org-write-guard.js";
 
 /**
  * Org-scoped store for the curated Strategic Accounts roster. The list is the
@@ -136,6 +137,7 @@ export async function replaceStrategicAccounts(
   accounts: StrategicAccountInput[],
   ctx: AccessCtx,
 ): Promise<StrategicAccountRecord[]> {
+  await assertCanManageOrgRoster(ctx);
   const db = getDb() as any;
   const now = nowIso();
   const rows = accounts

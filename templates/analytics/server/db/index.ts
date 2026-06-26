@@ -45,6 +45,8 @@ registerShareableResource({
   displayName: "Strategic Account",
   titleColumn: "companyName",
   getResourcePath: () => `/dashboards/strategic-accounts`,
+  allowPublic: false,
+  requireOrgMemberForUserShares: true,
   getDb,
 });
 
@@ -55,6 +57,8 @@ registerShareableResource({
   displayName: "Strategic Account Contact",
   titleColumn: "contactName",
   getResourcePath: () => `/dashboards/strategic-account-coverage`,
+  allowPublic: false,
+  requireOrgMemberForUserShares: true,
   getDb,
 });
 
@@ -65,5 +69,7 @@ registerShareableResource({
   displayName: "Implementation Blocker",
   titleColumn: "summary",
   getResourcePath: () => `/dashboards/implementation-blockers`,
+  allowPublic: false,
+  requireOrgMemberForUserShares: true,
   getDb,
 });

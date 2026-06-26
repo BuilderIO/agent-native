@@ -8,7 +8,10 @@ import { z } from "zod";
 
 import { runQuery } from "../server/lib/bigquery";
 import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
-import { replaceStrategicAccounts } from "../server/lib/strategic-accounts-store";
+import {
+  listStrategicAccounts,
+  replaceStrategicAccounts,
+} from "../server/lib/strategic-accounts-store";
 
 /**
  * Derives the Strategic Accounts roster LIVE from the warehouse so a fresh
@@ -137,8 +140,24 @@ export default defineAction({
       };
     }
 
+    // Preserve manually-curated fields (companyId, deploymentStatus, notes) for
+    // companies that already exist — the warehouse ranking only knows the name,
+    // so a blind replace would silently wipe human-entered metadata.
+    const existing = await listStrategicAccounts(ctx);
+    const priorByName = new Map(
+      existing.map((a) => [a.companyName.trim().toLowerCase(), a]),
+    );
     const written = await replaceStrategicAccounts(
-      ranked.map((r, i) => ({ companyName: r.companyName, sortOrder: i })),
+      ranked.map((r, i) => {
+        const prior = priorByName.get(r.companyName.toLowerCase());
+        return {
+          companyName: r.companyName,
+          sortOrder: i,
+          companyId: prior?.companyId ?? null,
+          deploymentStatus: prior?.deploymentStatus ?? "",
+          notes: prior?.notes ?? "",
+        };
+      }),
       ctx,
     );
     const dashboardSynced = await syncDashboardVariable(accountsPipe, ctx);

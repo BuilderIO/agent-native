@@ -7,6 +7,7 @@ import {
 import { and, asc, eq, isNull, or } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { assertCanManageOrgRoster } from "./org-write-guard.js";
 
 /**
  * Org-scoped store for "Implementation Blockers". Customer-specific blocker
@@ -140,6 +141,7 @@ export async function replaceImplementationBlockers(
   blockers: BlockerInput[],
   ctx: AccessCtx,
 ): Promise<BlockerRecord[]> {
+  await assertCanManageOrgRoster(ctx);
   const db = getDb() as any;
   const now = nowIso();
   const rows = blockers

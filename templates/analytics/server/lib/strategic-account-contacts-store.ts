@@ -7,6 +7,7 @@ import {
 import { and, asc, eq, isNull, or } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { assertCanManageOrgRoster } from "./org-write-guard.js";
 
 /**
  * Org-scoped store for "Strategic Account Coverage" contacts. Sensitive contact
@@ -153,6 +154,7 @@ export async function replaceStrategicAccountContacts(
   contacts: ContactInput[],
   ctx: AccessCtx,
 ): Promise<ContactRecord[]> {
+  await assertCanManageOrgRoster(ctx);
   const db = getDb() as any;
   const now = nowIso();
   const rows = contacts

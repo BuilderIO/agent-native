@@ -50,4 +50,50 @@ describe("validateAppSql", () => {
       /must read from/i,
     );
   });
+
+  it("accepts an explicit JOIN between two allowed tables", () => {
+    expect(() =>
+      validateAppSql(
+        "SELECT sa.company_name FROM strategic_accounts sa JOIN implementation_blockers b ON b.company_name = sa.company_name",
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects a comma join that smuggles in a non-allowed table", () => {
+    expect(() =>
+      validateAppSql("SELECT * FROM strategic_accounts, dashboards"),
+    ).toThrow(/comma joins/i);
+  });
+
+  it("rejects a comma join even between two allowed tables", () => {
+    expect(() =>
+      validateAppSql(
+        "SELECT * FROM strategic_accounts, implementation_blockers",
+      ),
+    ).toThrow(/comma joins/i);
+  });
+
+  it("rejects double-quoted table identifiers", () => {
+    expect(() =>
+      validateAppSql('SELECT * FROM strategic_accounts JOIN "user" ON 1=1'),
+    ).toThrow(/quoted identifiers/i);
+  });
+
+  it("rejects backtick-quoted table identifiers", () => {
+    expect(() => validateAppSql("SELECT * FROM `secrets`")).toThrow(
+      /quoted identifiers/i,
+    );
+  });
+
+  it("rejects bracket-quoted table identifiers", () => {
+    expect(() => validateAppSql("SELECT * FROM [secrets]")).toThrow(
+      /quoted identifiers/i,
+    );
+  });
+
+  it("rejects schema-qualified table names", () => {
+    expect(() =>
+      validateAppSql("SELECT * FROM main.strategic_accounts"),
+    ).toThrow(/schema-qualified/i);
+  });
 });

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   runQuery: vi.fn(),
   replaceStrategicAccounts: vi.fn(),
+  listStrategicAccounts: vi.fn(),
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(),
   orgId: null as string | null,
@@ -25,6 +26,7 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("../server/lib/bigquery", () => ({ runQuery: mocks.runQuery }));
 vi.mock("../server/lib/strategic-accounts-store", () => ({
   replaceStrategicAccounts: mocks.replaceStrategicAccounts,
+  listStrategicAccounts: mocks.listStrategicAccounts,
 }));
 vi.mock("../server/lib/dashboards-store", () => ({
   getDashboard: mocks.getDashboard,
@@ -37,6 +39,8 @@ const { default: generateAction } =
 beforeEach(() => {
   mocks.runQuery.mockReset();
   mocks.replaceStrategicAccounts.mockReset();
+  mocks.listStrategicAccounts.mockReset();
+  mocks.listStrategicAccounts.mockResolvedValue([]);
   mocks.getDashboard.mockReset();
   mocks.upsertDashboard.mockReset();
   mocks.orgId = null;
@@ -75,8 +79,20 @@ describe("generate-strategic-accounts-roster", () => {
     // Roster written with sortOrder reflecting rank, blanks dropped.
     expect(mocks.replaceStrategicAccounts).toHaveBeenCalledWith(
       [
-        { companyName: "Acme", sortOrder: 0 },
-        { companyName: "Globex", sortOrder: 1 },
+        {
+          companyName: "Acme",
+          sortOrder: 0,
+          companyId: null,
+          deploymentStatus: "",
+          notes: "",
+        },
+        {
+          companyName: "Globex",
+          sortOrder: 1,
+          companyId: null,
+          deploymentStatus: "",
+          notes: "",
+        },
       ],
       { email: "alice@example.com", orgId: null },
     );
@@ -87,6 +103,51 @@ describe("generate-strategic-accounts-roster", () => {
       expect.objectContaining({
         variables: expect.objectContaining({ accounts: "Acme|Globex" }),
       }),
+      { email: "alice@example.com", orgId: null },
+    );
+  });
+
+  it("preserves manually-curated metadata for companies that already exist", async () => {
+    mocks.runQuery.mockResolvedValue({
+      rows: [
+        { company_name: "Acme", active_users: 50 },
+        { company_name: "Globex", active_users: 20 },
+      ],
+    });
+    mocks.listStrategicAccounts.mockResolvedValue([
+      {
+        id: "x",
+        companyName: "Acme",
+        companyId: "org_123",
+        deploymentStatus: "live",
+        notes: "key account",
+        sortOrder: 5,
+      },
+    ]);
+    mocks.replaceStrategicAccounts.mockImplementation(async (rows: any[]) =>
+      rows.map((r, i) => ({ id: String(i), ...r })),
+    );
+    mocks.getDashboard.mockResolvedValue(null);
+
+    await generateAction.run({});
+
+    expect(mocks.replaceStrategicAccounts).toHaveBeenCalledWith(
+      [
+        {
+          companyName: "Acme",
+          sortOrder: 0,
+          companyId: "org_123",
+          deploymentStatus: "live",
+          notes: "key account",
+        },
+        {
+          companyName: "Globex",
+          sortOrder: 1,
+          companyId: null,
+          deploymentStatus: "",
+          notes: "",
+        },
+      ],
       { email: "alice@example.com", orgId: null },
     );
   });
