@@ -1,9 +1,10 @@
 import { useParams } from "react-router";
 
+import { messagesByLocale } from "../i18n-data";
 import { LibraryWorkspace } from "./library";
 
 export function meta() {
-  return [{ title: "Library - Assets" }];
+  return [{ title: messagesByLocale["en-US"].routeTitles.library }];
 }
 
 export default function LibraryDetailPage() {

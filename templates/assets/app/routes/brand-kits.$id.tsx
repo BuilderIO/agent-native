@@ -1021,7 +1021,7 @@ export function BrandKitDetailRoute({
     if (!library || archiveLibrary.isPending) return;
     try {
       await archiveLibrary.mutateAsync({ id: library.id });
-      toast.success("Brand kit archived.");
+      toast.success(t("library.brandKitArchived"));
       navigate("/library");
     } catch (error) {
       toast.error(
@@ -1038,7 +1038,7 @@ export function BrandKitDetailRoute({
       const copy = (await duplicateLibrary.mutateAsync({
         id: library.id,
       })) as any;
-      toast.success("Private brand kit copy created");
+      toast.success(t("library.privateBrandKitCopyCreated"));
       navigate(`/library/${copy.id}`);
     } catch (error) {
       toast.error(
@@ -2622,7 +2622,7 @@ function AssetSwimlaneBoard({
       mediaType: upload.mediaType,
       busy: true,
       showBusyOverlay: false,
-      preview: <PendingUploadPreview upload={upload} fit="contain" />,
+      preview: <PendingUploadPreview upload={upload} fit="contain" />, // i18n-ignore structural preview slot name
       thumbnail: <PendingUploadPreview upload={upload} />,
     };
   }
@@ -4111,7 +4111,7 @@ export function LiveCandidatesStage({
       mediaType: "image",
       href: slot.assetId ? `/asset/${slot.assetId}` : undefined,
       busy,
-      preview: <VariantPreview slot={slot} fit="contain" />,
+      preview: <VariantPreview slot={slot} fit="contain" />, // i18n-ignore structural preview slot name
       thumbnail: <VariantPreview slot={slot} />,
       primaryActions: candidateActions({
         canUseCandidate,
@@ -4154,7 +4154,7 @@ export function LiveCandidatesStage({
       mediaType: asset.mediaType === "video" ? "video" : "image",
       href: `/asset/${asset.id}`,
       busy,
-      preview: <AssetPreview asset={asset} fit="contain" />,
+      preview: <AssetPreview asset={asset} fit="contain" />, // i18n-ignore structural preview slot name
       thumbnail: <AssetPreview asset={asset} />,
       primaryActions: candidateActions({
         canUseCandidate: true,
