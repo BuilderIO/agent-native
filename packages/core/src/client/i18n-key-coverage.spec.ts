@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import defaultEnglishMessages from "../templates/default/app/i18n/en-US.js";
+import defaultEnglishMessages from "../localization/default-messages.js";
 
 const clientDir = path.dirname(fileURLToPath(import.meta.url));
 

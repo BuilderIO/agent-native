@@ -179,7 +179,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsgo && tsgo -p tsconfig.cli.json && node scripts/finalize-build.mjs",
+    "build": "tsgo && tsgo -p tsconfig.cli.json && node scripts/finalize-build.mjs && node scripts/check-dist-imports.mjs",
     "dev": "tsgo --watch",
     "typecheck": "tsgo --noEmit",
     "test": "vitest --run src",
