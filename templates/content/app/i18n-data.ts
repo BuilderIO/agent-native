@@ -1,5 +1,7 @@
 import type { LocaleCode } from "@agent-native/core/client";
 
+import zhTW from "./i18n/zh-TW";
+
 const databaseMessages = {
   addAnotherSource: "Add another source",
   agentNativeApps: "Agent-Native apps",
@@ -280,6 +282,7 @@ const databaseMessages = {
 
 const databaseMessagesByLocale = {
   "en-US": databaseMessages,
+  "zh-TW": zhTW.database,
   "zh-CN": {
     openAsFullPage: "作为完整页面打开",
     pick: "并选择",
@@ -6446,6 +6449,7 @@ function mergeMessagesForLocale(
 
 export const messagesByLocale = {
   "en-US": enUS,
+  "zh-TW": mergeMessagesForLocale("zh-TW", zhTW),
   "zh-CN": mergeMessagesForLocale("zh-CN", {
     database: {
       ...databaseMessagesByLocale["zh-CN"],

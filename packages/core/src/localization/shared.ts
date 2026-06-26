@@ -1,6 +1,7 @@
 export const SUPPORTED_LOCALES = [
   "en-US",
   "zh-CN",
+  "zh-TW",
   "es-ES",
   "fr-FR",
   "de-DE",
@@ -41,6 +42,12 @@ export const LOCALE_METADATA: Record<LocaleCode, LocaleMetadata> = {
     code: "zh-CN",
     englishName: "Chinese (Simplified)",
     nativeName: "简体中文",
+    dir: "ltr",
+  },
+  "zh-TW": {
+    code: "zh-TW",
+    englishName: "Chinese (Traditional, Taiwan)",
+    nativeName: "繁體中文",
     dir: "ltr",
   },
   "es-ES": {

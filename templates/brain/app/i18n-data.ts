@@ -1,5 +1,7 @@
 import type { LocaleCode } from "@agent-native/core/client";
 
+import zhTW from "./i18n/zh-TW";
+
 const enUS = {
   common: {
     saving: "Saving",
@@ -800,6 +802,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
 
 const baseMessagesByLocale = {
   "en-US": enUS,
+  "zh-TW": mergeMessages(zhTW),
   "zh-CN": mergeMessages({
     common: { saving: "正在保存", saveChanges: "保存更改", saved: "已保存" },
     routeTitles: {

@@ -75,6 +75,14 @@ const ERROR_COPY = {
     statusTitle: (status: number) => `${status} 错误`,
     goHome: "返回首页",
   },
+  "zh-TW": {
+    genericTitle: "發生錯誤",
+    genericDetails: "發生未預期的錯誤。",
+    notFoundTitle: "找不到頁面",
+    notFoundDetails: "此頁面不存在，可能已被移動或刪除。",
+    statusTitle: (status: number) => `${status} 錯誤`,
+    goHome: "返回首頁",
+  },
   "es-ES": {
     genericTitle: "Algo salió mal",
     genericDetails: "Se produjo un error inesperado.",

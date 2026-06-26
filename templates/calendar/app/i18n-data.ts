@@ -1,5 +1,7 @@
 import type { LocaleCode } from "@agent-native/core/client";
 
+import zhTW from "./i18n/zh-TW";
+
 const enUS = {
   common: {
     connect: "Connect",
@@ -959,6 +961,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
 }
 
 const calendarSurfaceTranslations = {
+  "zh-TW": zhTW,
   "zh-CN": {
     bookingLinks: {
       add: "添加",
@@ -3621,6 +3624,7 @@ const calendarSurfaceTranslations = {
 
 export const messagesByLocale = {
   "en-US": enUS,
+  "zh-TW": mergeMessages(zhTW),
   "zh-CN": mergeMessages({
     ...calendarSurfaceTranslations["zh-CN"],
     common: {

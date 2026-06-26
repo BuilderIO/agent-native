@@ -69,6 +69,18 @@ const FEEDBACK_COPY: Record<
     sendError: "无法发送反馈",
     keyboardHint: "{{shortcut}}+Enter 发送",
   },
+  "zh-TW": {
+    label: "意見回饋",
+    placeholder: "哪些地方好用、哪裡壞了，或你想改什麼？",
+    submit: "送出意見回饋",
+    submitting: "正在送出...",
+    success: "感謝你的意見回饋。",
+    loadError: "無法載入意見回饋表單",
+    invalidUrl: "意見回饋 URL 無效",
+    emptyError: "請先輸入內容",
+    sendError: "無法送出意見回饋",
+    keyboardHint: "{{shortcut}}+Enter 送出",
+  },
   "es-ES": {
     label: "Comentarios",
     placeholder: "¿Qué funciona, qué falla o qué cambiarías?",

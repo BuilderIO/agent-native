@@ -90,6 +90,12 @@ const MAIL_ERROR_COPY: Record<
     back: "返回",
     reload: "重新加载",
   },
+  "zh-TW": {
+    title: "Mail 無法載入此檢視。",
+    fallback: "載入 Mail 時發生問題。",
+    back: "返回",
+    reload: "重新載入",
+  },
   "es-ES": {
     title: "Mail no pudo cargar esta vista.",
     fallback: "Algo salió mal al cargar Mail.",

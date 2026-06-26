@@ -1,5 +1,7 @@
 import type { LocaleCode } from "@agent-native/core/client";
 
+import zhTW from "./i18n/zh-TW";
+
 const enUS = {
   navigation: {
     brand: "Analytics",
@@ -838,6 +840,12 @@ const analyticsSliceTranslations: {
     "dataDictionary" | "dataSources" | "panelEditor" | "legacyFusion"
   >;
 } = {
+  "zh-TW": {
+    dataDictionary: zhTW.dataDictionary,
+    dataSources: zhTW.dataSources,
+    panelEditor: zhTW.panelEditor,
+    legacyFusion: zhTW.legacyFusion,
+  },
   "zh-CN": {
     dataDictionary: {
       intro:
@@ -3336,6 +3344,7 @@ function mergeMessages(overrides: {
 
 export const messagesByLocale = {
   "en-US": enUS,
+  "zh-TW": mergeMessages(zhTW),
   "zh-CN": mergeMessages({
     ...analyticsSliceTranslations["zh-CN"],
     navigation: {
